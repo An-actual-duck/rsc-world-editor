@@ -30,6 +30,7 @@ class WorldBuilderUpdaterTest(unittest.TestCase):
         (self.install / "SOURCE-COMMIT.txt").write_text("a" * 40 + "\n", encoding="utf-8")
         (self.install / "CORE-SOURCE-COMMIT.txt").write_text("b" * 40 + "\n", encoding="utf-8")
         (self.install / "application.txt").write_text("old application\n", encoding="utf-8")
+        (self.install / "application.txt").chmod(0o444)
         workspace = self.install / "workspace"
         (workspace / "working/server").mkdir(parents=True)
         (workspace / "credentials").mkdir()

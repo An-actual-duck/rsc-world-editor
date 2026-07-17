@@ -118,6 +118,18 @@ restore_backup() {
 	cp -a "$BACKUP/." "$ROOT_DIR/" 2>/dev/null || true
 }
 
+for installed_path in "$ROOT_DIR"/* "$ROOT_DIR"/.[!.]*; do
+	[[ -e "$installed_path" ]] || continue
+	installed_name="$(basename "$installed_path")"
+	case "$installed_name" in
+		workspace|updates|.world-builder-update.lock|.workspace.world-builder.lock) continue ;;
+	esac
+	if ! rm -rf "$installed_path"; then
+		restore_backup
+		fail "Unable to clear the previous application files; they were restored"
+	fi
+done
+
 if ! cp -a "$PACKAGE_ROOT/." "$ROOT_DIR/"; then
 	restore_backup
 	fail "Unable to install the update; the previous application files were restored"

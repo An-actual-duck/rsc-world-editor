@@ -18,8 +18,8 @@ An available update follows this sequence:
 7. Reject any package manifest that attempts to manage `workspace/` or
    `updates/`.
 8. Create a temporary rollback copy of the installed application layer.
-9. Overlay and verify the new application package, restoring the prior files
-   if installation or verification fails.
+9. Remove only the managed application layer, install and verify the new
+   package, and restore the prior files if installation or verification fails.
 10. Remove temporary download, extraction, and rollback state.
 
 `workspace/` is durable user data. It contains authored maps, source snapshots,

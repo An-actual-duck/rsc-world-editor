@@ -118,13 +118,17 @@ try {
 
     $Backup = Join-Path $Stage "backup"
     New-Item -ItemType Directory -Path $Backup | Out-Null
-    Get-ChildItem -LiteralPath $RootDir -Force | Where-Object {
+    $ManagedItems = Get-ChildItem -LiteralPath $RootDir -Force | Where-Object {
         $_.Name -notin @("workspace", "updates", ".world-builder-update.lock", ".workspace.world-builder.lock")
-    } | ForEach-Object {
+    }
+    $ManagedItems | ForEach-Object {
         Copy-Item -LiteralPath $_.FullName -Destination $Backup -Recurse -Force
     }
 
     try {
+        $ManagedItems | ForEach-Object {
+            Remove-Item -LiteralPath $_.FullName -Recurse -Force
+        }
         Get-ChildItem -LiteralPath $PackageRoot -Force | ForEach-Object {
             Copy-Item -LiteralPath $_.FullName -Destination $RootDir -Recurse -Force
         }
