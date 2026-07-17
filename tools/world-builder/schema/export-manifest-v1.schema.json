@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spoiled-milk.invalid/world-builder/export-manifest-v1.schema.json",
+  "title": "Spoiled Milk World Builder export manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestType",
+    "builderVersion",
+    "sourceCommit",
+    "layoutAdapter",
+    "sourceFingerprintSha256",
+    "contentFingerprintSha256",
+    "files",
+    "changeSummary"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-export"},
+    "builderVersion": {"type": "string", "minLength": 1},
+    "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "layoutAdapter": {"type": "string", "minLength": 1},
+    "sourceFingerprintSha256": {"$ref": "#/$defs/sha256"},
+    "contentFingerprintSha256": {"$ref": "#/$defs/sha256"},
+    "files": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {"$ref": "#/$defs/exportFile"}
+    },
+    "changeSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["changedFileCount", "terrainChanged", "sceneryChanged", "npcChanged"],
+      "properties": {
+        "changedFileCount": {"type": "integer", "minimum": 0, "maximum": 5},
+        "terrainChanged": {"type": "boolean"},
+        "sceneryChanged": {"type": "boolean"},
+        "npcChanged": {"type": "boolean"}
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "exportFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "logicalName",
+        "bundlePath",
+        "size",
+        "sha256",
+        "sourcePresent",
+        "sourceSha256",
+        "changed"
+      ],
+      "properties": {
+        "logicalName": {"type": "string", "minLength": 1},
+        "bundlePath": {"type": "string", "minLength": 1},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "sourcePresent": {"type": "boolean"},
+        "sourceSha256": {"type": "string", "pattern": "^$|^[0-9a-f]{64}$"},
+        "changed": {"type": "boolean"}
+      }
+    }
+  }
+}

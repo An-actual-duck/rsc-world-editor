@@ -1,0 +1,31 @@
+<project name="world-builder-tools" default="jar" basedir=".">
+    <property name="src" location="src"/>
+    <property name="output" location="../../output/world-builder-tools"/>
+    <property name="classes" location="${output}/classes"/>
+    <property name="jar" location="${output}/world-builder-tools.jar"/>
+    <property name="javac.source" value="1.8"/>
+    <property name="javac.target" value="1.8"/>
+    <property name="javac.lint" value="-Xlint:none"/>
+    <property name="javac.maxwarns" value="100"/>
+
+    <target name="clean">
+        <delete dir="${output}"/>
+    </target>
+
+    <target name="compile">
+        <mkdir dir="${classes}"/>
+        <javac srcdir="${src}" destdir="${classes}" debug="on"
+               includeantruntime="false" source="${javac.source}"
+               target="${javac.target}" encoding="UTF-8">
+            <compilerarg line="${javac.lint} -Xmaxwarns ${javac.maxwarns}"/>
+        </javac>
+    </target>
+
+    <target name="jar" depends="clean,compile">
+        <jar basedir="${classes}" destfile="${jar}">
+            <manifest>
+                <attribute name="Main-Class" value="com.openrsc.worldbuilder.WorldBuilderCli"/>
+            </manifest>
+        </jar>
+    </target>
+</project>

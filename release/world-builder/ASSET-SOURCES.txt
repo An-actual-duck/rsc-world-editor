@@ -1,0 +1,9 @@
+SPOILED MILK WORLD BUILDER ASSET SOURCES
+========================================
+
+The packaged client uses the Spoiled Milk visual assets described in the
+included PLAYER-ASSET-SOURCES.txt.
+
+World-editor toolbar icon authorship, source, license, and modifications are
+recorded in the included EDITOR-ICON-CREDITS.txt. Public packaging is blocked
+until that record contains confirmed redistribution terms.

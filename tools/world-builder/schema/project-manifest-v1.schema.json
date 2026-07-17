@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://spoiled-milk.invalid/world-builder/project-manifest-v1.schema.json",
+  "title": "Spoiled Milk World Builder project source manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestType",
+    "layoutAdapter",
+    "selectedConfig",
+    "selectedConfigSha256",
+    "configuration",
+    "terrainSectorCount",
+    "contentFingerprintSha256",
+    "sourceFingerprintSha256",
+    "files"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-project-source"},
+    "layoutAdapter": {"type": "string", "minLength": 1},
+    "selectedConfig": {"type": "string", "pattern": "^server/.+\\.conf$"},
+    "selectedConfigSha256": {"$ref": "#/$defs/sha256"},
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["clientVersion", "basedMapData", "memberWorld", "customLandscape", "wantMyWorld"],
+      "properties": {
+        "clientVersion": {"type": "integer", "minimum": 1},
+        "basedMapData": {"type": "integer", "minimum": 0},
+        "memberWorld": {"type": "boolean"},
+        "customLandscape": {"type": "boolean"},
+        "wantMyWorld": {"type": "boolean"}
+      }
+    },
+    "terrainSectorCount": {"type": "integer", "minimum": 1},
+    "contentFingerprintSha256": {"$ref": "#/$defs/sha256"},
+    "sourceFingerprintSha256": {"$ref": "#/$defs/sha256"},
+    "files": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/fileState"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "fileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["logicalName", "relativePath", "present", "size", "sha256"],
+      "properties": {
+        "logicalName": {"type": "string", "minLength": 1},
+        "relativePath": {"type": "string", "minLength": 1},
+        "present": {"type": "boolean"},
+        "size": {"type": "integer", "minimum": 0},
+        "sha256": {"type": "string", "pattern": "^$|^[0-9a-f]{64}$"}
+      }
+    }
+  }
+}

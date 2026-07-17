@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose an improvement to RSC World Editor
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Editing problem
+      description: What map-building task is difficult or impossible today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the user-visible workflow you would prefer.
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Workspace and import considerations
+      description: Note any effect on saves, exports, imports, rollback, or compatibility.

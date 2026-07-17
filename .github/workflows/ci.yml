@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Check out synchronized Core-Framework source
+        run: |
+          ./scripts/checkout-core-framework.sh
+          ./scripts/check-core-parity.sh .core-framework
+      - name: Build and test standalone tooling
+        env:
+          CORE_FRAMEWORK_DIR: .core-framework
+        run: ./scripts/test.sh

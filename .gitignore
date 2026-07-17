@@ -1,0 +1,21 @@
+/output/
+/.core-framework/
+/.idea/
+/.vscode/
+*.class
+*.jar
+*.log
+*.pid
+*.tmp
+.DS_Store
+Thumbs.db
+
+# Generated World Builder state must never enter source control.
+workspace/
+**/workspace/
+**/exports/
+**/backups/
+**/receipts/
+**/credentials/
+**/world_builder.db
+**/world-builder.credential
