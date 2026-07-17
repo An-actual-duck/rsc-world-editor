@@ -17,6 +17,7 @@ copied into a second game fork.
 This repository contains:
 
 - the standalone project discovery, launch, export, import, and rollback tools;
+- a checksum-verified, workspace-preserving automatic update channel;
 - Linux and Windows launch/import/undo packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
@@ -42,6 +43,11 @@ The packaged workflow is:
 4. Close the Builder and run `Import Map Changes` only when the target private
    server is offline.
 5. Use `Undo Last Map Import` if the imported result needs to be reverted.
+
+The launcher checks this repository's latest normal release before starting.
+Updates replace application files only; saved projects, exports, backups,
+receipts, credentials, databases, and logs under `workspace/` are preserved.
+See [Automatic updates](docs/AUTO-UPDATES.md) for the exact safety boundary.
 
 The complete end-user instructions are maintained in
 [`release/world-builder/README.txt`](release/world-builder/README.txt).

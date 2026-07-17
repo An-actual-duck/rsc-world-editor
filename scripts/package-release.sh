@@ -184,6 +184,7 @@ validate_runtime "Linux" "$LINUX_JRE" "bin/java" "Linux"
 validate_runtime "Windows" "$WINDOWS_JRE" "bin/java.exe" "Windows"
 
 PACKAGE_ASSETS="$ROOT_DIR/release/world-builder"
+UPDATE_ASSETS="$ROOT_DIR/release/updater"
 ICON_CREDITS="$CORE_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
 [[ -f "$ICON_CREDITS" ]] || fail "World editor icon credits are missing"
 if grep -Eiq 'pending confirmation|pending;|not release-ready' "$ICON_CREDITS"; then
@@ -222,12 +223,16 @@ for required_path in \
 	"$PACKAGE_ASSETS/README.txt" \
 	"$PACKAGE_ASSETS/ASSET-SOURCES.txt" \
 	"$PACKAGE_ASSETS/world-builder-runtime.conf" \
-	"$PACKAGE_ASSETS/Start World Builder.sh" \
-	"$PACKAGE_ASSETS/Start World Builder.cmd" \
 	"$PACKAGE_ASSETS/Import Map Changes.sh" \
 	"$PACKAGE_ASSETS/Import Map Changes.cmd" \
 	"$PACKAGE_ASSETS/Undo Last Map Import.sh" \
-	"$PACKAGE_ASSETS/Undo Last Map Import.cmd"; do
+	"$PACKAGE_ASSETS/Undo Last Map Import.cmd" \
+	"$UPDATE_ASSETS/Start World Builder.sh" \
+	"$UPDATE_ASSETS/Start World Builder.cmd" \
+	"$UPDATE_ASSETS/Update World Builder.sh" \
+	"$UPDATE_ASSETS/Update World Builder.cmd" \
+	"$UPDATE_ASSETS/Update World Builder.ps1" \
+	"$UPDATE_ASSETS/README-AUTO-UPDATE.txt"; do
 	[[ -e "$required_path" ]] || fail "Missing release input: $required_path"
 done
 
@@ -265,8 +270,8 @@ STAGING_DIR="$OUTPUT_DIR/staging"
 PACKAGE_NAME="Spoiled Milk World Builder"
 LINUX_STAGE="$STAGING_DIR/linux/$PACKAGE_NAME"
 WINDOWS_STAGE="$STAGING_DIR/windows/$PACKAGE_NAME"
-LINUX_ARCHIVE="$OUTPUT_DIR/spoiled-milk-world-builder-$VERSION-linux-x64.zip"
-WINDOWS_ARCHIVE="$OUTPUT_DIR/spoiled-milk-world-builder-$VERSION-windows-x64.zip"
+LINUX_ARCHIVE="$OUTPUT_DIR/rsc-world-editor-$VERSION-linux-x64.zip"
+WINDOWS_ARCHIVE="$OUTPUT_DIR/rsc-world-editor-$VERSION-windows-x64.zip"
 
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$LINUX_STAGE" "$WINDOWS_STAGE" "$OUTPUT_DIR"
@@ -294,16 +299,20 @@ stage_builder() {
 	cp "$TOOLS_JAR" "$runtime/launcher/world-builder-tools.jar"
 	cp -R "$ROOT_DIR/tools/world-builder/schema"/. "$runtime/launcher/schema/"
 
-	cp "$PACKAGE_ASSETS/Start World Builder.sh" "$destination/Start World Builder.sh"
-	cp "$PACKAGE_ASSETS/Start World Builder.cmd" "$destination/Start World Builder.cmd"
+	cp "$UPDATE_ASSETS/Start World Builder.sh" "$destination/Start World Builder.sh"
+	cp "$UPDATE_ASSETS/Start World Builder.cmd" "$destination/Start World Builder.cmd"
+	cp "$UPDATE_ASSETS/Update World Builder.sh" "$destination/Update World Builder.sh"
+	cp "$UPDATE_ASSETS/Update World Builder.cmd" "$destination/Update World Builder.cmd"
+	cp "$UPDATE_ASSETS/Update World Builder.ps1" "$destination/Update World Builder.ps1"
 	cp "$PACKAGE_ASSETS/Import Map Changes.sh" "$destination/Import Map Changes.sh"
 	cp "$PACKAGE_ASSETS/Import Map Changes.cmd" "$destination/Import Map Changes.cmd"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.sh" "$destination/Undo Last Map Import.sh"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.cmd" "$destination/Undo Last Map Import.cmd"
-	chmod +x "$destination/Start World Builder.sh" "$destination/Import Map Changes.sh" \
-		"$destination/Undo Last Map Import.sh"
+	chmod +x "$destination/Start World Builder.sh" "$destination/Update World Builder.sh" \
+		"$destination/Import Map Changes.sh" "$destination/Undo Last Map Import.sh"
 	sed "s/@VERSION@/$VERSION/g; s/@SOURCE_COMMIT@/$SOURCE_COMMIT/g" \
 		"$PACKAGE_ASSETS/README.txt" > "$destination/README.txt"
+	cat "$UPDATE_ASSETS/README-AUTO-UPDATE.txt" >> "$destination/README.txt"
 	printf '\nCore-Framework runtime commit: %s\n' "$CORE_COMMIT" >> "$destination/README.txt"
 	cp "$ROOT_DIR/LICENSE" "$destination/LICENSE"
 	cp "$PACKAGE_ASSETS/ASSET-SOURCES.txt" "$destination/ASSET-SOURCES.txt"
@@ -320,6 +329,19 @@ mkdir -p "$LINUX_STAGE/runtime"
 cp -R "$LINUX_JRE"/. "$LINUX_STAGE/runtime/"
 mkdir -p "$WINDOWS_STAGE/runtime"
 cp -R "$WINDOWS_JRE"/. "$WINDOWS_STAGE/runtime/"
+
+write_package_manifest() {
+	local stage="$1"
+	(
+		cd "$stage"
+		find . -type f ! -name 'PACKAGE-MANIFEST.sha256' -print0 \
+			| LC_ALL=C sort -z \
+			| xargs -0 sha256sum > PACKAGE-MANIFEST.sha256
+	)
+}
+
+write_package_manifest "$LINUX_STAGE"
+write_package_manifest "$WINDOWS_STAGE"
 
 for stage in "$LINUX_STAGE" "$WINDOWS_STAGE"; do
 	if find "$stage" -type f | grep -E '/(workspace|exports|backups|receipts|logs)/|world_builder\.db$|world-builder\.credential$|credentials\.txt$|uid\.dat$|clientSettings\.conf$|/ip\.txt$|/port\.txt$' >/dev/null; then
