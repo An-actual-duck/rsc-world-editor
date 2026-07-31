@@ -78,6 +78,17 @@ snapshot and lock are refreshed with:
 ./scripts/sync-from-core-framework.sh /path/to/open-rsc-spoiled-milk
 ```
 
+Maintainer development uses one manager checkout and reusable neutral worker
+worktrees. Initialize or inspect that workflow with:
+
+```bash
+./scripts/ai-workspace.sh init 3
+./scripts/ai-manager.sh status
+```
+
+See [AI Workspaces](docs/AI-WORKSPACES.md) for task activation, checkpoint,
+handoff, review, rescue, recycling, and cross-repository synchronization.
+
 See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the
 full contracts.

@@ -9,6 +9,7 @@
 *.tmp
 .DS_Store
 Thumbs.db
+AI_WORKSPACE.md
 
 # Generated World Builder state must never enter source control.
 workspace/
