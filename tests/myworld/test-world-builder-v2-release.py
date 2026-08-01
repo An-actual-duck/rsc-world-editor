@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -21,6 +22,8 @@ VERSION = "v0.1.0-alpha.1"
 VERSION_NUMBER = VERSION.removeprefix("v")
 PACKAGE_ROOT = "Spoiled Milk World Builder 2"
 PRODUCT_ID = "rsc-world-editor-v2"
+RELEASE_MARKER_ENTRY = "spoiled-milk-release-build.marker"
+LWJGL_VERSION = "3.3.4"
 NATIVE_ENTRIES = (
     "linux/x64/org/lwjgl/liblwjgl.so",
     "linux/x64/org/lwjgl/glfw/libglfw.so",
@@ -40,7 +43,12 @@ def make_jar(path: Path, entries: tuple[str, ...]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         for entry in entries:
-            archive.writestr(entry, b"fixture")
+            contents = (
+                b"release-build=true\n"
+                if entry == RELEASE_MARKER_ENTRY
+                else b"fixture"
+            )
+            archive.writestr(entry, contents)
 
 
 def git(root: Path, *args: str, check: bool = True) -> str:
@@ -68,6 +76,7 @@ def make_fixture(
     *,
     resolved_icons: bool = True,
     linux_os: str = "Linux",
+    production_build: bool = False,
 ) -> tuple[Path, Path, Path, Path, Path]:
     standalone = base / "standalone"
     core = base / "core"
@@ -82,6 +91,8 @@ def make_fixture(
             SOURCE_ROOT / "release/world-builder-v2",
             root / "release/world-builder-v2",
         )
+        if production_build:
+            write(root / "release/world-builder-v2/RELEASE-READY", "fixture only\n")
     shutil.copytree(
         SOURCE_ROOT / "release/updater-v2", standalone / "release/updater-v2"
     )
@@ -95,6 +106,7 @@ def make_fixture(
         (
             "orsc/WorldBuilderClientProfile.class",
             "myworld-assets/ui/world-editor/action-save.png",
+            *((RELEASE_MARKER_ENTRY,) if not production_build else ()),
             *NATIVE_ENTRIES,
         ),
     )
@@ -126,8 +138,9 @@ def make_fixture(
     write(core / "server/database/sqlite/core.sqlite", "queries")
     write(core / "server/inc/sqlite/myworld_seed.db", "clean-seed")
     write(core / "server/myworld.conf", "\tclient_version: 10047\n")
-    for name in ("alertwords.txt", "badwords.txt", "goodwords.txt", "ipbans.txt"):
+    for name in ("alertwords.txt", "badwords.txt", "goodwords.txt"):
         write(core / "server" / name, "\n")
+    write(core / "server/ipbans.txt", "ignored generated bans must not ship\n")
     write(core / "server/globalrules.txt", "rules\n")
     write(core / "release/player/ASSET-SOURCES.txt", "player assets resolved\n")
     credits = (
@@ -136,7 +149,70 @@ def make_fixture(
         else "All editor icons | Pending confirmation | not release-ready\n"
     )
     write(core / "dev/myworld/assets/ui/world-editor/CREDITS.md", credits)
-    write(core / ".gitignore", "/output/\n/tools/layered-maps/workspace/\n")
+    write(
+        core / ".gitignore",
+        "/output/\n"
+        "/tools/layered-maps/workspace/\n"
+        "/Client_Base/Open_RSC_Client.jar\n"
+        "/server/core.jar\n"
+        "/server/plugins.jar\n"
+        "/server/ipbans.txt\n"
+        "/PC_Client/lib/lwjgl/*.jar\n",
+    )
+
+    if production_build:
+        lwjgl_inputs = {
+            f"lwjgl-{LWJGL_VERSION}.jar": "org/lwjgl/Version.class",
+            f"lwjgl-glfw-{LWJGL_VERSION}.jar": "org/lwjgl/glfw/GLFW.class",
+            f"lwjgl-opengl-{LWJGL_VERSION}.jar": "org/lwjgl/opengl/GL.class",
+            f"lwjgl-{LWJGL_VERSION}-natives-linux.jar": NATIVE_ENTRIES[0],
+            f"lwjgl-glfw-{LWJGL_VERSION}-natives-linux.jar": NATIVE_ENTRIES[1],
+            f"lwjgl-opengl-{LWJGL_VERSION}-natives-linux.jar": NATIVE_ENTRIES[2],
+            f"lwjgl-{LWJGL_VERSION}-natives-windows.jar": NATIVE_ENTRIES[3],
+            f"lwjgl-glfw-{LWJGL_VERSION}-natives-windows.jar": NATIVE_ENTRIES[4],
+            f"lwjgl-opengl-{LWJGL_VERSION}-natives-windows.jar": NATIVE_ENTRIES[5],
+        }
+        for jar_name, entry in lwjgl_inputs.items():
+            make_jar(core / "PC_Client/lib/lwjgl" / jar_name, (entry,))
+
+        write(core / "scripts/build-server.sh", "#!/usr/bin/env bash\nexit 0\n")
+        write(
+            core / "scripts/build-client.sh",
+            "#!/usr/bin/env bash\n"
+            "set -euo pipefail\n"
+            "core_root=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
+            "[[ \"${SPOILED_MILK_RELEASE_BUILD:-0}\" == 1 ]] || {\n"
+            "  printf 'release marker environment was not enabled\\n' >&2\n"
+            "  exit 31\n"
+            "}\n"
+            "marker_dir=\"$core_root/output/release-marker-fixture\"\n"
+            "mkdir -p \"$marker_dir\"\n"
+            "printf 'release-build=true\\n' > \"$marker_dir/spoiled-milk-release-build.marker\"\n"
+            "jar uf \"$core_root/Client_Base/Open_RSC_Client.jar\" "
+            "-C \"$marker_dir\" spoiled-milk-release-build.marker\n",
+        )
+        write(core / "scripts/download-lwjgl.sh", "#!/usr/bin/env bash\nexit 0\n")
+        write(
+            core / "scripts/lib/layered-world-package.sh",
+            "layered_world_require_promotion_approved() { return 0; }\n"
+            "layered_world_validate_package() { return 0; }\n",
+        )
+        write(
+            core / "tools/layered-maps/layered-maps.sh",
+            "#!/usr/bin/env bash\nexit 0\n",
+        )
+        write(
+            standalone / "scripts/build-tools.sh",
+            "#!/usr/bin/env bash\nexit 0\n",
+        )
+        for executable in (
+            core / "scripts/build-server.sh",
+            core / "scripts/build-client.sh",
+            core / "scripts/download-lwjgl.sh",
+            core / "tools/layered-maps/layered-maps.sh",
+            standalone / "scripts/build-tools.sh",
+        ):
+            executable.chmod(0o755)
 
     core_commit = initialize_repository(core, "Create pinned Core fixture")
     write(
@@ -229,6 +305,78 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             result = run_packager(*fixture, skip_build=False)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("final cross-platform release validation", result.stderr)
+
+    def test_production_build_marks_and_verifies_the_client(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-production-") as temp:
+            fixture = make_fixture(Path(temp), production_build=True)
+            standalone = fixture[0]
+            result = run_packager(*fixture, skip_build=False)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+            archive_path = (
+                standalone
+                / "output/releases/world-builder-v2"
+                / VERSION
+                / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip"
+            )
+            with zipfile.ZipFile(archive_path) as archive:
+                client_bytes = archive.read(
+                    f"{PACKAGE_ROOT}/builder-runtime/Client_Base/Open_RSC_Client.jar"
+                )
+            with zipfile.ZipFile(io.BytesIO(client_bytes)) as client:
+                self.assertEqual(
+                    b"release-build=true\n", client.read(RELEASE_MARKER_ENTRY)
+                )
+
+    def test_packager_requires_exact_release_marker_and_dual_platform_natives(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-marker-") as temp:
+            fixture = make_fixture(Path(temp))
+            core = fixture[1]
+            make_jar(
+                core / "Client_Base/Open_RSC_Client.jar",
+                (
+                    "orsc/WorldBuilderClientProfile.class",
+                    "myworld-assets/ui/world-editor/action-save.png",
+                    *NATIVE_ENTRIES,
+                ),
+            )
+            missing_marker = run_packager(*fixture)
+            self.assertNotEqual(0, missing_marker.returncode)
+            self.assertIn(RELEASE_MARKER_ENTRY, missing_marker.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-natives-") as temp:
+            fixture = make_fixture(Path(temp), production_build=True)
+            core = fixture[1]
+            missing_name = f"lwjgl-glfw-{LWJGL_VERSION}-natives-windows.jar"
+            (core / "PC_Client/lib/lwjgl" / missing_name).unlink()
+            missing_native = run_packager(*fixture, skip_build=False)
+            self.assertNotEqual(0, missing_native.returncode)
+            self.assertIn(missing_name, missing_native.stderr)
+            self.assertIn(
+                "LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows'",
+                missing_native.stderr,
+            )
+            self.assertIn("scripts/download-lwjgl.sh", missing_native.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-lwjgl-set-") as temp:
+            fixture = make_fixture(Path(temp), production_build=True)
+            core = fixture[1]
+            invalid_name = f"lwjgl-{LWJGL_VERSION}.jar"
+            unexpected_name = "lwjgl-3.2.3.jar"
+            make_jar(core / "PC_Client/lib/lwjgl" / invalid_name, ("wrong/Entry.class",))
+            make_jar(
+                core / "PC_Client/lib/lwjgl" / unexpected_name,
+                ("org/lwjgl/Version.class",),
+            )
+            invalid_set = run_packager(*fixture, skip_build=False)
+            self.assertNotEqual(0, invalid_set.returncode)
+            self.assertIn("Invalid pinned LWJGL release inputs", invalid_set.stderr)
+            self.assertIn(invalid_name, invalid_set.stderr)
+            self.assertIn("non-reproducible", invalid_set.stderr)
+            self.assertIn(unexpected_name, invalid_set.stderr)
+            self.assertIn("downloader does not overwrite", invalid_set.stderr)
 
     def test_packager_rejects_unresolved_asset_provenance(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-credits-") as temp:
@@ -368,6 +516,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         "credentials.txt",
                         "uid.dat",
                         "clientSettings.conf",
+                        "builder-runtime/server/ipbans.txt",
                         "/ip.txt",
                         "/port.txt",
                     )
@@ -431,6 +580,18 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     start = archive.read(prefix + "Start World Builder.sh").decode()
                     self.assertIn("Update World Builder.sh", start)
                     self.assertIn("--layered-profile spoiled-milk-replacement", start)
+                    with zipfile.ZipFile(
+                        io.BytesIO(
+                            archive.read(
+                                prefix
+                                + "builder-runtime/Client_Base/Open_RSC_Client.jar"
+                            )
+                        )
+                    ) as client:
+                        self.assertEqual(
+                            b"release-build=true\n",
+                            client.read(RELEASE_MARKER_ENTRY),
+                        )
 
             extracted = base / "private-server"
             extracted.mkdir()

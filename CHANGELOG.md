@@ -13,6 +13,10 @@ from the Spoiled Milk repository before this dedicated repository was created.
 - Added Linux and Windows v2-only update paths with exact identity, archive,
   complete-inventory, managed-layer, workspace-preservation, and rollback
   contracts.
+- Made production packaging require a release-marked client, reproducible
+  Linux/Windows LWJGL native inputs, and exclusion of generated IP-ban state.
+- Made the v2-only updater discover prereleases from the published release
+  list while ignoring drafts, v1, malformed tags, and downgrades.
 - Kept public release publication disabled pending final real-archive
   cross-platform validation and owner acceptance; the frozen v1.1.0 assets and
   release channel remain unchanged.
