@@ -17,7 +17,7 @@ command -v rsync >/dev/null 2>&1 || {
 	exit 1
 }
 
-for relative in tools/world-builder release/world-builder; do
+for relative in tools/world-builder release/world-builder-v2; do
 	[[ -d "$CORE_ROOT/$relative" ]] || {
 		printf 'FAIL: Core-Framework path is missing: %s\n' "$relative" >&2
 		exit 1
@@ -33,7 +33,7 @@ core_remote="$(git -C "$CORE_ROOT" remote get-url spoiled-milk 2>/dev/null \
 	|| git -C "$CORE_ROOT" remote get-url origin)"
 
 rsync -a --delete "$CORE_ROOT/tools/world-builder/" "$ROOT_DIR/tools/world-builder/"
-rsync -a --delete "$CORE_ROOT/release/world-builder/" "$ROOT_DIR/release/world-builder/"
+rsync -a --delete "$CORE_ROOT/release/world-builder-v2/" "$ROOT_DIR/release/world-builder-v2/"
 
 escaped_remote="${core_remote//&/\\&}"
 sed -i \
