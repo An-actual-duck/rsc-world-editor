@@ -291,7 +291,7 @@ manager_release_check() {
 }
 
 manager_release() {
-  ai_fail "The legacy v1.1.0 release line is frozen, and World Builder 2 packaging is not release-ready. Complete and validate the v2 standalone packager before enabling manager releases."
+  ai_fail "The legacy v1.1.0 release line is frozen, and World Builder 2 packaging is not release-ready. Complete final cross-platform v2 package/updater validation and owner acceptance before enabling manager releases."
 }
 
 # Resolve a path back to its registered neutral slot without changing ROOT_DIR.

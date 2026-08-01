@@ -23,14 +23,17 @@ with product/update identity `rsc-world-editor-v2`, install folder
 `Spoiled Milk World Builder 2`, and package assets under
 `release/world-builder-v2/`. V1 never automatically upgrades to v2, and v2
 never opens or silently migrates a v1 workspace. Public v2 packaging remains
-gated until layered export/import and final release validation are complete.
+gated pending final real-archive, cross-platform validation and owner
+acceptance. The dedicated v2 packager and workspace-preserving updater are now
+available for automated release-readiness testing without reopening the v1
+channel.
 
 ## Repository status
 
 This repository contains:
 
 - the standalone project discovery, launch, export, import, and rollback tools;
-- a checksum-verified, workspace-preserving automatic update channel;
+- separate checksum-verified, workspace-preserving v1 and v2 update channels;
 - Linux and Windows launch/import/undo packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
