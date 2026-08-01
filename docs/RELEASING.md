@@ -30,6 +30,11 @@ the final validation below is recorded and accepted.
 The v2 packager is:
 
 ```bash
+LWJGL_VERSION=3.3.4 \
+LWJGL_MODULES='lwjgl lwjgl-glfw lwjgl-opengl' \
+LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows' \
+  /path/to/clean-pinned-core-framework/scripts/download-lwjgl.sh
+
 ./scripts/package-world-builder-v2-release.sh \
   --version v0.1.0-alpha.1 \
   --core-framework /path/to/clean-pinned-core-framework \
@@ -48,24 +53,38 @@ The packager requires:
 - clean, already-published `main` in this repository;
 - a clean checkout at the exact commit in `core-framework.lock`;
 - Linux and Windows JRE 17+ inputs;
+- the pinned LWJGL 3.3.4 base jars and both Linux-x64 and Windows-x64 native
+  classifiers prepared by the exact command above;
 - confirmed redistribution terms for every packaged asset;
 - a reviewed signed-layered package;
 - exact v2 product/update identity, v2-prefixed tag/archive names, and
   self-only update eligibility;
 - provenance containing both repository commits; and
 - archives containing no workspace, credentials, databases, logs, backups,
-  receipts, generated endpoints, or other user state.
+  receipts, generated endpoints, ignored `server/ipbans.txt`, or other user
+  state.
+
+Production packaging always invokes the pinned client build with
+`SPOILED_MILK_RELEASE_BUILD=1` and then requires the client jar to contain the
+exact `spoiled-milk-release-build.marker` value. Missing, invalid, or extra
+LWJGL input jars fail before the build and print the cleanup guidance and
+reproducible preparation command; missing native entries or a missing release
+marker fail before staging.
 
 Each archive also contains an exhaustive `PACKAGE-MANIFEST.sha256` used by the
 v2 updater. The updater requires exact canonical identity before network use,
-refuses v1 tags and downgrades, validates the archive and complete extracted
-inventory, preserves `workspace/` and unknown unmanaged files, replaces only
-the installed manifest's managed layer, and restores it after an injected
-installation failure. Linux executes this transaction in automated tests;
-the native PowerShell success and injected-rollback transactions are also
-exercised when `WORLD_BUILDER_PWSH` names a PowerShell runtime. Those tests can
-run cross-platform; actual Windows filesystem, process, launcher, and UI
-behavior still requires the final Windows host validation below.
+queries the published releases collection rather than the repository-global
+latest release, includes prereleases, ignores drafts, v1 and malformed tags,
+selects the newest supported v2 semantic version, and refuses downgrades. It
+then validates the archive and complete extracted inventory, preserves
+`workspace/` and unknown unmanaged files, replaces only the installed
+manifest's managed layer, and restores it after an injected installation
+failure. Linux executes this transaction in automated tests; the native
+PowerShell success, prerelease selection, downgrade, and injected-rollback
+transactions are also exercised when `WORLD_BUILDER_PWSH` names a PowerShell
+runtime. Those tests can run cross-platform; actual Windows filesystem,
+process, launcher, and UI behavior still requires the final Windows host
+validation below.
 
 Before enabling publication, build from clean published manager `main` and the
 exact clean pinned Core revision with redistribution-ready JREs, then:

@@ -6,7 +6,7 @@ WORKSPACE="$ROOT_DIR/workspace"
 UPDATES_DIR="$ROOT_DIR/updates"
 LOCK_DIR="$ROOT_DIR/.world-builder-v2-update.lock"
 REPOSITORY="An-actual-duck/rsc-world-editor"
-API_URL="${WORLD_BUILDER_V2_RELEASE_API_URL:-https://api.github.com/repos/$REPOSITORY/releases/latest}"
+API_URL="${WORLD_BUILDER_V2_RELEASE_API_URL:-https://api.github.com/repos/$REPOSITORY/releases?per_page=100}"
 DOWNLOAD_ROOT="${WORLD_BUILDER_V2_RELEASE_DOWNLOAD_URL:-https://github.com/$REPOSITORY/releases/download}"
 PRODUCT_ID="rsc-world-editor-v2"
 PACKAGE_NAME="Spoiled Milk World Builder 2"
@@ -20,6 +20,8 @@ ROLLBACK_ARMED=false
 PRESERVE_STAGE=false
 IDENTITY_SOURCE_COMMIT=""
 IDENTITY_CORE_COMMIT=""
+VERSION_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-alpha\.(0|[1-9][0-9]*))?$'
+NUMERIC_COMPARISON=0
 
 fail() {
 	printf 'World Builder 2 update failed: %s\n' "$*" >&2
@@ -43,42 +45,247 @@ for command_name in awk cmp cp curl find grep mkdir mktemp rm rmdir sed sha256su
 done
 
 validate_version() {
-	[[ "$1" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]]
+	[[ "$1" =~ $VERSION_PATTERN ]]
+}
+
+compare_numeric_identifiers() {
+	local candidate="$1" current="$2" index candidate_digit current_digit
+	NUMERIC_COMPARISON=0
+	if ((${#candidate} > ${#current})); then
+		NUMERIC_COMPARISON=1
+		return
+	fi
+	if ((${#candidate} < ${#current})); then
+		NUMERIC_COMPARISON=-1
+		return
+	fi
+	for ((index = 0; index < ${#candidate}; index++)); do
+		candidate_digit="${candidate:index:1}"
+		current_digit="${current:index:1}"
+		if ((candidate_digit > current_digit)); then
+			NUMERIC_COMPARISON=1
+			return
+		fi
+		if ((candidate_digit < current_digit)); then
+			NUMERIC_COMPARISON=-1
+			return
+		fi
+	done
 }
 
 version_is_newer() {
 	local candidate="$1" current="$2"
 	local candidate_major candidate_minor candidate_patch candidate_alpha
 	local current_major current_minor current_patch current_alpha index
+	local -a candidate_parts current_parts
 
-	[[ "$candidate" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-alpha\.([0-9]+))?$ ]] \
+	[[ "$candidate" =~ $VERSION_PATTERN ]] \
 		|| return 1
-	candidate_major=$((10#${BASH_REMATCH[1]}))
-	candidate_minor=$((10#${BASH_REMATCH[2]}))
-	candidate_patch=$((10#${BASH_REMATCH[3]}))
+	candidate_major="${BASH_REMATCH[1]}"
+	candidate_minor="${BASH_REMATCH[2]}"
+	candidate_patch="${BASH_REMATCH[3]}"
 	candidate_alpha="${BASH_REMATCH[5]:--1}"
-	[[ "$current" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-alpha\.([0-9]+))?$ ]] \
+	[[ "$current" =~ $VERSION_PATTERN ]] \
 		|| return 1
-	current_major=$((10#${BASH_REMATCH[1]}))
-	current_minor=$((10#${BASH_REMATCH[2]}))
-	current_patch=$((10#${BASH_REMATCH[3]}))
+	current_major="${BASH_REMATCH[1]}"
+	current_minor="${BASH_REMATCH[2]}"
+	current_patch="${BASH_REMATCH[3]}"
 	current_alpha="${BASH_REMATCH[5]:--1}"
 
-	for index in 1 2 3; do
-		case "$index" in
-			1) candidate_value=$candidate_major; current_value=$current_major ;;
-			2) candidate_value=$candidate_minor; current_value=$current_minor ;;
-			3) candidate_value=$candidate_patch; current_value=$current_patch ;;
-		esac
-		((candidate_value > current_value)) && return 0
-		((candidate_value < current_value)) && return 1
+	candidate_parts=("$candidate_major" "$candidate_minor" "$candidate_patch")
+	current_parts=("$current_major" "$current_minor" "$current_patch")
+	for index in 0 1 2; do
+		compare_numeric_identifiers \
+			"${candidate_parts[index]}" "${current_parts[index]}"
+		((NUMERIC_COMPARISON > 0)) && return 0
+		((NUMERIC_COMPARISON < 0)) && return 1
 	done
 	if [[ "$candidate_alpha" == -1 ]]; then
 		[[ "$current_alpha" != -1 ]]
 		return
 	fi
 	[[ "$current_alpha" != -1 ]] || return 1
-	((10#$candidate_alpha > 10#$current_alpha))
+	compare_numeric_identifiers "$candidate_alpha" "$current_alpha"
+	((NUMERIC_COMPARISON > 0))
+}
+
+extract_published_release_tags() {
+	awk '
+function mark_error() {
+	parse_error = 1
+}
+
+function begin_release() {
+	release_active = 1
+	tag_count = draft_count = prerelease_count = 0
+	tag_value = draft_value = prerelease_value = ""
+	last_string = pending_key = ""
+	last_string_available = expect_value = 0
+}
+
+function capture_value(type, value) {
+	if (pending_key == "tag_name") {
+		tag_count++
+		tag_value = (type == "string" ? value : "")
+	} else if (pending_key == "draft") {
+		draft_count++
+		draft_value = (type == "literal" ? value : "")
+	} else if (pending_key == "prerelease") {
+		prerelease_count++
+		prerelease_value = (type == "literal" ? value : "")
+	}
+	pending_key = ""
+	expect_value = 0
+}
+
+function finish_release() {
+	if (expect_value) {
+		mark_error()
+	}
+	if (tag_count == 1 && draft_count == 1 && prerelease_count == 1 \
+			&& draft_value == "false" \
+			&& (prerelease_value == "true" || prerelease_value == "false")) {
+		print tag_value
+	}
+	release_active = 0
+}
+
+function process_token(type, value) {
+	if (parse_error) {
+		return
+	}
+	if (!root_started) {
+		if (type == "punct" && value == "[") {
+			root_started = 1
+			array_depth = 1
+			return
+		}
+		mark_error()
+		return
+	}
+	if (root_closed) {
+		mark_error()
+		return
+	}
+
+	if (type == "punct") {
+		if (value == "[") {
+			if (array_depth == 1 && object_depth == 0) {
+				mark_error()
+				return
+			}
+			if (array_depth == 1 && object_depth == 1 && expect_value) {
+				capture_value("container", "")
+			}
+			array_depth++
+		} else if (value == "]") {
+			if (array_depth <= 0) {
+				mark_error()
+				return
+			}
+			array_depth--
+			if (array_depth == 0) {
+				if (object_depth != 0) {
+					mark_error()
+					return
+				}
+				root_closed = 1
+			}
+		} else if (value == "{") {
+			if (array_depth == 1 && object_depth == 0) {
+				begin_release()
+			} else if (array_depth == 1 && object_depth == 1 && expect_value) {
+				capture_value("container", "")
+			}
+			object_depth++
+		} else if (value == "}") {
+			if (object_depth <= 0) {
+				mark_error()
+				return
+			}
+			if (array_depth == 1 && object_depth == 1 && release_active) {
+				finish_release()
+			}
+			object_depth--
+		} else if (value == ":") {
+			if (array_depth == 1 && object_depth == 1 \
+					&& last_string_available && !expect_value) {
+				pending_key = last_string
+				expect_value = 1
+				last_string_available = 0
+			} else if (array_depth == 1 && object_depth == 1) {
+				mark_error()
+			}
+		} else if (value == "," && array_depth == 1 && object_depth == 1) {
+			pending_key = last_string = ""
+			expect_value = last_string_available = 0
+		}
+		return
+	}
+
+	if (array_depth == 1 && object_depth == 0) {
+		mark_error()
+		return
+	}
+	if (array_depth == 1 && object_depth == 1) {
+		if (expect_value) {
+			capture_value(type, value)
+		} else if (type == "string") {
+			last_string = value
+			last_string_available = 1
+		}
+	}
+}
+
+function flush_literal() {
+	if (literal != "") {
+		process_token("literal", literal)
+		literal = ""
+	}
+}
+
+{
+	for (character_index = 1; character_index <= length($0); character_index++) {
+		character = substr($0, character_index, 1)
+		if (in_string) {
+			if (escaped) {
+				string_value = string_value "\\" character
+				escaped = 0
+			} else if (character == "\\") {
+				escaped = 1
+			} else if (character == "\"") {
+				in_string = 0
+				process_token("string", string_value)
+				string_value = ""
+			} else {
+				string_value = string_value character
+			}
+		} else if (character == "\"") {
+			flush_literal()
+			in_string = 1
+		} else if (character ~ /[[:space:]]/) {
+			flush_literal()
+		} else if (index("{}[]:,", character)) {
+			flush_literal()
+			process_token("punct", character)
+		} else {
+			literal = literal character
+		}
+	}
+	flush_literal()
+	if (in_string) {
+		mark_error()
+	}
+}
+
+END {
+	flush_literal()
+	if (parse_error || in_string || !root_started || !root_closed \
+			|| array_depth != 0 || object_depth != 0) {
+		exit 2
+	}
+}
+'
 }
 
 write_expected_identity() {
@@ -397,18 +604,30 @@ trap 'exit 143' TERM
 
 release_json="$(curl -fsSL --connect-timeout 10 --max-time 30 "$API_URL")" \
 	|| fail "Unable to query the World Builder 2 release channel"
-mapfile -t release_tags < <(
-	printf '%s\n' "$release_json" | tr ',' '\n' \
-		| sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p'
-)
-[[ ${#release_tags[@]} -eq 1 ]] \
-	|| fail "The release service returned an ambiguous release identity"
-LATEST_RELEASE_TAG="${release_tags[0]}"
-[[ "$LATEST_RELEASE_TAG" =~ ^rsc-world-editor-v2-[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]] \
-	|| fail "The latest release is not on the $PRODUCT_ID update channel"
-LATEST_VERSION="v${LATEST_RELEASE_TAG#"$TAG_PREFIX"}"
-validate_version "$LATEST_VERSION" \
-	|| fail "The latest World Builder 2 release has an unsupported version"
+release_tags_text="$(printf '%s\n' "$release_json" | extract_published_release_tags)" \
+	|| fail "The World Builder 2 release channel returned malformed JSON"
+release_tags=()
+if [[ -n "$release_tags_text" ]]; then
+	mapfile -t release_tags <<< "$release_tags_text"
+fi
+LATEST_RELEASE_TAG=""
+LATEST_VERSION=""
+declare -A seen_release_tags=()
+for candidate_tag in "${release_tags[@]}"; do
+	[[ "$candidate_tag" == "$TAG_PREFIX"* ]] || continue
+	candidate_version="v${candidate_tag#"$TAG_PREFIX"}"
+	validate_version "$candidate_version" || continue
+	[[ -z "${seen_release_tags[$candidate_tag]+present}" ]] \
+		|| fail "The World Builder 2 release channel returned duplicate tag $candidate_tag"
+	seen_release_tags["$candidate_tag"]=1
+	if [[ -z "$LATEST_VERSION" ]] \
+		|| version_is_newer "$candidate_version" "$LATEST_VERSION"; then
+		LATEST_RELEASE_TAG="$candidate_tag"
+		LATEST_VERSION="$candidate_version"
+	fi
+done
+[[ -n "$LATEST_RELEASE_TAG" ]] \
+	|| fail "The World Builder 2 release channel contains no published valid $PRODUCT_ID release"
 
 if [[ "$LATEST_VERSION" == "$CURRENT_VERSION" ]]; then
 	$AUTOMATIC || printf 'World Builder 2 is up to date (%s).\n' "$CURRENT_VERSION"

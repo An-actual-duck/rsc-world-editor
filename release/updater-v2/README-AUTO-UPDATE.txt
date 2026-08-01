@@ -2,9 +2,12 @@
 WORLD BUILDER 2 AUTOMATIC UPDATES
 ---------------------------------
 
-World Builder 2 checks only the dedicated rsc-world-editor-v2 release tags
-before launch. It never treats the frozen World Editor v1.1.0 line as an
-eligible update, and v1 never recognizes a v2 tag as one of its updates.
+World Builder 2 checks the published release list for dedicated
+rsc-world-editor-v2 tags before launch. It supports v2 alpha prereleases,
+ignores drafts and malformed tags, and selects the newest valid v2 semantic
+version without downgrading. It never treats the frozen World Editor v1.1.0
+normal release as an eligible update, and v1 never recognizes a v2 tag as one
+of its updates.
 
 An update is accepted only when the installed and downloaded packages carry
 the exact canonical rsc-world-editor-v2 product and channel identity. The

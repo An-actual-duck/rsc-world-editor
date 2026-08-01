@@ -22,6 +22,11 @@ LEGACY_PRODUCT_ID="rsc-world-editor-v1"
 LEGACY_FINAL_TAG="v1.1.0"
 PACKAGE_NAME="Spoiled Milk World Builder 2"
 ARTIFACT_PREFIX="rsc-world-editor-v2"
+RELEASE_MARKER_ENTRY="spoiled-milk-release-build.marker"
+LWJGL_VERSION="3.3.4"
+LWJGL_MODULES="lwjgl lwjgl-glfw lwjgl-opengl"
+LWJGL_NATIVE_CLASSIFIERS="natives-linux natives-windows"
+VERSION_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-alpha\.(0|[1-9][0-9]*))?$'
 
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
@@ -93,7 +98,7 @@ while (($#)); do
 	esac
 done
 
-[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]] \
+[[ "$VERSION" =~ $VERSION_PATTERN ]] \
 	|| fail "Version must use semantic form, for example v0.1.0 or v0.1.0-alpha.1"
 [[ -n "$CORE_ROOT" ]] || fail "--core-framework is required"
 [[ "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
@@ -167,6 +172,74 @@ require_core_state() {
 		|| fail "Core-Framework release checkout must be clean"
 }
 
+print_lwjgl_preparation_guidance() {
+	printf 'Remove any listed invalid or unexpected ignored LWJGL jars first; the downloader does not overwrite existing files.\n' >&2
+	printf 'Prepare the pinned Core checkout with the exact World Builder 2 LWJGL inputs, then rerun packaging:\n' >&2
+	printf "  LWJGL_VERSION=%s LWJGL_MODULES='%s' LWJGL_NATIVE_CLASSIFIERS='%s' %q\n" \
+		"$LWJGL_VERSION" "$LWJGL_MODULES" "$LWJGL_NATIVE_CLASSIFIERS" \
+		"$CORE_ROOT/scripts/download-lwjgl.sh" >&2
+}
+
+require_lwjgl_release_inputs() {
+	local library_root="$CORE_ROOT/PC_Client/lib/lwjgl"
+	local specification jar_name expected_entry jar_path is_expected
+	local -a missing=()
+	local -a invalid=()
+	local -a unexpected=()
+	local -a specifications=(
+		"lwjgl-$LWJGL_VERSION.jar:org/lwjgl/Version.class"
+		"lwjgl-glfw-$LWJGL_VERSION.jar:org/lwjgl/glfw/GLFW.class"
+		"lwjgl-opengl-$LWJGL_VERSION.jar:org/lwjgl/opengl/GL.class"
+		"lwjgl-$LWJGL_VERSION-natives-linux.jar:linux/x64/org/lwjgl/liblwjgl.so"
+		"lwjgl-glfw-$LWJGL_VERSION-natives-linux.jar:linux/x64/org/lwjgl/glfw/libglfw.so"
+		"lwjgl-opengl-$LWJGL_VERSION-natives-linux.jar:linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so"
+		"lwjgl-$LWJGL_VERSION-natives-windows.jar:windows/x64/org/lwjgl/lwjgl.dll"
+		"lwjgl-glfw-$LWJGL_VERSION-natives-windows.jar:windows/x64/org/lwjgl/glfw/glfw.dll"
+		"lwjgl-opengl-$LWJGL_VERSION-natives-windows.jar:windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll"
+	)
+
+	[[ -x "$CORE_ROOT/scripts/download-lwjgl.sh" ]] \
+		|| fail "Pinned Core checkout is missing executable scripts/download-lwjgl.sh"
+	for specification in "${specifications[@]}"; do
+		jar_name="${specification%%:*}"
+		expected_entry="${specification#*:}"
+		if [[ ! -f "$library_root/$jar_name" ]]; then
+			missing+=("$jar_name")
+		elif ! jar tf "$library_root/$jar_name" | grep -Fx "$expected_entry" >/dev/null; then
+			invalid+=("$jar_name")
+		fi
+	done
+	if [[ -d "$library_root" ]]; then
+		while IFS= read -r -d '' jar_path; do
+			jar_name="${jar_path##*/}"
+			is_expected=false
+			for specification in "${specifications[@]}"; do
+				if [[ "$jar_name" == "${specification%%:*}" ]]; then
+					is_expected=true
+					break
+				fi
+			done
+			[[ "$is_expected" == true ]] || unexpected+=("$jar_name")
+		done < <(find "$library_root" -maxdepth 1 -type f -name '*.jar' -print0)
+	fi
+	if ((${#missing[@]} || ${#invalid[@]} || ${#unexpected[@]})); then
+		if ((${#missing[@]})); then
+			printf 'Missing pinned LWJGL release inputs:\n' >&2
+			printf '  %s\n' "${missing[@]}" >&2
+		fi
+		if ((${#invalid[@]})); then
+			printf 'Invalid pinned LWJGL release inputs:\n' >&2
+			printf '  %s\n' "${invalid[@]}" >&2
+		fi
+		if ((${#unexpected[@]})); then
+			printf 'Unexpected LWJGL jars would make the release build non-reproducible:\n' >&2
+			printf '  %s\n' "${unexpected[@]}" >&2
+		fi
+		print_lwjgl_preparation_guidance
+		fail "World Builder 2 requires reproducible Linux and Windows LWJGL natives before the release build"
+	fi
+}
+
 require_release_git_state
 require_core_state
 "$ROOT_DIR/scripts/check-core-parity.sh" "$CORE_ROOT"
@@ -233,8 +306,9 @@ if grep -Eiq 'pending confirmation|pending;|not release-ready' "$ICON_CREDITS"; 
 fi
 
 if [[ "$SKIP_BUILD" != true ]]; then
+	require_lwjgl_release_inputs
 	"$CORE_ROOT/scripts/build-server.sh"
-	"$CORE_ROOT/scripts/build-client.sh"
+	SPOILED_MILK_RELEASE_BUILD=1 "$CORE_ROOT/scripts/build-client.sh"
 	"$ROOT_DIR/scripts/build-tools.sh"
 	"$CORE_ROOT/tools/layered-maps/layered-maps.sh" spoiled-milk-package
 fi
@@ -312,6 +386,9 @@ require_jar_entry() {
 }
 
 require_jar_entry "$CLIENT_JAR" "orsc/WorldBuilderClientProfile.class" "client jar"
+marker_value="$(unzip -p "$CLIENT_JAR" "$RELEASE_MARKER_ENTRY" 2>/dev/null || true)"
+[[ "$marker_value" == "release-build=true" ]] \
+	|| fail "Release client jar is missing the exact $RELEASE_MARKER_ENTRY entry; rebuild through this production packager"
 require_jar_entry "$SERVER_JAR" \
 	"com/openrsc/server/content/worldedit/WorldEditStorageContext.class" "server jar"
 require_jar_entry "$SERVER_JAR" \
@@ -330,7 +407,10 @@ for native_entry in \
 	"windows/x64/org/lwjgl/lwjgl.dll" \
 	"windows/x64/org/lwjgl/glfw/glfw.dll" \
 	"windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll"; do
-	require_jar_entry "$CLIENT_JAR" "$native_entry" "client jar"
+	if ! jar tf "$CLIENT_JAR" | grep -Fx "$native_entry" >/dev/null; then
+		print_lwjgl_preparation_guidance
+		fail "Release client jar is missing required LWJGL native entry: $native_entry"
+	fi
 done
 
 server_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$CORE_ROOT/server/myworld.conf" | head -n 1)"
@@ -396,7 +476,7 @@ stage_builder() {
 	cp -R "$CORE_ROOT/server/conf" "$runtime/server/conf"
 	cp -R "$CORE_ROOT/server/database" "$runtime/server/database"
 	cp "$SEED_DATABASE" "$runtime/server/inc/sqlite/myworld_seed.db"
-	for name in alertwords.txt badwords.txt goodwords.txt globalrules.txt ipbans.txt; do
+	for name in alertwords.txt badwords.txt goodwords.txt globalrules.txt; do
 		cp "$CORE_ROOT/server/$name" "$runtime/server/$name"
 	done
 	cp "$PACKAGE_ASSETS/world-builder-runtime.conf" "$runtime/server/myworld.conf"

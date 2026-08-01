@@ -18,7 +18,7 @@ $TagPrefix = "$ArtifactPrefix-"
 $ApiUrl = if ($env:WORLD_BUILDER_V2_RELEASE_API_URL) {
     $env:WORLD_BUILDER_V2_RELEASE_API_URL
 } else {
-    "https://api.github.com/repos/$Repository/releases/latest"
+    "https://api.github.com/repos/$Repository/releases?per_page=100"
 }
 
 function Fail-Update([string]$Message) {
@@ -26,27 +26,75 @@ function Fail-Update([string]$Message) {
 }
 
 function Test-BuilderVersion([string]$Version) {
-    return $Version -match '^v\d+\.\d+\.\d+(?:-alpha\.\d+)?$'
+    return $Version -cmatch '^v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-alpha\.(?:0|[1-9]\d*))?$'
+}
+
+function Compare-NumericIdentifier([string]$Candidate, [string]$Current) {
+    if ($Candidate.Length -gt $Current.Length) { return 1 }
+    if ($Candidate.Length -lt $Current.Length) { return -1 }
+    return [Math]::Sign([String]::CompareOrdinal($Candidate, $Current))
 }
 
 function Test-NewerVersion([string]$Candidate, [string]$Current) {
-    if ($Candidate -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?$') {
+    if ($Candidate -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-alpha\.(0|[1-9]\d*))?$') {
         return $false
     }
-    $CandidateParts = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-    $CandidateAlpha = if ($Matches[4]) { [int]$Matches[4] } else { -1 }
-    if ($Current -notmatch '^v(\d+)\.(\d+)\.(\d+)(?:-alpha\.(\d+))?$') {
+    $CandidateParts = @($Matches[1], $Matches[2], $Matches[3])
+    $CandidateAlpha = if ([string]::IsNullOrEmpty($Matches[4])) { $null } else { $Matches[4] }
+    if ($Current -cnotmatch '^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-alpha\.(0|[1-9]\d*))?$') {
         return $false
     }
-    $CurrentParts = @([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
-    $CurrentAlpha = if ($Matches[4]) { [int]$Matches[4] } else { -1 }
+    $CurrentParts = @($Matches[1], $Matches[2], $Matches[3])
+    $CurrentAlpha = if ([string]::IsNullOrEmpty($Matches[4])) { $null } else { $Matches[4] }
     for ($Index = 0; $Index -lt 3; $Index++) {
-        if ($CandidateParts[$Index] -gt $CurrentParts[$Index]) { return $true }
-        if ($CandidateParts[$Index] -lt $CurrentParts[$Index]) { return $false }
+        $Comparison = Compare-NumericIdentifier $CandidateParts[$Index] $CurrentParts[$Index]
+        if ($Comparison -gt 0) { return $true }
+        if ($Comparison -lt 0) { return $false }
     }
-    if ($CandidateAlpha -eq -1) { return $CurrentAlpha -ne -1 }
-    if ($CurrentAlpha -eq -1) { return $false }
-    return $CandidateAlpha -gt $CurrentAlpha
+    if ($null -eq $CandidateAlpha) { return $null -ne $CurrentAlpha }
+    if ($null -eq $CurrentAlpha) { return $false }
+    return (Compare-NumericIdentifier $CandidateAlpha $CurrentAlpha) -gt 0
+}
+
+function Select-NewestV2Release([object[]]$Releases) {
+    $SeenTags = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $LatestRelease = $null
+    $LatestVersion = $null
+    foreach ($Release in @($Releases)) {
+        if ($null -eq $Release) { continue }
+        $Properties = @($Release.PSObject.Properties.Name)
+        if (
+            -not ($Properties -ccontains "tag_name") -or
+            -not ($Properties -ccontains "draft") -or
+            -not ($Properties -ccontains "prerelease") -or
+            $Release.tag_name -isnot [string] -or
+            $Release.draft -isnot [bool] -or
+            $Release.prerelease -isnot [bool] -or
+            $Release.draft
+        ) {
+            continue
+        }
+        $CandidateTag = [string]$Release.tag_name
+        if (-not $CandidateTag.StartsWith($TagPrefix, [StringComparison]::Ordinal)) {
+            continue
+        }
+        $CandidateVersion = "v$($CandidateTag.Substring($TagPrefix.Length))"
+        if (-not (Test-BuilderVersion $CandidateVersion)) { continue }
+        if (-not $SeenTags.Add($CandidateTag)) {
+            Fail-Update "the World Builder 2 release channel returned duplicate tag $CandidateTag"
+        }
+        if (
+            $null -eq $LatestRelease -or
+            (Test-NewerVersion $CandidateVersion $LatestVersion)
+        ) {
+            $LatestRelease = $Release
+            $LatestVersion = $CandidateVersion
+        }
+    }
+    if ($null -eq $LatestRelease) {
+        Fail-Update "the World Builder 2 release channel contains no published valid $ProductId release"
+    }
+    return $LatestRelease
 }
 
 function Read-ReleaseIdentity(
@@ -405,11 +453,10 @@ $DownloadedRecords = @()
 $RollbackArmed = $false
 $PreserveStage = $false
 try {
-    $Release = Invoke-RestMethod -Uri $ApiUrl -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
+    $RawReleaseResponse = Invoke-RestMethod -Uri $ApiUrl -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
+    $ReleaseResponse = @($RawReleaseResponse | ForEach-Object { $_ })
+    $Release = Select-NewestV2Release $ReleaseResponse
     $LatestTag = [string]$Release.tag_name
-    if ($LatestTag -notmatch '^rsc-world-editor-v2-\d+\.\d+\.\d+(?:-alpha\.\d+)?$') {
-        Fail-Update "the latest release is not on the $ProductId update channel"
-    }
     $LatestVersion = "v$($LatestTag.Substring($TagPrefix.Length))"
     if (-not (Test-BuilderVersion $LatestVersion)) {
         Fail-Update "the latest World Builder 2 release has an unsupported version"

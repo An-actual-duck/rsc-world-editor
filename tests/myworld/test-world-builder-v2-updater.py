@@ -37,6 +37,41 @@ def release_tag(version: str) -> str:
     return f"{PRODUCT_ID}-{version.removeprefix('v')}"
 
 
+def channel_release(
+    tag: str,
+    *,
+    draft: bool = False,
+    prerelease: bool = False,
+    assets: list[dict[str, str]] | None = None,
+) -> dict[str, object]:
+    return {
+        "tag_name": tag,
+        "draft": draft,
+        "prerelease": prerelease,
+        "assets": assets or [],
+    }
+
+
+def channel_decoys() -> list[dict[str, object]]:
+    return [
+        channel_release("v1.1.0"),
+        channel_release(
+            f"{PRODUCT_ID}-99.0.0-alpha.1", draft=True, prerelease=True
+        ),
+        channel_release(f"{PRODUCT_ID}-not-semver", prerelease=True),
+        channel_release(f"{PRODUCT_ID.upper()}-100.0.0"),
+        channel_release(f"{PRODUCT_ID}-01.0.0"),
+        channel_release(f"{PRODUCT_ID}-0.1.2-alpha.01", prerelease=True),
+        channel_release(f"{PRODUCT_ID}-0.0.9"),
+        channel_release(f"{PRODUCT_ID}-0.1.1-alpha.1", prerelease=True),
+        {
+            "tag_name": f"{PRODUCT_ID}-101.0.0",
+            "prerelease": False,
+            "assets": [],
+        },
+    ]
+
+
 def identity_text(
     version: str,
     source_commit: str,
@@ -255,33 +290,42 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         api = self.base / "latest.json"
         api.write_text(
             json.dumps(
-                {
-                    "tag_name": tag,
-                    "assets": [
-                        {
-                            "name": windows_asset_name,
-                            "browser_download_url": windows_archive_path.as_uri(),
-                        },
-                        {
-                            "name": "SHA256SUMS.txt",
-                            "browser_download_url": (
-                                download / "SHA256SUMS.txt"
-                            ).as_uri(),
-                        },
-                    ],
-                }
+                [
+                    channel_release(
+                        tag,
+                        prerelease="-alpha." in version,
+                        assets=[
+                            {
+                                "name": windows_asset_name,
+                                "browser_download_url": windows_archive_path.as_uri(),
+                            },
+                            {
+                                "name": "SHA256SUMS.txt",
+                                "browser_download_url": (
+                                    download / "SHA256SUMS.txt"
+                                ).as_uri(),
+                            },
+                        ],
+                    )
+                ],
+                indent=2,
             ),
             encoding="utf-8",
         )
         return api.as_uri(), release_root.as_uri()
 
-    def write_channel_tag(self, tag: str) -> str:
+    def write_channel_releases(self, releases: list[dict[str, object]]) -> str:
         api = self.base / "latest.json"
-        api.write_text(json.dumps({"tag_name": tag}), encoding="utf-8")
+        api.write_text(json.dumps(releases, indent=2), encoding="utf-8")
         return api.as_uri()
+
+    def write_channel_tag(self, tag: str) -> str:
+        return self.write_channel_releases([channel_release(tag)])
 
     def start_local_release_service(
         self,
+        version: str = "v0.1.1",
+        decoys: list[dict[str, object]] | None = None,
     ) -> tuple[http.server.ThreadingHTTPServer, threading.Thread, str]:
         handler = lambda *args, **kwargs: QuietHttpHandler(  # noqa: E731
             *args, directory=str(self.base), **kwargs
@@ -290,13 +334,16 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         port = server.server_address[1]
-        tag = release_tag("v0.1.1")
-        windows_asset_name = f"{PRODUCT_ID}-0.1.1-windows-x64.zip"
+        tag = release_tag(version)
+        windows_asset_name = (
+            f"{PRODUCT_ID}-{version.removeprefix('v')}-windows-x64.zip"
+        )
         release_path = f"release/{tag}"
         base_url = f"http://127.0.0.1:{port}"
-        api = {
-            "tag_name": tag,
-            "assets": [
+        selected = channel_release(
+            tag,
+            prerelease="-alpha." in version,
+            assets=[
                 {
                     "name": windows_asset_name,
                     "browser_download_url": (
@@ -311,8 +358,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
                     ),
                 },
             ],
-        }
-        (self.base / "latest.json").write_text(json.dumps(api), encoding="utf-8")
+        )
+        api = [*(decoys or []), selected]
+        (self.base / "latest.json").write_text(
+            json.dumps(api, indent=2), encoding="utf-8"
+        )
         return server, thread, f"{base_url}/latest.json"
 
     def run_updater(
@@ -361,11 +411,29 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertTrue((self.install / "new-only.txt").is_file())
         self.assert_durable_state_unchanged()
 
+    def test_v2_channel_selects_newer_alpha_beside_frozen_v1_and_decoys(
+        self,
+    ) -> None:
+        version = "v0.1.1-alpha.2"
+        _, download_url = self.make_release(version)
+        selected = channel_release(release_tag(version), prerelease=True)
+        api_url = self.write_channel_releases([selected, *channel_decoys()])
+
+        result = self.run_updater(api_url, download_url)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(f"updated successfully to {version}", result.stdout)
+        self.assertEqual(version, (self.install / "VERSION.txt").read_text().strip())
+        self.assertEqual(
+            "new application\n",
+            (self.install / "application.txt").read_text(encoding="utf-8"),
+        )
+        self.assert_durable_state_unchanged()
+
     def test_v1_release_tag_is_never_an_eligible_v2_update(self) -> None:
         api_url = self.write_channel_tag("v1.1.0")
         result = self.run_updater(api_url, (self.base / "missing").as_uri())
         self.assertNotEqual(0, result.returncode)
-        self.assertIn("not on the rsc-world-editor-v2 update channel", result.stderr)
+        self.assertIn("contains no published valid rsc-world-editor-v2", result.stderr)
         self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
         self.assert_durable_state_unchanged()
 
@@ -606,6 +674,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "legacyWorkspaceMigration",
             "Close World Builder 2 before updating",
             "RollbackArmed",
+            "Select-NewestV2Release",
+            "releases?per_page=100",
         ):
             self.assertIn(snippet, powershell)
         self.assertIn("Update World Builder.cmd", windows_start)
@@ -645,6 +715,86 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual("v0.1.1", (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual("new application\n", (self.install / "application.txt").read_text())
         self.assertTrue((self.install / "new-only.txt").is_file())
+        self.assert_durable_state_unchanged()
+
+    @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")
+    def test_powershell_selects_newer_alpha_beside_frozen_v1_and_decoys(
+        self,
+    ) -> None:
+        version = "v0.1.1-alpha.2"
+        self.make_release(version)
+        server, thread, api_url = self.start_local_release_service(
+            version, channel_decoys()
+        )
+        try:
+            environment = {
+                **os.environ,
+                "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+            }
+            result = subprocess.run(
+                [
+                    str(POWERSHELL),
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(self.install / "Update World Builder.ps1"),
+                ],
+                cwd=self.install,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn(f"updated successfully to {version}", result.stdout)
+        self.assertEqual(version, (self.install / "VERSION.txt").read_text().strip())
+        self.assertEqual(
+            "new application\n",
+            (self.install / "application.txt").read_text(encoding="utf-8"),
+        )
+        self.assert_durable_state_unchanged()
+
+    @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")
+    def test_powershell_channel_does_not_downgrade(self) -> None:
+        (self.install / "application.txt").chmod(0o644)
+        self.write_application(self.install, "v0.2.0", "old application\n")
+        version = "v0.1.9"
+        self.make_release(version)
+        server, thread, api_url = self.start_local_release_service(version)
+        try:
+            environment = {
+                **os.environ,
+                "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+            }
+            result = subprocess.run(
+                [
+                    str(POWERSHELL),
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-File",
+                    str(self.install / "Update World Builder.ps1"),
+                ],
+                cwd=self.install,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=5)
+
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertIn("no downgrade was performed", result.stdout)
+        self.assertEqual("v0.2.0", (self.install / "VERSION.txt").read_text().strip())
+        self.assertEqual(
+            "old application\n",
+            (self.install / "application.txt").read_text(encoding="utf-8"),
+        )
         self.assert_durable_state_unchanged()
 
     @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")

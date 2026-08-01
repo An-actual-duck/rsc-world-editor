@@ -62,28 +62,38 @@ Before making any network request, the v2 updater requires the installed
 `RELEASE-IDENTITY.json` to agree. That identity permits automatic updates only
 from `rsc-world-editor-v2`, records frozen legacy product
 `rsc-world-editor-v1` at `v1.1.0`, and explicitly disables legacy workspace
-migration. A latest v1 tag is therefore a refusal, not an update offer.
+migration. A v1 release record is therefore ignored, never an update offer;
+if no published valid v2 record exists, the v2 channel check fails closed.
+The v2 scripts do not use GitHub's repository-global `releases/latest`
+endpoint. They inspect the published releases collection, accept stable and
+supported alpha prerelease records, discard drafts, v1 and malformed tags,
+and select the greatest valid v2 semantic version before comparing it with the
+installed version. Thus frozen v1 can remain the latest normal release while a
+newer World Builder 2 alpha remains discoverable only by the v2 channel.
 
 An eligible newer v2 release follows this sequence:
 
 1. Refuse if the workspace records a live Builder server or client process.
 2. Acquire the v2-specific package update lock.
-3. Download the platform archive and `SHA256SUMS.txt` from the exact v2 tag.
-4. Verify the archive digest, reject unsafe or duplicate archive paths and
+3. Query up to 100 published release records, including prereleases, and
+   select the newest valid non-draft `rsc-world-editor-v2` semantic tag.
+4. Refuse an equal version or downgrade without downloading an archive.
+5. Download the platform archive and `SHA256SUMS.txt` from the exact v2 tag.
+6. Verify the archive digest, reject unsafe or duplicate archive paths and
    links, and extract only into private `updates/` staging.
-5. Require the downloaded version, tag, product identity, update channel, and
+7. Require the downloaded version, tag, product identity, update channel, and
    both provenance commits to agree exactly.
-6. Validate every package-manifest path and hash, require complete inventory
+8. Validate every package-manifest path and hash, require complete inventory
    coverage, and reject durable-state paths or untracked files.
-7. Refuse a downgrade or any collision with an installed path not owned by
+9. Refuse any collision with an installed path not owned by
    the current application manifest.
-8. Back up the exact currently managed application files, arm rollback, and
+10. Back up the exact currently managed application files, arm rollback, and
    remove only those managed files. Unknown installed files are not silently
    deleted or overwritten.
-9. Install and reverify the new managed layer. Any copy or verification
+11. Install and reverify the new managed layer. Any copy or verification
    failure removes the partial new layer and restores the previous managed
    files before releasing the lock.
-10. Remove temporary archive, extraction, and rollback state. If rollback
+12. Remove temporary archive, extraction, and rollback state. If rollback
     itself cannot complete, retain its staging and update lock for recovery;
     the launcher refuses to start while that lock remains.
 
