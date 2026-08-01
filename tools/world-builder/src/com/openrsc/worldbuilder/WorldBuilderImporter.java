@@ -1331,7 +1331,7 @@ public final class WorldBuilderImporter {
 				.append("  \"sourceFingerprintSha256\": \"").append(sourceFingerprint).append("\",\n")
 				.append("  \"exportManifestSha256\": \"").append(exportManifestSha256).append("\",\n")
 				.append("  \"backupDestination\": \"")
-				.append(escape(workspace.resolve("backups/<transaction-id>").toString())).append("\",\n");
+				.append(escape(workspace.resolve("backups/transaction-id").toString())).append("\",\n");
 			if (!layeredPackageManifestSha256.isEmpty()) {
 				json.append("  \"layeredPackageManifestSha256\": \"")
 					.append(layeredPackageManifestSha256).append("\",\n")
@@ -1409,7 +1409,7 @@ public final class WorldBuilderImporter {
 				.append("  \"revertsTransactionId\": \"")
 				.append(importedReceipt.transactionId).append("\",\n")
 				.append("  \"safeguardDestination\": \"")
-				.append(escape(workspace.resolve("backups/<rollback-transaction-id>").toString()))
+				.append(escape(workspace.resolve("backups/rollback-transaction-id").toString()))
 				.append("\",\n  \"actions\": [\n");
 			for (int index = 0; index < actions.size(); index++) {
 				RollbackAction action = actions.get(index);
