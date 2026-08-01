@@ -12,6 +12,19 @@ runtime is compiled from a pinned revision of
 client and server bug fixes are incorporated deliberately instead of being
 copied into a second game fork.
 
+## Product generations
+
+The published packed-map product is the frozen legacy v1 line, whose final
+standalone release is `v1.1.0`. Its source package assets remain under
+`release/world-builder/` for provenance and reproducibility.
+
+Current development is **World Builder 2**, a distinct signed-layered product
+with product/update identity `rsc-world-editor-v2`, install folder
+`Spoiled Milk World Builder 2`, and package assets under
+`release/world-builder-v2/`. V1 never automatically upgrades to v2, and v2
+never opens or silently migrates a v1 workspace. Public v2 packaging remains
+gated until layered export/import and final release validation are complete.
+
 ## Repository status
 
 This repository contains:
@@ -33,7 +46,7 @@ End users should download a platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
 Source checkouts are intended for development and release production.
 
-The packaged workflow is:
+The legacy v1 packaged workflow is:
 
 1. Extract `Spoiled Milk World Builder` inside a compatible private-server
    root, beside `server/` and `Client_Base/`.
@@ -49,8 +62,10 @@ Updates replace application files only; saved projects, exports, backups,
 receipts, credentials, databases, and logs under `workspace/` are preserved.
 See [Automatic updates](docs/AUTO-UPDATES.md) for the exact safety boundary.
 
-The complete end-user instructions are maintained in
+The complete legacy instructions are maintained in
 [`release/world-builder/README.txt`](release/world-builder/README.txt).
+World Builder 2's in-progress instructions are kept separately in
+[`release/world-builder-v2/README.txt`](release/world-builder-v2/README.txt).
 
 ## Development
 

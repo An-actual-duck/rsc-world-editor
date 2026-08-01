@@ -18,7 +18,7 @@ actual_commit="$(git -C "$CORE_ROOT" rev-parse 'HEAD^{commit}')"
 	exit 1
 }
 
-for relative in tools/world-builder release/world-builder; do
+for relative in tools/world-builder release/world-builder-v2; do
 	diff -qr "$ROOT_DIR/$relative" "$CORE_ROOT/$relative" || {
 		printf 'FAIL: Synchronized source differs from locked Core-Framework path: %s\n' \
 			"$relative" >&2

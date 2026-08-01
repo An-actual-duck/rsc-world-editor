@@ -6,12 +6,13 @@ RSC World Editor is a local, isolated editing appliance. It uses the real game
 client, server, terrain format, definitions, collision rules, and authoritative
 world-editor protocol, but it never connects to or edits a public server.
 
-The repository is divided into three layers:
+The repository is divided into four layers:
 
 - `tools/world-builder/` contains Java tooling for target discovery, workspace
   preparation, process supervision, export, import, and rollback.
-- `release/world-builder/` contains the user-facing launchers, runtime profile,
-  instructions, and asset provenance copied into platform packages.
+- `release/world-builder/` preserves the frozen packed-map v1 package assets.
+- `release/world-builder-v2/` contains the distinct signed-layered v2
+  launchers, runtime profile, instructions, and asset provenance.
 - The Core-Framework revision in `core-framework.lock` supplies the compiled
   client/server runtime and the integrated editor implementation.
 
@@ -46,3 +47,11 @@ this repository would create the same drift this repository is intended to
 prevent. Instead, every release pins one published Spoiled Milk commit. The
 release build refuses a different dependency revision, and CI verifies the
 synchronized standalone directories against that revision.
+
+## Product-generation boundary
+
+Legacy v1 ends at standalone release `v1.1.0`. World Builder 2 uses product and
+update channel `rsc-world-editor-v2`, a different install folder, and a
+signed-layered workspace. Neither generation may identify the other as an
+automatic update, and v2 must refuse legacy or unidentified workspaces rather
+than attempting an implicit conversion.

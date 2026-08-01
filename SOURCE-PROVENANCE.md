@@ -9,11 +9,13 @@ versioned source inputs:
    supplies the compatible client, server, definitions, map cache, embedded
    editor integration, and runtime assets.
 
-The initial repository snapshot was extracted from Spoiled Milk commit
-`b27cc5cad506ac79f9f50566dfec2d3af2337d64`. The synchronized paths are:
+The initial v1 repository snapshot was extracted from Spoiled Milk commit
+`b27cc5cad506ac79f9f50566dfec2d3af2337d64`. The legacy
+`release/world-builder/` tree is preserved here and is no longer synchronized.
+Current World Builder 2 synchronization is limited to:
 
 - `tools/world-builder/`
-- `release/world-builder/`
+- `release/world-builder-v2/`
 
 The synchronization check compares these directories byte-for-byte with the
 locked Core-Framework checkout. Release packages additionally record the exact

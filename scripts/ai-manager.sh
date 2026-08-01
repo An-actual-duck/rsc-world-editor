@@ -14,7 +14,7 @@ Usage:
   ./scripts/ai-manager.sh collect-contributor <ai-N> <remote-topic-branch> <exact-commit>
   ./scripts/ai-manager.sh merge <topic-branch>
   ./scripts/ai-manager.sh release-check
-  ./scripts/ai-manager.sh release <package-release options>
+  ./scripts/ai-manager.sh release
 
 Rescue is an explicit preservation action for an abandoned slot. Merge accepts
 only a clean, pushed READY handoff. Contributor collection verifies an exact
@@ -291,14 +291,7 @@ manager_release_check() {
 }
 
 manager_release() {
-  local argument
-
-  for argument in "$@"; do
-    [[ "$argument" != --skip-build ]] \
-      || ai_fail "Manager releases cannot use --skip-build; release provenance requires fresh builds."
-  done
-  manager_release_check
-  "$SCRIPT_ROOT/scripts/package-release.sh" "$@"
+  ai_fail "The legacy v1.1.0 release line is frozen, and World Builder 2 packaging is not release-ready. Complete and validate the v2 standalone packager before enabling manager releases."
 }
 
 # Resolve a path back to its registered neutral slot without changing ROOT_DIR.
@@ -345,7 +338,7 @@ case "$command" in
     manager_release_check
     ;;
   release)
-    [[ $# -gt 0 ]] || ai_fail "release requires package-release options; run that script with --help for details."
+    [[ $# -eq 0 ]] || ai_fail "release takes no arguments while World Builder 2 packaging is gated."
     manager_release "$@"
     ;;
   *)

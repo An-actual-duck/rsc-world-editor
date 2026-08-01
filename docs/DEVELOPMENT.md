@@ -48,8 +48,9 @@ git diff --check
 ```
 
 Review the synchronized diff before committing. The sync command refuses dirty
-source paths and updates the lock only after copying the two bounded directory
-trees.
+source paths and updates the lock only after copying `tools/world-builder/`
+and `release/world-builder-v2/`. The frozen legacy
+`release/world-builder/` tree is never overwritten by synchronization.
 
 ## Change routing
 

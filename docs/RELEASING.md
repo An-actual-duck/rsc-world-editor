@@ -1,41 +1,42 @@
 # Releasing
 
-Release production requires clean, published `main` in this repository and a
-clean checkout at the exact commit recorded in `core-framework.lock`.
+The packed-map v1 line is frozen at standalone release `v1.1.0`. Its existing
+`release/world-builder/` assets and `scripts/package-release.sh` remain for
+provenance, reproduction, and deliberate maintenance analysis; they are not an
+active release channel.
 
-## Inputs
+World Builder 2 is the active development generation. It has a distinct
+product/update identity (`rsc-world-editor-v2`), install folder, signed-layered
+workspace, and `release/world-builder-v2/` package assets. Public v2 packaging
+remains fail-closed until layered export/import, a workspace-preserving v2
+updater, and final cross-platform release validation are complete.
 
-- Linux x64 JRE 17+ directory
-- Windows x64 JRE 17+ directory
-- A clean locked Core-Framework checkout
-- Confirmed redistribution terms for packaged visual assets
+## Release readiness
 
-## Build
+Repository-level readiness can still be audited:
 
 ```bash
-./scripts/package-release.sh \
-  --version v1.1.0 \
-  --core-framework /path/to/open-rsc-spoiled-milk \
-  --linux-jre /path/to/linux-jre \
-  --windows-jre /path/to/windows-jre \
-  --assets-cleared
+./scripts/ai-manager.sh release-check
+./scripts/test.sh
+./scripts/check-core-parity.sh /path/to/clean-pinned-core-framework
 ```
 
-Artifacts are written under `output/releases/world-builder/<version>/` with a
-`SHA256SUMS.txt` file. Packages must record both the World Editor source commit
-and the Core-Framework runtime commit.
+`./scripts/ai-manager.sh release` intentionally refuses publication while the
+v2 packaging gate remains closed. The future v2 packager must require:
 
-Before publishing:
+- clean, already-published `main` in this repository;
+- a clean checkout at the exact commit in `core-framework.lock`;
+- Linux and Windows JRE 17+ inputs;
+- confirmed redistribution terms for every packaged asset;
+- a reviewed signed-layered package;
+- exact product/update identity and self-only update eligibility;
+- provenance containing both repository commits; and
+- archives containing no workspace, credentials, databases, logs, backups,
+  receipts, generated endpoints, or other user state.
 
-1. Run `./scripts/test.sh` and `./scripts/check-core-parity.sh`.
-2. Extract both archives outside all source repositories.
-3. Verify a clean first launch and isolated save on each supported platform.
-4. Verify export, import preview, confirmed import, and exact undo against a
-   disposable compatible private server.
-5. Confirm the archives contain no workspace, credential, database, logs,
-   backups, receipts, or generated endpoint state.
-6. Create a normal semantic-version tag and GitHub release in this repository.
-7. Upload both archives and `SHA256SUMS.txt`.
+Before enabling publication, extract and validate both platform archives,
+exercise first launch and isolated authoring, verify export/import/undo against
+a disposable offline private server, and add automated package/updater tests.
 
 Publishing a World Editor release does not authorize changing or restarting a
 public Spoiled Milk server.

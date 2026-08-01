@@ -126,10 +126,11 @@ source input; this repository retains its own history and release identity.
 
 ```bash
 ./scripts/ai-manager.sh release-check
-./scripts/ai-manager.sh release <normal package-release options>
 ```
 
 The manager gate requires clean published `main`, no ambiguous worktrees or
-stashes, and exact remote backups for active work. The packaging script then
-enforces the pinned clean Core-Framework revision and records both repository
-commits in release provenance.
+stashes, and exact remote backups for active work. The legacy v1.1.0 line is
+frozen, and `ai-manager.sh release` intentionally refuses publication until
+the separate v2 packager/updater and final release validation are complete.
+Once enabled, packaging must enforce the pinned clean Core-Framework revision
+and record both repository commits in release provenance.

@@ -343,15 +343,13 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
         self.assertEqual(f.git("branch", "--show-current", cwd=slot).stdout.strip(), "")
         f.run("ai-workspace.sh", "start", "ai-1", "fix/after-recovery")
 
-    def test_manager_release_forwards_args_and_rejects_skip_build(self) -> None:
+    def test_manager_release_refuses_frozen_legacy_line(self) -> None:
         f = self.fixture
         capture = f.base / "release-args.txt"
-        f.run("ai-manager.sh", "release", "--version", "v1.2.3", "--assets-cleared")
-        self.assertEqual(capture.read_text(encoding="utf-8").splitlines(), ["--version", "v1.2.3", "--assets-cleared"])
-        capture.unlink()
-        blocked = f.run("ai-manager.sh", "release", "--skip-build", "--assets-cleared", check=False)
+        blocked = f.run("ai-manager.sh", "release", check=False)
         self.assertNotEqual(blocked.returncode, 0)
-        self.assertIn("cannot use --skip-build", blocked.stderr)
+        self.assertIn("legacy v1.1.0 release line is frozen", blocked.stderr)
+        self.assertIn("World Builder 2 packaging is not release-ready", blocked.stderr)
         self.assertFalse(capture.exists())
 
     def test_manager_collects_exact_external_handoff_without_merging(self) -> None:

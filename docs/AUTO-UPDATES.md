@@ -1,5 +1,10 @@
 # Automatic updates
 
+This document describes the frozen v1 update channel through release `v1.1.0`.
+World Builder 2 uses the separate `rsc-world-editor-v2` identity and must not
+discover, install, or migrate v1 packages or workspaces. Its updater remains a
+separate gated deliverable.
+
 Every packaged launch checks the latest normal release in
 `An-actual-duck/rsc-world-editor`. Network failure does not block the installed
 application: the launcher prints a warning and continues with its current

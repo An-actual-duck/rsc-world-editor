@@ -81,7 +81,9 @@ git status --short --branch
    branch not contained in published `main`.
 7. Run `./scripts/ai-manager.sh release-check` before packaging. Releases
    must come from clean, already-published `main` and the exact clean commit
-   named by `core-framework.lock`.
+   named by `core-framework.lock`. The legacy v1 line is frozen and manager
+   release publication remains disabled until the v2 packager and updater are
+   complete and validated.
 
 ## Preservation rules
 
