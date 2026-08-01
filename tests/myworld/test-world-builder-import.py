@@ -56,6 +56,13 @@ class WorldBuilderImportTest(unittest.TestCase):
     def tearDownClass(cls):
         cls.compile_temp.cleanup()
 
+    def assert_windows_safe_preview_path(self, value: str):
+        path = Path(value)
+        for component in path.parts:
+            if component == path.anchor:
+                continue
+            self.assertNotRegex(component, r'[<>:"/\\|?*\x00-\x1f]')
+
     @staticmethod
     def write_archive(path: Path, seed: int):
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -237,6 +244,7 @@ class WorldBuilderImportTest(unittest.TestCase):
             preview = json.loads(result.stdout)
             self.assertEqual("ready", preview["status"])
             self.assertTrue(preview["dryRun"])
+            self.assert_windows_safe_preview_path(preview["backupDestination"])
             self.assertEqual([], preview["configurationChanges"])
             self.assertEqual(
                 [
@@ -457,6 +465,9 @@ class WorldBuilderImportTest(unittest.TestCase):
             self.assertEqual(0, preview.returncode, preview.stderr)
             preview_json = json.loads(preview.stdout)
             self.assertEqual("ready", preview_json["status"])
+            self.assert_windows_safe_preview_path(
+                preview_json["safeguardDestination"]
+            )
             self.assertEqual(3, len(preview_json["actions"]))
             self.assertEqual(before_preview, self.snapshot(target))
 
