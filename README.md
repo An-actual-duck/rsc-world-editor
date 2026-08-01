@@ -80,17 +80,18 @@ Java 8 bytecode for compatibility with the bundled runtime contract.
 ./scripts/test.sh
 ```
 
-The pinned runtime source is declared in [`core-framework.lock`](core-framework.lock).
-To create or refresh a local dependency checkout:
+The frozen runtime dependency is declared in
+[`core-framework.lock`](core-framework.lock). To materialize that exact locked
+revision for a build or parity check:
 
 ```bash
 ./scripts/checkout-core-framework.sh
 ./scripts/check-core-parity.sh .core-framework
 ```
 
-World Builder integration changes are developed alongside their client/server
-changes in Spoiled Milk first. Once those changes are published, this source
-snapshot and lock are refreshed with:
+The World Editor manager does not monitor Spoiled Milk branches, workers, or
+releases. Only when the user explicitly assigns an exact-commit dependency
+update should the bounded source snapshot and lock be refreshed with:
 
 ```bash
 ./scripts/sync-from-core-framework.sh /path/to/open-rsc-spoiled-milk
@@ -105,7 +106,8 @@ worktrees. Initialize or inspect that workflow with:
 ```
 
 See [AI Workspaces](docs/AI-WORKSPACES.md) for task activation, checkpoint,
-handoff, review, rescue, recycling, and cross-repository synchronization.
+handoff, review, rescue, recycling, and the explicitly gated dependency-update
+procedure.
 
 See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the

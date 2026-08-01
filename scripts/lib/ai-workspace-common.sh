@@ -443,6 +443,7 @@ ai_generate_workspace_guide() {
     printf -- '- Phase: `%s`\n' "$phase"
     printf -- '- Branch: `%s`\n' "$branch"
     printf -- '- Checkpoint: `%s`\n\n' "$head"
+    printf 'Project boundary: this worker belongs only to the RSC World Editor repository. Do not inspect or manage Spoiled Milk/Core-Framework branches, workers, releases, live-server state, or collaboration scripts. The ignored `.core-framework/` checkout is a frozen build dependency and is out of scope unless the World Editor manager explicitly assigns an exact dependency-update task.\n\n'
     if [[ "$phase" == IDLE ]]; then
       printf 'This slot is idle. Do not edit files while HEAD is detached. From the manager checkout, assign a focused topic branch first:\n\n'
       printf '```bash\n./scripts/ai-workspace.sh start %s TYPE/short-task-name\n```\n' "$slot"

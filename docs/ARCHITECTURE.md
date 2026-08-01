@@ -13,8 +13,9 @@ The repository is divided into four layers:
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
-- The Core-Framework revision in `core-framework.lock` supplies the compiled
-  client/server runtime and the integrated editor implementation.
+- The Core-Framework revision in `core-framework.lock` supplies a frozen
+  compiled client/server runtime and integrated editor implementation. It is a
+  build dependency, not part of this repository's manager/worker system.
 
 ## Durable and replaceable state
 
@@ -51,9 +52,11 @@ There is deliberately no force-import path.
 
 The editor spans client and server code, so duplicating the full game source in
 this repository would create the same drift this repository is intended to
-prevent. Instead, every release pins one published Spoiled Milk commit. The
-release build refuses a different dependency revision, and CI verifies the
-synchronized standalone directories against that revision.
+prevent. Instead, releases use the exact dependency revision already selected
+in `core-framework.lock`. The release build refuses a different revision, and
+CI verifies the synchronized standalone directories against that revision.
+Neither CI nor the World Editor manager searches for newer upstream work;
+changing the pin is a separate, explicitly assigned task.
 
 ## Product-generation boundary
 

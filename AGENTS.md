@@ -24,22 +24,48 @@ git status --short --branch
 ## Roles
 
 - `/home/justin/rsc-world-editor` is the manager checkout. It owns `main`,
-  integrates completed work, advances the pinned Spoiled Milk source,
-  performs final verification, publishes `main`, and builds releases. Do not
-  use it for ordinary feature implementation.
+  integrates completed World Editor work, performs final verification,
+  publishes this repository's `main`, and builds this repository's releases.
+  Do not use it for ordinary feature implementation.
 - `/home/justin/rsc-world-editor-ai-1` through `-ai-3` are reusable neutral
   worker slots. A worker may edit only after the manager starts a focused topic
   branch in that slot.
 - `.core-framework/` is a disposable, detached dependency checkout at the
-  exact revision in `core-framework.lock`. It is not a development worktree.
+  exact revision in `core-framework.lock`. It is not a development worktree,
+  manager checkout, worker slot, or source of collaboration instructions.
 
-## Source boundaries
+## Project independence
+
+- This manager and its workers manage only the `rsc-world-editor` Git
+  repository, its `origin` remote, and `/home/justin/rsc-world-editor-ai-*`
+  worktrees.
+- Never inspect, summarize, coordinate, merge, recycle, or report the branches,
+  worktrees, worker state, releases, pull requests, or live-server state of
+  `/home/justin/Core-Framework` or another Spoiled Milk checkout as part of
+  routine World Editor work.
+- Never run `.core-framework/scripts/ai-manager.sh`,
+  `.core-framework/scripts/ai-workspace.sh`, or follow
+  `.core-framework/AGENTS.md`. Those belong to a different project and a
+  different manager/worker team.
+- Activity in Spoiled Milk—including a worker handoff, merge, release, or a
+  newer upstream commit—does not create a World Editor task and must not be
+  monitored automatically.
+- `core-framework.lock` is an immutable compatibility input during ordinary
+  development. Fetch, advance, or synchronize that dependency only when the
+  user explicitly assigns a dependency-update task to the World Editor
+  manager. Do not infer such permission from a status request, release request,
+  related Spoiled Milk work, or the existence of a newer commit.
+
+## Runtime dependency boundary
 
 - This repository owns standalone World Builder tooling, package assets,
   tests, documentation, automatic updates, and its release channel.
-- Integrated client, server, map-loader, and in-game editor changes must land
-  in Spoiled Milk first. After that commit is published, advance
-  `core-framework.lock` and synchronize only the explicitly owned paths.
+- The locked Core-Framework checkout is an external runtime/build dependency,
+  comparable to a pinned SDK. Use only the exact locked revision when a build,
+  parity check, or explicitly assigned dependency update requires it.
+- If a requested World Editor feature requires client/server functionality not
+  owned here, report that external dependency clearly. Do not take over the
+  Spoiled Milk project, its manager role, or its workers from this repository.
 - Never copy the complete client or server into this repository or develop
   runtime changes against an unpinned Spoiled Milk checkout.
 - Preserve the frozen legacy v1 release line when developing World Builder 2;
@@ -60,30 +86,35 @@ git status --short --branch
    pushed commit is ready for manager review.
 5. Report changed files, tests, untested behavior, known risks, and whether the
    handoff is READY.
-6. Workers do not merge other tasks, advance `core-framework.lock`, publish
-   `main`, tag releases, or upload release assets.
+6. Workers do not merge other tasks, inspect or manage Spoiled Milk work,
+   advance `core-framework.lock`, publish `main`, tag releases, or upload
+   release assets.
 
 ## Manager rules
 
 1. Keep the manager checkout on clean `main` except for deliberate
-   integration, source synchronization, or repository-management work.
+   integration, explicitly assigned dependency updates, or
+   repository-management work.
 2. Begin collection with `./scripts/ai-manager.sh status`.
 3. If a session disappeared with unique or dirty work, run
    `./scripts/ai-manager.sh rescue <slot> -m "message"` before doing anything
    else to that slot.
 4. Inspect the complete branch diff, then merge only an exact READY handoff
    with `./scripts/ai-manager.sh merge <branch>`.
-5. Run `./scripts/test.sh` and, for synchronized sources,
-   `./scripts/check-core-parity.sh <clean-pinned-core-checkout>` before
-   publishing.
+5. Run `./scripts/test.sh` before publishing. Run
+   `./scripts/check-core-parity.sh <clean-pinned-core-checkout>` only for an
+   explicitly assigned dependency synchronization or a release that needs to
+   verify the already-locked runtime.
 6. Push tested `main` to `origin`, then recycle a merged slot with
    `./scripts/ai-workspace.sh recycle <slot>`. Recycling must refuse any
    branch not contained in published `main`.
-7. Run `./scripts/ai-manager.sh release-check` before packaging. Releases
-   must come from clean, already-published `main` and the exact clean commit
-   named by `core-framework.lock`. The legacy v1 line is frozen and manager
-   release publication remains disabled until the v2 packager and updater are
-   complete and validated.
+7. Run `./scripts/ai-manager.sh release-check` before packaging. Releases must
+   come from clean, already-published World Editor `main` and use the exact
+   already-selected dependency commit named by `core-framework.lock`; release
+   preparation does not authorize checking for or adopting a newer upstream
+   revision. The legacy v1 line is frozen and manager release publication
+   remains disabled until the v2 packager and updater are complete and
+   validated.
 
 ## Preservation rules
 

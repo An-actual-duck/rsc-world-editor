@@ -10,10 +10,15 @@ folder is an AI seat, not a category of work.
 /home/justin/rsc-world-editor-ai-3  neutral worker slot
 ```
 
-The standalone repository is managed independently from Spoiled Milk. It still
-pins Spoiled Milk as a source dependency: runtime changes land there first,
-then this manager advances `core-framework.lock` and synchronizes the bounded
-World Builder sources.
+The standalone repository is managed independently from Spoiled Milk. Its
+manager and workers observe only this repository, its `origin` remote, and the
+`rsc-world-editor-ai-*` worktrees. `core-framework.lock` names a frozen runtime
+dependency; it is not an instruction to monitor Spoiled Milk or its workers.
+
+Do not run collaboration scripts inside `.core-framework`, follow its nested
+`AGENTS.md`, or report activity from `/home/justin/Core-Framework`. A newer
+Spoiled Milk commit, worker handoff, merge, or release is irrelevant here until
+the user explicitly creates a World Editor dependency-update task.
 
 ## First-time setup
 
@@ -104,23 +109,26 @@ branch, the manager can import it into an idle slot without merging:
 
 Review and test the collected branch like an internal handoff. Collection
 never grants the contributor authority over `main`, releases, or the pinned
-Spoiled Milk dependency.
+external runtime dependency.
 
-## Source synchronization
+## Explicit dependency synchronization
 
-Runtime-integrated editor work follows a two-repository order:
+Dependency synchronization is exceptional manager work, never a background
+responsibility. Perform it only when the user explicitly assigns that task in
+the World Editor project. When authorized, use this bounded sequence:
 
-1. Develop, review, test, merge, and publish the complete change in Spoiled
-   Milk.
+1. Receive the exact external dependency commit selected for adoption; do not
+   choose it by watching another project's branches or workers.
 2. In this manager checkout, synchronize from that exact clean published
-   Spoiled Milk commit.
+   dependency commit.
 3. Review the bounded diff, update `core-framework.lock`, run
    `./scripts/check-core-parity.sh`, and run `./scripts/test.sh`.
 4. Publish this repository's tested `main`.
 
-Do not transplant a Spoiled Milk topic branch into this repository as though
-the repositories shared task history. The published commit is a versioned
-source input; this repository retains its own history and release identity.
+Do not transplant an external topic branch into this repository or coordinate
+the other project's task lifecycle. The selected published commit is only a
+versioned build input; this repository retains its own history, backlog,
+workers, releases, and product identity.
 
 ## Release boundary
 
@@ -133,5 +141,6 @@ stashes, and exact remote backups for active work. The legacy v1.1.0 line is
 frozen. The separate v2 packager/updater now has automated readiness coverage,
 but `ai-manager.sh release` intentionally refuses publication until final
 real-archive cross-platform validation and owner acceptance are complete.
-Once enabled, packaging must enforce the pinned clean Core-Framework revision
-and record both repository commits in release provenance.
+Once enabled, packaging must enforce the already-pinned clean Core-Framework
+revision and record both repository commits in release provenance. Packaging
+must not search for or adopt upstream changes.

@@ -21,6 +21,10 @@ The synchronization check compares these directories byte-for-byte with the
 locked Core-Framework checkout. Release packages additionally record the exact
 RSC World Editor commit and Core-Framework commit from which they were built.
 
+The dependency is not part of this repository's manager/worker system. Its
+branches, workers, releases, and newer commits are not monitored here, and the
+lock changes only during a user-assigned exact-commit dependency update.
+
 This arrangement prevents a full client/server fork from silently falling
 behind while still giving the World Editor its own source repository, issue
 tracker, documentation, tags, and downloadable releases.
