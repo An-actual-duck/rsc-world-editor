@@ -21,6 +21,9 @@ def main() -> None:
     )
     manager = (ROOT / "scripts/ai-manager.sh").read_text(encoding="utf-8")
     workspace = (ROOT / "scripts/ai-workspace.sh").read_text(encoding="utf-8")
+    v2_packager = (
+        ROOT / "scripts/package-world-builder-v2-release.sh"
+    ).read_text(encoding="utf-8")
     normalized_agents = " ".join(agents.split())
     normalized_development = " ".join(development.split())
 
@@ -48,6 +51,18 @@ def main() -> None:
         in normalized_development,
         "development routing still allows implicit cross-project synchronization",
     )
+    require(
+        "check-core-parity.sh" not in v2_packager,
+        "World Builder 2 packaging still requires repository source parity",
+    )
+    for explicit_tool in (
+        ROOT / "scripts/check-core-parity.sh",
+        ROOT / "scripts/sync-from-core-framework.sh",
+    ):
+        require(
+            explicit_tool.is_file(),
+            f"explicit dependency-update tool is missing: {explicit_tool.name}",
+        )
     require(
         "this worker belongs only to the RSC World Editor repository" in guide_source,
         "generated worker guides do not state the project boundary",
