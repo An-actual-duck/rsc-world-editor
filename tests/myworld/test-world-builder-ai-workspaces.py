@@ -35,7 +35,7 @@ class WorkflowFixture:
             destination = self.root / relative
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(SOURCE_ROOT / relative, destination)
-        package_stub = self.root / "scripts" / "package-release.sh"
+        package_stub = self.root / "scripts" / "package-world-builder-v2-release.sh"
         package_stub.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
@@ -43,6 +43,9 @@ class WorkflowFixture:
             encoding="utf-8",
         )
         package_stub.chmod(0o755)
+        release_marker = self.root / "release" / "world-builder-v2" / "RELEASE-READY"
+        release_marker.parent.mkdir(parents=True)
+        release_marker.write_text("accepted fixture\n", encoding="utf-8")
         (self.root / ".gitignore").write_text("AI_WORKSPACE.md\n", encoding="utf-8")
         (self.root / "README.md").write_text("fixture\n", encoding="utf-8")
         self.git("add", ".")
@@ -343,14 +346,20 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
         self.assertEqual(f.git("branch", "--show-current", cwd=slot).stdout.strip(), "")
         f.run("ai-workspace.sh", "start", "ai-1", "fix/after-recovery")
 
-    def test_manager_release_refuses_frozen_legacy_line(self) -> None:
+    def test_manager_release_delegates_only_to_v2_packager(self) -> None:
         f = self.fixture
         capture = f.base / "release-args.txt"
-        blocked = f.run("ai-manager.sh", "release", check=False)
-        self.assertNotEqual(blocked.returncode, 0)
-        self.assertIn("legacy v1.1.0 release line is frozen", blocked.stderr)
-        self.assertIn("World Builder 2 packaging is not release-ready", blocked.stderr)
-        self.assertFalse(capture.exists())
+        f.run(
+            "ai-manager.sh",
+            "release",
+            "--version",
+            "v0.1.0-alpha.1",
+            "--assets-cleared",
+        )
+        self.assertEqual(
+            ["--version", "v0.1.0-alpha.1", "--assets-cleared"],
+            capture.read_text(encoding="utf-8").splitlines(),
+        )
 
     def test_manager_collects_exact_external_handoff_without_merging(self) -> None:
         f = self.fixture

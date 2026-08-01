@@ -7,10 +7,12 @@ active release channel.
 
 World Builder 2 is the active development generation. It has a distinct
 product/update identity (`rsc-world-editor-v2`), install folder, signed-layered
-workspace, and `release/world-builder-v2/` package assets. Public v2 packaging
-remains fail-closed pending final real-archive cross-platform validation and
-owner acceptance. The dedicated packager and workspace-preserving v2 updater
-are implemented and tested without enabling publication.
+workspace, and `release/world-builder-v2/` package assets. Public v2 alpha
+packaging is enabled after the real-archive validation and owner acceptance
+recorded in
+[`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`](releases/world-builder-v2-v0.1.0-alpha.1-validation.md).
+The dedicated packager and workspace-preserving v2 updater remain separate
+from the frozen v1 channel.
 
 ## Release readiness
 
@@ -29,10 +31,10 @@ authorized exact-commit dependency-update tasks. The packager still requires
 the dependency checkout itself to be clean and at the exact commit named by
 `core-framework.lock`.
 
-`./scripts/ai-manager.sh release` intentionally refuses publication while the
-v2 packaging gate remains closed. `release/world-builder-v2/RELEASE-READY` is
-deliberately absent. Do not add it or enable the manager release command until
-the final validation below is recorded and accepted.
+`./scripts/ai-manager.sh release` applies the manager release check and then
+delegates to the v2 packager. It remains fail-closed if
+`release/world-builder-v2/RELEASE-READY` is absent. Removing or changing that
+marker requires a deliberate release-readiness review.
 
 The v2 packager is:
 
@@ -42,7 +44,7 @@ LWJGL_MODULES='lwjgl lwjgl-glfw lwjgl-opengl' \
 LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows' \
   /path/to/clean-pinned-core-framework/scripts/download-lwjgl.sh
 
-./scripts/package-world-builder-v2-release.sh \
+./scripts/ai-manager.sh release \
   --version v0.1.0-alpha.1 \
   --core-framework /path/to/clean-pinned-core-framework \
   --linux-jre /path/to/temurin-17-linux-x64-jre \
@@ -50,7 +52,7 @@ LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows' \
   --assets-cleared
 ```
 
-It remains production-locked without the acceptance marker. Its restricted
+Production packaging remains locked without the acceptance marker. Its restricted
 `--skip-build` path requires
 `SPOILED_MILK_WORLD_BUILDER_V2_RELEASE_TEST_MODE=1` and exists only for
 deterministic temporary-fixture tests; it is not release authorization.
@@ -89,12 +91,12 @@ manifest's managed layer, and restores it after an injected installation
 failure. Linux executes this transaction in automated tests; the native
 PowerShell success, prerelease selection, downgrade, and injected-rollback
 transactions are also exercised when `WORLD_BUILDER_PWSH` names a PowerShell
-runtime. Those tests can run cross-platform; actual Windows filesystem,
-process, launcher, and UI behavior still requires the final Windows host
-validation below.
+runtime. Those tests can run cross-platform. Native Windows execution remains
+a release-validation expectation; the first alpha's explicitly accepted
+limitation is recorded in its validation record.
 
-Before enabling publication, build from clean published manager `main` and the
-exact clean pinned Core revision with redistribution-ready JREs, then:
+Before publishing, build from clean published manager `main` and the exact
+clean pinned Core revision with redistribution-ready JREs, then:
 
 1. Verify both archives and `SHA256SUMS.txt` from outside either source tree.
 2. Exercise first launch, reopen, and isolated layered authoring on Linux x64

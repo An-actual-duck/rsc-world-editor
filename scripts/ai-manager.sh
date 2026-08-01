@@ -14,7 +14,7 @@ Usage:
   ./scripts/ai-manager.sh collect-contributor <ai-N> <remote-topic-branch> <exact-commit>
   ./scripts/ai-manager.sh merge <topic-branch>
   ./scripts/ai-manager.sh release-check
-  ./scripts/ai-manager.sh release
+  ./scripts/ai-manager.sh release <v2-packager-arguments>
 
 Rescue is an explicit preservation action for an abandoned slot. Merge accepts
 only a clean, pushed READY handoff. Contributor collection verifies an exact
@@ -291,7 +291,10 @@ manager_release_check() {
 }
 
 manager_release() {
-  ai_fail "The legacy v1.1.0 release line is frozen, and World Builder 2 packaging is not release-ready. Complete final cross-platform v2 package/updater validation and owner acceptance before enabling manager releases."
+  [[ -f "$ROOT_DIR/release/world-builder-v2/RELEASE-READY" ]] \
+    || ai_fail "The legacy v1.1.0 release line is frozen, and the World Builder 2 RELEASE-READY gate is closed."
+  manager_release_check
+  "$ROOT_DIR/scripts/package-world-builder-v2-release.sh" "$@"
 }
 
 # Resolve a path back to its registered neutral slot without changing ROOT_DIR.
@@ -338,7 +341,6 @@ case "$command" in
     manager_release_check
     ;;
   release)
-    [[ $# -eq 0 ]] || ai_fail "release takes no arguments while World Builder 2 packaging is gated."
     manager_release "$@"
     ;;
   *)

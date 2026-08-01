@@ -138,9 +138,9 @@ workers, releases, and product identity.
 
 The manager gate requires clean published `main`, no ambiguous worktrees or
 stashes, and exact remote backups for active work. The legacy v1.1.0 line is
-frozen. The separate v2 packager/updater now has automated readiness coverage,
-but `ai-manager.sh release` intentionally refuses publication until final
-real-archive cross-platform validation and owner acceptance are complete.
-Once enabled, packaging must enforce the already-pinned clean Core-Framework
-revision and record both repository commits in release provenance. Packaging
-must not search for or adopt upstream changes.
+frozen. World Builder 2 packaging is enabled only by the reviewed
+`release/world-builder-v2/RELEASE-READY` marker. `ai-manager.sh release` first
+applies the manager gate, then delegates to the separate v2 packager. Packaging
+enforces the already-pinned clean Core-Framework revision, records both
+repository commits in release provenance, and never searches for or adopts
+upstream changes.

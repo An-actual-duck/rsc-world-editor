@@ -77,6 +77,7 @@ def make_fixture(
     resolved_icons: bool = True,
     linux_os: str = "Linux",
     production_build: bool = False,
+    release_ready: bool = True,
 ) -> tuple[Path, Path, Path, Path, Path]:
     standalone = base / "standalone"
     core = base / "core"
@@ -91,8 +92,11 @@ def make_fixture(
             SOURCE_ROOT / "release/world-builder-v2",
             root / "release/world-builder-v2",
         )
-        if production_build:
-            write(root / "release/world-builder-v2/RELEASE-READY", "fixture only\n")
+        marker = root / "release/world-builder-v2/RELEASE-READY"
+        if release_ready:
+            write(marker, "accepted fixture\n")
+        elif marker.exists():
+            marker.unlink()
     shutil.copytree(
         SOURCE_ROOT / "release/updater-v2", standalone / "release/updater-v2"
     )
@@ -299,9 +303,9 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
-    def test_public_packaging_remains_locked_pending_final_acceptance(self) -> None:
+    def test_public_packaging_refuses_without_acceptance_marker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-release-gate-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=False)
             result = run_packager(*fixture, skip_build=False)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("final cross-platform release validation", result.stderr)

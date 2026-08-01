@@ -112,9 +112,9 @@ git status --short --branch
    come from clean, already-published World Editor `main` and use the exact
    already-selected dependency commit named by `core-framework.lock`; release
    preparation does not authorize checking for or adopting a newer upstream
-   revision. The legacy v1 line is frozen and manager release publication
-   remains disabled until the v2 packager and updater are complete and
-   validated.
+   revision. The legacy v1 line is frozen. World Builder 2 packaging is enabled
+   only while `release/world-builder-v2/RELEASE-READY` records an accepted
+   validation gate; `ai-manager.sh release` delegates only to the v2 packager.
 
 ## Preservation rules
 

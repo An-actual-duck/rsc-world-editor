@@ -16,10 +16,10 @@ V2_PACKAGER = ROOT / "scripts" / "package-world-builder-v2-release.sh"
 
 
 class WorldBuilderProductGenerationTest(unittest.TestCase):
-    def test_product_lines_are_distinct_and_v2_is_still_gated(self) -> None:
+    def test_product_lines_are_distinct_and_v2_is_release_ready(self) -> None:
         self.assertTrue((LEGACY / "README.txt").is_file())
         self.assertTrue((V2 / "README.txt").is_file())
-        self.assertFalse((V2 / "RELEASE-READY").exists())
+        self.assertTrue((V2 / "RELEASE-READY").is_file())
 
         v2_readme = (V2 / "README.txt").read_text(encoding="utf-8")
         v2_start_sh = (V2 / "Start World Builder.sh").read_text(encoding="utf-8")
@@ -31,9 +31,9 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
 
         manager = (ROOT / "scripts" / "ai-manager.sh").read_text(encoding="utf-8")
         self.assertIn("legacy v1.1.0 release line is frozen", manager)
-        self.assertIn("World Builder 2 packaging is not release-ready", manager)
+        self.assertIn("package-world-builder-v2-release.sh", manager)
 
-    def test_v2_release_machinery_is_separate_and_still_fail_closed(self) -> None:
+    def test_v2_release_machinery_is_separate_and_marker_gated(self) -> None:
         self.assertTrue(V2_PACKAGER.is_file())
         for relative in (
             "Start World Builder.sh",

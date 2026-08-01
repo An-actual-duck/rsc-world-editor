@@ -53,9 +53,9 @@ launching to suppress the automatic check for an offline session.
 World Builder 2 uses product and update identity `rsc-world-editor-v2`, tags
 such as `rsc-world-editor-v2-0.1.0-alpha.1`, archive prefix
 `rsc-world-editor-v2`, and install folder `Spoiled Milk World Builder 2`.
-Its separate scripts live under `release/updater-v2/`. Public v2 packaging is
-still gated pending final real-archive validation, but the updater transaction
-and package contracts are covered by release-readiness fixtures.
+Its separate scripts live under `release/updater-v2/`. Public v2 alpha
+packaging is enabled by its reviewed acceptance marker, and the updater
+transaction and package contracts remain covered by release-readiness fixtures.
 
 Before making any network request, the v2 updater requires the installed
 `VERSION.txt`, both source-commit files, package manifest, and canonical

@@ -22,11 +22,11 @@ Current development is **World Builder 2**, a distinct signed-layered product
 with product/update identity `rsc-world-editor-v2`, install folder
 `Spoiled Milk World Builder 2`, and package assets under
 `release/world-builder-v2/`. V1 never automatically upgrades to v2, and v2
-never opens or silently migrates a v1 workspace. Public v2 packaging remains
-gated pending final real-archive, cross-platform validation and owner
-acceptance. The dedicated v2 packager and workspace-preserving updater are now
-available for automated release-readiness testing without reopening the v1
-channel.
+never opens or silently migrates a v1 workspace. The first public v2 alpha was
+accepted after real-archive validation recorded in
+`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
+packager and workspace-preserving updater operate without reopening the frozen
+v1 channel.
 
 ## Repository status
 
