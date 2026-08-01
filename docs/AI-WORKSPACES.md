@@ -130,7 +130,8 @@ source input; this repository retains its own history and release identity.
 
 The manager gate requires clean published `main`, no ambiguous worktrees or
 stashes, and exact remote backups for active work. The legacy v1.1.0 line is
-frozen, and `ai-manager.sh release` intentionally refuses publication until
-the separate v2 packager/updater and final release validation are complete.
+frozen. The separate v2 packager/updater now has automated readiness coverage,
+but `ai-manager.sh release` intentionally refuses publication until final
+real-archive cross-platform validation and owner acceptance are complete.
 Once enabled, packaging must enforce the pinned clean Core-Framework revision
 and record both repository commits in release provenance.

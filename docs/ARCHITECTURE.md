@@ -29,6 +29,13 @@ tooling, client/server binaries, definitions, caches, schemas, scripts, and
 documentation. Release and updater work may replace this layer only after the
 Builder is closed and the replacement has been verified.
 
+Each v2 package inventories that replaceable layer in
+`PACKAGE-MANIFEST.sha256`. Updates back up and remove only paths owned by the
+installed manifest, refuse collisions with unknown files, and restore the old
+managed layer if installation or verification fails. Archive and manifest
+validation reject links, traversal, durable-state paths, and untracked package
+files before replacement begins.
+
 ## World-data transaction
 
 The workspace stores an immutable source snapshot and a mutable working copy.

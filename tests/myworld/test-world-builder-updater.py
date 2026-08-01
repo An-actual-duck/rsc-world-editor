@@ -142,6 +142,19 @@ class WorldBuilderUpdaterTest(unittest.TestCase):
         self.assertEqual("v1.1.0", (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual(expected_workspace, self.snapshot(self.install / "workspace"))
 
+    def test_frozen_v1_updater_never_accepts_a_v2_release_tag(self):
+        api = self.base / "v2-latest.json"
+        api.write_text(
+            json.dumps({"tag_name": "rsc-world-editor-v2-0.1.0"}),
+            encoding="utf-8",
+        )
+        result = self.run_updater(api.as_uri(), (self.base / "missing").as_uri())
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("does not use a supported semantic version", result.stderr)
+        self.assertEqual("v1.1.0", (self.install / "VERSION.txt").read_text().strip())
+        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
+        self.assertEqual(self.workspace_snapshot, self.snapshot(self.install / "workspace"))
+
     def test_windows_and_packaging_contracts_are_present(self):
         powershell = WINDOWS_UPDATER.read_text(encoding="utf-8")
         windows_start = WINDOWS_START.read_text(encoding="utf-8")

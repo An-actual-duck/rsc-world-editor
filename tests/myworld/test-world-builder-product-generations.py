@@ -11,6 +11,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 LEGACY = ROOT / "release" / "world-builder"
 V2 = ROOT / "release" / "world-builder-v2"
+V2_UPDATER = ROOT / "release" / "updater-v2"
+V2_PACKAGER = ROOT / "scripts" / "package-world-builder-v2-release.sh"
 
 
 class WorldBuilderProductGenerationTest(unittest.TestCase):
@@ -30,6 +32,39 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         manager = (ROOT / "scripts" / "ai-manager.sh").read_text(encoding="utf-8")
         self.assertIn("legacy v1.1.0 release line is frozen", manager)
         self.assertIn("World Builder 2 packaging is not release-ready", manager)
+
+    def test_v2_release_machinery_is_separate_and_still_fail_closed(self) -> None:
+        self.assertTrue(V2_PACKAGER.is_file())
+        for relative in (
+            "Start World Builder.sh",
+            "Start World Builder.cmd",
+            "Update World Builder.sh",
+            "Update World Builder.cmd",
+            "Update World Builder.ps1",
+            "README-AUTO-UPDATE.txt",
+        ):
+            self.assertTrue((V2_UPDATER / relative).is_file(), relative)
+
+        packager = V2_PACKAGER.read_text(encoding="utf-8")
+        updater = (V2_UPDATER / "Update World Builder.sh").read_text(
+            encoding="utf-8"
+        )
+        for text in (packager, updater):
+            self.assertIn("rsc-world-editor-v2", text)
+            self.assertIn("Spoiled Milk World Builder 2", text)
+        self.assertIn("RELEASE-READY", packager)
+        self.assertIn("final cross-platform release validation", packager)
+        self.assertIn("rsc-world-editor-v1", updater)
+        self.assertIn("legacyWorkspaceMigration", updater)
+
+        legacy_packager = (ROOT / "scripts/package-release.sh").read_text(
+            encoding="utf-8"
+        )
+        legacy_updater = (ROOT / "release/updater/Update World Builder.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("Spoiled Milk World Builder 2", legacy_packager)
+        self.assertNotIn("rsc-world-editor-v2", legacy_updater)
 
     def test_sync_contract_preserves_v1_and_tracks_v2(self) -> None:
         sync = (ROOT / "scripts" / "sync-from-core-framework.sh").read_text(

@@ -5,7 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "$ROOT_DIR/scripts/build-tools.sh"
 
-for script in "$ROOT_DIR"/release/world-builder/*.sh "$ROOT_DIR"/scripts/*.sh; do
+for script in \
+	"$ROOT_DIR"/release/world-builder/*.sh \
+	"$ROOT_DIR"/release/world-builder-v2/*.sh \
+	"$ROOT_DIR"/release/updater/*.sh \
+	"$ROOT_DIR"/release/updater-v2/*.sh \
+	"$ROOT_DIR"/scripts/*.sh; do
 	bash -n "$script"
 done
 
