@@ -21,6 +21,7 @@ def main() -> None:
     )
     manager = (ROOT / "scripts/ai-manager.sh").read_text(encoding="utf-8")
     workspace = (ROOT / "scripts/ai-workspace.sh").read_text(encoding="utf-8")
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     v2_packager = (
         ROOT / "scripts/package-world-builder-v2-release.sh"
     ).read_text(encoding="utf-8")
@@ -54,6 +55,16 @@ def main() -> None:
     require(
         "check-core-parity.sh" not in v2_packager,
         "World Builder 2 packaging still requires repository source parity",
+    )
+    require(
+        "./scripts/checkout-core-framework.sh" in ci_workflow
+        and "CORE_FRAMEWORK_DIR: .core-framework" in ci_workflow
+        and "run: ./scripts/test.sh" in ci_workflow,
+        "routine CI no longer tests with the exact locked dependency checkout",
+    )
+    require(
+        "check-core-parity.sh" not in ci_workflow,
+        "routine CI still requires repository source parity",
     )
     for explicit_tool in (
         ROOT / "scripts/check-core-parity.sh",
