@@ -17,6 +17,7 @@ STAGE=""
 BACKUP=""
 NEW_MANIFEST=""
 ROLLBACK_ARMED=false
+PRESERVE_STAGE=false
 IDENTITY_SOURCE_COMMIT=""
 IDENTITY_CORE_COMMIT=""
 
@@ -140,6 +141,17 @@ validate_relative_path() {
 	done
 }
 
+path_has_symlink_component() {
+	local root="$1" relative="$2" segment candidate="$1"
+	local -a segments
+	IFS='/' read -r -a segments <<< "$relative"
+	for segment in "${segments[@]}"; do
+		candidate="$candidate/$segment"
+		[[ ! -L "$candidate" ]] || return 0
+	done
+	return 1
+}
+
 is_durable_path() {
 	local top="${1%%/*}"
 	case "$top" in
@@ -180,6 +192,47 @@ manifest_contains() {
 	return 1
 }
 
+require_manifest_paths() {
+	local manifest="$1" label="$2" required
+	for required in \
+		"VERSION.txt" \
+		"SOURCE-COMMIT.txt" \
+		"CORE-SOURCE-COMMIT.txt" \
+		"RELEASE-IDENTITY.json" \
+		"Start World Builder.sh" \
+		"Start World Builder.cmd" \
+		"Update World Builder.sh" \
+		"Update World Builder.cmd" \
+		"Update World Builder.ps1" \
+		"Import Map Changes.sh" \
+		"Import Map Changes.cmd" \
+		"Undo Last Map Import.sh" \
+		"Undo Last Map Import.cmd" \
+		"builder-runtime/Client_Base/Open_RSC_Client.jar" \
+		"builder-runtime/server/core.jar" \
+		"builder-runtime/server/plugins.jar" \
+		"builder-runtime/server/inc/sqlite/myworld_seed.db" \
+		"builder-runtime/launcher/world-builder-tools.jar" \
+		"builder-runtime/layered-world/package/manifest.json" \
+		"runtime/bin/java"; do
+		manifest_contains "$manifest" "$required" \
+			|| fail "$label package manifest omits required application file: $required"
+	done
+}
+
+require_linux_executables() {
+	local root="$1" label="$2" required
+	for required in \
+		"Start World Builder.sh" \
+		"Update World Builder.sh" \
+		"Import Map Changes.sh" \
+		"Undo Last Map Import.sh" \
+		"runtime/bin/java"; do
+		[[ -x "$root/$required" ]] \
+			|| fail "$label package file is not executable: $required"
+	done
+}
+
 verify_manifest_files() {
 	local root="$1" manifest="$2" exact_inventory="${3:-false}"
 	local line relative actual_inventory manifest_inventory
@@ -187,7 +240,8 @@ verify_manifest_files() {
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		[[ "$line" =~ ^[0-9a-f]{64}[[:space:]][[:space:]]\./(.+)$ ]] || return 1
 		relative="${BASH_REMATCH[1]}"
-		[[ -f "$root/$relative" && ! -L "$root/$relative" ]] || return 1
+		[[ -f "$root/$relative" ]] || return 1
+		path_has_symlink_component "$root" "$relative" && return 1
 	done < "$manifest"
 	(cd "$root" && sha256sum -c "$manifest" >/dev/null) || return 1
 	if [[ "$exact_inventory" == true ]]; then
@@ -208,7 +262,7 @@ validate_archive_layout() {
 	local archive="$1" entry relative
 	local found_file=false
 	local -A seen=()
-	if unzip -Z -l "$archive" | grep -Eq '^l'; then
+	if unzip -Z -l "$archive" | awk '$1 ~ /^l/ { found = 1 } END { exit !found }'; then
 		return 1
 	fi
 	while IFS= read -r entry || [[ -n "$entry" ]]; do
@@ -255,6 +309,10 @@ remove_manifest_files() {
 			continue
 		}
 		relative="${BASH_REMATCH[1]}"
+		if path_has_symlink_component "$root" "$relative"; then
+			status=1
+			continue
+		fi
 		rm -f -- "$root/$relative" || status=1
 	done < "$manifest"
 	rm -f -- "$root/PACKAGE-MANIFEST.sha256" || status=1
@@ -266,8 +324,12 @@ restore_previous_installation() {
 	local status=0
 	[[ -n "$BACKUP" && -d "$BACKUP" ]] || return 1
 	if [[ -n "$NEW_MANIFEST" && -f "$NEW_MANIFEST" ]]; then
-		remove_manifest_files "$ROOT_DIR" "$NEW_MANIFEST" || status=1
+		remove_manifest_files "$ROOT_DIR" "$NEW_MANIFEST" || return 1
 	fi
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ "$line" =~ ^[0-9a-f]{64}[[:space:]][[:space:]]\./(.+)$ ]] || return 1
+		path_has_symlink_component "$ROOT_DIR" "${BASH_REMATCH[1]}" && return 1
+	done < "$BACKUP/PACKAGE-MANIFEST.sha256"
 	cp -a "$BACKUP"/. "$ROOT_DIR/" || status=1
 	if [[ $status -eq 0 ]]; then
 		verify_manifest_files "$ROOT_DIR" \
@@ -283,14 +345,18 @@ cleanup() {
 		if restore_previous_installation; then
 			printf 'The previous World Builder 2 application files were restored.\n' >&2
 		else
-			printf 'CRITICAL: automatic rollback could not fully restore the previous application. Preserve workspace/ and the updates directory for recovery.\n' >&2
+			PRESERVE_STAGE=true
+			printf 'CRITICAL: automatic rollback could not fully restore the previous application. Preserve workspace/ and recovery staging at %s.\n' "$STAGE" >&2
 			status=1
 		fi
 	fi
-	if [[ -n "$STAGE" && "$STAGE" == "$UPDATES_DIR/.update-"* ]]; then
+	if [[ "$PRESERVE_STAGE" != true && -n "$STAGE" \
+		&& "$STAGE" == "$UPDATES_DIR/.update-"* ]]; then
 		rm -rf -- "$STAGE"
 	fi
-	rmdir -- "$LOCK_DIR" 2>/dev/null || true
+	if [[ "$PRESERVE_STAGE" != true ]]; then
+		rmdir -- "$LOCK_DIR" 2>/dev/null || true
+	fi
 	exit "$status"
 }
 
@@ -308,6 +374,8 @@ validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 	|| fail "Installed release provenance does not match its v2 identity"
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed World Builder 2 application manifest is missing or does not verify"
+require_manifest_paths "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "Installed"
+require_linux_executables "$ROOT_DIR" "Installed"
 
 for pid_file in "$WORKSPACE/run/server.pid" "$WORKSPACE/run/client.pid"; do
 	if [[ -f "$pid_file" ]]; then
@@ -318,6 +386,8 @@ for pid_file in "$WORKSPACE/run/server.pid" "$WORKSPACE/run/client.pid"; do
 	fi
 done
 
+[[ ! -L "$UPDATES_DIR" && ( ! -e "$UPDATES_DIR" || -d "$UPDATES_DIR" ) ]] \
+	|| fail "The updates path is unsafe; preserve it for review before retrying"
 mkdir -p "$UPDATES_DIR"
 mkdir "$LOCK_DIR" 2>/dev/null \
 	|| fail "Another World Builder 2 update is already running"
@@ -386,26 +456,15 @@ PACKAGE_ROOT="$EXTRACTED/$PACKAGE_NAME"
 mapfile -t extracted_roots < <(find "$EXTRACTED" -mindepth 1 -maxdepth 1 -print)
 [[ ${#extracted_roots[@]} -eq 1 && "${extracted_roots[0]}" == "$PACKAGE_ROOT" ]] \
 	|| fail "Downloaded archive contains entries outside the World Builder 2 package"
-if find "$PACKAGE_ROOT" -type l -print -quit | grep -q .; then
-	fail "Downloaded package contains a symbolic link"
+if find "$PACKAGE_ROOT" ! -type f ! -type d -print -quit | grep -q .; then
+	fail "Downloaded package contains a link or unsupported filesystem entry"
 fi
 
 NEW_MANIFEST="$PACKAGE_ROOT/PACKAGE-MANIFEST.sha256"
 verify_manifest_files "$PACKAGE_ROOT" "$NEW_MANIFEST" true \
 	|| fail "Downloaded package manifest, inventory, or file verification failed"
-for required_managed_path in \
-	"VERSION.txt" \
-	"SOURCE-COMMIT.txt" \
-	"CORE-SOURCE-COMMIT.txt" \
-	"RELEASE-IDENTITY.json" \
-	"Start World Builder.sh" \
-	"Start World Builder.cmd" \
-	"Update World Builder.sh" \
-	"Update World Builder.cmd" \
-	"Update World Builder.ps1"; do
-	manifest_contains "$NEW_MANIFEST" "$required_managed_path" \
-		|| fail "Downloaded package manifest omits required application file: $required_managed_path"
-done
+require_manifest_paths "$NEW_MANIFEST" "Downloaded"
+require_linux_executables "$PACKAGE_ROOT" "Downloaded"
 [[ "$(tr -d '\r\n' < "$PACKAGE_ROOT/VERSION.txt")" == "$LATEST_VERSION" ]] \
 	|| fail "Downloaded package version does not match its release tag"
 validate_identity "$PACKAGE_ROOT/RELEASE-IDENTITY.json" \
@@ -434,6 +493,8 @@ while IFS= read -r line || [[ -n "$line" ]]; do
 	fi
 	ancestor="${relative%/*}"
 	while [[ "$ancestor" != "$relative" && "$ancestor" != . ]]; do
+		[[ ! -L "$ROOT_DIR/$ancestor" ]] \
+			|| fail "Update path crosses an installed symbolic link: $ancestor"
 		if [[ -e "$ROOT_DIR/$ancestor" && ! -d "$ROOT_DIR/$ancestor" ]]; then
 			[[ -n "${old_managed[$ancestor]+present}" ]] \
 				|| fail "Update path is blocked by unmanaged installed data: $ancestor"
@@ -462,10 +523,24 @@ cp -a "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "$BACKUP/PACKAGE-MANIFEST.sha256" \
 ROLLBACK_ARMED=true
 remove_manifest_files "$ROOT_DIR" "$BACKUP/PACKAGE-MANIFEST.sha256" \
 	|| fail "Unable to clear the previous managed application files"
-cp -a "$PACKAGE_ROOT"/. "$ROOT_DIR/" \
-	|| fail "Unable to install the downloaded application files"
+while IFS= read -r line || [[ -n "$line" ]]; do
+	[[ "$line" =~ ^[0-9a-f]{64}[[:space:]][[:space:]]\./(.+)$ ]] \
+		|| fail "Downloaded package manifest became malformed during installation"
+	relative="${BASH_REMATCH[1]}"
+	install_parent="${relative%/*}"
+	if [[ "$install_parent" != "$relative" ]]; then
+		mkdir -p "$ROOT_DIR/$install_parent" \
+			|| fail "Unable to create an application directory: $install_parent"
+	fi
+	cp -a "$PACKAGE_ROOT/$relative" "$ROOT_DIR/$relative" \
+		|| fail "Unable to install downloaded application file: $relative"
+done < "$NEW_MANIFEST"
+cp -a "$NEW_MANIFEST" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" \
+	|| fail "Unable to install the downloaded package manifest"
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed update verification failed"
+require_manifest_paths "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "Installed update"
+require_linux_executables "$ROOT_DIR" "Installed update"
 validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 	"$LATEST_VERSION" "$LATEST_RELEASE_TAG" \
 	|| fail "Installed update identity verification failed"

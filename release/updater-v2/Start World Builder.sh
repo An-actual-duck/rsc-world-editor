@@ -8,17 +8,31 @@ WORKSPACE="$ROOT_DIR/workspace"
 TOOLS_JAR="$RUNTIME_ROOT/launcher/world-builder-tools.jar"
 LAYERED_PACKAGE="$RUNTIME_ROOT/layered-world/package"
 RELEASE_IDENTITY="$ROOT_DIR/RELEASE-IDENTITY.json"
+UPDATE_LOCK="$ROOT_DIR/.world-builder-v2-update.lock"
 
 fail() {
 	printf 'World Builder 2 could not start: %s\n' "$*" >&2
 	exit 1
 }
 
+update_lock_exists() {
+	[[ -e "$UPDATE_LOCK" || -L "$UPDATE_LOCK" ]]
+}
+
+if update_lock_exists; then
+	fail "An application update is already in progress. Wait for it to finish, then start again."
+fi
 if [[ "${WORLD_BUILDER_SKIP_UPDATE:-0}" != 1 \
 	&& -x "$ROOT_DIR/Update World Builder.sh" ]]; then
 	if ! "$ROOT_DIR/Update World Builder.sh" --automatic; then
+		if update_lock_exists; then
+			fail "An application update is already in progress. Wait for it to finish, then start again."
+		fi
 		printf 'WARNING: The World Builder 2 automatic update check failed; continuing with the installed v2 version.\n' >&2
 	fi
+fi
+if update_lock_exists; then
+	fail "An application update is already in progress. Wait for it to finish, then start again."
 fi
 
 if [[ -n "${WORLD_BUILDER_JAVA:-}" ]]; then

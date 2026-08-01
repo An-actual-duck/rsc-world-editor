@@ -83,7 +83,9 @@ An eligible newer v2 release follows this sequence:
 9. Install and reverify the new managed layer. Any copy or verification
    failure removes the partial new layer and restores the previous managed
    files before releasing the lock.
-10. Remove temporary archive, extraction, and rollback state.
+10. Remove temporary archive, extraction, and rollback state. If rollback
+    itself cannot complete, retain its staging and update lock for recovery;
+    the launcher refuses to start while that lock remains.
 
 The entire v2 `workspace/` remains durable. Updating never rebases a signed-
 layered project, imports a map, changes the parent private server, or adopts a

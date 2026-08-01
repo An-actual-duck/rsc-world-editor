@@ -198,6 +198,23 @@ validate_runtime() {
 		|| fail "$platform JRE must report OS_NAME=\"$expected_os\"; found ${runtime_os:-missing}"
 	[[ "$runtime_arch" == x86_64 || "$runtime_arch" == amd64 ]] \
 		|| fail "$platform JRE must be x64; found ${runtime_arch:-missing}"
+	python3 - "$platform" "$runtime" <<'PY'
+import pathlib
+import sys
+
+platform, runtime_text = sys.argv[1:]
+runtime = pathlib.Path(runtime_text).resolve()
+for path in runtime.rglob("*"):
+    if not path.is_symlink():
+        continue
+    try:
+        target = path.resolve(strict=True)
+        target.relative_to(runtime)
+    except (FileNotFoundError, RuntimeError, ValueError):
+        raise SystemExit(
+            f"{platform} JRE contains a broken or external symbolic link: {path}"
+        )
+PY
 }
 
 validate_runtime "Linux" "$LINUX_JRE" "bin/java" "Linux"
@@ -240,6 +257,9 @@ if [[ "$SKIP_BUILD" != true ]]; then
 		|| fail "Pinned Core-Framework layered-package validator is missing"
 	# shellcheck disable=SC1090
 	source "$LAYERED_VALIDATOR"
+	layered_world_require_promotion_approved \
+		"$(dirname "$LAYERED_PACKAGE")/generation-report.json" \
+		|| fail "Signed-layered package is not production-approved"
 	LAYERED_VALIDATION="$(mktemp -d "${TMPDIR:-/tmp}/world-builder-v2-layered-validation-XXXXXX")"
 	trap 'rm -rf -- "$LAYERED_VALIDATION"' EXIT
 	layered_world_validate_package "$CORE_ROOT" "$LAYERED_PACKAGE" "$LAYERED_VALIDATION" \
@@ -416,9 +436,9 @@ stage_builder() {
 stage_builder "$LINUX_STAGE"
 stage_builder "$WINDOWS_STAGE"
 mkdir -p "$LINUX_STAGE/runtime"
-cp -R "$LINUX_JRE"/. "$LINUX_STAGE/runtime/"
+cp -RL "$LINUX_JRE"/. "$LINUX_STAGE/runtime/"
 mkdir -p "$WINDOWS_STAGE/runtime"
-cp -R "$WINDOWS_JRE"/. "$WINDOWS_STAGE/runtime/"
+cp -RL "$WINDOWS_JRE"/. "$WINDOWS_STAGE/runtime/"
 
 validate_stage() {
 	local stage="$1"
@@ -431,14 +451,35 @@ validate_stage() {
 		fail "Staged World Builder package contains generated project, credential, identity, endpoint, or transaction state"
 	fi
 	python3 - "$stage" <<'PY'
-import os
 import pathlib
 import sys
 
 root = pathlib.Path(sys.argv[1])
+seen = {}
+reserved = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
 for path in root.rglob("*"):
     relative = path.relative_to(root).as_posix()
-    if any(character in relative for character in ("\n", "\r", "\\")):
+    for component in path.relative_to(root).parts:
+        if (
+            any(ord(character) < 32 or character in '<>:"\\|?*' for character in component)
+            or component.endswith((" ", "."))
+            or component.split(".", 1)[0].upper() in reserved
+        ):
+            raise SystemExit("Windows-unsafe staged package path: " + repr(relative))
+    folded = relative.casefold()
+    if folded in seen and seen[folded] != relative:
+        raise SystemExit(
+            "Case-colliding staged package paths: "
+            + repr(seen[folded])
+            + " and "
+            + repr(relative)
+        )
+    seen[folded] = relative
+    if "\\" in relative:
         raise SystemExit("Unsafe staged package path: " + repr(relative))
     if path.is_symlink() or not (path.is_dir() or path.is_file()):
         raise SystemExit("Unsupported staged package entry: " + relative)
@@ -475,6 +516,10 @@ require_core_state "$CORE_COMMIT"
 	cd "$STAGING_DIR/windows"
 	zip -qr "$WINDOWS_ARCHIVE" "$PACKAGE_NAME"
 )
+unzip -tq "$LINUX_ARCHIVE" >/dev/null \
+	|| fail "Created Linux archive did not pass ZIP integrity verification"
+unzip -tq "$WINDOWS_ARCHIVE" >/dev/null \
+	|| fail "Created Windows archive did not pass ZIP integrity verification"
 (
 	cd "$OUTPUT_DIR"
 	sha256sum "$(basename "$LINUX_ARCHIVE")" \

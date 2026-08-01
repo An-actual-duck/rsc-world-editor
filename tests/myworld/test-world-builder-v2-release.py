@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -168,6 +169,10 @@ def make_fixture(
     )
     write(linux_runtime / "NOTICE", "Linux runtime notice\n")
     write(linux_runtime / "legal/java.base/LICENSE", "Linux runtime license\n")
+    write(linux_runtime / "lib/runtime-fixture.dat", "runtime payload\n")
+    (linux_runtime / "lib/runtime-fixture-link.dat").symlink_to(
+        "runtime-fixture.dat"
+    )
     windows_runtime = base / "temurin-windows-jre"
     write(windows_runtime / "bin/java.exe", "runtime")
     write(
@@ -262,6 +267,22 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotEqual(0, unsafe_layered.returncode)
             self.assertIn("must not contain symbolic links", unsafe_layered.stderr)
 
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-path-") as temp:
+            fixture = make_fixture(Path(temp))
+            write(fixture[2] / "terrain/CON.txt", "Windows device path\n")
+            unsafe_path = run_packager(*fixture)
+            self.assertNotEqual(0, unsafe_path.returncode)
+            self.assertIn("Windows-unsafe staged package path", unsafe_path.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-jre-link-") as temp:
+            fixture = make_fixture(Path(temp))
+            outside = Path(temp) / "external-runtime-file"
+            write(outside, "must not be followed\n")
+            (fixture[3] / "lib/external-link").symlink_to(outside)
+            unsafe_runtime = run_packager(*fixture)
+            self.assertNotEqual(0, unsafe_runtime.returncode)
+            self.assertIn("broken or external symbolic link", unsafe_runtime.stderr)
+
     def test_archives_are_complete_v2_only_verified_and_launchable(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-package-") as temp:
             base = Path(temp)
@@ -328,6 +349,12 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     if not windows:
                         java_mode = archive.getinfo(runtime_java).external_attr >> 16
                         self.assertTrue(java_mode & 0o111, oct(java_mode))
+                        flattened_link = prefix + "runtime/lib/runtime-fixture-link.dat"
+                        link_mode = archive.getinfo(flattened_link).external_attr >> 16
+                        self.assertNotEqual(stat.S_IFLNK, stat.S_IFMT(link_mode))
+                        self.assertEqual(
+                            b"runtime payload\n", archive.read(flattened_link)
+                        )
 
                     forbidden = (
                         "/workspace/",
@@ -422,8 +449,33 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     "FAKE_JAVA_CALLS": str(calls),
                 }
             )
-            started = subprocess.run(
+            update_lock = package / ".world-builder-v2-update.lock"
+            update_lock.mkdir()
+            blocked_start = subprocess.run(
                 ["bash", str(package / "Start World Builder.sh")],
+                cwd=base,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, blocked_start.returncode)
+            self.assertIn("update is already in progress", blocked_start.stderr)
+            update_lock.rmdir()
+            update_lock.symlink_to(base / "missing-update-lock-target")
+            dangling_lock_start = subprocess.run(
+                [str(package / "Start World Builder.sh")],
+                cwd=base,
+                env=environment,
+                text=True,
+                capture_output=True,
+            )
+            self.assertNotEqual(0, dangling_lock_start.returncode)
+            self.assertIn(
+                "update is already in progress", dangling_lock_start.stderr
+            )
+            update_lock.unlink()
+            started = subprocess.run(
+                [str(package / "Start World Builder.sh")],
                 cwd=base,
                 env=environment,
                 text=True,
@@ -437,7 +489,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
             write(package / "workspace/project-source.json", "{}\n")
             legacy = subprocess.run(
-                ["bash", str(package / "Start World Builder.sh")],
+                [str(package / "Start World Builder.sh")],
                 cwd=base,
                 env=environment,
                 text=True,
@@ -448,7 +500,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
             write(package / "workspace/layered-review.json", "{}\n")
             restarted = subprocess.run(
-                ["bash", str(package / "Start World Builder.sh")],
+                [str(package / "Start World Builder.sh")],
                 cwd=base,
                 env=environment,
                 text=True,
@@ -458,7 +510,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn("run\n", calls.read_text(encoding="utf-8"))
 
             imported = subprocess.run(
-                ["bash", str(package / "Import Map Changes.sh")],
+                [str(package / "Import Map Changes.sh")],
                 cwd=base,
                 env=environment,
                 text=True,
@@ -471,7 +523,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn(source_commit, import_call)
 
             undone = subprocess.run(
-                ["bash", str(package / "Undo Last Map Import.sh")],
+                [str(package / "Undo Last Map Import.sh")],
                 cwd=base,
                 env=environment,
                 text=True,

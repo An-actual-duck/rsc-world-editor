@@ -62,8 +62,10 @@ refuses v1 tags and downgrades, validates the archive and complete extracted
 inventory, preserves `workspace/` and unknown unmanaged files, replaces only
 the installed manifest's managed layer, and restores it after an injected
 installation failure. Linux executes this transaction in automated tests;
-the equivalent Windows PowerShell implementation still requires the final
-Windows host validation below.
+the native PowerShell success and injected-rollback transactions are also
+exercised when `WORLD_BUILDER_PWSH` names a PowerShell runtime. Those tests can
+run cross-platform; actual Windows filesystem, process, launcher, and UI
+behavior still requires the final Windows host validation below.
 
 Before enabling publication, build from clean published manager `main` and the
 exact clean pinned Core revision with redistribution-ready JREs, then:

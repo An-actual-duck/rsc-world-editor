@@ -19,6 +19,9 @@ backups, receipts, credentials, the Builder database, settings, and logs stay
 in place. Unknown files outside the managed application manifest are also not
 silently overwritten. If installation or verification fails after replacement
 begins, the previous managed application files are restored.
+If that emergency restoration itself cannot complete, recovery staging and
+the update lock are retained and launch stays blocked instead of starting an
+unverified mixed application.
 
 Run "Update World Builder.sh" on Linux or "Update World Builder.cmd" on
 Windows to check manually. Set WORLD_BUILDER_SKIP_UPDATE=1 before launching to

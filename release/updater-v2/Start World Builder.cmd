@@ -7,12 +7,18 @@ set "WORKSPACE=%~dp0workspace"
 set "TOOLS_JAR=%~dp0builder-runtime\launcher\world-builder-tools.jar"
 set "LAYERED_PACKAGE=%~dp0builder-runtime\layered-world\package"
 set "RELEASE_IDENTITY=%~dp0RELEASE-IDENTITY.json"
+set "UPDATE_LOCK=%~dp0.world-builder-v2-update.lock"
 
+if exist "%UPDATE_LOCK%" goto update_in_progress
 if "%WORLD_BUILDER_SKIP_UPDATE%"=="1" goto after_update
 if not exist "%~dp0Update World Builder.cmd" goto after_update
 call "%~dp0Update World Builder.cmd" --automatic
-if errorlevel 1 echo WARNING: The World Builder 2 automatic update check failed; continuing with the installed v2 version.
+if errorlevel 1 (
+  if exist "%UPDATE_LOCK%" goto update_in_progress
+  echo WARNING: The World Builder 2 automatic update check failed; continuing with the installed v2 version.
+)
 :after_update
+if exist "%UPDATE_LOCK%" goto update_in_progress
 
 if defined WORLD_BUILDER_JAVA (
   set "JAVA_EXE=%WORLD_BUILDER_JAVA%"
@@ -72,6 +78,11 @@ goto failed
 :legacy_workspace
 echo World Builder 2 could not start: the existing workspace is legacy or unidentified.
 echo World Builder 2 will not open or migrate a World Editor v1 workspace.
+goto failed
+
+:update_in_progress
+echo World Builder 2 could not start: an application update is already in progress.
+echo Wait for it to finish, then start again.
 goto failed
 
 :finished

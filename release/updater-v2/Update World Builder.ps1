@@ -3,6 +3,9 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = (
+    [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+)
 $RootDir = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
 $Workspace = Join-Path $RootDir "workspace"
 $UpdatesDir = Join-Path $RootDir "updates"
@@ -128,14 +131,25 @@ function Test-SafeRelativePath([string]$Relative) {
         [string]::IsNullOrWhiteSpace($Relative) -or
         [IO.Path]::IsPathRooted($Relative) -or
         $Relative.Contains("\") -or
-        $Relative.Contains("`r") -or
-        $Relative.Contains("`n") -or
-        $Relative.Contains("`t")
+        $Relative -match '[\x00-\x1f<>:"|?*]'
     ) {
         return $false
     }
+    $Reserved = @(
+        "CON", "PRN", "AUX", "NUL",
+        "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+        "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
+    )
     foreach ($Segment in $Relative.Split('/')) {
-        if ([string]::IsNullOrEmpty($Segment) -or $Segment -eq "." -or $Segment -eq "..") {
+        $BaseName = $Segment.Split('.')[0].ToUpperInvariant()
+        if (
+            [string]::IsNullOrEmpty($Segment) -or
+            $Segment -eq "." -or
+            $Segment -eq ".." -or
+            $Segment.EndsWith(" ") -or
+            $Segment.EndsWith(".") -or
+            $Reserved -contains $BaseName
+        ) {
             return $false
         }
     }
@@ -151,11 +165,29 @@ function Test-DurablePath([string]$Relative) {
     )
 }
 
+function Assert-SafeManagedPath([string]$PackageRoot, [string]$Relative) {
+    $RootItem = Get-Item -LiteralPath $PackageRoot -Force
+    if ($RootItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        Fail-Update "package root is a reparse point"
+    }
+    $Candidate = $PackageRoot
+    foreach ($Segment in $Relative.Split('/')) {
+        $Candidate = Join-Path $Candidate $Segment
+        $Item = Get-Item -LiteralPath $Candidate -Force -ErrorAction SilentlyContinue
+        if ($Item -and ($Item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+            Fail-Update "managed path crosses a reparse point: $Relative"
+        }
+    }
+}
+
 function Read-PackageManifest([string]$PackageRoot, [string]$ManifestPath) {
     if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
         Fail-Update "package manifest is missing: $ManifestPath"
     }
-    $Seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    if ((Get-Item -LiteralPath $ManifestPath -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        Fail-Update "package manifest is a reparse point"
+    }
+    $Seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $Records = [Collections.Generic.List[object]]::new()
     foreach ($Line in Get-Content -LiteralPath $ManifestPath) {
         if ($Line -notmatch '^([0-9a-f]{64})  \./(.+)$') {
@@ -172,6 +204,7 @@ function Read-PackageManifest([string]$PackageRoot, [string]$ManifestPath) {
             Fail-Update "package manifest contains an unsafe or duplicate path: $Relative"
         }
         $FilePath = Join-Path $PackageRoot ($Relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        Assert-SafeManagedPath $PackageRoot $Relative
         if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
             Fail-Update "package manifest file is missing: $Relative"
         }
@@ -222,14 +255,26 @@ function Assert-ExactPackageInventory(
     }
 }
 
-function Assert-RequiredManagedFiles([object[]]$Records) {
-    $Managed = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+function Assert-RequiredManagedFiles(
+    [object[]]$Records,
+    [string]$RuntimeJava
+) {
+    $Managed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $Records | ForEach-Object { [void]$Managed.Add($_.Relative) }
     foreach ($Required in @(
         "VERSION.txt", "SOURCE-COMMIT.txt", "CORE-SOURCE-COMMIT.txt",
         "RELEASE-IDENTITY.json", "Start World Builder.sh",
         "Start World Builder.cmd", "Update World Builder.sh",
-        "Update World Builder.cmd", "Update World Builder.ps1"
+        "Update World Builder.cmd", "Update World Builder.ps1",
+        "Import Map Changes.sh", "Import Map Changes.cmd",
+        "Undo Last Map Import.sh", "Undo Last Map Import.cmd",
+        "builder-runtime/Client_Base/Open_RSC_Client.jar",
+        "builder-runtime/server/core.jar",
+        "builder-runtime/server/plugins.jar",
+        "builder-runtime/server/inc/sqlite/myworld_seed.db",
+        "builder-runtime/launcher/world-builder-tools.jar",
+        "builder-runtime/layered-world/package/manifest.json",
+        $RuntimeJava
     )) {
         if (-not $Managed.Contains($Required)) {
             Fail-Update "package manifest omits required application file: $Required"
@@ -240,7 +285,7 @@ function Assert-RequiredManagedFiles([object[]]$Records) {
 function Assert-SafeArchive([string]$ArchivePath) {
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $Archive = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
-    $Seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $Seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $FoundFile = $false
     try {
         foreach ($Entry in $Archive.Entries) {
@@ -276,8 +321,9 @@ function Assert-SafeArchive([string]$ArchivePath) {
 }
 
 function Remove-ManagedFiles([string]$InstallRoot, [object[]]$Records) {
-    $Directories = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $Directories = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($Record in $Records) {
+        Assert-SafeManagedPath $InstallRoot $Record.Relative
         $Path = Join-Path $InstallRoot ($Record.Relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
         if (Test-Path -LiteralPath $Path) {
             [IO.File]::SetAttributes($Path, [IO.FileAttributes]::Normal)
@@ -325,6 +371,7 @@ if (
 }
 $InstalledManifestPath = Join-Path $RootDir "PACKAGE-MANIFEST.sha256"
 $InstalledRecords = @(Read-PackageManifest $RootDir $InstalledManifestPath)
+Assert-RequiredManagedFiles $InstalledRecords "runtime/bin/java.exe"
 
 foreach ($PidPath in @(
     (Join-Path $Workspace "run/server.pid"),
@@ -338,6 +385,13 @@ foreach ($PidPath in @(
     }
 }
 
+$UpdatesItem = Get-Item -LiteralPath $UpdatesDir -Force -ErrorAction SilentlyContinue
+if (
+    $UpdatesItem -and
+    (($UpdatesItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or -not $UpdatesItem.PSIsContainer)
+) {
+    Fail-Update "the updates path is unsafe; preserve it for review before retrying"
+}
 New-Item -ItemType Directory -Force -Path $UpdatesDir | Out-Null
 try {
     New-Item -ItemType Directory -Path $LockDir -ErrorAction Stop | Out-Null
@@ -349,6 +403,7 @@ $Stage = $null
 $Backup = $null
 $DownloadedRecords = @()
 $RollbackArmed = $false
+$PreserveStage = $false
 try {
     $Release = Invoke-RestMethod -Uri $ApiUrl -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
     $LatestTag = [string]$Release.tag_name
@@ -384,8 +439,8 @@ try {
     New-Item -ItemType Directory -Force -Path $Extracted | Out-Null
 
     Write-Host "Updating World Builder 2 from $CurrentVersion to $LatestVersion..."
-    Invoke-WebRequest -Uri $ArchiveAsset.browser_download_url -OutFile $ArchivePath -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
-    Invoke-WebRequest -Uri $ChecksumAsset.browser_download_url -OutFile $Checksums -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
+    Invoke-WebRequest -UseBasicParsing -Uri $ArchiveAsset.browser_download_url -OutFile $ArchivePath -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
+    Invoke-WebRequest -UseBasicParsing -Uri $ChecksumAsset.browser_download_url -OutFile $Checksums -Headers @{ "User-Agent" = "RSC-World-Editor-V2-Updater" }
 
     $ChecksumLines = @(
         Get-Content -LiteralPath $Checksums |
@@ -415,7 +470,7 @@ try {
     $DownloadedManifestPath = Join-Path $PackageRoot "PACKAGE-MANIFEST.sha256"
     $DownloadedRecords = @(Read-PackageManifest $PackageRoot $DownloadedManifestPath)
     Assert-ExactPackageInventory $PackageRoot $DownloadedRecords
-    Assert-RequiredManagedFiles $DownloadedRecords
+    Assert-RequiredManagedFiles $DownloadedRecords "runtime/bin/java.exe"
 
     if ((Get-Content -LiteralPath (Join-Path $PackageRoot "VERSION.txt") -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "downloaded package version does not match its release tag"
@@ -428,19 +483,24 @@ try {
         Fail-Update "downloaded package provenance does not match its v2 identity"
     }
 
-    $OldManaged = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $OldManaged = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $InstalledRecords | ForEach-Object { [void]$OldManaged.Add($_.Relative) }
     [void]$OldManaged.Add("PACKAGE-MANIFEST.sha256")
     foreach ($Record in $DownloadedRecords) {
         $Destination = Join-Path $RootDir ($Record.Relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
-        if ((Test-Path -LiteralPath $Destination) -and -not $OldManaged.Contains($Record.Relative)) {
+        $DestinationItem = Get-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        if ($DestinationItem -and -not $OldManaged.Contains($Record.Relative)) {
             Fail-Update "update would overwrite an unmanaged installed path: $($Record.Relative)"
         }
         $Ancestor = Split-Path -Parent $Record.Relative
         while ($Ancestor) {
             $AncestorPath = Join-Path $RootDir ($Ancestor.Replace('/', [IO.Path]::DirectorySeparatorChar))
+            $AncestorItem = Get-Item -LiteralPath $AncestorPath -Force -ErrorAction SilentlyContinue
+            if ($AncestorItem -and ($AncestorItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                Fail-Update "update path crosses an installed reparse point: $Ancestor"
+            }
             if (
-                (Test-Path -LiteralPath $AncestorPath) -and
+                $AncestorItem -and
                 -not (Test-Path -LiteralPath $AncestorPath -PathType Container) -and
                 -not $OldManaged.Contains($Ancestor)
             ) {
@@ -464,10 +524,17 @@ try {
 
     $RollbackArmed = $true
     Remove-ManagedFiles $RootDir $InstalledRecords
-    Get-ChildItem -LiteralPath $PackageRoot -Force | ForEach-Object {
-        Copy-Item -LiteralPath $_.FullName -Destination $RootDir -Recurse -Force
+    foreach ($Record in $DownloadedRecords) {
+        $Destination = Join-Path $RootDir ($Record.Relative.Replace('/', [IO.Path]::DirectorySeparatorChar))
+        $DestinationParent = Split-Path -Parent $Destination
+        if ($DestinationParent) {
+            New-Item -ItemType Directory -Force -Path $DestinationParent | Out-Null
+        }
+        Copy-Item -LiteralPath $Record.FullName -Destination $Destination -Force
     }
+    Copy-Item -LiteralPath $DownloadedManifestPath -Destination (Join-Path $RootDir "PACKAGE-MANIFEST.sha256") -Force
     $VerifiedRecords = @(Read-PackageManifest $RootDir (Join-Path $RootDir "PACKAGE-MANIFEST.sha256"))
+    Assert-RequiredManagedFiles $VerifiedRecords "runtime/bin/java.exe"
     $VerifiedIdentity = Read-ReleaseIdentity (Join-Path $RootDir "RELEASE-IDENTITY.json") $LatestVersion $LatestTag
     if ((Get-Content -LiteralPath $VersionPath -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "installed update version verification failed"
@@ -484,20 +551,27 @@ try {
     if ($RollbackArmed) {
         try {
             Remove-ManagedFiles $RootDir $DownloadedRecords
+            $InstalledRecords | ForEach-Object {
+                Assert-SafeManagedPath $RootDir $_.Relative
+            }
             Get-ChildItem -LiteralPath $Backup -Force | ForEach-Object {
                 Copy-Item -LiteralPath $_.FullName -Destination $RootDir -Recurse -Force
             }
-            [void](Read-PackageManifest $RootDir (Join-Path $RootDir "PACKAGE-MANIFEST.sha256"))
+            $RestoredRecords = @(Read-PackageManifest $RootDir (Join-Path $RootDir "PACKAGE-MANIFEST.sha256"))
+            Assert-RequiredManagedFiles $RestoredRecords "runtime/bin/java.exe"
             Write-Warning "The previous World Builder 2 application files were restored."
             $RollbackArmed = $false
         } catch {
-            throw "World Builder 2 update failed and automatic rollback could not fully restore the previous application. Preserve workspace/ and updates/ for recovery. Original failure: $($OriginalFailure.Exception.Message); rollback failure: $($_.Exception.Message)"
+            $PreserveStage = $true
+            throw "World Builder 2 update failed and automatic rollback could not fully restore the previous application. Preserve workspace/ and recovery staging at $Stage. Original failure: $($OriginalFailure.Exception.Message); rollback failure: $($_.Exception.Message)"
         }
     }
     throw $OriginalFailure
 } finally {
-    if ($Stage -and (Test-Path -LiteralPath $Stage)) {
+    if (-not $PreserveStage -and $Stage -and (Test-Path -LiteralPath $Stage)) {
         Remove-Item -LiteralPath $Stage -Recurse -Force -ErrorAction SilentlyContinue
     }
-    Remove-Item -LiteralPath $LockDir -Force -ErrorAction SilentlyContinue
+    if (-not $PreserveStage) {
+        Remove-Item -LiteralPath $LockDir -Force -ErrorAction SilentlyContinue
+    }
 }
