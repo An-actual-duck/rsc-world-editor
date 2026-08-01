@@ -385,7 +385,33 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("icon provenance is unresolved", result.stderr)
 
-    def test_packager_requires_published_manager_main_and_clean_pinned_core(self) -> None:
+    def test_packager_accepts_standalone_owned_tooling_difference(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-independent-") as temp:
+            fixture = make_fixture(Path(temp))
+            standalone = fixture[0]
+            importer = (
+                standalone
+                / "tools/world-builder/src/com/openrsc/worldbuilder/WorldBuilderImporter.java"
+            )
+            importer.write_text(
+                importer.read_text(encoding="utf-8")
+                + "\n// Standalone-owned packaging regression fixture.\n",
+                encoding="utf-8",
+            )
+            git(standalone, "add", str(importer.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Add standalone-owned tooling fix")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+
+    def test_packager_requires_published_manager_main_and_exact_clean_pinned_core(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-state-") as temp:
             fixture = make_fixture(Path(temp))
             standalone, core, *_ = fixture
@@ -399,6 +425,18 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             dirty_core = run_packager(*fixture)
             self.assertNotEqual(0, dirty_core.returncode)
             self.assertIn("Core-Framework release checkout must be clean", dirty_core.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-core-commit-") as temp:
+            fixture = make_fixture(Path(temp))
+            core = fixture[1]
+            write(core / "wrong-commit.txt", "not the locked dependency\n")
+            git(core, "add", "wrong-commit.txt")
+            git(core, "commit", "-m", "Move dependency beyond locked commit")
+
+            wrong_core = run_packager(*fixture)
+
+            self.assertNotEqual(0, wrong_core.returncode)
+            self.assertIn("Core-Framework must be at locked commit", wrong_core.stderr)
 
     def test_packager_rejects_wrong_runtime_or_unsafe_layered_package(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-inputs-") as temp:

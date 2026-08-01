@@ -242,7 +242,6 @@ require_lwjgl_release_inputs() {
 
 require_release_git_state
 require_core_state
-"$ROOT_DIR/scripts/check-core-parity.sh" "$CORE_ROOT"
 
 validate_runtime() {
 	local platform="$1" runtime="$2" java_path="$3" expected_os="$4"

@@ -31,13 +31,14 @@ external build input during ordinary development. It is not a signal to check
 Spoiled Milk status, branches, workers, releases, or newer commits.
 
 A local checkout can be created at the ignored `.core-framework/` path when a
-build or parity check actually requires it:
+build or explicitly assigned dependency audit requires it:
 
 ```bash
 ./scripts/checkout-core-framework.sh
 ```
 
-Verify that it is the expected revision and that synchronized files match:
+For an explicitly assigned dependency-update task, verify that it is the
+expected revision and that the bounded synchronization inputs match:
 
 ```bash
 ./scripts/check-core-parity.sh .core-framework
@@ -45,7 +46,9 @@ Verify that it is the expected revision and that synchronized files match:
 
 Do not run collaboration scripts inside that checkout or follow its nested
 `AGENTS.md`; it belongs to another project. Fetching a locked object for a
-build does not authorize updating the lock.
+build does not authorize updating the lock. Ordinary repository-owned tooling,
+packaging, test, and documentation fixes do not require source parity with the
+frozen dependency.
 
 Only when the user explicitly assigns a dependency-update task, incorporate
 the exact external commit they selected with:
