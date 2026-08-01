@@ -176,7 +176,7 @@ class WorldBuilderDiscoveryTest(unittest.TestCase):
         result = self.run_discovery(Path(CORE_FRAMEWORK_ROOT))
         self.assertEqual(0, result.returncode, result.stderr)
         manifest = json.loads(result.stdout)
-        self.assertEqual(10046, manifest["configuration"]["clientVersion"])
+        self.assertEqual(10047, manifest["configuration"]["clientVersion"])
         self.assertGreater(manifest["terrainSectorCount"], 1000)
         self.assertTrue(all(file_state["present"] for file_state in manifest["files"]))
 
