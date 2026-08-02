@@ -214,7 +214,17 @@ final class WorldBuilderPackedConversionSource {
 		List<WorldBuilderBoundedInventory.Record> expected)
 		throws WorldBuilderContractException {
 		final Set<String> actual = new HashSet<String>();
+		final Set<String> allowedDirectories = new HashSet<String>();
+		allowedDirectories.add("");
+		for (WorldBuilderBoundedInventory.Record record : expected) {
+			String parent = record.relativePath;
+			while (parent.contains("/")) {
+				parent = parent.substring(0, parent.lastIndexOf('/'));
+				allowedDirectories.add(parent);
+			}
+		}
 		final int[] count = new int[] {0};
+		final int[] directoryCount = new int[] {0};
 		try {
 			Files.walkFileTree(target.root, new SimpleFileVisitor<Path>() {
 				@Override
@@ -222,6 +232,17 @@ final class WorldBuilderPackedConversionSource {
 					Path directory, BasicFileAttributes attributes) throws IOException {
 					if (!attributes.isDirectory() || Files.isSymbolicLink(directory)) {
 						throw new IOException("unsafe directory");
+					}
+					try {
+						String relative = directory.equals(target.root)
+							? "" : target.relative(directory);
+						if (!allowedDirectories.contains(relative)
+							|| ++directoryCount[0]
+								> WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) {
+							throw new IOException("unexpected or unbounded directory");
+						}
+					} catch (WorldBuilderContractException refusal) {
+						throw new ConversionWalkException(refusal);
 					}
 					return FileVisitResult.CONTINUE;
 				}

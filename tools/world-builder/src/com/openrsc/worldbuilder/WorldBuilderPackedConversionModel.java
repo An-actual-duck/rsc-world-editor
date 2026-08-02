@@ -123,14 +123,14 @@ final class WorldBuilderPackedConversionModel {
 			Set<String> sourceSlots = new HashSet<String>();
 			for (Placement placement : records) {
 				if (!sourceSlots.add(placement.slot)) {
-					throw blocked(placementSource.relativePath,
+					throw placementProblem(placement,
 						"Packed placement source repeats effective slot at record "
 							+ placement.recordIndex + ".");
 				}
 				if ("removal".equals(placementSource.kind)) {
 					Placement removed = family.get(placement.slot);
 					if (removed == null || !placement.removesExactly(removed)) {
-						throw blocked(placementSource.relativePath,
+						throw placementProblem(placement,
 							"Packed removal at record " + placement.recordIndex
 								+ " does not exactly match an earlier effective placement.");
 					}
@@ -140,7 +140,7 @@ final class WorldBuilderPackedConversionModel {
 						removed.placementId, "removed"));
 				} else if ("base".equals(placementSource.kind)) {
 					if (family.containsKey(placement.slot)) {
-						throw blocked(placementSource.relativePath,
+						throw placementProblem(placement,
 							"Packed base placement collides at record "
 								+ placement.recordIndex + ".");
 					}
@@ -172,11 +172,9 @@ final class WorldBuilderPackedConversionModel {
 		Map<SummaryKey,Long> summaries = new TreeMap<SummaryKey,Long>();
 		Map<Integer,Integer> perLevel = new HashMap<Integer,Integer>();
 		for (Placement placement : placements) {
-			requireCoverage(terrainCoverage, placement.level, placement.x, placement.y,
-				placement.provenance);
+			requireCoverage(terrainCoverage, placement);
 			if (placement.minimum != null) {
-				requireCoverageRectangle(terrainCoverage, placement.level,
-					placement.minimum, placement.maximum, placement.provenance);
+				requireCoverageRectangle(terrainCoverage, placement);
 			}
 			semantics.add(placement.semantic());
 			SummaryKey summary = new SummaryKey(placement.family, placement.level,
@@ -451,12 +449,12 @@ final class WorldBuilderPackedConversionModel {
 				String placementId = idFactory.create(facts);
 				if (placementId == null
 					|| !placementId.matches("[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}")) {
-					throw blocked(source.relativePath,
+					throw placementProblem(placement,
 						"Deterministic placement ID is not a valid package identifier at record "
 							+ index + ".");
 				}
 				if (!generatedIds.add(placementId)) {
-					throw blocked(source.relativePath,
+					throw placementProblem(placement,
 						"Deterministic placement ID collision at record " + index + ".");
 				}
 				placement = placement.withId(placementId);
@@ -480,7 +478,8 @@ final class WorldBuilderPackedConversionModel {
 		if (direction > 3) throw recordError(source.relativePath, index,
 			"Boundary direction is outside 0..3.");
 		int id = removal ? -1 : nonnegative(record, "id", source.relativePath, index);
-		if (!removal) definitions.require("boundary", id, source.relativePath);
+		if (!removal) requireDefinition(
+			definitions, "boundary", id, source.relativePath, index);
 		return new Placement("boundary", source, index, id, point.level,
 			point.x, point.y, direction, 0, 0, null, null, "");
 	}
@@ -502,7 +501,8 @@ final class WorldBuilderPackedConversionModel {
 			throw recordError(source.relativePath, index,
 				"Ground-item amount or respawn is outside the exact supported range.");
 		}
-		if (!removal) definitions.require("ground-item", id, source.relativePath);
+		if (!removal) requireDefinition(
+			definitions, "ground-item", id, source.relativePath, index);
 		return new Placement("ground-item", source, index, id, point.level,
 			point.x, point.y, 0, amount, respawn, null, null, "");
 	}
@@ -527,7 +527,9 @@ final class WorldBuilderPackedConversionModel {
 			throw recordError(source.relativePath, index,
 				"NPC roam bounds are invalid, cross levels, or exceed 128 tiles.");
 		}
-		if (!"removal".equals(source.kind)) definitions.require("npc", id, source.relativePath);
+		if (!"removal".equals(source.kind)) {
+			requireDefinition(definitions, "npc", id, source.relativePath, index);
+		}
 		return new Placement("npc", source, index, id, start.level, start.x, start.y,
 			0, 0, 0, minimum, maximum, "");
 	}
@@ -547,7 +549,8 @@ final class WorldBuilderPackedConversionModel {
 			: nonnegative(record, "direction", source.relativePath, index);
 		if (!removal && direction > 7) throw recordError(source.relativePath, index,
 			"Scenery direction is outside 0..7.");
-		if (!removal) definitions.require("scenery", id, source.relativePath);
+		if (!removal) requireDefinition(
+			definitions, "scenery", id, source.relativePath, index);
 		return new Placement("scenery", source, index, id, point.level,
 			point.x, point.y, direction, 0, 0, null, null, "");
 	}
@@ -588,27 +591,43 @@ final class WorldBuilderPackedConversionModel {
 		return removal ? "scenery_removals" : "sceneries";
 	}
 
-	private static void requireCoverage(Set<String> terrain, int level, int x, int y,
-		String provenance) throws WorldBuilderContractException {
-		String key = level + ":" + Math.floorDiv(x, 48) + ":" + Math.floorDiv(y, 48);
+	private static void requireCoverage(Set<String> terrain, Placement placement)
+		throws WorldBuilderContractException {
+		String key = placement.level + ":" + Math.floorDiv(placement.x, 48)
+			+ ":" + Math.floorDiv(placement.y, 48);
 		if (!terrain.contains(key)) {
-			throw blocked(provenance.substring(0, provenance.indexOf("#record=")),
-				"Placement " + provenance + " is outside converted terrain coverage.");
+			throw placementProblem(placement,
+				"Placement " + placement.provenance
+					+ " is outside converted terrain coverage.");
 		}
 	}
 
-	private static void requireCoverageRectangle(Set<String> terrain, int level,
-		WorldBuilderPackedCoordinateCodec.Coordinate minimum,
-		WorldBuilderPackedCoordinateCodec.Coordinate maximum, String provenance)
+	private static void requireCoverageRectangle(Set<String> terrain, Placement placement)
 		throws WorldBuilderContractException {
-		for (long x = Math.floorDiv(minimum.x, 48); x <= Math.floorDiv(maximum.x, 48); x++) {
-			for (long y = Math.floorDiv(minimum.y, 48); y <= Math.floorDiv(maximum.y, 48); y++) {
-				if (!terrain.contains(level + ":" + x + ":" + y)) {
-					throw blocked(provenance.substring(0, provenance.indexOf("#record=")),
-						"NPC roam bounds for " + provenance
+		for (long x = Math.floorDiv(placement.minimum.x, 48);
+			x <= Math.floorDiv(placement.maximum.x, 48); x++) {
+			for (long y = Math.floorDiv(placement.minimum.y, 48);
+				y <= Math.floorDiv(placement.maximum.y, 48); y++) {
+				if (!terrain.contains(placement.level + ":" + x + ":" + y)) {
+					throw placementProblem(placement,
+						"NPC roam bounds for " + placement.provenance
 							+ " extend outside converted terrain coverage.");
 				}
 			}
+		}
+	}
+
+	private static void requireDefinition(
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		String family, int id, String path, int index)
+		throws WorldBuilderContractException {
+		try {
+			definitions.require(family, id, path);
+		} catch (WorldBuilderContractException refusal) {
+			throw new WorldBuilderContractException(refusal.code(), "convert-packed", "",
+				WorldBuilderPackedLayoutAdapter.ID, path, path + "#record=" + index,
+				refusal.expected(), refusal.observed(), false, refusal.getMessage(),
+				refusal.nextStep(), refusal);
 		}
 	}
 
@@ -688,6 +707,16 @@ final class WorldBuilderPackedConversionModel {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
 			"convert-packed", "", WorldBuilderPackedLayoutAdapter.ID, path,
 			path + "#record=" + index, "One exactly representable packed placement record.",
+			message, false, message,
+			"Correct the named source record and run discovery/conversion again.", null);
+	}
+
+	private static WorldBuilderContractException placementProblem(
+		Placement placement, String message) {
+		return new WorldBuilderContractException(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+			"convert-packed", "", WorldBuilderPackedLayoutAdapter.ID,
+			placement.sourcePath, placement.provenance,
+			"One unambiguous, exactly representable packed composition record.",
 			message, false, message,
 			"Correct the named source record and run discovery/conversion again.", null);
 	}

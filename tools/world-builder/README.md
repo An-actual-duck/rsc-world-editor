@@ -79,6 +79,54 @@ as `DISCOVERY_DRIFT`. No recognizable server evidence reports standalone;
 recognizable but missing, malformed, unknown, or ambiguous evidence is always
 blocked instead of being mistaken for an empty project.
 
+### Deterministic packed conversion (workflow Phase 2)
+
+The repository-owned conversion boundary is available for advanced
+development and the later project-creation phase:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar convert-packed \
+  --source-root /path/to/isolated-inventoried-copy \
+  --discovery-report /path/to/discovery-report.json \
+  --output /path/to/new-conversion-result
+```
+
+`--source-root` is not a server root. It must be a separate, immutable copy
+containing exactly the present files in a compatible descriptor-backed packed
+discovery report, plus that report's descriptor and selected configuration at
+their target-relative paths. Extra operational state such as
+`server/ipbans.txt`, links, missing files, changed hashes, and the live target
+itself are refused. The output path must not exist, must be outside the source,
+and must have an existing real parent on a filesystem that supports atomic
+same-directory publication.
+
+Success creates only:
+
+```text
+<conversion-result>/
+  conversion-plan.json
+  conversion-report.json
+  package/
+    manifest.json
+    terrain/...
+    placements/...
+```
+
+The adapter decodes packed planes/coordinates, converts and exactly reverses
+every terrain sector, composes all declared base/overlay/removal sources with
+record provenance, assigns content-derived placement IDs, and requires
+zero-delta placement semantics through the generic layered package validator.
+Plan, report, package paths, bytes, and hashes are canonical and independent
+of absolute installation paths. Unknown encodings, definitions, coordinates,
+collisions, removals, terrain coverage, ZIP records, or parity differences
+fail without publishing an output directory. There is no force or
+approximation mode.
+
+This command does not copy evidence from a target, create/select a World
+Builder project, launch a runtime, create an empty world, export/import target
+data, or update a release. Phase 3 will own the user-facing copy and project
+lifecycle around this conversion boundary.
+
 The Phase 1 runtime can prepare an isolated workspace and launch the local
 Builder server/client pair:
 

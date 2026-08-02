@@ -128,6 +128,8 @@ package com.openrsc.worldbuilder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 
 public final class PackedConversionFailureHarness {
     public static void main(String[] args) throws Exception {
@@ -138,6 +140,15 @@ public final class PackedConversionFailureHarness {
                 public void observe(String milestone, Path stage) throws Exception {
                     if (mode.equals(milestone)) {
                         throw new Exception("injected failure at " + milestone);
+                    }
+                    if ("tamper-before-publish".equals(mode)
+                        && "before-publish".equals(milestone)) {
+                        Files.write(stage.resolve("package/manifest.json"),
+                            new byte[] {' ', '\\n'}, StandardOpenOption.APPEND);
+                    }
+                    if ("extra-directory-before-publish".equals(mode)
+                        && "before-publish".equals(milestone)) {
+                        Files.createDirectory(stage.resolve("unexpected-empty"));
                     }
                 }
             };
@@ -897,6 +908,8 @@ public final class PackedConversionFailureHarness {
                 "package-written",
                 "package-validated",
                 "before-publish",
+                "tamper-before-publish",
+                "extra-directory-before-publish",
                 "id-collision",
             ):
                 with self.subTest(mode=mode):

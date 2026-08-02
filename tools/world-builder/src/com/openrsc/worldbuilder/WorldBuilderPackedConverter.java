@@ -48,34 +48,22 @@ final class WorldBuilderPackedConverter {
 
 	Result convert(Path sourceRoot, Path discoveryReport, Path requestedOutput)
 		throws IOException, WorldBuilderContractException {
-		WorldBuilderPackedConversionSource source =
-			WorldBuilderPackedConversionSource.open(sourceRoot, discoveryReport);
-		Path output = validateOutput(source, requestedOutput);
-
-		WorldBuilderTargetCapability capability =
-			WorldBuilderTargetCapability.read(source.target);
-		WorldBuilderPackedLayoutAdapter.requireCapability(capability);
-		WorldBuilderAdaptiveConfiguration.Selection selection =
-			WorldBuilderAdaptiveConfiguration.select(
-				source.target, capability, source.selectedConfigurationRole);
-		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
-		if (!configuration.relativePath.equals(source.selectedConfigurationRelativePath)
-			|| !configuration.sha256.equals(source.selectedConfigurationSha256)) {
-			throw blocked("Selected configuration does not match the immutable discovery report.",
-				"Recreate the source copy and report from one stable discovery pass.");
+		WorldBuilderPackedConversionSource source;
+		try {
+			source = WorldBuilderPackedConversionSource.open(sourceRoot, discoveryReport);
+		} catch (WorldBuilderContractException refusal) {
+			throw asConversionRefusal(refusal);
 		}
-		WorldBuilderCompatibilityEvidence common =
-			WorldBuilderCompatibilityEvidence.inspect(source.target, capability, configuration);
-		new WorldBuilderPackedLayoutAdapter().inspect(
-			source.target, capability, source.selectedConfigurationRole);
-		WorldBuilderPackedConversionModel model = idFactory == null
-			? WorldBuilderPackedConversionModel.read(source, configuration, common.definitions)
-			: WorldBuilderPackedConversionModel.read(
-				source, configuration, common.definitions, idFactory);
-		source.reverify();
+		Path output = validateOutput(source, requestedOutput);
+		Prepared prepared = prepare(source);
+		WorldBuilderTargetCapability capability = prepared.capability;
+		WorldBuilderAdaptiveConfiguration configuration = prepared.configuration;
+		WorldBuilderCompatibilityEvidence common = prepared.common;
+		WorldBuilderPackedConversionModel model = prepared.model;
 		Map<String,Object> plan = plan(source, capability, configuration);
 		WorldBuilderAdaptiveContracts.validateParsed(
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_PLAN, plan);
+		requireSelfFingerprint(plan, "planFingerprintSha256");
 
 		Path parent = output.getParent();
 		Path stage = parent.resolve("." + output.getFileName()
@@ -118,6 +106,8 @@ final class WorldBuilderPackedConverter {
 			source.reverify();
 			observe("before-publish", stage);
 			source.reverify();
+			requireFinalStage(stage, common.definitions, model, planSha256,
+				reportSha256, validated.fingerprintSha256, validated.files.size() + 2);
 			try {
 				Files.move(stage, output, StandardCopyOption.ATOMIC_MOVE);
 			} catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
@@ -143,6 +133,64 @@ final class WorldBuilderPackedConverter {
 				"Conversion staging was interrupted before atomic publication.",
 				"Retry after resolving the injected or environmental staging failure.",
 				callbackFailure);
+		}
+	}
+
+	private Prepared prepare(WorldBuilderPackedConversionSource source)
+		throws WorldBuilderContractException {
+		try {
+			WorldBuilderTargetCapability capability =
+				WorldBuilderTargetCapability.read(source.target);
+			WorldBuilderPackedLayoutAdapter.requireCapability(capability);
+			WorldBuilderAdaptiveConfiguration.Selection selection =
+				WorldBuilderAdaptiveConfiguration.select(
+					source.target, capability, source.selectedConfigurationRole);
+			WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+			if (!configuration.relativePath.equals(source.selectedConfigurationRelativePath)
+				|| !configuration.sha256.equals(source.selectedConfigurationSha256)) {
+				throw blocked("Selected configuration does not match the immutable discovery report.",
+					"Recreate the source copy and report from one stable discovery pass.");
+			}
+			if (!"packed".equals(configuration.representation)) {
+				throw blocked("Selected configuration is not a packed representation.",
+					"Use the generic layered adoption path for an existing layered package.");
+			}
+			WorldBuilderCompatibilityEvidence common =
+				WorldBuilderCompatibilityEvidence.inspect(
+					source.target, capability, configuration);
+			List<WorldBuilderReadOnlyTarget.FileState> files =
+				new ArrayList<WorldBuilderReadOnlyTarget.FileState>(common.files);
+			WorldBuilderReadOnlyTarget.FileState serverTerrain =
+				source.target.requiredState(
+					"server-terrain", configuration.serverMapRelativePath);
+			WorldBuilderReadOnlyTarget.FileState clientTerrain =
+				source.target.requiredState(
+					"client-terrain", configuration.clientMapRelativePath);
+			if (serverTerrain.size != clientTerrain.size
+				|| !serverTerrain.sha256.equals(clientTerrain.sha256)) {
+				throw new WorldBuilderContractException(WorldBuilderErrorCodes.MAP_MISMATCH,
+					OPERATION, configuration.serverMapRelativePath, false,
+					"Server and client packed terrain archives are not byte-identical.",
+					"Copy one exact active archive for both declared map roles.");
+			}
+			files.add(serverTerrain);
+			files.add(clientTerrain);
+			for (WorldBuilderAdaptiveConfiguration.PlacementSource placement
+				: configuration.placements) {
+				files.add(source.target.requiredState(
+					"placement." + placement.role, placement.relativePath));
+			}
+			WorldBuilderGenericLayeredAdapter.validateInventoryAndRoles(
+				files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
+			WorldBuilderPackedConversionModel model = idFactory == null
+				? WorldBuilderPackedConversionModel.read(
+					source, configuration, common.definitions)
+				: WorldBuilderPackedConversionModel.read(
+					source, configuration, common.definitions, idFactory);
+			source.reverify();
+			return new Prepared(capability, configuration, common, model);
+		} catch (WorldBuilderContractException refusal) {
+			throw asConversionRefusal(refusal);
 		}
 	}
 
@@ -274,6 +322,7 @@ final class WorldBuilderPackedConverter {
 	private static void requireExactOutput(final Path stage, int expectedFiles)
 		throws IOException, WorldBuilderContractException {
 		final List<String> files = new ArrayList<String>();
+		final List<String> directories = new ArrayList<String>();
 		Files.walkFileTree(stage, new SimpleFileVisitor<Path>() {
 			@Override
 			public FileVisitResult preVisitDirectory(Path directory,
@@ -281,6 +330,8 @@ final class WorldBuilderPackedConverter {
 				if (!attributes.isDirectory() || Files.isSymbolicLink(directory)) {
 					throw new IOException("unsafe output directory");
 				}
+				directories.add(stage.equals(directory) ? ""
+					: stage.relativize(directory).toString().replace('\\', '/'));
 				return FileVisitResult.CONTINUE;
 			}
 
@@ -295,12 +346,56 @@ final class WorldBuilderPackedConverter {
 			}
 		});
 		Collections.sort(files);
+		Collections.sort(directories);
+		List<String> requiredDirectories = new ArrayList<String>();
+		requiredDirectories.add("");
+		for (String file : files) {
+			String parent = file;
+			while (parent.contains("/")) {
+				parent = parent.substring(0, parent.lastIndexOf('/'));
+				if (!requiredDirectories.contains(parent)) requiredDirectories.add(parent);
+			}
+		}
+		Collections.sort(requiredDirectories);
 		if (files.size() != expectedFiles
 			|| !files.contains("conversion-plan.json")
-			|| !files.contains("conversion-report.json")) {
+			|| !files.contains("conversion-report.json")
+			|| !directories.equals(requiredDirectories)) {
 			throw blocked("Staged conversion output contains missing or untracked files.",
 				"Inspect the atomic package writer and retry from immutable evidence.");
 		}
+	}
+
+	private static void requireFinalStage(
+		Path stage,
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		WorldBuilderPackedConversionModel model,
+		String planSha256,
+		String reportSha256,
+		String outputFingerprintSha256,
+		int expectedFiles) throws IOException, WorldBuilderContractException {
+		Path planPath = stage.resolve("conversion-plan.json");
+		Path reportPath = stage.resolve("conversion-report.json");
+		if (!planSha256.equals(WorldBuilderHashes.sha256(planPath))
+			|| !reportSha256.equals(WorldBuilderHashes.sha256(reportPath))) {
+			throw blocked("Staged conversion contracts changed after validation.",
+				"Retry conversion in an output parent not modified by another process.");
+		}
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.CONVERSION_PLAN, planPath);
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
+		WorldBuilderGenericLayeredPackage validated =
+			WorldBuilderGenericLayeredPackage.inspect(
+				WorldBuilderReadOnlyTarget.open(stage), "package", "converted", definitions);
+		if (!outputFingerprintSha256.equals(validated.fingerprintSha256)
+			|| validated.levelCount != model.levels.size()
+			|| validated.terrainCount != model.terrain.size()
+			|| !validated.placementSemantics.equals(model.placementSemantics)) {
+			throw blocked("Staged package changed after semantic parity validation.",
+				"Retry conversion in an output parent not modified by another process.");
+		}
+		requireExactOutput(stage, expectedFiles);
 	}
 
 	private static void deleteTree(Path root) {
@@ -330,6 +425,33 @@ final class WorldBuilderPackedConverter {
 	private static WorldBuilderContractException blocked(String message, String nextStep) {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
 			OPERATION, "output", false, message, nextStep);
+	}
+
+	private static WorldBuilderContractException asConversionRefusal(
+		WorldBuilderContractException refusal) {
+		if (OPERATION.equals(refusal.operation())) return refusal;
+		return new WorldBuilderContractException(refusal.code(), OPERATION,
+			refusal.projectId(), refusal.adapterId().isEmpty()
+				? WorldBuilderPackedLayoutAdapter.ID : refusal.adapterId(),
+			refusal.relativePath(), refusal.provenance(), refusal.expected(),
+			refusal.observed(), false, refusal.getMessage(), refusal.nextStep(), refusal);
+	}
+
+	private static final class Prepared {
+		final WorldBuilderTargetCapability capability;
+		final WorldBuilderAdaptiveConfiguration configuration;
+		final WorldBuilderCompatibilityEvidence common;
+		final WorldBuilderPackedConversionModel model;
+
+		Prepared(WorldBuilderTargetCapability capability,
+			WorldBuilderAdaptiveConfiguration configuration,
+			WorldBuilderCompatibilityEvidence common,
+			WorldBuilderPackedConversionModel model) {
+			this.capability = capability;
+			this.configuration = configuration;
+			this.common = common;
+			this.model = model;
+		}
 	}
 
 	static final class Result {

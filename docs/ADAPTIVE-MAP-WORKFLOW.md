@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-1 implemented, later phases not started |
+| Status | Approved architecture and implementation plan; Phases 0-2 implemented, later phases not started |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -649,8 +649,10 @@ change.
    additions, removals, moves, replacements, or collision changes.
 9. Run the generic package validator and load every payload through the same
    decoder contract used by the isolated runtime.
-10. Write the plan, report, baseline package, and hashes into project staging.
-    Only complete success permits project publication and editor launch.
+10. Write the plan, report, baseline package, and hashes into contained staging.
+    Phase 2 atomically publishes only that standalone conversion result; Phase
+    3 will invoke it inside project staging. Only complete success may permit a
+    later project publication and editor launch.
 
 The initial profile is exact-only. A future exclusion, relocation, repair, or
 approximation requires its own named/versioned transform, exact preview,
@@ -880,15 +882,20 @@ proposed schema numbers after adaptive contracts are final.
 | `test-world-builder-project-independence.py` | Preserve standalone source ownership and exact clean dependency use; extend only for changed packaging/CI paths. |
 | `test-world-builder-updater.py` | Frozen v1; unchanged. |
 
-Add dedicated suites for adapter contracts, project registry/lifecycle,
-conversion/parity, standalone empty generation, layered adoption, and
-cross-platform adaptive transactions.
+Dedicated `test-world-builder-adaptive-contracts.py`,
+`test-world-builder-adaptive-discovery.py`, and
+`test-world-builder-packed-conversion.py` suites now cover Phases 0-2. Project
+registry/lifecycle, standalone empty generation, layered adoption, and
+cross-platform adaptive transactions remain later dedicated suites.
 
 ## Existing implementation-file impact
 
 | File/group | Planned responsibility |
 | --- | --- |
 | `WorldBuilderDiscovery*` | Generic read-only orchestration, adapter selection, standalone detection, deterministic compatibility report, and double inventory. |
+| `WorldBuilderPackedCoordinateCodec.java`, `WorldBuilderPackedTerrainCodec.java` | Adapter-owned exact plane/archive/placement coordinate mapping and reversible terrain orientation conversion. |
+| `WorldBuilderPackedConversionSource.java`, `WorldBuilderPackedConversionModel.java`, `WorldBuilderPackedConverter.java` | Verify the isolated inventory, compose provenance-rich placements, write canonical package/contracts, prove parity, and publish only a complete atomic result. |
+| `WorldBuilderGenericLayeredPackage.java`, `WorldBuilderRawLayeredTerrainCodec.java`, `WorldBuilderPlacementSemantics.java` | Content-neutral package/runtime decoding validation and shared semantic placement comparison without fixed world identity. |
 | `WorldBuilderProjectSource.java` and `project-manifest-v1.schema.json` | Preserve old meaning; add v2 origin/project/source contracts. |
 | `WorldBuilderRuntimePreparer.java` | Stage adopted, converted, or generated-empty layered baselines; create isolated project working runtime; never copy release world data. |
 | `WorldBuilderSourceSnapshot.java` | Verify complete immutable original, baseline, compatibility, and conversion evidence. |
@@ -938,6 +945,14 @@ malformed-server, server/client mismatch, definitions, unsafe paths, and
 mid-discovery drift pass. Discovery never mutates target or project state.
 
 ### Phase 2 — deterministic packed conversion
+
+Implementation status: complete in this repository. The advanced
+`convert-packed` boundary accepts only an exact isolated evidence copy tied to
+a compatible descriptor-backed Phase 1 report. It rejects the live reported
+target, fallback-only evidence, links, hard links, missing/extra files, and
+hash drift. It emits `package/`, `conversion-plan.json`, and
+`conversion-report.json` through same-filesystem atomic staging. It does not
+create a project or runtime and does not read or mutate the reported target.
 
 - Add adapter-owned terrain/coordinate codecs and effective placement
   composition with provenance.

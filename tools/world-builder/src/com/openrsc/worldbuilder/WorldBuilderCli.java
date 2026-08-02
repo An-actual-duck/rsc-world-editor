@@ -130,6 +130,8 @@ public final class WorldBuilderCli {
 			System.err.println("ERROR [" + refusal.code() + "]: " + refusal.getMessage()
 				+ (refusal.relativePath().isEmpty() ? ""
 					: " Source: " + refusal.relativePath() + ".")
+				+ (refusal.provenance().isEmpty() ? ""
+					: " Provenance: " + refusal.provenance() + ".")
 				+ " Next step: " + refusal.nextStep());
 			return 3;
 		} catch (Exception failure) {
