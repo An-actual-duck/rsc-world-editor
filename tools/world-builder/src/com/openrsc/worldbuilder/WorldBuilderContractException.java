@@ -2,6 +2,8 @@ package com.openrsc.worldbuilder;
 
 /** A structured, read-only contract refusal with a stable error code. */
 final class WorldBuilderContractException extends Exception {
+	private static final long serialVersionUID = 1L;
+
 	private final String code;
 	private final String operation;
 	private final String projectId;
