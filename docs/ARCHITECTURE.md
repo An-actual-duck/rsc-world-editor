@@ -65,3 +65,13 @@ update channel `rsc-world-editor-v2`, a different install folder, and a
 signed-layered workspace. Neither generation may identify the other as an
 automatic update, and v2 must refuse legacy or unidentified workspaces rather
 than attempting an implicit conversion.
+
+## Planned custom materials
+
+The approved World Builder 2 design for creator-supplied wall and floor images
+uses project-local companion material packs, safe definition presets, explicit
+PNG normalization previews, stable automatic IDs, and server-owner client
+distribution. It does not modify the frozen v1 workflow or patch the base
+texture archive. See [World Builder 2 Custom Wall and Floor
+Materials](WORLD-BUILDER-2-CUSTOM-MATERIALS.md) for the normative implementation
+plan, phase gates, tests, and acceptance criteria.
