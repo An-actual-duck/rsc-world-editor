@@ -259,7 +259,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		}
 	}
 
-	private static void requireCapability(WorldBuilderTargetCapability capability)
+	static void requireCapability(WorldBuilderTargetCapability capability)
 		throws WorldBuilderContractException {
 		if (!FORMAT_ID.equals(capability.mapFormatId)
 			|| !PACKAGE_SCHEMA_ID.equals(capability.packageSchemaId)

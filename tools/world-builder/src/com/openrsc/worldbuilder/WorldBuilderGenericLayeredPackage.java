@@ -35,6 +35,7 @@ final class WorldBuilderGenericLayeredPackage {
 	final long groundItemCount;
 	final long npcCount;
 	final long sceneryCount;
+	final List<String> placementSemantics;
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
 
 	private WorldBuilderGenericLayeredPackage(
@@ -49,6 +50,7 @@ final class WorldBuilderGenericLayeredPackage {
 		long groundItemCount,
 		long npcCount,
 		long sceneryCount,
+		List<String> placementSemantics,
 		List<WorldBuilderReadOnlyTarget.FileState> files) {
 		this.packageId = packageId;
 		this.packageVersion = packageVersion;
@@ -61,6 +63,8 @@ final class WorldBuilderGenericLayeredPackage {
 		this.groundItemCount = groundItemCount;
 		this.npcCount = npcCount;
 		this.sceneryCount = sceneryCount;
+		this.placementSemantics = Collections.unmodifiableList(
+			new ArrayList<String>(placementSemantics));
 		this.files = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files));
 	}
@@ -166,6 +170,14 @@ final class WorldBuilderGenericLayeredPackage {
 					"Layered terrain payload size or hash does not match its declaration.",
 					"Restore the exact 23,040-byte declared sector payload.");
 			}
+			try {
+				WorldBuilderRawLayeredTerrainCodec.requireDecodable(
+					Files.readAllBytes(target.requiredFile(targetPath)));
+			} catch (IOException failure) {
+				throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, targetPath,
+					"Layered terrain changed while it was decoded.",
+					"Stop package changes and retry validation.");
+			}
 			register(referenced, state, manifestRelative);
 		}
 
@@ -178,6 +190,7 @@ final class WorldBuilderGenericLayeredPackage {
 		long groundItems = 0L;
 		long npcs = 0L;
 		long scenery = 0L;
+		List<String> placementSemantics = new ArrayList<String>();
 		for (Object raw : rawPlacementSets) {
 			Map<String,Object> placement = object(raw, manifestRelative, "placementSet");
 			exact(placement, manifestRelative, "encoding", "id", "level", "path",
@@ -208,7 +221,8 @@ final class WorldBuilderGenericLayeredPackage {
 			}
 			register(referenced, state, manifestRelative);
 			PlacementCounts counts = validatePlacements(
-				target, targetPath, worldSpace, level, terrainCoverage, definitions);
+				target, targetPath, worldSpace, level, terrainCoverage, definitions,
+				placementSemantics);
 			boundaries += counts.boundaries;
 			groundItems += counts.groundItems;
 			npcs += counts.npcs;
@@ -236,10 +250,11 @@ final class WorldBuilderGenericLayeredPackage {
 			WorldBuilderHashes.updateText(digest, Long.toString(file.size));
 			WorldBuilderHashes.updateText(digest, file.sha256);
 		}
+		Collections.sort(placementSemantics);
 		return new WorldBuilderGenericLayeredPackage(packageId, packageVersion,
 			worldSpace, WorldBuilderHashes.hex(digest.digest()), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
-			npcs, scenery, files);
+			npcs, scenery, placementSemantics, files);
 	}
 
 	private static PlacementCounts validatePlacements(
@@ -248,7 +263,8 @@ final class WorldBuilderGenericLayeredPackage {
 		String worldSpace,
 		int level,
 		Set<String> terrainCoverage,
-		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		List<String> semantics)
 		throws WorldBuilderContractException {
 		Map<String,Object> payload = target.readObject(path);
 		exact(payload, path, "boundaries", "encoding", "groundItems", "level",
@@ -264,16 +280,16 @@ final class WorldBuilderGenericLayeredPackage {
 		Set<String> placementIds = new HashSet<String>();
 		long boundaryCount = validateBoundaries(array(payload.get("boundaries"), path,
 			"boundaries", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds);
+			definitions, placementIds, semantics);
 		long groundItemCount = validateGroundItems(array(payload.get("groundItems"), path,
 			"groundItems", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds);
+			definitions, placementIds, semantics);
 		long npcCount = validateNpcs(array(payload.get("npcs"), path,
 			"npcs", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds);
+			definitions, placementIds, semantics);
 		long sceneryCount = validateScenery(array(payload.get("scenery"), path,
 			"scenery", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds);
+			definitions, placementIds, semantics);
 		long total = boundaryCount + groundItemCount + npcCount + sceneryCount;
 		if (total > MAX_PLACEMENTS_PER_SET) {
 			throw problem(WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, path,
@@ -286,7 +302,8 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateBoundaries(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds) throws WorldBuilderContractException {
+		Set<String> placementIds, List<String> semantics)
+		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
 		for (Object raw : records) {
@@ -305,6 +322,8 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("boundary", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
+			semantics.add(WorldBuilderPlacementSemantics.boundary(
+				level, id, point.x, point.y, direction));
 		}
 		return records.size();
 	}
@@ -312,7 +331,8 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateGroundItems(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds) throws WorldBuilderContractException {
+		Set<String> placementIds, List<String> semantics)
+		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
 		for (Object raw : records) {
@@ -335,6 +355,8 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("ground-item", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
+			semantics.add(WorldBuilderPlacementSemantics.groundItem(
+				level, id, point.x, point.y, amount, respawn));
 		}
 		return records.size();
 	}
@@ -342,7 +364,8 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateNpcs(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds) throws WorldBuilderContractException {
+		Set<String> placementIds, List<String> semantics)
+		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
 		for (Object raw : records) {
@@ -370,6 +393,8 @@ final class WorldBuilderGenericLayeredPackage {
 			definitions.require("npc", id, path);
 			requireCoverage(terrain, level, start.x, start.y, path);
 			requireCoverageRectangle(terrain, level, minimum, maximum, path);
+			semantics.add(WorldBuilderPlacementSemantics.npc(level, id,
+				start.x, start.y, minimum.x, minimum.y, maximum.x, maximum.y));
 		}
 		return records.size();
 	}
@@ -377,7 +402,8 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateScenery(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds) throws WorldBuilderContractException {
+		Set<String> placementIds, List<String> semantics)
+		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
 		for (Object raw : records) {
@@ -396,6 +422,8 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("scenery", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
+			semantics.add(WorldBuilderPlacementSemantics.scenery(
+				level, id, point.x, point.y, direction));
 		}
 		return records.size();
 	}
