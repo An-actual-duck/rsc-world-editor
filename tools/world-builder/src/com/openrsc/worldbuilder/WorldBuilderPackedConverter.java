@@ -11,7 +11,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -114,6 +113,7 @@ final class WorldBuilderPackedConverter {
 			WorldBuilderAdaptiveContracts.read(
 				WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
 			requireSelfFingerprint(report, "reportFingerprintSha256");
+			String reportSha256 = WorldBuilderHashes.sha256(reportPath);
 			requireExactOutput(stage, validated.files.size() + 2);
 			source.reverify();
 			observe("before-publish", stage);
@@ -125,7 +125,7 @@ final class WorldBuilderPackedConverter {
 					"Choose an output parent that supports same-filesystem atomic moves.");
 			}
 			return new Result(output, source.sourceFingerprintSha256, planSha256,
-				WorldBuilderHashes.sha256(reportPathFor(output)),
+				reportSha256,
 				validated.fingerprintSha256, model.terrain.size(), model.placements.size());
 		} catch (IOException failure) {
 			deleteTree(stage);
@@ -301,10 +301,6 @@ final class WorldBuilderPackedConverter {
 			throw blocked("Staged conversion output contains missing or untracked files.",
 				"Inspect the atomic package writer and retry from immutable evidence.");
 		}
-	}
-
-	private static Path reportPathFor(Path output) {
-		return output.resolve("conversion-report.json");
 	}
 
 	private static void deleteTree(Path root) {
