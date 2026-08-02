@@ -290,13 +290,16 @@ public final class AdaptiveDiscoveryDriftHarness {
         write_json(package / "manifest.json", manifest)
 
     @staticmethod
-    def write_archive(path: Path, seed: int = 0):
+    def write_archive(
+        path: Path, seed: int = 0, entry_names: tuple[str, ...] = ("h0x48y37",)
+    ):
         path.parent.mkdir(parents=True, exist_ok=True)
         raw = bytes((seed + index * 7) & 0xFF for index in range(48 * 48 * 10))
         with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-            info = zipfile.ZipInfo("h0x48y37", (2024, 1, 2, 3, 4, 6))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            archive.writestr(info, raw)
+            for entry_name in entry_names:
+                info = zipfile.ZipInfo(entry_name, (2024, 1, 2, 3, 4, 6))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                archive.writestr(info, raw)
 
     def write_common_evidence(self, root: Path, *, representation: str) -> dict:
         server_catalog = root / "server/evidence/definitions.json"
@@ -686,6 +689,47 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertEqual("spoiled-milk-packed-v1", report["capability"]["adapterId"])
             self.assertEqual(
                 "spoiled-milk-packed-fallback-v1", report["capability"]["capabilityId"]
+            )
+
+    def test_packed_sector_coordinate_aliases_are_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-alias-") as temp:
+            root = self.descriptor_fixture(temp, representation="packed")
+            server_map = root / "server/maps/active.orsc"
+            client_map = root / "client/maps/active.orsc"
+            self.write_archive(
+                server_map, entry_names=("h0x48y37", "h0x048y037")
+            )
+            shutil.copyfile(server_map, client_map)
+
+            report = self.assert_blocked(root, "UNSUPPORTED_FORMAT")
+            self.assertIn("duplicate", report["issues"][0]["observed"].lower())
+            self.assertIn("h0x048y037", report["issues"][0]["observed"])
+
+    def test_malformed_legacy_errors_are_portable_and_path_independent(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-legacy-portable-") as temp:
+            first = self.legacy_fixture(str(Path(temp) / "first"))
+            second = self.legacy_fixture(str(Path(temp) / "second"))
+            relative = "server/conf/server/defs/locs/MyWorldSceneryLocs.json"
+            malformed = {"sceneries": [{"id": "not-a-valid-placement"}]}
+            write_json(first / relative, malformed)
+            write_json(second / relative, malformed)
+
+            reports = []
+            for root in (first, second):
+                result, report = self.assert_read_only(root)
+                self.assertEqual(3, result.returncode, result.stderr)
+                self.assertEqual("MALFORMED_SERVER", report["issues"][0]["code"])
+                self.assertEqual(relative, report["issues"][0]["relativePath"])
+                self.assertEqual(str(root.resolve()), report["targetRootDisplay"])
+                portable_report = dict(report)
+                portable_report.pop("targetRootDisplay")
+                self.assertNotIn(str(root.resolve()), json.dumps(portable_report))
+                self.assertNotIn(str(root.resolve()), result.stderr)
+                reports.append(report)
+
+            self.assertEqual(
+                reports[0]["discoveryFingerprintSha256"],
+                reports[1]["discoveryFingerprintSha256"],
             )
 
     def test_recognizable_broken_server_is_not_misclassified_as_standalone(self):

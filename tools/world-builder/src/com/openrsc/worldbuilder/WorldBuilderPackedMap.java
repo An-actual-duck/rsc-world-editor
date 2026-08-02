@@ -141,6 +141,7 @@ final class WorldBuilderPackedMap {
 		throws WorldBuilderContractException {
 		Set<String> sectors = new HashSet<String>();
 		Set<String> names = new HashSet<String>();
+		Map<String,String> normalizedNames = new HashMap<String,String>();
 		try (ZipFile zip = new ZipFile(archive.toFile())) {
 			Enumeration<? extends ZipEntry> entries = zip.entries();
 			while (entries.hasMoreElements()) {
@@ -185,7 +186,15 @@ final class WorldBuilderPackedMap {
 						"Packed terrain entry is not exactly 23,040 raw bytes: " + entry.getName(),
 						"Restore the exact raw packed sector payload.");
 				}
-				sectors.add(plane + ":" + (archiveX - 48) + ":" + (archiveY - 37));
+				String coordinate = plane + ":" + (archiveX - 48) + ":" + (archiveY - 37);
+				String previousName = normalizedNames.put(coordinate, entry.getName());
+				if (previousName != null) {
+					throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, relative,
+						"Packed terrain entry " + entry.getName()
+							+ " duplicates normalized sector coordinates from " + previousName + ".",
+						"Keep exactly one spelling for each h<plane>x<x>y<y> sector coordinate.");
+				}
+				sectors.add(coordinate);
 			}
 		} catch (WorldBuilderContractException refusal) {
 			throw refusal;
