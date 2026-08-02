@@ -113,6 +113,10 @@ See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the
 full contracts.
 
+The approved, not-yet-implemented design for nontechnical creator-supplied
+floor and wall images is documented in [World Builder 2 Custom Wall and Floor
+Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md).
+
 ## License
 
 The source is provided under the GNU Affero General Public License, version 3.
