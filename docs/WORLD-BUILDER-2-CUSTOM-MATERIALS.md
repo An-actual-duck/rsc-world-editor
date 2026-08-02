@@ -8,6 +8,7 @@
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
+| Foundation | [`ADAPTIVE-MAP-WORKFLOW.md`](ADAPTIVE-MAP-WORKFLOW.md) must be implemented first |
 | Distribution decision | Server owners distribute the matching client and material pack to players |
 | Authoring decision | Versioned safe presets; no raw definition flags |
 | Image decision | PNG input, explicit crop/resize review, 64-by-64 default, 128-by-128 opt-in |
@@ -15,6 +16,11 @@
 This document is the source of truth for the first custom-materials increment.
 It is intentionally prescriptive so a future maintainer or AI session can
 implement one bounded phase without rediscovering product decisions.
+
+Its implementation MUST use the adaptive plan's project UUIDs, target or
+standalone origins, capability identities, and current export/import contracts.
+The older single-`workspace/` paths and proposed schema numbers in this document
+are descriptive history until that foundation is complete.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 

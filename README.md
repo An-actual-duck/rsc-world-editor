@@ -113,8 +113,13 @@ See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the
 full contracts.
 
-The approved, not-yet-implemented design for nontechnical creator-supplied
-floor and wall images is documented in [World Builder 2 Custom Wall and Floor
+The approved, not-yet-implemented foundation for target-derived maps,
+content-neutral releases, isolated projects, and packed-to-layered conversion
+is documented in [World Builder 2 Adaptive Map
+Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md).
+
+The dependent design for nontechnical creator-supplied floor and wall images
+is documented in [World Builder 2 Custom Wall and Floor
 Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md).
 
 ## License

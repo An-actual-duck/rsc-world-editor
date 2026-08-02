@@ -792,7 +792,11 @@ the update refuses and explains how to preserve the old installation.
 `release/world-builder-v2/RELEASE-READY` and
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md` remain historical
 evidence. Adaptive implementation does not reinterpret them as approval of a
-new release design.
+new release design. The current marker is not version-scoped, so the release
+workflow MUST replace or constrain it with an exact adaptive-version and
+candidate-commit acceptance record before adaptive implementation can be
+packaged. Until then, no adaptive release is authorized by that historical
+marker.
 
 ### Packaging
 
@@ -1004,9 +1008,11 @@ force attempts fail closed; standalone import/undo never touches a target.
 - Present auto-detect/adopt-or-convert/create-empty as the primary UI; keep
   technical reports expandable and actionable.
 - Update every affected document/test listed above and align custom materials.
-- Run Java lint where applicable, focused suites, and `./scripts/test.sh`.
-- Perform owner-run Linux/Windows target-backed and standalone validation,
-  updater validation, software/OpenGL visual review, and install/undo recovery.
+- Run `git diff --check`, focused suites, and `./scripts/test.sh`.
+- Perform owner-run target-backed and standalone validation on the owner's
+  native platform, automated and code-review coverage for the other platform,
+  updater validation, owner-run software/OpenGL visual review, and install/undo
+  recovery.
 - Add a new adaptive release validation record without changing historical
   evidence.
 
@@ -1054,17 +1060,17 @@ project bytes before and after. Required coverage includes:
   and
 - frozen v1/v2 identity and channel isolation.
 
-The complete repository suite is `./scripts/test.sh`. Java changes also run
-`./scripts/lint.sh analyze --offline --base spoiled-milk/main`. Release work
-runs focused package/updater suites and independently inspects final archive
-paths, content, and hashes.
+Every change runs `git diff --check`; the complete repository suite is
+`./scripts/test.sh`. Release work runs focused package/updater suites and
+independently inspects final archive paths, content, and hashes.
 
 ### Owner-run
 
 Use disposable copies, never a live/public server:
 
-- first launch on Linux and Windows with one packed server, one layered server,
-  no server, unsupported server, and ambiguous configs;
+- first launch on the owner's native platform with one packed server, one
+  layered server, no server, unsupported server, and ambiguous configs;
+- code review and automated package/launcher coverage for the other platform;
 - simple conversion report, editor launch, save, close, reopen, and target byte
   comparison;
 - empty project opening at layer 0/origin 0,0, authoring first terrain,
@@ -1077,6 +1083,9 @@ Use disposable copies, never a live/public server:
   distribution message, apply, verification, owner restart, and undo;
 - interruption and rollback recovery; and
 - update from historical v2-alpha state with preservation policy verified.
+
+AI sessions MUST ask the owner to perform and report visual inspection rather
+than capture or judge screenshots themselves.
 
 ## Acceptance criteria
 
@@ -1112,8 +1121,9 @@ Use disposable copies, never a live/public server:
   or installation.
 - **AC-15:** Updaters preserve all projects, historical v2 state, and unknown
   files and never cross-update v1.
-- **AC-16:** Focused tests, Java lint where applicable, `./scripts/test.sh`, and
-  owner-run Linux/Windows/visual validation pass before release readiness.
+- **AC-16:** `git diff --check`, focused tests, `./scripts/test.sh`, automated
+  cross-platform package/launcher checks, and owner-native visual validation
+  pass before release readiness.
 - **AC-17:** Documentation describes actual simple workflows and the exact
   compatibility boundary.
 
