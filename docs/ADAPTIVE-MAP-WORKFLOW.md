@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; implementation has not started |
+| Status | Approved architecture and implementation plan; Phases 0-1 implemented, later phases not started |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |

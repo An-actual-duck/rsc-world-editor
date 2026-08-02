@@ -32,6 +32,53 @@ Discovery supports the versioned `spoiled-milk-repository-v1` layout and
 writes its deterministic source manifest to standard output. It does not
 create a workspace or change the target.
 
+### Adaptive discovery (workflow Phase 1)
+
+The adaptive read-only inspection boundary is available separately from the
+historical prepare/launch workflow:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar discover-adaptive \
+  --target-root /path/to/server-root
+```
+
+It emits a validated `world-builder-discovery-report` schema version 2 on
+standard output and a short compatibility summary on standard error. Exit `0`
+means either a compatible target or clearly labelled standalone/no-server
+classification; exit `3` means the report is blocked. This command never
+creates a project, converts a map, prepares a runtime, or writes target state.
+The existing `discover`, `prepare`, and `launch` behavior is intentionally
+unchanged until the later adaptive project-lifecycle phases replace it.
+
+Descriptor-backed servers put the strict Phase 0 capability contract at
+`server/world-builder-capabilities.json`. Each declared lowercase
+configuration role maps only to the compiled adapter path
+`server/world-builder-configs/<role>.json`; more than one active role requires
+an explicit `--configuration-role <role>`. Adapter configurations bind paired
+server/client maps, one exact definition catalog, paired rendering assets,
+paired runtime evidence, and—for packed maps—the complete ordered static
+placement composition. All paths are portable target-relative paths under
+compiled server/client roots. Target metadata cannot add executable adapter
+code or mutation destinations.
+
+The initial registry contains:
+
+- `generic-layered-v1`, which requires a descriptor and validates any complete
+  compatible signed-layered package without fixed package identity, version,
+  hash, level, sector, or placement counts; and
+- `spoiled-milk-packed-v1`, which accepts the same strict descriptor/evidence
+  model for complete packed inputs and retains one narrow descriptor-free
+  probe for the reviewed legacy layout.
+
+Both descriptor-backed adapters independently compare capability, config,
+runtime, definition, asset, and server/client map facts. Discovery parses all
+four placement families, validates definition references and terrain coverage,
+rejects links and unsafe/colliding paths, enforces resource limits, and repeats
+the complete inspection. A changing target is retried once and then reported
+as `DISCOVERY_DRIFT`. No recognizable server evidence reports standalone;
+recognizable but missing, malformed, unknown, or ambiguous evidence is always
+blocked instead of being mistaken for an empty project.
+
 The Phase 1 runtime can prepare an isolated workspace and launch the local
 Builder server/client pair:
 

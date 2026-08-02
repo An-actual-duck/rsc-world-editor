@@ -90,6 +90,12 @@ final class WorldBuilderAdaptiveContracts {
 				"Adaptive contract JSON is malformed or unsafe: " + malformed.getMessage(),
 				"Supply one bounded UTF-8 JSON object with unique keys.", malformed);
 		}
+		return validateParsed(kind, root);
+	}
+
+	/** Validate an already parsed/generated document without touching the filesystem. */
+	static Document validateParsed(Kind kind, Map<String,Object> root)
+		throws WorldBuilderContractException {
 		validateIdentity(kind, root);
 		validate(kind, root);
 		String canonical;
