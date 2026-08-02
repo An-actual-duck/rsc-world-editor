@@ -22,6 +22,9 @@ public final class WorldBuilderCli {
 			usage();
 			return args.length == 0 ? 2 : 0;
 		}
+		if ("discover-adaptive".equals(args[0])) {
+			return discoverAdaptive(args);
+		}
 		if ("prepare".equals(args[0])) {
 			return prepare(args);
 		}
@@ -87,6 +90,45 @@ public final class WorldBuilderCli {
 		} catch (WorldBuilderDiscoveryException refusal) {
 			System.err.println("ERROR: " + refusal.getMessage());
 			return 3;
+		}
+	}
+
+	private static int discoverAdaptive(String[] args) {
+		Path root = null;
+		String configurationRole = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if (("--target-root".equals(argument) || "--server-root".equals(argument))
+				&& index + 1 < args.length) {
+				if (root != null) {
+					System.err.println("ERROR: Supply the target root exactly once.");
+					return 2;
+				}
+				root = Paths.get(args[++index]);
+			} else if ("--configuration-role".equals(argument)
+				&& index + 1 < args.length) {
+				configurationRole = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (root == null) {
+			System.err.println("ERROR: discover-adaptive requires --target-root.");
+			usage();
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveDiscoveryReport report =
+				new WorldBuilderAdaptiveDiscovery().discover(root, configurationRole);
+			System.out.print(report.toJson());
+			System.err.println("Discovery summary: " + report.summary());
+			return "blocked".equals(report.status) ? 3 : 0;
+		} catch (WorldBuilderContractException internalRefusal) {
+			System.err.println("ERROR: Could not produce a valid adaptive discovery report: "
+				+ internalRefusal.getMessage());
+			return 4;
 		}
 	}
 
@@ -513,7 +555,9 @@ public final class WorldBuilderCli {
 	}
 
 	private static void usage() {
-		System.err.println("Usage:\n  WorldBuilderCli discover --server-root <path>"
+		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
+			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"
 			+ "\n  WorldBuilderCli prepare --server-root <path> --runtime-root <path>"
