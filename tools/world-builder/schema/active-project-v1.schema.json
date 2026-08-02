@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/active-project-v1.schema.json",
+  "title": "World Builder active project pointer v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "projectId", "manifestRelativePath", "manifestSha256"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-active-project"},
+    "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalUuid"},
+    "manifestRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalRelativePath"},
+    "manifestSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"}
+  }
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/discovery-report-v2.schema.json",
+  "title": "World Builder discovery report v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "toolVersion", "status", "targetRootDisplay",
+    "adaptersConsidered", "descriptor", "configurationCandidates",
+    "selectedConfiguration", "representation", "capability", "files", "checks",
+    "operations", "issues", "discoveryFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "manifestType": {"const": "world-builder-discovery-report"},
+    "toolVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "status": {"enum": ["blocked", "compatible", "standalone"]},
+    "targetRootDisplay": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/displayPath"},
+    "adaptersConsidered": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    },
+    "descriptor": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/stateReference"},
+    "configurationCandidates": {
+      "type": "array", "maxItems": 64,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "relativePath", "sha256"],
+        "properties": {
+          "role": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+          "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+        }
+      }
+    },
+    "selectedConfiguration": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/roleStateReference"},
+    "representation": {"enum": ["layered", "none", "packed", "unknown"]},
+    "capability": {"$ref": "#/$defs/capabilityReference"},
+    "files": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/inventory"},
+    "checks": {
+      "type": "array", "maxItems": 512,
+      "items": {"$ref": "#/$defs/check"}
+    },
+    "operations": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/operations"},
+    "issues": {
+      "type": "array", "maxItems": 4096,
+      "items": {
+        "allOf": [
+          {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/issue"},
+          {"properties": {"mutationOccurred": {"const": false}}}
+        ]
+      }
+    },
+    "discoveryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "checks": {"contains": {"properties": {"status": {"const": "failed"}}}}
+        }
+      },
+      "then": {"properties": {"status": {"const": "blocked"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "blocked"}}},
+      "then": {"properties": {"operations": {"$ref": "#/$defs/noOperations"}}},
+      "else": {"properties": {"operations": {"$ref": "#/$defs/discoveryOperations"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "compatible"}}},
+      "then": {
+        "properties": {
+          "selectedConfiguration": {"properties": {"present": {"const": true}}},
+          "capability": {"properties": {"resolved": {"const": true}}},
+          "representation": {"enum": ["layered", "packed"]},
+          "files": {
+            "minItems": 1,
+            "contains": {"properties": {"present": {"const": true}}}
+          },
+          "issues": {
+            "not": {"contains": {"properties": {"severity": {"const": "blocker"}}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "standalone"}}},
+      "then": {
+        "properties": {
+          "representation": {"const": "none"},
+          "configurationCandidates": {"maxItems": 0},
+          "files": {"maxItems": 0},
+          "descriptor": {"properties": {"present": {"const": false}}},
+          "selectedConfiguration": {"properties": {"present": {"const": false}}},
+          "capability": {"properties": {"resolved": {"const": false}}}
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "capabilityReference": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "resolved", "adapterId", "capabilityId", "evidenceRelativePath",
+        "evidenceSha256"
+      ],
+      "properties": {
+        "resolved": {"type": "boolean"},
+        "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "capabilityId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "evidenceRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalRelativePath"},
+        "evidenceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"}
+      }
+    },
+    "check": {
+      "type": "object", "additionalProperties": false,
+      "required": ["checkId", "status", "expected", "observed"],
+      "properties": {
+        "checkId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "status": {"enum": ["failed", "not-applicable", "passed"]},
+        "expected": {"type": "string", "maxLength": 4096},
+        "observed": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "discoveryOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": true},
+        "edit": {"const": false},
+        "save": {"const": false},
+        "export": {"const": false},
+        "import": {"const": false},
+        "undo": {"const": false}
+      }
+    },
+    "noOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": false},
+        "edit": {"const": false},
+        "save": {"const": false},
+        "export": {"const": false},
+        "import": {"const": false},
+        "undo": {"const": false}
+      }
+    }
+  }
+}

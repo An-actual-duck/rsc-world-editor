@@ -1,5 +1,6 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,7 +18,6 @@ import java.util.TreeMap;
 
 /** Small dependency-free JSON reader and strict authored-overlay validator. */
 final class WorldBuilderJsonDocuments {
-	private static final long MAX_JSON_BYTES = 16L * 1024L * 1024L;
 	private WorldBuilderJsonDocuments() {
 	}
 
@@ -25,7 +26,11 @@ final class WorldBuilderJsonDocuments {
 			throw new WorldBuilderDiscoveryException("Required JSON file is missing or unsafe: " + path);
 		}
 		long size = Files.size(path);
-		if (size < 2L || size > MAX_JSON_BYTES) {
+		if (size < 2L || size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
+		}
+		byte[] bytes = readBounded(path);
+		if (bytes.length < 2) {
 			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
 		}
 		String text;
@@ -33,7 +38,7 @@ final class WorldBuilderJsonDocuments {
 			text = StandardCharsets.UTF_8.newDecoder()
 				.onMalformedInput(CodingErrorAction.REPORT)
 				.onUnmappableCharacter(CodingErrorAction.REPORT)
-				.decode(ByteBuffer.wrap(Files.readAllBytes(path))).toString();
+				.decode(ByteBuffer.wrap(bytes)).toString();
 		} catch (CharacterCodingException invalidUtf8) {
 			throw new WorldBuilderDiscoveryException("JSON file is not valid UTF-8: " + path);
 		}
@@ -45,10 +50,72 @@ final class WorldBuilderJsonDocuments {
 		return object;
 	}
 
+	private static byte[] readBounded(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		ByteArrayOutputStream output = new ByteArrayOutputStream(8192);
+		try (java.io.InputStream input = Files.newInputStream(
+			path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+			byte[] buffer = new byte[8192];
+			int read;
+			while ((read = input.read(buffer)) >= 0) {
+				if (read == 0) continue;
+				if ((long)output.size() + read > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+					throw new WorldBuilderDiscoveryException(
+						"JSON file has an invalid size: " + path);
+				}
+				output.write(buffer, 0, read);
+			}
+		}
+		return output.toByteArray();
+	}
+
 	static String pretty(Object value) {
 		StringBuilder output = new StringBuilder(64 * 1024);
 		write(value, output, 0);
 		return output.append('\n').toString();
+	}
+
+	/** Canonical UTF-8 JSON text: sorted keys, preserved array order, no whitespace. */
+	static String canonical(Object value) {
+		StringBuilder output = new StringBuilder(64 * 1024);
+		writeCanonical(value, output);
+		return output.toString();
+	}
+
+	private static void writeCanonical(Object value, StringBuilder output) {
+		if (value == null) {
+			output.append("null");
+		} else if (value instanceof String) {
+			writeString((String)value, output);
+		} else if (value instanceof Boolean || value instanceof Byte
+			|| value instanceof Short || value instanceof Integer
+			|| value instanceof Long) {
+			output.append(value);
+		} else if (value instanceof Map) {
+			@SuppressWarnings("unchecked") Map<String,Object> object =
+				(Map<String,Object>)value;
+			output.append('{');
+			int index = 0;
+			for (Map.Entry<String,Object> entry
+				: new TreeMap<String,Object>(object).entrySet()) {
+				if (index++ > 0) output.append(',');
+				writeString(entry.getKey(), output);
+				output.append(':');
+				writeCanonical(entry.getValue(), output);
+			}
+			output.append('}');
+		} else if (value instanceof List) {
+			@SuppressWarnings("unchecked") List<Object> array = (List<Object>)value;
+			output.append('[');
+			for (int index = 0; index < array.size(); index++) {
+				if (index > 0) output.append(',');
+				writeCanonical(array.get(index), output);
+			}
+			output.append(']');
+		} else {
+			throw new IllegalArgumentException(
+				"Unsupported JSON value: " + value.getClass().getName());
+		}
 	}
 
 	private static void write(Object value, StringBuilder output, int depth) {
@@ -97,6 +164,7 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	private static void writeString(String value, StringBuilder output) {
+		validateUnicode(value);
 		output.append('"');
 		for (int index = 0; index < value.length(); index++) {
 			char character = value.charAt(index);
@@ -117,6 +185,21 @@ final class WorldBuilderJsonDocuments {
 			}
 		}
 		output.append('"');
+	}
+
+	private static void validateUnicode(String value) {
+		for (int index = 0; index < value.length(); index++) {
+			char character = value.charAt(index);
+			if (Character.isHighSurrogate(character)) {
+				if (index + 1 >= value.length()
+					|| !Character.isLowSurrogate(value.charAt(index + 1))) {
+					throw new IllegalArgumentException("JSON string has an unpaired surrogate.");
+				}
+				index++;
+			} else if (Character.isLowSurrogate(character)) {
+				throw new IllegalArgumentException("JSON string has an unpaired surrogate.");
+			}
+		}
 	}
 
 	static int validateSceneryLocs(Path path) throws IOException, WorldBuilderDiscoveryException {
@@ -209,7 +292,8 @@ final class WorldBuilderJsonDocuments {
 			Object value=value(0); whitespace(); if(at!=text.length())fail("Trailing data"); return value;
 		}
 		private Object value(int depth) throws WorldBuilderDiscoveryException {
-			if(depth>32||++values>1_000_000)fail("JSON complexity limit exceeded"); whitespace(); if(at>=text.length())fail("Unexpected end");
+			if(depth>WorldBuilderContractLimits.MAX_JSON_DEPTH
+				||++values>WorldBuilderContractLimits.MAX_JSON_VALUES)fail("JSON complexity limit exceeded"); whitespace(); if(at>=text.length())fail("Unexpected end");
 			char c=text.charAt(at); if(c=='{')return object(depth+1);if(c=='[')return array(depth+1);if(c=='\"')return string();
 			if(c=='-'||(c>='0'&&c<='9'))return number();if(literal("true"))return Boolean.TRUE;if(literal("false"))return Boolean.FALSE;if(literal("null"))return null;
 			fail("Unexpected token");return null;
@@ -224,7 +308,7 @@ final class WorldBuilderJsonDocuments {
 			while(true){result.add(value(depth));whitespace();if(take(']'))return result;if(!take(','))fail("Missing ','");}
 		}
 		private String string() throws WorldBuilderDiscoveryException {
-			at++;StringBuilder result=new StringBuilder();while(at<text.length()){char c=text.charAt(at++);if(c=='\"')return result.toString();if(c<' ')fail("Control character in string");
+			at++;StringBuilder result=new StringBuilder();while(at<text.length()){char c=text.charAt(at++);if(c=='\"'){try{validateUnicode(result.toString());}catch(IllegalArgumentException invalid){fail("Unpaired Unicode surrogate");}return result.toString();}if(c<' ')fail("Control character in string");
 				if(c!='\\'){result.append(c);continue;}if(at>=text.length())fail("Incomplete escape");char escaped=text.charAt(at++);switch(escaped){case '\"':case '\\':case '/':result.append(escaped);break;
 					case 'b':result.append('\b');break;case 'f':result.append('\f');break;case 'n':result.append('\n');break;case 'r':result.append('\r');break;case 't':result.append('\t');break;
 					case 'u':if(at+4>text.length())fail("Incomplete Unicode escape");try{result.append((char)Integer.parseInt(text.substring(at,at+4),16));}catch(NumberFormatException bad){fail("Invalid Unicode escape");}at+=4;break;default:fail("Invalid escape");}}
