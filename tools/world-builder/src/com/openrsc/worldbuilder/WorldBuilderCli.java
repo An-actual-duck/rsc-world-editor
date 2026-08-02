@@ -126,8 +126,10 @@ public final class WorldBuilderCli {
 			System.err.println("Discovery summary: " + report.summary());
 			return "blocked".equals(report.status) ? 3 : 0;
 		} catch (WorldBuilderContractException internalRefusal) {
+			String targetDisplay = root.toAbsolutePath().normalize().toString();
 			System.err.println("ERROR: Could not produce a valid adaptive discovery report: "
-				+ internalRefusal.getMessage());
+				+ WorldBuilderAdaptiveDiscoveryReport.sanitizeDiagnostic(
+					internalRefusal.getMessage(), targetDisplay));
 			return 4;
 		}
 	}

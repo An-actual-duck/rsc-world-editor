@@ -81,6 +81,11 @@ public final class AdaptiveDiscoveryDriftHarness {
                 @Override
                 public void betweenVerificationPasses(Path root, int attempt)
                     throws Exception {
+                    if ("throw-path".equals(mode)) {
+                        throw new Exception(
+                            root.resolve("server/maps/active").toString()
+                                + ": callback failure");
+                    }
                     if ("always".equals(mode) || calls++ == 0) {
                         Files.write(
                             root.resolve("server/world-builder-configs/primary.json"),
@@ -189,6 +194,18 @@ public final class AdaptiveDiscoveryDriftHarness {
         self.assertTrue(report["issues"][0]["nextStep"])
         self.assertIn("Target discovery is blocked", result.stderr)
         return report
+
+    def assert_root_is_display_only(
+        self, root: Path, result: subprocess.CompletedProcess, report: dict
+    ) -> None:
+        root_display = str(root.resolve())
+        self.assertEqual(root_display, report["targetRootDisplay"])
+        portable_report = dict(report)
+        portable_report.pop("targetRootDisplay")
+        serialized = json.dumps(portable_report)
+        for forbidden in {root_display, root_display.replace("\\", "/")}:
+            self.assertNotIn(forbidden, serialized)
+            self.assertNotIn(forbidden, result.stderr)
 
     def definition_catalog(self, catalog_id: str = "fixture-catalog-v1") -> dict:
         return {
@@ -720,11 +737,79 @@ public final class AdaptiveDiscoveryDriftHarness {
                 self.assertEqual(3, result.returncode, result.stderr)
                 self.assertEqual("MALFORMED_SERVER", report["issues"][0]["code"])
                 self.assertEqual(relative, report["issues"][0]["relativePath"])
-                self.assertEqual(str(root.resolve()), report["targetRootDisplay"])
-                portable_report = dict(report)
-                portable_report.pop("targetRootDisplay")
-                self.assertNotIn(str(root.resolve()), json.dumps(portable_report))
-                self.assertNotIn(str(root.resolve()), result.stderr)
+                self.assert_root_is_display_only(root, result, report)
+                reports.append(report)
+
+            self.assertEqual(
+                reports[0]["discoveryFingerprintSha256"],
+                reports[1]["discoveryFingerprintSha256"],
+            )
+
+    def test_descriptor_filesystem_errors_are_portable_and_path_independent(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-filesystem-portable-") as temp:
+            roots = [
+                self.descriptor_fixture(str(Path(temp) / name))
+                for name in ("first", "second")
+            ]
+            reports = []
+            for root in roots:
+                maps = root / "server/maps"
+                shutil.rmtree(maps)
+                maps.write_bytes(b"regular file blocks the configured map directory\n")
+                result, report = self.assert_read_only(root)
+                self.assertEqual(3, result.returncode, result.stderr)
+                self.assertEqual("MALFORMED_SERVER", report["issues"][0]["code"])
+                self.assert_root_is_display_only(root, result, report)
+                self.assertIn(
+                    "server/maps/active", report["issues"][0]["observed"]
+                )
+                reports.append(report)
+
+            self.assertEqual(
+                reports[0]["discoveryFingerprintSha256"],
+                reports[1]["discoveryFingerprintSha256"],
+            )
+
+    def test_zip_errors_are_portable_and_path_independent(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-zip-portable-") as temp:
+            roots = [
+                self.descriptor_fixture(str(Path(temp) / name), representation="packed")
+                for name in ("first", "second")
+            ]
+            reports = []
+            for root in roots:
+                malformed = b"identical malformed packed archive\n"
+                (root / "server/maps/active.orsc").write_bytes(malformed)
+                (root / "client/maps/active.orsc").write_bytes(malformed)
+                result, report = self.assert_read_only(root)
+                self.assertEqual(3, result.returncode, result.stderr)
+                self.assertEqual("UNSUPPORTED_FORMAT", report["issues"][0]["code"])
+                self.assert_root_is_display_only(root, result, report)
+                reports.append(report)
+
+            self.assertEqual(
+                reports[0]["discoveryFingerprintSha256"],
+                reports[1]["discoveryFingerprintSha256"],
+            )
+
+    def test_callback_errors_are_portable_and_path_independent(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-callback-portable-") as temp:
+            roots = [
+                self.descriptor_fixture(str(Path(temp) / name))
+                for name in ("first", "second")
+            ]
+            reports = []
+            for root in roots:
+                before = self.snapshot(root)
+                result = self.run_drift(root, "throw-path")
+                self.assertEqual(before, self.snapshot(root))
+                self.assertEqual(3, result.returncode, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertEqual("DISCOVERY_DRIFT", report["issues"][0]["code"])
+                self.assert_root_is_display_only(root, result, report)
+                self.assertIn(
+                    "server/maps/active", report["issues"][0]["observed"]
+                )
                 reports.append(report)
 
             self.assertEqual(

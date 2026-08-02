@@ -7,7 +7,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 /** Descriptor-backed packed adapter plus the narrow reviewed legacy fallback probe. */
 final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter {
@@ -16,8 +15,6 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static final String PACKAGE_SCHEMA_ID = "layered-world-package-v1";
 	private static final String MUTATION_PROFILE_ID = "spoiled-milk-layered-install-v1";
 	private static final String LEGACY_CAPABILITY_ID = "spoiled-milk-packed-fallback-v1";
-	private static final Pattern ABSOLUTE_PATH = Pattern.compile(
-		"(^|[\\s\\(\\[\\{:'\"])(?:[A-Za-z]:/|/)[^\\s]*");
 	private static final String SERVER_TERRAIN =
 		"server/conf/server/data/Custom_Landscape.orsc";
 	private static final String CLIENT_TERRAIN =
@@ -148,8 +145,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			legacy = new WorldBuilderDiscovery().discover(
 				target.root, WorldBuilderDiscovery.DEFAULT_CONFIG, null);
 		} catch (WorldBuilderDiscoveryException failure) {
-			String message = portableLegacyError(
-				target, failure.getMessage(), WorldBuilderDiscovery.DEFAULT_CONFIG);
+			String message = failure.getMessage() == null ? "legacy layout refusal"
+				: failure.getMessage();
 			String code = message.contains("byte-identical")
 				|| message.contains("different sector")
 				? WorldBuilderErrorCodes.MAP_MISMATCH
@@ -253,35 +250,13 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			}
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, relative,
-				"Legacy packed placement evidence is malformed: "
-					+ portableLegacyError(target, malformed.getMessage(), relative),
+				"Legacy packed placement evidence is malformed: " + malformed.getMessage(),
 				"Correct the exact overlay/removal JSON and retry discovery.");
 		} catch (IOException failure) {
 			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, relative,
 				"Legacy placement evidence changed while it was parsed.",
 				"Stop target updates and retry discovery.");
 		}
-	}
-
-	private static String portableLegacyError(
-		WorldBuilderReadOnlyTarget target, String message, String fallbackRelative) {
-		String fallback = "Legacy target evidence is malformed at " + fallbackRelative + ".";
-		if (message == null || message.trim().isEmpty()) return fallback;
-		String portable = message.replace('\\', '/');
-		portable = stripRoot(portable, target.root.toString().replace('\\', '/'));
-		try {
-			portable = stripRoot(portable,
-				target.root.toRealPath().toString().replace('\\', '/'));
-		} catch (IOException unavailableRealPath) {
-			// The normalized no-follow root was already stripped; avoid adding I/O text.
-		}
-		return ABSOLUTE_PATH.matcher(portable).find() ? fallback : portable;
-	}
-
-	private static String stripRoot(String message, String root) {
-		if (root == null || root.isEmpty() || "/".equals(root)) return message;
-		String prefix = root.endsWith("/") ? root : root + "/";
-		return message.replace(prefix, "").replace(root, "target-root");
 	}
 
 	private static void requireCapability(WorldBuilderTargetCapability capability)

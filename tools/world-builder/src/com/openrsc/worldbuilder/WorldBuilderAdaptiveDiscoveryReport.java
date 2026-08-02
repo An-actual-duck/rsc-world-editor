@@ -18,7 +18,10 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		Map<String,Object> document, String summary)
 		throws WorldBuilderContractException {
 		this.document = document;
-		this.summary = summary;
+		String targetDisplay = document.get("targetRootDisplay") instanceof String
+			? (String)document.get("targetRootDisplay") : "";
+		sanitizePortableContent(document, targetDisplay);
+		this.summary = sanitizeDiagnostic(summary, targetDisplay);
 		this.status = (String)document.get("status");
 		bindFingerprint(document);
 		WorldBuilderAdaptiveContracts.validateParsed(
@@ -291,6 +294,47 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		} catch (WorldBuilderContractException unsafe) {
 			return "target-root";
 		}
+	}
+
+	private static void sanitizePortableContent(Object value, String targetDisplay) {
+		if (value instanceof Map) {
+			@SuppressWarnings("unchecked") Map<String,Object> object =
+				(Map<String,Object>)value;
+			for (Map.Entry<String,Object> entry : object.entrySet()) {
+				if ("targetRootDisplay".equals(entry.getKey())) continue;
+				Object child = entry.getValue();
+				if (child instanceof String) {
+					entry.setValue(sanitizeDiagnostic((String)child, targetDisplay));
+				} else {
+					sanitizePortableContent(child, targetDisplay);
+				}
+			}
+		} else if (value instanceof List) {
+			@SuppressWarnings("unchecked") List<Object> array = (List<Object>)value;
+			for (int index = 0; index < array.size(); index++) {
+				Object child = array.get(index);
+				if (child instanceof String) {
+					array.set(index, sanitizeDiagnostic((String)child, targetDisplay));
+				} else {
+					sanitizePortableContent(child, targetDisplay);
+				}
+			}
+		}
+	}
+
+	static String sanitizeDiagnostic(String value, String targetDisplay) {
+		String portable = bounded(value).replace('\\', '/');
+		if (targetDisplay == null || targetDisplay.isEmpty()) return portable;
+		String root = targetDisplay.replace('\\', '/');
+		while (root.length() > 1 && root.endsWith("/")) {
+			root = root.substring(0, root.length() - 1);
+		}
+		if ("/".equals(root)) {
+			return portable.replaceAll(
+				"(^|[\\s\\(\\[\\{:'\"])/(?=[A-Za-z0-9._-])", "$1");
+		}
+		portable = portable.replace(root + "/", "");
+		return portable.replace(root, "target-root");
 	}
 
 	private static void bindFingerprint(Map<String,Object> root) {
