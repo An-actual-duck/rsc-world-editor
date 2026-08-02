@@ -665,17 +665,15 @@ uploading an archive.
 Run all focused tests from the preceding phases, then:
 
 ```bash
-./scripts/lint.sh analyze --offline --base spoiled-milk/main
+git diff --check
 ./scripts/test.sh
 ```
 
-If the lint base is unavailable in the assigned environment, report that exact
-untested check rather than fetching or inspecting an external repository
-without authorization.
-
 Manual release-candidate verification MUST cover:
 
-- Linux and Windows packaged startup and review;
+- owner-run packaged startup and visual review on the owner's native platform,
+  plus code review and automated package/launcher validation for the other
+  platform;
 - a 64-by-64 floor, 128-by-128 wall, and one shared floor/wall image;
 - exact preview/render appearance in software and OpenGL modes;
 - save, close, reopen, export, dry-run import, `IMPORT`, dry-run undo, and
@@ -685,8 +683,9 @@ Manual release-candidate verification MUST cover:
 - distribution of the documented client directory into a clean compatible
   player installation.
 
-Record exact commits, package hashes, test output, untested behavior, and
-screenshots or visual observations required by the release-validation process.
+Record exact commits, package hashes, test output, untested behavior, and the
+owner's visual observations. AI sessions MUST ask the owner to perform visual
+inspection rather than capture or judge screenshots themselves.
 
 ## Acceptance criteria
 
