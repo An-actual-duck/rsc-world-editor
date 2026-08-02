@@ -11,6 +11,12 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+import warnings
+
+try:
+    import jsonschema
+except ImportError:  # The repository's executable Java validator remains authoritative.
+    jsonschema = None
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -100,6 +106,16 @@ def operations(**overrides: bool) -> dict:
     }
     result.update(overrides)
     return result
+
+
+def no_operations() -> dict:
+    return operations(
+        createProject=False,
+        edit=False,
+        save=False,
+        export=False,
+        **{"import": False, "undo": False},
+    )
 
 
 def issue(code: str, severity: str, path: str, observed: str) -> dict:
@@ -197,7 +213,9 @@ def discovery_base(status: str, representation: str) -> dict:
                 "observed": "Catalog identities match.",
             },
         ],
-        "operations": operations(),
+        "operations": operations(
+            edit=False, save=False, export=False, **{"import": False, "undo": False}
+        ),
         "issues": [],
         "discoveryFingerprintSha256": HASH_C,
     }
@@ -238,7 +256,12 @@ def standalone_discovery() -> dict:
             },
             "files": [],
             "checks": [],
-            "operations": operations(**{"import": False, "undo": False}),
+            "operations": operations(
+                edit=False,
+                save=False,
+                export=False,
+                **{"import": False, "undo": False},
+            ),
             "issues": [],
         }
     )
@@ -398,6 +421,7 @@ def source_snapshot(standalone: bool = False) -> dict:
     original = [file_record("empty-origin", descriptor)] if standalone else [
         file_record("server-terrain", "source/original/server/data/map.orsc"),
         file_record("configuration", "source/original/server/world.conf", HASH_B),
+        file_record("target-capability", descriptor, HASH_A),
     ]
     return {
         "schemaVersion": 2,
@@ -567,17 +591,27 @@ def mutation_plan() -> dict:
         "receiptRelativePath": f"receipts/{TRANSACTION_ID}.json",
         "postWriteVerifications": [
             {
-                "verificationId": "installed-hash",
+                "verificationId": "configuration-installed-hash",
+                "relativePath": "server/world.conf",
+                "expected": HASH_C,
+            },
+            {
+                "verificationId": "package-installed-hash",
                 "relativePath": "server/maps/packages/example/manifest.json",
                 "expected": HASH_A,
-            }
+            },
         ],
         "rollbackVerifications": [
             {
-                "verificationId": "restored-absence",
+                "verificationId": "configuration-restored-hash",
+                "relativePath": "server/world.conf",
+                "expected": HASH_B,
+            },
+            {
+                "verificationId": "package-restored-absence",
                 "relativePath": "server/maps/packages/example/manifest.json",
                 "expected": "absent",
-            }
+            },
         ],
         "planFingerprintSha256": HASH_D,
     }
@@ -833,6 +867,50 @@ class AdaptiveContractTests(unittest.TestCase):
             legacy = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
             self.assertEqual(1, legacy["properties"]["schemaVersion"]["const"])
 
+    @unittest.skipUnless(jsonschema is not None, "optional jsonschema module unavailable")
+    def test_json_schemas_are_valid_and_accept_production_valid_vectors(self):
+        common = json.loads(
+            (SCHEMA_ROOT / "adaptive-contract-definitions-v1.schema.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        store = {common["$id"]: common}
+        factories_by_type = {
+            factory()["manifestType"]: factory for factory in VALID_CONTRACTS.values()
+        }
+        for name, (_, manifest_type) in SCHEMA_CONTRACTS.items():
+            with self.subTest(schema=name):
+                schema = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
+                jsonschema.Draft202012Validator.check_schema(schema)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", DeprecationWarning)
+                    resolver = jsonschema.RefResolver.from_schema(schema, store=store)
+                validator = jsonschema.Draft202012Validator(
+                    schema, resolver=resolver
+                )
+                errors = list(validator.iter_errors(factories_by_type[manifest_type]()))
+                self.assertEqual([], errors, [error.message for error in errors])
+
+        alternates = (
+            ("discovery-report-v2.schema.json", layered_discovery()),
+            ("discovery-report-v2.schema.json", standalone_discovery()),
+            ("discovery-report-v2.schema.json", blocked_discovery()),
+            ("project-manifest-v2.schema.json", standalone_project()),
+            ("source-snapshot-v2.schema.json", source_snapshot(standalone=True)),
+            ("export-manifest-v2.schema.json", export_manifest(standalone=True)),
+        )
+        for name, document in alternates:
+            schema = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                resolver = jsonschema.RefResolver.from_schema(schema, store=store)
+            errors = list(
+                jsonschema.Draft202012Validator(
+                    schema, resolver=resolver
+                ).iter_errors(document)
+            )
+            self.assertEqual([], errors, [error.message for error in errors])
+
     def test_every_contract_rejects_unknown_keys_versions_and_types(self):
         for kind, factory in VALID_CONTRACTS.items():
             with self.subTest(kind=kind, case="unknown-key"):
@@ -1006,6 +1084,331 @@ class AdaptiveContractTests(unittest.TestCase):
         contaminated = source_snapshot(standalone=True)
         contaminated["adapterId"] = "example-packed-v1"
         self.assert_refused("source-snapshot", contaminated, "CONTRACT_VALUE_INVALID")
+
+    def test_project_state_matrix_and_registry_origin_state_fail_closed(self):
+        attached = packed_project()
+        attached["operations"]["undo"] = True
+        self.assert_valid("project-manifest", attached)
+
+        detached = packed_project()
+        detached["state"] = "ready-detached"
+        detached["operations"] = operations(
+            createProject=False, **{"import": False, "undo": False}
+        )
+        self.assert_valid("project-manifest", detached)
+
+        for state in ("staging", "source-corrupt", "recovery-required"):
+            safe = packed_project()
+            safe["state"] = state
+            safe["operations"] = no_operations()
+            self.assert_valid("project-manifest", safe)
+            for operation_name in safe["operations"]:
+                unsafe = copy.deepcopy(safe)
+                unsafe["operations"][operation_name] = True
+                with self.subTest(state=state, operation=operation_name):
+                    self.assert_refused(
+                        "project-manifest", unsafe, "CONTRACT_VALUE_INVALID"
+                    )
+
+        missing_edit = packed_project()
+        missing_edit["operations"]["edit"] = False
+        self.assert_refused(
+            "project-manifest", missing_edit, "CONTRACT_VALUE_INVALID"
+        )
+
+        detached_import = copy.deepcopy(detached)
+        detached_import["operations"]["import"] = True
+        self.assert_refused(
+            "project-manifest", detached_import, "CONTRACT_VALUE_INVALID"
+        )
+
+        standalone_attached = project_registry()
+        standalone_attached["projects"][0].update(
+            {"origin": "standalone-empty", "state": "ready-attached"}
+        )
+        self.assert_refused(
+            "project-registry", standalone_attached, "CONTRACT_VALUE_INVALID"
+        )
+
+        target_standalone = project_registry()
+        target_standalone["projects"][0]["state"] = "ready-standalone"
+        self.assert_refused(
+            "project-registry", target_standalone, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_discovery_evidence_checks_and_read_only_operations_are_coherent(self):
+        for field, wrong in (
+            ("role", "secondary"),
+            ("relativePath", "server/other.conf"),
+            ("sha256", HASH_D),
+        ):
+            missing_candidate = packed_discovery()
+            missing_candidate["selectedConfiguration"][field] = wrong
+            with self.subTest(selected_field=field):
+                self.assert_refused(
+                    "discovery-report", missing_candidate, "CONTRACT_VALUE_INVALID"
+                )
+
+        unconsidered = packed_discovery()
+        unconsidered["adaptersConsidered"] = ["generic-layered-v1"]
+        self.assert_refused(
+            "discovery-report", unconsidered, "CONTRACT_VALUE_INVALID"
+        )
+
+        absent_only = packed_discovery()
+        absent_only["files"] = [
+            {
+                "role": "server-terrain",
+                "relativePath": "server/data/Active_Landscape.orsc",
+                **absent_state(),
+            }
+        ]
+        self.assert_refused(
+            "discovery-report", absent_only, "CONTRACT_VALUE_INVALID"
+        )
+
+        failed_check = packed_discovery()
+        failed_check["checks"][0]["status"] = "failed"
+        self.assert_refused(
+            "discovery-report", failed_check, "CONTRACT_VALUE_INVALID"
+        )
+
+        mutation_claim = blocked_discovery()
+        mutation_claim["issues"][0]["mutationOccurred"] = True
+        self.assert_refused(
+            "discovery-report", mutation_claim, "CONTRACT_VALUE_INVALID"
+        )
+
+        for factory in (packed_discovery, standalone_discovery):
+            premature = factory()
+            premature["operations"]["edit"] = True
+            with self.subTest(factory=factory.__name__):
+                self.assert_refused(
+                    "discovery-report", premature, "CONTRACT_VALUE_INVALID"
+                )
+
+    def test_source_snapshot_references_exact_original_and_conversion_evidence(self):
+        selected_hash = source_snapshot()
+        selected_hash["selectedConfiguration"]["sha256"] = HASH_D
+        self.assert_refused(
+            "source-snapshot", selected_hash, "CONTRACT_VALUE_INVALID"
+        )
+
+        selected_path = source_snapshot()
+        selected_path["selectedConfiguration"]["relativePath"] = (
+            "source/original/server/other.conf"
+        )
+        self.assert_refused(
+            "source-snapshot", selected_path, "CONTRACT_VALUE_INVALID"
+        )
+
+        descriptor_hash = source_snapshot()
+        descriptor_hash["originDescriptor"]["sha256"] = HASH_D
+        self.assert_refused(
+            "source-snapshot", descriptor_hash, "CONTRACT_VALUE_INVALID"
+        )
+
+        arbitrary_conversion = source_snapshot()
+        arbitrary_conversion["conversionEvidenceFiles"] = [
+            file_record("other-a", "source/conversion/a.json"),
+            file_record("other-b", "source/conversion/b.json", HASH_B),
+        ]
+        self.assert_refused(
+            "source-snapshot", arbitrary_conversion, "CONTRACT_VALUE_INVALID"
+        )
+
+        swapped_role = source_snapshot()
+        swapped_role["conversionEvidenceFiles"][0]["role"] = "conversion-report"
+        self.assert_refused(
+            "source-snapshot", swapped_role, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_conversion_numbers_and_blocker_semantics_are_bounded(self):
+        huge_version = conversion_plan()
+        huge_version["outputEncodingVersion"] = 2**63 - 1
+        self.assert_refused(
+            "conversion-plan", huge_version, "CONTRACT_VALUE_INVALID"
+        )
+
+        overflow_blockers = conversion_report()
+        overflow_blockers["validation"]["unknownCount"] = 2**63 - 1
+        overflow_blockers["validation"]["lossCount"] = 2**63 - 1
+        self.assert_refused(
+            "conversion-report", overflow_blockers, "CONTRACT_LIMIT_EXCEEDED"
+        )
+
+        huge_terrain = conversion_report()
+        huge_terrain["terrain"].update(
+            {
+                "entriesRead": 2**63 - 1,
+                "entriesWritten": 2**63 - 1,
+                "reverseMatched": 2**63 - 1,
+            }
+        )
+        self.assert_refused(
+            "conversion-report", huge_terrain, "CONTRACT_LIMIT_EXCEEDED"
+        )
+
+        blocked_decision = conversion_report()
+        blocked_decision["decisions"] = [
+            {
+                "kind": "collision",
+                "sourceRole": "base-placements",
+                "provenance": "fixture record 1",
+                "placementId": "placement-1",
+                "outcome": "blocked",
+            }
+        ]
+        self.assert_refused(
+            "conversion-report", blocked_decision, "CONTRACT_VALUE_INVALID"
+        )
+
+        downgraded = conversion_report()
+        downgraded["issues"] = [
+            issue(
+                "CONVERSION_BLOCKED",
+                "warning",
+                "source/original/server/data/map.orsc",
+                "The record is not representable.",
+            )
+        ]
+        self.assert_refused(
+            "conversion-report", downgraded, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_export_binds_manifest_and_package_validation_evidence(self):
+        wrong_hash = export_manifest()
+        wrong_hash["packageManifestSha256"] = HASH_A
+        self.assert_refused(
+            "adaptive-export", wrong_hash, "CONTRACT_VALUE_INVALID"
+        )
+
+        missing_manifest = export_manifest()
+        missing_manifest["files"] = [
+            file_record("unrelated", "package/unrelated.bin", HASH_B)
+        ]
+        self.assert_refused(
+            "adaptive-export", missing_manifest, "CONTRACT_VALUE_INVALID"
+        )
+
+        no_validation = export_manifest()
+        no_validation["validationReports"] = []
+        self.assert_refused(
+            "adaptive-export", no_validation, "CONTRACT_LIMIT_EXCEEDED"
+        )
+
+        unrelated_validation = export_manifest()
+        unrelated_validation["validationReports"] = [
+            {"role": "unrelated-check", "sha256": HASH_D}
+        ]
+        self.assert_refused(
+            "adaptive-export", unrelated_validation, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_mutation_plan_actions_and_verification_sets_are_exact(self):
+        no_op = mutation_plan()
+        no_op["actions"][1]["after"] = copy.deepcopy(no_op["actions"][1]["before"])
+        self.assert_refused("mutation-plan", no_op, "CONTRACT_VALUE_INVALID")
+
+        hash_no_op = mutation_plan()
+        hash_no_op["actions"][1]["after"]["sha256"] = (
+            hash_no_op["actions"][1]["before"]["sha256"]
+        )
+        self.assert_refused(
+            "mutation-plan", hash_no_op, "CONTRACT_VALUE_INVALID"
+        )
+
+        incomplete = mutation_plan()
+        incomplete["postWriteVerifications"].pop()
+        self.assert_refused(
+            "mutation-plan", incomplete, "CONTRACT_VALUE_INVALID"
+        )
+
+        unrelated = mutation_plan()
+        unrelated["postWriteVerifications"][0]["relativePath"] = "server/unrelated.conf"
+        self.assert_refused(
+            "mutation-plan", unrelated, "CONTRACT_VALUE_INVALID"
+        )
+
+        wrong_expected = mutation_plan()
+        wrong_expected["rollbackVerifications"][0]["expected"] = HASH_D
+        self.assert_refused(
+            "mutation-plan", wrong_expected, "CONTRACT_VALUE_INVALID"
+        )
+
+        extra = mutation_plan()
+        extra["rollbackVerifications"].append(
+            {
+                "verificationId": "unrelated-restored-hash",
+                "relativePath": "server/unrelated.conf",
+                "expected": HASH_A,
+            }
+        )
+        self.assert_refused("mutation-plan", extra, "CONTRACT_VALUE_INVALID")
+
+        config_not_activation = mutation_plan()
+        config_not_activation["actions"][1]["activation"] = False
+        self.assert_refused(
+            "mutation-plan", config_not_activation, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_receipt_backup_offline_and_success_evidence_are_exact(self):
+        no_op = import_receipt()
+        no_op["files"][1]["after"] = copy.deepcopy(no_op["files"][1]["before"])
+        self.assert_refused("adaptive-receipt", no_op, "CONTRACT_VALUE_INVALID")
+
+        hash_no_op = import_receipt()
+        hash_no_op["files"][1]["after"]["sha256"] = (
+            hash_no_op["files"][1]["before"]["sha256"]
+        )
+        self.assert_refused(
+            "adaptive-receipt", hash_no_op, "CONTRACT_VALUE_INVALID"
+        )
+
+        wrong_backup = import_receipt()
+        wrong_backup["files"][1]["backupSha256"] = HASH_D
+        self.assert_refused(
+            "adaptive-receipt", wrong_backup, "CONTRACT_VALUE_INVALID"
+        )
+
+        unverified_recovery = import_receipt()
+        unverified_recovery["status"] = "recovery-required"
+        unverified_recovery["offlineEvidence"][0]["verified"] = False
+        unverified_recovery["files"][1]["afterVerified"] = False
+        unverified_recovery["configurationChanges"][0]["afterVerified"] = False
+        unverified_recovery["verificationResults"][0]["success"] = False
+        self.assert_refused(
+            "adaptive-receipt", unverified_recovery, "CONTRACT_VALUE_INVALID"
+        )
+
+        no_verification = import_receipt()
+        no_verification["verificationResults"] = []
+        self.assert_refused(
+            "adaptive-receipt", no_verification, "CONTRACT_VALUE_INVALID"
+        )
+
+        pending = import_receipt()
+        pending.update({"status": "pending", "mutationOccurred": False})
+        pending["offlineEvidence"][0]["verified"] = False
+        pending["files"][0]["afterVerified"] = False
+        pending["files"][1]["afterVerified"] = False
+        pending["configurationChanges"][0]["afterVerified"] = False
+        pending["verificationResults"] = []
+        self.assert_valid("adaptive-receipt", pending)
+
+        failed_no_change = copy.deepcopy(pending)
+        failed_no_change["status"] = "failed-no-change"
+        self.assert_valid("adaptive-receipt", failed_no_change)
+
+        rolled_back = import_receipt()
+        rolled_back["status"] = "rolled-back"
+        for record in rolled_back["files"]:
+            record.update({"afterVerified": False, "rollbackVerified": True})
+        rolled_back["configurationChanges"][0].update(
+            {"afterVerified": False, "rollbackVerified": True}
+        )
+        rolled_back["verificationResults"] = []
+        self.assert_valid("adaptive-receipt", rolled_back)
 
     def test_conversion_mutation_receipt_and_recovery_rules(self):
         lossy = conversion_report()

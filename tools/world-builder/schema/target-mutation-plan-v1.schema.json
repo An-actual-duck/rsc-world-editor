@@ -103,7 +103,10 @@
       "properties": {
         "verificationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
-        "expected": {"type": "string", "minLength": 1, "maxLength": 4096}
+        "expected": {
+          "type": "string",
+          "pattern": "^absent$|^[0-9a-f]{64}$"
+        }
       }
     }
   }

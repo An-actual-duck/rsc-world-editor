@@ -204,7 +204,18 @@
         "observed": {"type": "string", "maxLength": 4096},
         "mutationOccurred": {"type": "boolean"},
         "nextStep": {"type": "string", "minLength": 1, "maxLength": 4096}
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "code": {"not": {"enum": ["NO_SERVER", "NO_TARGET", "PROJECT_DETACHED"]}}
+            },
+            "required": ["code"]
+          },
+          "then": {"properties": {"severity": {"const": "blocker"}}}
+        }
+      ]
     },
     "hashRecord": {
       "type": "object",

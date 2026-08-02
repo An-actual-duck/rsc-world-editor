@@ -44,10 +44,60 @@
     "operations": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/operations"},
     "issues": {
       "type": "array", "maxItems": 4096,
-      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/issue"}
+      "items": {
+        "allOf": [
+          {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/issue"},
+          {"properties": {"mutationOccurred": {"const": false}}}
+        ]
+      }
     },
     "discoveryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "checks": {"contains": {"properties": {"status": {"const": "failed"}}}}
+        }
+      },
+      "then": {"properties": {"status": {"const": "blocked"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "blocked"}}},
+      "then": {"properties": {"operations": {"$ref": "#/$defs/noOperations"}}},
+      "else": {"properties": {"operations": {"$ref": "#/$defs/discoveryOperations"}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "compatible"}}},
+      "then": {
+        "properties": {
+          "selectedConfiguration": {"properties": {"present": {"const": true}}},
+          "capability": {"properties": {"resolved": {"const": true}}},
+          "representation": {"enum": ["layered", "packed"]},
+          "files": {
+            "minItems": 1,
+            "contains": {"properties": {"present": {"const": true}}}
+          },
+          "issues": {
+            "not": {"contains": {"properties": {"severity": {"const": "blocker"}}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "standalone"}}},
+      "then": {
+        "properties": {
+          "representation": {"const": "none"},
+          "configurationCandidates": {"maxItems": 0},
+          "files": {"maxItems": 0},
+          "descriptor": {"properties": {"present": {"const": false}}},
+          "selectedConfiguration": {"properties": {"present": {"const": false}}},
+          "capability": {"properties": {"resolved": {"const": false}}}
+        }
+      }
+    }
+  ],
   "$defs": {
     "capabilityReference": {
       "type": "object", "additionalProperties": false,
@@ -71,6 +121,32 @@
         "status": {"enum": ["failed", "not-applicable", "passed"]},
         "expected": {"type": "string", "maxLength": 4096},
         "observed": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "discoveryOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": true},
+        "edit": {"const": false},
+        "save": {"const": false},
+        "export": {"const": false},
+        "import": {"const": false},
+        "undo": {"const": false}
+      }
+    },
+    "noOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": false},
+        "edit": {"const": false},
+        "save": {"const": false},
+        "export": {"const": false},
+        "import": {"const": false},
+        "undo": {"const": false}
       }
     }
   }

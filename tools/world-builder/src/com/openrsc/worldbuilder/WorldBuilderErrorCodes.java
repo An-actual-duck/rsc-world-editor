@@ -65,10 +65,21 @@ final class WorldBuilderErrorCodes {
 			UNSUPPORTED_CONTRACT_VERSION,
 			UNSUPPORTED_FORMAT)));
 
+	/* Codes which can never truthfully be downgraded to an informational warning. */
+	private static final Set<String> BLOCKER_CLASS = Collections.unmodifiableSet(
+		new HashSet<String>(STABLE));
+
 	private WorldBuilderErrorCodes() {
 	}
 
 	static boolean isStable(String code) {
 		return STABLE.contains(code);
+	}
+
+	static boolean requiresBlockerSeverity(String code) {
+		return BLOCKER_CLASS.contains(code)
+			&& !NO_SERVER.equals(code)
+			&& !NO_TARGET.equals(code)
+			&& !PROJECT_DETACHED.equals(code);
 	}
 }

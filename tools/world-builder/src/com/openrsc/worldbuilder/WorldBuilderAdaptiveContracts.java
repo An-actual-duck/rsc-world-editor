@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -216,25 +217,29 @@ final class WorldBuilderAdaptiveContracts {
 		identifier(root, "toolVersion", op);
 		String status = enumeration(root, "status", op, "blocked", "compatible", "standalone");
 		text(root, "targetRootDisplay", op, 0, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
-		identifierList(root.get("adaptersConsidered"), op, "adaptersConsidered", 0,
+		List<String> adapters = identifierList(
+			root.get("adaptersConsidered"), op, "adaptersConsidered", 0,
 			WorldBuilderContractLimits.MAX_ADAPTERS);
 		StateReference descriptor = stateReference(root.get("descriptor"), op, "descriptor", false);
 		List<?> candidates = array(root.get("configurationCandidates"), op,
 			"configurationCandidates", 0, WorldBuilderContractLimits.MAX_CONFIGURATION_CANDIDATES);
 		String previousCandidate = null;
 		Set<String> candidatePaths = new HashSet<String>();
+		List<StateReference> candidateReferences = new ArrayList<StateReference>();
 		for (Object raw : candidates) {
 			Map<String,Object> candidate = object(raw, op, "configurationCandidate");
 			exact(candidate, op, "role", "relativePath", "sha256");
 			String role = identifier(candidate, "role", op);
 			String path = relative(candidate, "relativePath", op);
-			hash(candidate, "sha256", op);
+			String candidateHash = hash(candidate, "sha256", op);
 			String key = path + "\u0000" + role;
 			if (previousCandidate != null && previousCandidate.compareTo(key) >= 0
 				|| !candidatePaths.add(WorldBuilderPortablePath.collisionKey(path, op))) {
 				invalid(op, "Configuration candidates are duplicated or not canonically ordered.");
 			}
 			previousCandidate = key;
+			candidateReferences.add(
+				new StateReference(true, role, path, candidateHash));
 		}
 		StateReference selected = stateReference(root.get("selectedConfiguration"),
 			op, "selectedConfiguration", true);
@@ -244,21 +249,44 @@ final class WorldBuilderAdaptiveContracts {
 		int minimumFiles = "compatible".equals(status) ? 1 : 0;
 		List<WorldBuilderBoundedInventory.Record> files =
 			WorldBuilderBoundedInventory.read(root.get("files"), op, minimumFiles, false);
-		validateChecks(root.get("checks"), op);
+		int failedChecks = validateChecks(root.get("checks"), op);
 		Operations operations = operations(root.get("operations"), op);
 		List<Issue> issues = issues(root.get("issues"), op);
 		hash(root, "discoveryFingerprintSha256", op);
 		boolean blockers = hasBlocker(issues);
+		boolean mutationClaimed = hasMutationClaim(issues);
+		boolean presentSourceEvidence = false;
+		for (WorldBuilderBoundedInventory.Record file : files) {
+			if (file.present) presentSourceEvidence = true;
+		}
+		if (failedChecks > 0 && !"blocked".equals(status)) {
+			invalid(op, "A failed discovery check requires blocked status.");
+		}
+		if (mutationClaimed) {
+			invalid(op, "Read-only discovery issues cannot claim target mutation.");
+		}
+		if (capability.resolved && !adapters.contains(capability.adapterId)) {
+			invalid(op, "Resolved discovery adapter was not among the adapters considered.");
+		}
 		if ("standalone".equals(status)) {
 			if (descriptor.present || selected.present || capability.resolved
 				|| !candidates.isEmpty() || !files.isEmpty() || !"none".equals(representation)
-				|| operations.importTarget || operations.undo || blockers) {
+				|| !operations.discoveryOnly() || blockers) {
 				invalid(op, "Standalone discovery report contains target state or target mutation authority.");
 			}
 		} else if ("compatible".equals(status)) {
+			boolean selectedCandidate = false;
+			for (StateReference candidate : candidateReferences) {
+				if (candidate.role.equals(selected.role)
+					&& candidate.relativePath.equals(selected.relativePath)
+					&& candidate.sha256.equals(selected.sha256)) {
+					selectedCandidate = true;
+				}
+			}
 			if (!selected.present || !capability.resolved
 				|| !("packed".equals(representation) || "layered".equals(representation))
-				|| blockers || !operations.createProject) {
+				|| blockers || !selectedCandidate || !presentSourceEvidence
+				|| !operations.discoveryOnly()) {
 				invalid(op, "Compatible discovery report is missing proven target evidence.");
 			}
 		} else if (!blockers || operations.any()) {
@@ -338,6 +366,8 @@ final class WorldBuilderAdaptiveContracts {
 		hash(fingerprints, "workingSha256", op);
 		Operations operations = operations(root.get("operations"), op);
 		hash(root, "projectFingerprintSha256", op);
+		validateOriginState(origin, state, op);
+		validateProjectOperations(state, operations, op);
 
 		boolean standaloneOrigin = "standalone-empty".equals(origin);
 		if (standaloneOrigin) {
@@ -368,9 +398,6 @@ final class WorldBuilderAdaptiveContracts {
 				|| !"source/conversion/report.json".equals(conversionReport))) {
 				invalid(op, "Packed project conversion paths are noncanonical.");
 			}
-			if ("ready-detached".equals(state) && (operations.importTarget || operations.undo)) {
-				invalid(op, "Detached project cannot advertise target mutation operations.");
-			}
 		}
 		if (!projectId.equals(projectId.toLowerCase(java.util.Locale.ROOT))) {
 			invalid(op, "Project UUID must use canonical lowercase form.");
@@ -398,9 +425,10 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			hash(record, "manifestSha256", op);
 			text(record, "displayName", op, 1, WorldBuilderContractLimits.MAX_DISPLAY_CHARS);
-			origin(record, op);
-			enumeration(record, "state", op, "ready-attached", "ready-detached",
+			String origin = origin(record, op);
+			String state = enumeration(record, "state", op, "ready-attached", "ready-detached",
 				"ready-standalone", "recovery-required", "source-corrupt", "staging");
+			validateOriginState(origin, state, op);
 			if (previous != null && previous.compareTo(projectId) >= 0) {
 				invalid(op, "Project registry is not in canonical UUID order.");
 			}
@@ -456,6 +484,9 @@ final class WorldBuilderAdaptiveContracts {
 			WorldBuilderBoundedInventory.read(root.get("layeredBaselineFiles"), op, 1, true);
 		uniqueAcrossInventories(op, original, definitions, conversion, baseline);
 		hash(root, "sourceFingerprintSha256", op);
+		if (!matchesEvidence(original, descriptor)) {
+			invalid(op, "Origin descriptor does not match immutable original-file evidence.");
+		}
 		if ("standalone-empty".equals(origin)) {
 			if (!adapter.isEmpty() || !capability.isEmpty() || selected.present
 				|| !conversion.isEmpty()
@@ -464,12 +495,18 @@ final class WorldBuilderAdaptiveContracts {
 			}
 		} else if (adapter.isEmpty() || capability.isEmpty() || !selected.present) {
 			invalid(op, "Target-backed source snapshot lineage is incomplete.");
+		} else if (!matchesEvidence(original, selected)) {
+			invalid(op, "Selected configuration does not match immutable original-file evidence.");
 		} else if (!"target-packed".equals(origin) && !conversion.isEmpty()) {
 			invalid(op, "Only packed origins may contain conversion evidence.");
 		}
-		for (WorldBuilderBoundedInventory.Record record : conversion) {
-			if (!record.relativePath.startsWith("source/conversion/")) {
-				invalid(op, "Conversion evidence is outside its immutable directory.");
+		if ("target-packed".equals(origin)) {
+			if (conversion.size() != 2
+				|| !hasExactInventoryRecord(conversion, "conversion-plan",
+					"source/conversion/plan.json")
+				|| !hasExactInventoryRecord(conversion, "conversion-report",
+					"source/conversion/report.json")) {
+				invalid(op, "Packed source snapshot lacks canonical conversion plan/report evidence.");
 			}
 		}
 		for (WorldBuilderBoundedInventory.Record record : baseline) {
@@ -491,7 +528,8 @@ final class WorldBuilderAdaptiveContracts {
 		hash(root, "definitionFingerprintSha256", op); identifier(root, "coordinateMappingId", op);
 		identifier(root, "placementCompositionProfileId", op);
 		identifier(root, "outputPackageSchemaId", op);
-		if (integer(root, "outputEncodingVersion", op) < 1L) {
+		long outputEncodingVersion = integer(root, "outputEncodingVersion", op);
+		if (outputEncodingVersion < 1L || outputEncodingVersion > Integer.MAX_VALUE) {
 			invalid(op, "Conversion output encoding version is invalid.");
 		}
 		List<WorldBuilderBoundedInventory.Record> inputs =
@@ -517,26 +555,33 @@ final class WorldBuilderAdaptiveContracts {
 		Map<String,Object> terrain = object(root.get("terrain"), op, "terrain");
 		exact(terrain, op, "entriesRead", "entriesWritten", "reverseMatched",
 			"reverseMismatches");
-		long read = nonnegative(terrain, "entriesRead", op);
-		long written = nonnegative(terrain, "entriesWritten", op);
-		long matched = nonnegative(terrain, "reverseMatched", op);
-		long mismatches = nonnegative(terrain, "reverseMismatches", op);
-		if (read != written || written != matched + mismatches) {
+		long read = boundedCount(terrain, "entriesRead", op);
+		long written = boundedCount(terrain, "entriesWritten", op);
+		long matched = boundedCount(terrain, "reverseMatched", op);
+		long mismatches = boundedCount(terrain, "reverseMismatches", op);
+		if (read != written || written != safeAdd(matched, mismatches, op,
+			"Terrain reverse-result total")) {
 			invalid(op, "Terrain conversion counts are inconsistent.");
 		}
 		validatePlacementSummaries(root.get("placements"), op);
-		validateDecisions(root.get("decisions"), op);
+		boolean blockedDecision = validateDecisions(root.get("decisions"), op);
 		Map<String,Object> validation = object(root.get("validation"), op, "validation");
 		exact(validation, op, "unknownCount", "lossCount", "approximationCount",
 			"repairCount", "parityDeltaCount");
-		long blockers = nonnegative(validation, "unknownCount", op)
-			+ nonnegative(validation, "lossCount", op)
-			+ nonnegative(validation, "approximationCount", op)
-			+ nonnegative(validation, "repairCount", op)
-			+ nonnegative(validation, "parityDeltaCount", op) + mismatches;
+		long unknown = boundedCount(validation, "unknownCount", op);
+		long loss = boundedCount(validation, "lossCount", op);
+		long approximation = boundedCount(validation, "approximationCount", op);
+		long repair = boundedCount(validation, "repairCount", op);
+		long parity = boundedCount(validation, "parityDeltaCount", op);
+		long blockers = 0L;
+		for (long count : new long[] {
+			unknown, loss, approximation, repair, parity, mismatches
+		}) {
+			blockers = safeAdd(blockers, count, op, "Conversion blocker total");
+		}
 		List<Issue> issues = issues(root.get("issues"), op);
 		boolean blocked = bool(root, "blocked", op);
-		if (blocked != (blockers > 0L || hasBlocker(issues))
+		if (blocked != (blockers > 0L || blockedDecision || hasBlocker(issues))
 			|| blocked == !output.isEmpty()) {
 			invalid(op, "Conversion blocked/output state is inconsistent with parity results.");
 		}
@@ -561,15 +606,30 @@ final class WorldBuilderAdaptiveContracts {
 		hash(lineage, "sourceSha256", op); hash(lineage, "layeredBaselineSha256", op);
 		String conversion = optionalHash(lineage, "conversionSha256", op);
 		hash(lineage, "definitionsRuntimeSha256", op); hash(lineage, "workingSha256", op);
-		hash(root, "packageManifestSha256", op); hash(root, "packageFingerprintSha256", op);
+		String packageManifest = hash(root, "packageManifestSha256", op);
+		hash(root, "packageFingerprintSha256", op);
 		List<WorldBuilderBoundedInventory.Record> files =
 			WorldBuilderBoundedInventory.read(root.get("files"), op, 1, true);
+		boolean manifestEvidence = false;
 		for (WorldBuilderBoundedInventory.Record record : files) {
 			if (!record.relativePath.startsWith("package/")) {
 				invalid(op, "Adaptive export file is outside the complete package directory.");
 			}
+			if ("package-manifest".equals(record.role)
+				|| "package/manifest.json".equals(record.relativePath)) {
+				if (!"package-manifest".equals(record.role)
+					|| !"package/manifest.json".equals(record.relativePath)
+					|| !packageManifest.equals(record.sha256)) {
+					invalid(op, "Adaptive export package-manifest evidence is contradictory.");
+				}
+				manifestEvidence = true;
+			}
 		}
-		validateHashRecords(root.get("validationReports"), op, "validationReports", 0, 256);
+		Set<String> validationRoles = validateHashRecords(
+			root.get("validationReports"), op, "validationReports", 1, 256);
+		if (!manifestEvidence || !validationRoles.contains("package-validation")) {
+			invalid(op, "Adaptive export lacks package manifest or package validation evidence.");
+		}
 		hash(root, "exportFingerprintSha256", op);
 		if ("standalone-empty".equals(origin)) {
 			if (!adapter.isEmpty() || !capability.isEmpty() || !profile.isEmpty()
@@ -616,7 +676,8 @@ final class WorldBuilderAdaptiveContracts {
 		}
 		ConfigurationSummary configurationSummary = validateConfigurationChanges(
 			root.get("configurationChanges"), op, false);
-		if (!mutations.relativePaths.containsAll(configurationSummary.relativePaths)) {
+		if (!mutations.relativePaths.containsAll(configurationSummary.relativePaths)
+			|| !mutations.activationPaths.containsAll(configurationSummary.relativePaths)) {
 			invalid(op, "Configuration change has no matching byte-level mutation.");
 		}
 		String backup = relative(root, "backupRootRelativePath", op);
@@ -625,10 +686,14 @@ final class WorldBuilderAdaptiveContracts {
 			|| !("receipts/" + transactionId + ".json").equals(receipt)) {
 			invalid(op, "Mutation backup or receipt path does not bind the transaction UUID.");
 		}
-		validateVerifications(root.get("postWriteVerifications"), op,
-			"postWriteVerifications", 1);
-		validateVerifications(root.get("rollbackVerifications"), op,
-			"rollbackVerifications", 1);
+		Map<String,String> postWrite = validateVerifications(
+			root.get("postWriteVerifications"), op, "postWriteVerifications", 1);
+		Map<String,String> rollback = validateVerifications(
+			root.get("rollbackVerifications"), op, "rollbackVerifications", 1);
+		validateVerificationCoverage(mutations.afterExpectations, postWrite,
+			op, "Post-write verification");
+		validateVerificationCoverage(mutations.beforeExpectations, rollback,
+			op, "Rollback verification");
 		hash(root, "planFingerprintSha256", op);
 	}
 
@@ -668,7 +733,7 @@ final class WorldBuilderAdaptiveContracts {
 		if (!fileSummary.relativePaths.containsAll(configurationSummary.relativePaths)) {
 			invalid(op, "Receipt configuration change has no matching file evidence.");
 		}
-		int failedVerifications = validateReceiptVerifications(
+		VerificationSummary verifications = validateReceiptVerifications(
 			root.get("verificationResults"), op);
 		String reverts = uuid(root, "revertsTransactionId", op, true);
 		String recovery = uuid(root, "recoveryTransactionId", op, true);
@@ -688,9 +753,13 @@ final class WorldBuilderAdaptiveContracts {
 				&& !mutationOccurred)) {
 			invalid(op, "Receipt status and mutation state are inconsistent.");
 		}
+		if (mutationOccurred && unverifiedOffline > 0) {
+			invalid(op, "A receipt with target mutation has unverified offline evidence.");
+		}
 		if ("successful".equals(status)
-			&& (unverifiedOffline > 0 || fileSummary.afterUnverified > 0
-				|| configurationSummary.afterUnverified > 0 || failedVerifications > 0)) {
+			&& (fileSummary.afterUnverified > 0
+				|| configurationSummary.afterUnverified > 0
+				|| verifications.total == 0 || verifications.failed > 0)) {
 			invalid(op, "Successful receipt contains unverified target state.");
 		}
 		if (("rolled-back".equals(status) || "reverted".equals(status))
@@ -698,7 +767,7 @@ final class WorldBuilderAdaptiveContracts {
 				|| configurationSummary.rollbackUnverified > 0)) {
 			invalid(op, "Rolled-back receipt contains unverified restored state.");
 		}
-		if ("recovery-required".equals(status) && failedVerifications == 0
+		if ("recovery-required".equals(status) && verifications.failed == 0
 			&& fileSummary.afterUnverified == 0
 			&& configurationSummary.afterUnverified == 0) {
 			invalid(op, "Recovery-required receipt has no failed verification evidence.");
@@ -706,15 +775,18 @@ final class WorldBuilderAdaptiveContracts {
 		hash(root, "receiptFingerprintSha256", op);
 	}
 
-	private static void validateChecks(Object raw, String op)
+	private static int validateChecks(Object raw, String op)
 		throws WorldBuilderContractException {
 		List<?> checks = array(raw, op, "checks", 0, 512);
 		String previous = null;
+		int failed = 0;
 		for (Object value : checks) {
 			Map<String,Object> check = object(value, op, "check");
 			exact(check, op, "checkId", "status", "expected", "observed");
 			String id = identifier(check, "checkId", op);
-			enumeration(check, "status", op, "failed", "not-applicable", "passed");
+			String status = enumeration(
+				check, "status", op, "failed", "not-applicable", "passed");
+			if ("failed".equals(status)) failed++;
 			text(check, "expected", op, 0, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
 			text(check, "observed", op, 0, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
 			if (previous != null && previous.compareTo(id) >= 0) {
@@ -722,6 +794,7 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			previous = id;
 		}
+		return failed;
 	}
 
 	private static Operations operations(Object raw, String op)
@@ -748,6 +821,10 @@ final class WorldBuilderAdaptiveContracts {
 				invalid(op, "Issue uses an unknown stable error code.");
 			}
 			String severity = enumeration(issue, "severity", op, "blocker", "warning");
+			if (WorldBuilderErrorCodes.requiresBlockerSeverity(code)
+				&& !"blocker".equals(severity)) {
+				invalid(op, "Blocker-class issue code cannot be downgraded to a warning.");
+			}
 			String operation = identifier(issue, "operation", op);
 			String projectId = uuid(issue, "projectId", op, true);
 			String adapterId = optionalIdentifier(issue, "adapterId", op);
@@ -768,7 +845,7 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			text(issue, "expected", op, 0, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
 			text(issue, "observed", op, 0, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
-			bool(issue, "mutationOccurred", op);
+			boolean mutationOccurred = bool(issue, "mutationOccurred", op);
 			text(issue, "nextStep", op, 1, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
 			String key = code + "\u0000" + operation + "\u0000" + path + "\u0000"
 				+ String.format("%011d", recordIndex) + "\u0000" + recordKey
@@ -777,13 +854,19 @@ final class WorldBuilderAdaptiveContracts {
 				invalid(op, "Issues are duplicated or not in canonical order.");
 			}
 			previous = key;
-			issues.add(new Issue(code, severity, projectId, adapterId, path));
+			issues.add(new Issue(
+				code, severity, projectId, adapterId, path, mutationOccurred));
 		}
 		return Collections.unmodifiableList(issues);
 	}
 
 	private static boolean hasBlocker(List<Issue> issues) {
 		for (Issue issue : issues) if ("blocker".equals(issue.severity)) return true;
+		return false;
+	}
+
+	private static boolean hasMutationClaim(List<Issue> issues) {
+		for (Issue issue : issues) if (issue.mutationOccurred) return true;
 		return false;
 	}
 
@@ -832,22 +915,23 @@ final class WorldBuilderAdaptiveContracts {
 				"boundary", "ground-item", "npc", "scenery");
 			long level = signedInt(value, "level", op);
 			String role = identifier(value, "sourceRole", op);
-			long definition = nonnegative(value, "definitionId", op);
-			long count = nonnegative(value, "count", op);
+			long definition = boundedCount(value, "definitionId", op);
+			long count = boundedCount(value, "count", op);
 			String key = family + String.format("\u0000%011d\u0000", level)
 				+ role + String.format("\u0000%020d", definition);
-			if (previous != null && previous.compareTo(key) >= 0 || count > Integer.MAX_VALUE) {
+			if (previous != null && previous.compareTo(key) >= 0) {
 				invalid(op, "Placement summaries are invalid, duplicated, or not canonically ordered.");
 			}
 			previous = key;
 		}
 	}
 
-	private static void validateDecisions(Object raw, String op)
+	private static boolean validateDecisions(Object raw, String op)
 		throws WorldBuilderContractException {
 		List<?> values = array(raw, op, "decisions", 0,
 			WorldBuilderContractLimits.MAX_PLACEMENT_SUMMARIES);
 		String previous = null;
+		boolean blocked = false;
 		for (Object rawValue : values) {
 			Map<String,Object> value = object(rawValue, op, "decision");
 			exact(value, op, "kind", "sourceRole", "provenance", "placementId", "outcome");
@@ -859,6 +943,7 @@ final class WorldBuilderAdaptiveContracts {
 			String placement = identifier(value, "placementId", op);
 			String outcome = enumeration(value, "outcome", op,
 				"blocked", "removed", "replaced", "retained");
+			if ("blocked".equals(outcome)) blocked = true;
 			String key = kind + "\u0000" + role + "\u0000" + provenance
 				+ "\u0000" + placement + "\u0000" + outcome;
 			if (previous != null && previous.compareTo(key) >= 0) {
@@ -866,12 +951,14 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			previous = key;
 		}
+		return blocked;
 	}
 
-	private static void validateHashRecords(Object raw, String op, String name,
+	private static Set<String> validateHashRecords(Object raw, String op, String name,
 		int minimum, int maximum) throws WorldBuilderContractException {
 		List<?> values = array(raw, op, name, minimum, maximum);
 		String previous = null;
+		Set<String> roles = new HashSet<String>();
 		for (Object rawValue : values) {
 			Map<String,Object> value = object(rawValue, op, name);
 			exact(value, op, "role", "sha256");
@@ -880,7 +967,9 @@ final class WorldBuilderAdaptiveContracts {
 				invalid(op, name + " records are duplicated or not canonically ordered.");
 			}
 			previous = role;
+			roles.add(role);
 		}
+		return Collections.unmodifiableSet(roles);
 	}
 
 	private static MutationSummary validateMutationActions(
@@ -890,6 +979,9 @@ final class WorldBuilderAdaptiveContracts {
 		Set<String> destinations = new HashSet<String>();
 		Set<String> backupPaths = new HashSet<String>();
 		Set<String> roles = new HashSet<String>();
+		Map<String,String> beforeExpectations = new LinkedHashMap<String,String>();
+		Map<String,String> afterExpectations = new LinkedHashMap<String,String>();
+		Set<String> activationPaths = new HashSet<String>();
 		boolean activationStarted = false;
 		long requiredBytes = 0L;
 		for (int index = 0; index < actions.size(); index++) {
@@ -910,6 +1002,9 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			FileState before = fileState(action.get("before"), op, "before");
 			FileState after = fileState(action.get("after"), op, "after");
+			if (before.sameContent(after)) {
+				invalid(op, "Mutation action proposes no content change to its destination.");
+			}
 			String content = optionalRelative(action, "contentRelativePath", op);
 			String backup = optionalRelative(action, "backupRelativePath", op);
 			if (after.present != !content.isEmpty()
@@ -923,7 +1018,10 @@ final class WorldBuilderAdaptiveContracts {
 				invalid(op, "Mutation backup path does not match its before state or transaction.");
 			}
 			boolean activation = bool(action, "activation", op);
-			if (activation) activationStarted = true;
+			if (activation) {
+				activationStarted = true;
+				activationPaths.add(destinationKey);
+			}
 			else if (activationStarted) invalid(op, "Mutation activation actions must be last.");
 			if (!before.present && !after.present) {
 				invalid(op, "Mutation action has neither before nor after content.");
@@ -932,8 +1030,11 @@ final class WorldBuilderAdaptiveContracts {
 				requiredBytes, before.size, op, "Mutation backup and content byte total");
 			requiredBytes = boundedByteTotal(
 				requiredBytes, after.size, op, "Mutation backup and content byte total");
+			beforeExpectations.put(destinationKey, before.expectation());
+			afterExpectations.put(destinationKey, after.expectation());
 		}
-		return new MutationSummary(destinations, requiredBytes);
+		return new MutationSummary(destinations, activationPaths,
+			beforeExpectations, afterExpectations, requiredBytes);
 	}
 
 	private static ConfigurationSummary validateConfigurationChanges(
@@ -987,22 +1088,33 @@ final class WorldBuilderAdaptiveContracts {
 			relativePaths, afterUnverified, rollbackUnverified);
 	}
 
-	private static void validateVerifications(Object raw, String op, String name,
+	private static Map<String,String> validateVerifications(Object raw, String op, String name,
 		int minimum) throws WorldBuilderContractException {
 		List<?> values = array(raw, op, name, minimum, WorldBuilderContractLimits.MAX_MUTATIONS);
 		String previous = null;
+		Map<String,String> expectations = new LinkedHashMap<String,String>();
 		for (Object rawValue : values) {
 			Map<String,Object> value = object(rawValue, op, name);
 			exact(value, op, "verificationId", "relativePath", "expected");
 			String id = identifier(value, "verificationId", op);
 			String path = relative(value, "relativePath", op);
-			text(value, "expected", op, 1, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
+			String expected = text(
+				value, "expected", op, 1, WorldBuilderContractLimits.MAX_DETAIL_CHARS);
+			if (!("absent".equals(expected)
+				|| WorldBuilderBoundedInventory.isHash(expected))) {
+				invalid(op, name + " expected state must be a SHA-256 or exact absence.");
+			}
 			String key = id + "\u0000" + path;
 			if (previous != null && previous.compareTo(key) >= 0) {
 				invalid(op, name + " are duplicated or not canonically ordered.");
 			}
 			previous = key;
+			String pathKey = WorldBuilderPortablePath.collisionKey(path, op);
+			if (expectations.put(pathKey, expected) != null) {
+				invalid(op, name + " repeats a target destination.");
+			}
 		}
+		return Collections.unmodifiableMap(expectations);
 	}
 
 	private static int validateOfflineEvidence(Object raw, String op)
@@ -1044,6 +1156,9 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			FileState before = fileState(value.get("before"), op, "before");
 			FileState after = fileState(value.get("after"), op, "after");
+			if (before.sameContent(after)) {
+				invalid(op, "Receipt file record describes no target content change.");
+			}
 			recordedBytes = boundedByteTotal(
 				recordedBytes, before.size, op, "Receipt file-state byte total");
 			recordedBytes = boundedByteTotal(
@@ -1052,7 +1167,8 @@ final class WorldBuilderAdaptiveContracts {
 			String backupHash = optionalHash(value, "backupSha256", op);
 			if (before.present != !backup.isEmpty() || before.present != !backupHash.isEmpty()
 				|| (!backup.isEmpty() && !backup.startsWith(
-					"backups/" + transactionId + "/before/"))) {
+					"backups/" + transactionId + "/before/"))
+				|| (before.present && !before.sha256.equals(backupHash))) {
 				invalid(op, "Receipt backup evidence does not match its before state.");
 			}
 			boolean afterVerified = bool(value, "afterVerified", op);
@@ -1072,7 +1188,7 @@ final class WorldBuilderAdaptiveContracts {
 		return new ReceiptFileSummary(paths, afterUnverified, rollbackUnverified);
 	}
 
-	private static int validateReceiptVerifications(Object raw, String op)
+	private static VerificationSummary validateReceiptVerifications(Object raw, String op)
 		throws WorldBuilderContractException {
 		List<?> values = array(raw, op, "verificationResults", 0,
 			WorldBuilderContractLimits.MAX_MUTATIONS);
@@ -1089,7 +1205,7 @@ final class WorldBuilderAdaptiveContracts {
 			}
 			previous = id;
 		}
-		return failed;
+		return new VerificationSummary(values.size(), failed);
 	}
 
 	private static FileState fileState(Object raw, String op, String name)
@@ -1105,6 +1221,91 @@ final class WorldBuilderAdaptiveContracts {
 			invalid(op, "File state is inconsistent or exceeds its size limit: " + name);
 		}
 		return new FileState(present, size, hash);
+	}
+
+	private static void validateVerificationCoverage(
+		Map<String,String> expected, Map<String,String> observed,
+		String op, String label) throws WorldBuilderContractException {
+		if (!expected.equals(observed)) {
+			invalid(op, label
+				+ " set must exactly cover every mutation destination and expected state.");
+		}
+	}
+
+	private static boolean matchesEvidence(
+		List<WorldBuilderBoundedInventory.Record> inventory, StateReference reference) {
+		for (WorldBuilderBoundedInventory.Record record : inventory) {
+			if (record.present && record.relativePath.equals(reference.relativePath)
+				&& record.sha256.equals(reference.sha256)) return true;
+		}
+		return false;
+	}
+
+	private static boolean hasExactInventoryRecord(
+		List<WorldBuilderBoundedInventory.Record> inventory,
+		String role, String path) {
+		for (WorldBuilderBoundedInventory.Record record : inventory) {
+			if (record.present && role.equals(record.role)
+				&& path.equals(record.relativePath)) return true;
+		}
+		return false;
+	}
+
+	private static void validateOriginState(String origin, String state, String op)
+		throws WorldBuilderContractException {
+		boolean standalone = "standalone-empty".equals(origin);
+		if (standalone) {
+			if (!("ready-standalone".equals(state) || "staging".equals(state)
+				|| "source-corrupt".equals(state))) {
+				invalid(op, "Standalone project origin and state are inconsistent.");
+			}
+		} else if ("ready-standalone".equals(state)) {
+			invalid(op, "Target-backed project cannot use standalone-ready state.");
+		}
+	}
+
+	private static void validateProjectOperations(
+		String state, Operations operations, String op)
+		throws WorldBuilderContractException {
+		if (operations.createProject) {
+			invalid(op, "An existing project manifest cannot advertise project creation.");
+		}
+		if ("ready-attached".equals(state)) {
+			if (!operations.edit || !operations.save || !operations.export
+				|| !operations.importTarget) {
+				invalid(op, "Attached-ready project operations do not match the state matrix.");
+			}
+		} else if ("ready-detached".equals(state)
+			|| "ready-standalone".equals(state)) {
+			if (!operations.edit || !operations.save || !operations.export
+				|| operations.importTarget || operations.undo) {
+				invalid(op, "Isolated-ready project operations do not match the state matrix.");
+			}
+		} else if (operations.any()) {
+			invalid(op, "Unsafe project state cannot advertise any operation.");
+		}
+	}
+
+	private static long boundedCount(Map<String,Object> value, String key, String op)
+		throws WorldBuilderContractException {
+		long count = nonnegative(value, key, op);
+		if (count > Integer.MAX_VALUE) {
+			throw new WorldBuilderContractException(
+				WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, op,
+				"Conversion count exceeds its supported range: " + key);
+		}
+		return count;
+	}
+
+	private static long safeAdd(long first, long second, String op, String label)
+		throws WorldBuilderContractException {
+		try {
+			return Math.addExact(first, second);
+		} catch (ArithmeticException overflow) {
+			throw new WorldBuilderContractException(
+				WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, op,
+				label + " overflowed.");
+		}
 	}
 
 	private static long boundedByteTotal(long current, long added,
@@ -1375,14 +1576,19 @@ final class WorldBuilderAdaptiveContracts {
 		boolean any() {
 			return createProject || edit || save || export || importTarget || undo;
 		}
+		boolean discoveryOnly() {
+			return createProject && !edit && !save && !export && !importTarget && !undo;
+		}
 	}
 
 	private static final class Issue {
 		final String code, severity, projectId, adapterId, relativePath;
+		final boolean mutationOccurred;
 		Issue(String code, String severity, String projectId, String adapterId,
-			String relativePath) {
+			String relativePath, boolean mutationOccurred) {
 			this.code = code; this.severity = severity; this.projectId = projectId;
 			this.adapterId = adapterId; this.relativePath = relativePath;
+			this.mutationOccurred = mutationOccurred;
 		}
 	}
 
@@ -1410,6 +1616,13 @@ final class WorldBuilderAdaptiveContracts {
 		final String sha256;
 		FileState(boolean present, long size, String sha256) {
 			this.present = present; this.size = size; this.sha256 = sha256;
+		}
+		boolean sameContent(FileState other) {
+			if (present != other.present) return false;
+			return !present || sha256.equals(other.sha256);
+		}
+		String expectation() {
+			return present ? sha256 : "absent";
 		}
 	}
 
@@ -1441,11 +1654,28 @@ final class WorldBuilderAdaptiveContracts {
 
 	private static final class MutationSummary {
 		final Set<String> relativePaths;
+		final Set<String> activationPaths;
+		final Map<String,String> beforeExpectations;
+		final Map<String,String> afterExpectations;
 		final long requiredBytes;
 
-		MutationSummary(Set<String> relativePaths, long requiredBytes) {
+		MutationSummary(Set<String> relativePaths, Set<String> activationPaths,
+			Map<String,String> beforeExpectations, Map<String,String> afterExpectations,
+			long requiredBytes) {
 			this.relativePaths = relativePaths;
+			this.activationPaths = activationPaths;
+			this.beforeExpectations = beforeExpectations;
+			this.afterExpectations = afterExpectations;
 			this.requiredBytes = requiredBytes;
+		}
+	}
+
+	private static final class VerificationSummary {
+		final int total;
+		final int failed;
+		VerificationSummary(int total, int failed) {
+			this.total = total;
+			this.failed = failed;
 		}
 	}
 }

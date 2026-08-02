@@ -52,6 +52,56 @@
     "recoveryTransactionId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalUuid"},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"mutationOccurred": {"const": true}}},
+      "then": {
+        "properties": {
+          "offlineEvidence": {
+            "items": {"properties": {"verified": {"const": true}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "failed-no-change"}}},
+      "then": {"properties": {"mutationOccurred": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"status": {"const": "successful"}}},
+      "then": {
+        "properties": {
+          "mutationOccurred": {"const": true},
+          "files": {"items": {"properties": {"afterVerified": {"const": true}}}},
+          "configurationChanges": {
+            "items": {"properties": {"afterVerified": {"const": true}}}
+          },
+          "verificationResults": {
+            "minItems": 1,
+            "items": {"properties": {"success": {"const": true}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"enum": ["reverted", "rolled-back"]}}},
+      "then": {
+        "properties": {
+          "mutationOccurred": {"const": true},
+          "files": {
+            "items": {"properties": {"rollbackVerified": {"const": true}}}
+          },
+          "configurationChanges": {
+            "items": {"properties": {"rollbackVerified": {"const": true}}}
+          }
+        }
+      }
+    },
+    {
+      "if": {"properties": {"status": {"const": "recovery-required"}}},
+      "then": {"properties": {"mutationOccurred": {"const": true}}}
+    }
+  ],
   "$defs": {
     "offlineEvidence": {
       "type": "object", "additionalProperties": false,

@@ -97,5 +97,69 @@
     },
     "operations": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/operations"},
     "projectFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"origin": {"const": "standalone-empty"}}},
+      "then": {
+        "properties": {
+          "state": {"enum": ["ready-standalone", "source-corrupt", "staging"]}
+        }
+      },
+      "else": {"properties": {"state": {"not": {"const": "ready-standalone"}}}}
+    },
+    {
+      "if": {"properties": {"state": {"const": "ready-attached"}}},
+      "then": {"properties": {"operations": {"$ref": "#/$defs/attachedOperations"}}}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["ready-detached", "ready-standalone"]}}},
+      "then": {"properties": {"operations": {"$ref": "#/$defs/isolatedOperations"}}}
+    },
+    {
+      "if": {"properties": {"state": {"enum": ["recovery-required", "source-corrupt", "staging"]}}},
+      "then": {"properties": {"operations": {"$ref": "#/$defs/noOperations"}}}
+    }
+  ],
+  "$defs": {
+    "attachedOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": false},
+        "edit": {"const": true},
+        "save": {"const": true},
+        "export": {"const": true},
+        "import": {"const": true},
+        "undo": {"type": "boolean"}
+      }
+    },
+    "isolatedOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": false},
+        "edit": {"const": true},
+        "save": {"const": true},
+        "export": {"const": true},
+        "import": {"const": false},
+        "undo": {"const": false}
+      }
+    },
+    "noOperations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"const": false},
+        "edit": {"const": false},
+        "save": {"const": false},
+        "export": {"const": false},
+        "import": {"const": false},
+        "undo": {"const": false}
+      }
+    }
   }
 }

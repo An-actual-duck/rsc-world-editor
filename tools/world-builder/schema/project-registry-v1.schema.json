@@ -28,7 +28,18 @@
               "recovery-required", "source-corrupt", "staging"
             ]
           }
-        }
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"origin": {"const": "standalone-empty"}}},
+            "then": {
+              "properties": {
+                "state": {"enum": ["ready-standalone", "source-corrupt", "staging"]}
+              }
+            },
+            "else": {"properties": {"state": {"not": {"const": "ready-standalone"}}}}
+          }
+        ]
       }
     },
     "registryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}

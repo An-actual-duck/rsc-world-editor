@@ -18,10 +18,10 @@
       "type": "object", "additionalProperties": false,
       "required": ["entriesRead", "entriesWritten", "reverseMatched", "reverseMismatches"],
       "properties": {
-        "entriesRead": {"type": "integer", "minimum": 0},
-        "entriesWritten": {"type": "integer", "minimum": 0},
-        "reverseMatched": {"type": "integer", "minimum": 0},
-        "reverseMismatches": {"type": "integer", "minimum": 0}
+        "entriesRead": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "entriesWritten": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "reverseMatched": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "reverseMismatches": {"type": "integer", "minimum": 0, "maximum": 2147483647}
       }
     },
     "placements": {
@@ -39,11 +39,11 @@
         "parityDeltaCount"
       ],
       "properties": {
-        "unknownCount": {"type": "integer", "minimum": 0},
-        "lossCount": {"type": "integer", "minimum": 0},
-        "approximationCount": {"type": "integer", "minimum": 0},
-        "repairCount": {"type": "integer", "minimum": 0},
-        "parityDeltaCount": {"type": "integer", "minimum": 0}
+        "unknownCount": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "lossCount": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "approximationCount": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "repairCount": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+        "parityDeltaCount": {"type": "integer", "minimum": 0, "maximum": 2147483647}
       }
     },
     "issues": {
@@ -53,6 +53,33 @@
     "blocked": {"type": "boolean"},
     "reportFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"blocked": {"const": false}}},
+      "then": {
+        "properties": {
+          "outputFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+          "terrain": {"properties": {"reverseMismatches": {"const": 0}}},
+          "validation": {
+            "properties": {
+              "unknownCount": {"const": 0},
+              "lossCount": {"const": 0},
+              "approximationCount": {"const": 0},
+              "repairCount": {"const": 0},
+              "parityDeltaCount": {"const": 0}
+            }
+          },
+          "decisions": {
+            "not": {"contains": {"properties": {"outcome": {"const": "blocked"}}}}
+          },
+          "issues": {
+            "not": {"contains": {"properties": {"severity": {"const": "blocker"}}}}
+          }
+        }
+      },
+      "else": {"properties": {"outputFingerprintSha256": {"const": ""}}}
+    }
+  ],
   "$defs": {
     "placementSummary": {
       "type": "object", "additionalProperties": false,
@@ -61,7 +88,7 @@
         "family": {"enum": ["boundary", "ground-item", "npc", "scenery"]},
         "level": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "sourceRole": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
-        "definitionId": {"type": "integer", "minimum": 0},
+        "definitionId": {"type": "integer", "minimum": 0, "maximum": 2147483647},
         "count": {"type": "integer", "minimum": 0, "maximum": 2147483647}
       }
     },

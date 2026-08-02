@@ -7,6 +7,7 @@
 *.log
 *.pid
 *.tmp
+__pycache__/
 .DS_Store
 Thumbs.db
 AI_WORKSPACE.md
