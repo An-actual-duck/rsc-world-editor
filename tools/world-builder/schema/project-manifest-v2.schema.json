@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/project-manifest-v2.schema.json",
+  "title": "World Builder adaptive project manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "projectId", "displayName", "origin", "state",
+    "creation", "target", "standalone", "paths", "fingerprints", "operations",
+    "projectFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "manifestType": {"const": "world-builder-project"},
+    "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+    "displayName": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/displayName"},
+    "origin": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/origin"},
+    "state": {
+      "enum": [
+        "ready-attached", "ready-detached", "ready-standalone", "recovery-required",
+        "source-corrupt", "staging"
+      ]
+    },
+    "creation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["toolVersion", "runtimeVersion"],
+      "properties": {
+        "toolVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "runtimeVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+      }
+    },
+    "target": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "targetBacked", "locatorDisplay", "adapterId", "capabilityId",
+        "selectedConfigurationRelativePath", "selectedConfigurationSha256",
+        "targetFingerprintSha256", "importProfileId"
+      ],
+      "properties": {
+        "targetBacked": {"type": "boolean"},
+        "locatorDisplay": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/displayPath"},
+        "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "capabilityId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "selectedConfigurationRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalRelativePath"},
+        "selectedConfigurationSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "targetFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "importProfileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"}
+      }
+    },
+    "standalone": {
+      "type": "object", "additionalProperties": false,
+      "required": ["generatorId", "catalogId", "runtimeId"],
+      "properties": {
+        "generatorId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "catalogId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "runtimeId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"}
+      }
+    },
+    "paths": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "sourceSnapshotRelativePath", "layeredBaselineRelativePath",
+        "workingRuntimeRelativePath", "workingPackageRelativePath",
+        "conversionPlanRelativePath", "conversionReportRelativePath",
+        "exportsRelativePath", "backupsRelativePath", "receiptsRelativePath",
+        "diagnosticsRelativePath", "logsRelativePath", "runRelativePath"
+      ],
+      "properties": {
+        "sourceSnapshotRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "layeredBaselineRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "workingRuntimeRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "workingPackageRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "conversionPlanRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalRelativePath"},
+        "conversionReportRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalRelativePath"},
+        "exportsRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "backupsRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "receiptsRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "diagnosticsRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "logsRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "runRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"}
+      }
+    },
+    "fingerprints": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "sourceSha256", "layeredBaselineSha256", "definitionsSha256",
+        "runtimeSha256", "conversionSha256", "workingSha256"
+      ],
+      "properties": {
+        "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "layeredBaselineSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "definitionsSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "runtimeSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "conversionSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "workingSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "operations": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/operations"},
+    "projectFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  }
+}

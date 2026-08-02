@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/adaptive-contract-definitions-v1.schema.json",
+  "title": "RSC World Editor adaptive contract definitions v1",
+  "$comment": "Executable Java validation is authoritative for canonical ordering, portable collisions, aggregate limits, and cross-field rules.",
+  "$defs": {
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:+-]*$"
+    },
+    "optionalIdentifier": {
+      "type": "string",
+      "maxLength": 128,
+      "pattern": "^$|^[A-Za-z0-9][A-Za-z0-9._:+-]*$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "optionalSha256": {
+      "type": "string",
+      "pattern": "^$|^[0-9a-f]{64}$"
+    },
+    "uuid": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "optionalUuid": {
+      "type": "string",
+      "pattern": "^$|^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "timestamp": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 64,
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*Z$"
+    },
+    "displayName": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "displayPath": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "relativePath": {
+      "$comment": "Executable validation additionally rejects non-NFC text, Windows devices, trailing dots/spaces, control characters, and overlong UTF-8 segments.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)(?!.*[:<>\"|?*])[^/]+(?:/[^/]+)*$"
+    },
+    "optionalRelativePath": {
+      "anyOf": [
+        {"const": ""},
+        {"$ref": "#/$defs/relativePath"}
+      ]
+    },
+    "origin": {
+      "enum": ["standalone-empty", "target-layered", "target-packed"]
+    },
+    "fileState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "size", "sha256"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
+        "sha256": {"$ref": "#/$defs/optionalSha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"present": {"const": true}}},
+          "then": {"properties": {"sha256": {"$ref": "#/$defs/sha256"}}},
+          "else": {"properties": {"size": {"const": 0}, "sha256": {"const": ""}}}
+        }
+      ]
+    },
+    "inventoryRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "relativePath", "present", "size", "sha256"],
+      "properties": {
+        "role": {"$ref": "#/$defs/identifier"},
+        "relativePath": {"$ref": "#/$defs/relativePath"},
+        "present": {"type": "boolean"},
+        "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
+        "sha256": {"$ref": "#/$defs/optionalSha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"present": {"const": true}}},
+          "then": {"properties": {"sha256": {"$ref": "#/$defs/sha256"}}},
+          "else": {"properties": {"size": {"const": 0}, "sha256": {"const": ""}}}
+        }
+      ]
+    },
+    "inventory": {
+      "type": "array",
+      "maxItems": 8192,
+      "items": {"$ref": "#/$defs/inventoryRecord"}
+    },
+    "stateReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "relativePath", "sha256"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "relativePath": {"$ref": "#/$defs/optionalRelativePath"},
+        "sha256": {"$ref": "#/$defs/optionalSha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"present": {"const": true}}},
+          "then": {
+            "properties": {
+              "relativePath": {"$ref": "#/$defs/relativePath"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          },
+          "else": {"properties": {"relativePath": {"const": ""}, "sha256": {"const": ""}}}
+        }
+      ]
+    },
+    "roleStateReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["present", "role", "relativePath", "sha256"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "role": {"$ref": "#/$defs/optionalIdentifier"},
+        "relativePath": {"$ref": "#/$defs/optionalRelativePath"},
+        "sha256": {"$ref": "#/$defs/optionalSha256"}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"present": {"const": true}}},
+          "then": {
+            "properties": {
+              "role": {"$ref": "#/$defs/identifier"},
+              "relativePath": {"$ref": "#/$defs/relativePath"},
+              "sha256": {"$ref": "#/$defs/sha256"}
+            }
+          },
+          "else": {
+            "properties": {
+              "role": {"const": ""},
+              "relativePath": {"const": ""},
+              "sha256": {"const": ""}
+            }
+          }
+        }
+      ]
+    },
+    "operations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["createProject", "edit", "save", "export", "import", "undo"],
+      "properties": {
+        "createProject": {"type": "boolean"},
+        "edit": {"type": "boolean"},
+        "save": {"type": "boolean"},
+        "export": {"type": "boolean"},
+        "import": {"type": "boolean"},
+        "undo": {"type": "boolean"}
+      }
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code", "severity", "operation", "projectId", "adapterId",
+        "relativePath", "provenance", "expected", "observed",
+        "recordIndex", "recordKey", "mutationOccurred", "nextStep"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "AMBIGUOUS_CONFIGURATION", "CAPABILITY_MISMATCH",
+            "CONTRACT_IDENTITY_INVALID", "CONTRACT_KEYS_INVALID",
+            "CONTRACT_LIMIT_EXCEEDED", "CONTRACT_VALUE_INVALID",
+            "CONVERSION_BLOCKED", "DEFINITION_MISMATCH", "DISCOVERY_DRIFT",
+            "INVENTORY_DUPLICATE", "INVENTORY_LIMIT_EXCEEDED",
+            "LOADER_INCOMPATIBLE", "MALFORMED_JSON", "MALFORMED_SERVER",
+            "MAP_MISMATCH", "MUTATION_FAILED", "NO_SERVER", "NO_TARGET",
+            "OFFLINE_REQUIRED", "PROJECT_DETACHED", "RECOVERY_REQUIRED",
+            "SOURCE_CORRUPT", "TARGET_DRIFT", "UNSAFE_PATH",
+            "UNSUPPORTED_ADAPTER", "UNSUPPORTED_CONTRACT_VERSION",
+            "UNSUPPORTED_FORMAT"
+          ]
+        },
+        "severity": {"enum": ["blocker", "warning"]},
+        "operation": {"$ref": "#/$defs/identifier"},
+        "projectId": {"$ref": "#/$defs/optionalUuid"},
+        "adapterId": {"$ref": "#/$defs/optionalIdentifier"},
+        "relativePath": {"$ref": "#/$defs/optionalRelativePath"},
+        "provenance": {"type": "string", "maxLength": 4096},
+        "recordIndex": {"type": "integer", "minimum": -1, "maximum": 2147483647},
+        "recordKey": {"type": "string", "maxLength": 4096},
+        "expected": {"type": "string", "maxLength": 4096},
+        "observed": {"type": "string", "maxLength": 4096},
+        "mutationOccurred": {"type": "boolean"},
+        "nextStep": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }
+    },
+    "hashRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "sha256"],
+      "properties": {
+        "role": {"$ref": "#/$defs/identifier"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  }
+}

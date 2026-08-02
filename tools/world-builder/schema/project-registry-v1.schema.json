@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/project-registry-v1.schema.json",
+  "title": "World Builder project registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "projects", "registryFingerprintSha256"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-project-registry"},
+    "projects": {
+      "type": "array", "maxItems": 4096,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": [
+          "projectId", "manifestRelativePath", "manifestSha256", "displayName",
+          "origin", "state"
+        ],
+        "properties": {
+          "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+          "manifestRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+          "manifestSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+          "displayName": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/displayName"},
+          "origin": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/origin"},
+          "state": {
+            "enum": [
+              "ready-attached", "ready-detached", "ready-standalone",
+              "recovery-required", "source-corrupt", "staging"
+            ]
+          }
+        }
+      }
+    },
+    "registryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  }
+}

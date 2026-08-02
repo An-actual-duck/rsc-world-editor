@@ -1,5 +1,6 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -8,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,12 +29,16 @@ final class WorldBuilderJsonDocuments {
 		if (size < 2L || size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
 			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
 		}
+		byte[] bytes = readBounded(path);
+		if (bytes.length < 2) {
+			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
+		}
 		String text;
 		try {
 			text = StandardCharsets.UTF_8.newDecoder()
 				.onMalformedInput(CodingErrorAction.REPORT)
 				.onUnmappableCharacter(CodingErrorAction.REPORT)
-				.decode(ByteBuffer.wrap(Files.readAllBytes(path))).toString();
+				.decode(ByteBuffer.wrap(bytes)).toString();
 		} catch (CharacterCodingException invalidUtf8) {
 			throw new WorldBuilderDiscoveryException("JSON file is not valid UTF-8: " + path);
 		}
@@ -42,6 +48,25 @@ final class WorldBuilderJsonDocuments {
 		}
 		@SuppressWarnings("unchecked") Map<String,Object> object = (Map<String,Object>)parsed;
 		return object;
+	}
+
+	private static byte[] readBounded(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		ByteArrayOutputStream output = new ByteArrayOutputStream(8192);
+		try (java.io.InputStream input = Files.newInputStream(
+			path, StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS)) {
+			byte[] buffer = new byte[8192];
+			int read;
+			while ((read = input.read(buffer)) >= 0) {
+				if (read == 0) continue;
+				if ((long)output.size() + read > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+					throw new WorldBuilderDiscoveryException(
+						"JSON file has an invalid size: " + path);
+				}
+				output.write(buffer, 0, read);
+			}
+		}
+		return output.toByteArray();
 	}
 
 	static String pretty(Object value) {

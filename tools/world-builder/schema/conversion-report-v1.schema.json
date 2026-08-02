@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/conversion-report-v1.schema.json",
+  "title": "World Builder conversion report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "planSha256", "outputFingerprintSha256",
+    "terrain", "placements", "decisions", "validation", "issues", "blocked",
+    "reportFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-conversion-report"},
+    "planSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "outputFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+    "terrain": {
+      "type": "object", "additionalProperties": false,
+      "required": ["entriesRead", "entriesWritten", "reverseMatched", "reverseMismatches"],
+      "properties": {
+        "entriesRead": {"type": "integer", "minimum": 0},
+        "entriesWritten": {"type": "integer", "minimum": 0},
+        "reverseMatched": {"type": "integer", "minimum": 0},
+        "reverseMismatches": {"type": "integer", "minimum": 0}
+      }
+    },
+    "placements": {
+      "type": "array", "maxItems": 65536,
+      "items": {"$ref": "#/$defs/placementSummary"}
+    },
+    "decisions": {
+      "type": "array", "maxItems": 65536,
+      "items": {"$ref": "#/$defs/decision"}
+    },
+    "validation": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "unknownCount", "lossCount", "approximationCount", "repairCount",
+        "parityDeltaCount"
+      ],
+      "properties": {
+        "unknownCount": {"type": "integer", "minimum": 0},
+        "lossCount": {"type": "integer", "minimum": 0},
+        "approximationCount": {"type": "integer", "minimum": 0},
+        "repairCount": {"type": "integer", "minimum": 0},
+        "parityDeltaCount": {"type": "integer", "minimum": 0}
+      }
+    },
+    "issues": {
+      "type": "array", "maxItems": 4096,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/issue"}
+    },
+    "blocked": {"type": "boolean"},
+    "reportFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "placementSummary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["family", "level", "sourceRole", "definitionId", "count"],
+      "properties": {
+        "family": {"enum": ["boundary", "ground-item", "npc", "scenery"]},
+        "level": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+        "sourceRole": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "definitionId": {"type": "integer", "minimum": 0},
+        "count": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+      }
+    },
+    "decision": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "sourceRole", "provenance", "placementId", "outcome"],
+      "properties": {
+        "kind": {"enum": ["collision", "precedence", "removal", "replacement"]},
+        "sourceRole": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "provenance": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "outcome": {"enum": ["blocked", "removed", "replaced", "retained"]}
+      }
+    }
+  }
+}

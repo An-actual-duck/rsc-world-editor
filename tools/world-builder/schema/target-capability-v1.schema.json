@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/target-capability-v1.schema.json",
+  "title": "World Builder target capability v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "adapterId", "capabilityId", "server",
+    "client", "definitions", "map", "discovery", "authoring", "install"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-target-capability"},
+    "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "capabilityId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "server": {
+      "type": "object", "additionalProperties": false,
+      "required": ["buildId", "loaderId"],
+      "properties": {
+        "buildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "loaderId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+      }
+    },
+    "client": {
+      "type": "object", "additionalProperties": false,
+      "required": ["buildId", "protocolId", "loaderId"],
+      "properties": {
+        "buildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "protocolId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "loaderId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+      }
+    },
+    "definitions": {
+      "type": "object", "additionalProperties": false,
+      "required": ["catalogId", "catalogSha256"],
+      "properties": {
+        "catalogId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "catalogSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "map": {
+      "type": "object", "additionalProperties": false,
+      "required": ["formatId", "packageSchemaId", "encodingVersions"],
+      "properties": {
+        "formatId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "packageSchemaId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "encodingVersions": {
+          "type": "array", "minItems": 1, "maxItems": 32,
+          "uniqueItems": true, "items": {"type": "integer", "minimum": 1}
+        }
+      }
+    },
+    "discovery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["configurationRoles", "sourceRepresentations", "sourceRoles"],
+      "properties": {
+        "configurationRoles": {"$ref": "#/$defs/identifiers64"},
+        "sourceRepresentations": {
+          "type": "array", "minItems": 1, "maxItems": 2,
+          "uniqueItems": true, "items": {"enum": ["layered", "packed"]}
+        },
+        "sourceRoles": {"$ref": "#/$defs/identifiers256"}
+      }
+    },
+    "authoring": {
+      "type": "object", "additionalProperties": false,
+      "required": ["editExistingLevels", "createLevels", "placementFamilies"],
+      "properties": {
+        "editExistingLevels": {"type": "boolean"},
+        "createLevels": {"type": "boolean"},
+        "placementFamilies": {
+          "type": "array", "maxItems": 4, "uniqueItems": true,
+          "items": {"enum": ["boundary", "ground-item", "npc", "scenery"]}
+        }
+      }
+    },
+    "install": {
+      "type": "object", "additionalProperties": false,
+      "required": [
+        "enabled", "serverRoles", "clientRoles", "configurationRoles",
+        "mutationProfileId", "offlineEvidence"
+      ],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "serverRoles": {"$ref": "#/$defs/identifiers256"},
+        "clientRoles": {"$ref": "#/$defs/identifiers256"},
+        "configurationRoles": {"$ref": "#/$defs/identifiers64"},
+        "mutationProfileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "offlineEvidence": {"$ref": "#/$defs/identifiers32"}
+      }
+    }
+  },
+  "$defs": {
+    "identifiers32": {
+      "type": "array", "maxItems": 32, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    },
+    "identifiers64": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    },
+    "identifiers256": {
+      "type": "array", "maxItems": 256, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    }
+  }
+}

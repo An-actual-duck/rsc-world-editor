@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/conversion-plan-v1.schema.json",
+  "title": "World Builder conversion plan v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "toolVersion", "adapterId",
+    "conversionProfileId", "sourceFingerprintSha256", "definitionFingerprintSha256",
+    "coordinateMappingId", "placementCompositionProfileId", "outputPackageSchemaId",
+    "outputEncodingVersion", "inputs", "placementSourceOrder", "planFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-conversion-plan"},
+    "toolVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "conversionProfileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "sourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "definitionFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "coordinateMappingId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "placementCompositionProfileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "outputPackageSchemaId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "outputEncodingVersion": {"type": "integer", "minimum": 1},
+    "inputs": {
+      "type": "array", "minItems": 1, "maxItems": 8192,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/inventoryRecord"}
+    },
+    "placementSourceOrder": {
+      "type": "array", "maxItems": 256, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    },
+    "planFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  }
+}
