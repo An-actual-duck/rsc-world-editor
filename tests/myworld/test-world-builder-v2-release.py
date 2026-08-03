@@ -77,7 +77,7 @@ def make_fixture(
     resolved_icons: bool = True,
     linux_os: str = "Linux",
     production_build: bool = False,
-    release_ready: bool = True,
+    release_ready: bool = False,
 ) -> tuple[Path, Path, Path, Path, Path]:
     standalone = base / "standalone"
     core = base / "core"
@@ -312,7 +312,9 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
     def test_production_build_marks_and_verifies_the_client(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-production-") as temp:
-            fixture = make_fixture(Path(temp), production_build=True)
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=True
+            )
             standalone = fixture[0]
             result = run_packager(*fixture, skip_build=False)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -336,7 +338,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
         self,
     ) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-marker-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             core = fixture[1]
             make_jar(
                 core / "Client_Base/Open_RSC_Client.jar",
@@ -351,7 +353,9 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn(RELEASE_MARKER_ENTRY, missing_marker.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-natives-") as temp:
-            fixture = make_fixture(Path(temp), production_build=True)
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=True
+            )
             core = fixture[1]
             missing_name = f"lwjgl-glfw-{LWJGL_VERSION}-natives-windows.jar"
             (core / "PC_Client/lib/lwjgl" / missing_name).unlink()
@@ -365,7 +369,9 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn("scripts/download-lwjgl.sh", missing_native.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-lwjgl-set-") as temp:
-            fixture = make_fixture(Path(temp), production_build=True)
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=True
+            )
             core = fixture[1]
             invalid_name = f"lwjgl-{LWJGL_VERSION}.jar"
             unexpected_name = "lwjgl-3.2.3.jar"
@@ -384,14 +390,16 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
     def test_packager_rejects_unresolved_asset_provenance(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-credits-") as temp:
-            fixture = make_fixture(Path(temp), resolved_icons=False)
+            fixture = make_fixture(
+                Path(temp), resolved_icons=False, release_ready=True
+            )
             result = run_packager(*fixture)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("icon provenance is unresolved", result.stderr)
 
     def test_packager_accepts_standalone_owned_tooling_difference(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-independent-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             standalone = fixture[0]
             importer = (
                 standalone
@@ -417,7 +425,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
     def test_packager_requires_published_manager_main_and_exact_clean_pinned_core(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-state-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             standalone, core, *_ = fixture
             git(standalone, "switch", "-c", "feature-test")
             wrong_branch = run_packager(*fixture)
@@ -431,7 +439,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn("Core-Framework release checkout must be clean", dirty_core.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-core-commit-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             core = fixture[1]
             write(core / "wrong-commit.txt", "not the locked dependency\n")
             git(core, "add", "wrong-commit.txt")
@@ -444,13 +452,15 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
     def test_packager_rejects_wrong_runtime_or_unsafe_layered_package(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-inputs-") as temp:
-            fixture = make_fixture(Path(temp), linux_os="Windows")
+            fixture = make_fixture(
+                Path(temp), linux_os="Windows", release_ready=True
+            )
             wrong_runtime = run_packager(*fixture)
             self.assertNotEqual(0, wrong_runtime.returncode)
             self.assertIn('Linux JRE must report OS_NAME="Linux"', wrong_runtime.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-layered-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             layered_package = fixture[2]
             (layered_package / "unsafe-link").symlink_to(layered_package / "manifest.json")
             unsafe_layered = run_packager(*fixture)
@@ -458,14 +468,14 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn("must not contain symbolic links", unsafe_layered.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-path-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             write(fixture[2] / "terrain/CON.txt", "Windows device path\n")
             unsafe_path = run_packager(*fixture)
             self.assertNotEqual(0, unsafe_path.returncode)
             self.assertIn("Windows-unsafe staged package path", unsafe_path.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-jre-link-") as temp:
-            fixture = make_fixture(Path(temp))
+            fixture = make_fixture(Path(temp), release_ready=True)
             outside = Path(temp) / "external-runtime-file"
             write(outside, "must not be followed\n")
             (fixture[3] / "lib/external-link").symlink_to(outside)
@@ -476,7 +486,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
     def test_archives_are_complete_v2_only_verified_and_launchable(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-package-") as temp:
             base = Path(temp)
-            fixture = make_fixture(base)
+            fixture = make_fixture(base, release_ready=True)
             standalone, core, _, _, _ = fixture
             result = run_packager(*fixture)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
@@ -621,7 +631,35 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     self.assertIn("never treats the frozen World Editor v1.1.0", readme)
                     start = archive.read(prefix + "Start World Builder.sh").decode()
                     self.assertIn("Update World Builder.sh", start)
-                    self.assertIn("--layered-profile spoiled-milk-replacement", start)
+                    self.assertIn("launch-adaptive", start)
+                    self.assertIn("--installation-root", start)
+                    self.assertIn("--target-root", start)
+                    self.assertNotIn("--layered-package", start)
+                    self.assertNotIn("server/myworld.conf", start)
+                    windows_start = archive.read(
+                        prefix + "Start World Builder.cmd"
+                    ).decode()
+                    for expected in (
+                        "launch-adaptive",
+                        "--installation-root",
+                        "--runtime-root",
+                        "--target-root",
+                        "--port",
+                        "WORLD_BUILDER_CONFIGURATION_ROLE",
+                    ):
+                        self.assertIn(expected, start)
+                        self.assertIn(expected, windows_start)
+                    self.assertNotIn("--layered-package", windows_start)
+                    self.assertNotIn("server/myworld.conf", windows_start)
+                    for script_name, command in (
+                        ("Import Map Changes.sh", "import-active-adaptive"),
+                        ("Import Map Changes.cmd", "import-active-adaptive"),
+                        ("Undo Last Map Import.sh", "undo-active-adaptive"),
+                        ("Undo Last Map Import.cmd", "undo-active-adaptive"),
+                    ):
+                        script = archive.read(prefix + script_name).decode()
+                        self.assertIn("project-registry.json", script)
+                        self.assertIn(command, script)
                     with zipfile.ZipFile(
                         io.BytesIO(
                             archive.read(
@@ -686,7 +724,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
             self.assertEqual(0, started.returncode, started.stdout + started.stderr)
             start_call = calls.read_text(encoding="utf-8")
-            self.assertIn("launch\n", start_call)
+            self.assertIn("launch-adaptive\n", start_call)
+            self.assertIn(str(package), start_call)
             self.assertIn(str(extracted), start_call)
             self.assertIn("44600\n", start_call)
 
@@ -699,7 +738,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 capture_output=True,
             )
             self.assertNotEqual(0, legacy.returncode)
-            self.assertIn("legacy or unidentified", legacy.stderr)
+            self.assertIn("historical World Builder 2 workspace", legacy.stderr)
 
             write(package / "workspace/layered-review.json", "{}\n")
             restarted = subprocess.run(
@@ -709,8 +748,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            self.assertEqual(0, restarted.returncode, restarted.stdout + restarted.stderr)
-            self.assertIn("run\n", calls.read_text(encoding="utf-8"))
+            self.assertNotEqual(0, restarted.returncode)
+            self.assertIn("will not migrate or replace it", restarted.stderr)
 
             imported = subprocess.run(
                 [str(package / "Import Map Changes.sh")],

@@ -4,7 +4,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-2 implemented, later phases not started |
+| Status | Approved architecture and implementation plan; Phases 0-2 implemented; repository-owned Phase 3 implementation ready for manager review |
+| Product/release readiness | NOT READY; native runtime remains blocked on Phase 4 and generic export/import remains Phase 6 |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -666,6 +667,11 @@ tests, and product approval. There is never a generic force flag.
    origin `0,0`, the empty generator, and default catalog/runtime hashes.
 3. Generate a canonical signed-layered baseline with no authored terrain or
    placements beyond minimal void addressability required by the runtime.
+   The single `global` sector at level `0`, sector `0,0` consists only of the
+   repeated ten-byte tile record `0,1,8,0,0,0,0,0,0,0`: elevation `0`, ground
+   texture `1`, ground overlay `8`, and zero roof, wall, and diagonal values.
+   The default catalog therefore includes one-based overlay definition ID `7`
+   as well as the deliberately supported authoring IDs.
 4. Validate it, copy it to working state, and prepare an isolated runtime whose
    initial editor location is exactly layer `0`, coordinate `0,0`.
 5. Publish the project and registry atomically.
@@ -791,14 +797,13 @@ open/export/finish/undo using its matching runtime when available, with no
 adaptive attachment or migration. If that runtime cannot be retained safely,
 the update refuses and explains how to preserve the old installation.
 
-`release/world-builder-v2/RELEASE-READY` and
-`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md` remain historical
-evidence. Adaptive implementation does not reinterpret them as approval of a
-new release design. The current marker is not version-scoped, so the release
-workflow MUST replace or constrain it with an exact adaptive-version and
-candidate-commit acceptance record before adaptive implementation can be
-packaged. Until then, no adaptive release is authorized by that historical
-marker.
+`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md` remains historical
+evidence, but `release/world-builder-v2/RELEASE-READY` is deliberately absent.
+Adaptive implementation does not reinterpret the historical validation as
+approval of a new release design. A future release review MUST restore or
+replace the marker with an exact adaptive-version and candidate-commit
+acceptance record before adaptive implementation can be packaged. Until then,
+the packager's existing marker guard keeps public packaging closed.
 
 ### Packaging
 
@@ -884,9 +889,13 @@ proposed schema numbers after adaptive contracts are final.
 
 Dedicated `test-world-builder-adaptive-contracts.py`,
 `test-world-builder-adaptive-discovery.py`, and
-`test-world-builder-packed-conversion.py` suites now cover Phases 0-2. Project
-registry/lifecycle, standalone empty generation, layered adoption, and
-cross-platform adaptive transactions remain later dedicated suites.
+`test-world-builder-packed-conversion.py` suites cover Phases 0-2.
+`test-world-builder-adaptive-project-lifecycle.py` now covers atomic registry
+publication and rollback, all three origins, source/baseline protection,
+portable detach/reattach, multiple selection, save/reopen, standalone
+no-target refusal, project-only supervision, generated-state confinement, and
+unsafe mutable paths. Generic adaptive export/import remains a later dedicated
+suite.
 
 ## Existing implementation-file impact
 
@@ -898,6 +907,7 @@ cross-platform adaptive transactions remain later dedicated suites.
 | `WorldBuilderGenericLayeredPackage.java`, `WorldBuilderRawLayeredTerrainCodec.java`, `WorldBuilderPlacementSemantics.java` | Content-neutral package/runtime decoding validation and shared semantic placement comparison without fixed world identity. |
 | `WorldBuilderProjectSource.java` and `project-manifest-v1.schema.json` | Preserve old meaning; add v2 origin/project/source contracts. |
 | `WorldBuilderRuntimePreparer.java` | Stage adopted, converted, or generated-empty layered baselines; create isolated project working runtime; never copy release world data. |
+| `WorldBuilderCanonicalVoidTerrain.java`, `WorldBuilderEmptyWorldGenerator.java`, `WorldBuilderLayeredTerrainDraftJournal.java` | Share the exact pinned-runtime `global` void-sector bytes between initial empty generation and later sector growth. |
 | `WorldBuilderSourceSnapshot.java` | Verify complete immutable original, baseline, compatibility, and conversion evidence. |
 | `WorldBuilderProcessSupervisor.java` | Run one selected layered project, start empty mode at layer 0/origin 0,0, retain loopback/process/source locks, confine generated state. |
 | `WorldBuilderConfigWriter.java` | Render only adapter-approved isolated and target profiles; retain duplicate-key and exact semantic verification. |
@@ -978,6 +988,32 @@ approximation case fails visibly.
 
 ### Phase 3 — layered project lifecycle and empty mode
 
+Implementation status: the repository-owned lifecycle and launcher boundary
+are implemented. UUID projects adopt layered targets, invoke Phase 2 conversion
+inside project staging for packed targets, or generate `empty-world-v1`.
+Registry/active metadata publishes atomically; source and baseline state are
+verified immutable; working packages save/reopen independently; portable
+copies detach and can reattach only to exact discovery lineage; and standalone
+import/undo stops with `NO_TARGET` before target access. Linux and Windows
+launchers auto-discover the parent, preserve historical `workspace/`, and use
+the active project instead of a fixed config/package.
+
+The native runtime part of this phase is intentionally fail-closed. The
+project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
+confinement are tested with temporary runtime processes for all three origins,
+but `run-adaptive-project` returns `LOADER_INCOMPATIBLE` before starting real
+processes until the separately owned Phase 4 generic-loader and void-authoring
+capability is published and pinned. Generic export is Phase 6 work.
+
+Repository implementation readiness and product readiness are separate gates.
+A repository-owned Phase 3 branch MAY be handed off as READY for manager review
+when the lifecycle, launch boundary, isolation, fail-closed runtime refusal, and
+temporary-fixture tests below pass. Such a handoff MUST NOT be described as
+native-runtime, product, package, or release readiness, and merging it MUST NOT
+open any release gate. This split allows reviewed repository infrastructure to
+land without pretending that separately owned runtime or later import/export
+work exists.
+
 - Add UUID registry/selection/creation and source snapshot v2.
 - Refactor runtime preparation/supervision for adopted, converted, and empty
   layered baselines.
@@ -986,9 +1022,17 @@ approximation case fails visibly.
 - Update Linux/Windows launchers and test atomic project creation, multiple
   projects, portability, drift, save/reopen, and generated-state confinement.
 
-Gate: all three origins launch/edit/save/reopen/export in isolation; target and
-pre-existing projects remain byte-identical through success and injected
-failure; standalone import fails before target access.
+Repository handoff gate: all three origins create, select, save, and reopen
+isolated working projects; project-only supervision proves locking, process
+lifecycle, and generated-state confinement; the native path refuses before
+process creation; targets and pre-existing projects remain byte-identical
+through success and injected failure; and standalone import/undo fail before
+target access.
+
+Product/release gate, which remains closed: all three origins launch and edit
+with the real compatible runtime, then save, reopen, and export in isolation.
+This requires Phase 4 and Phase 6. Phase 5 content-neutral packaging and all
+later release validation gates also remain mandatory.
 
 ### Phase 4 — required runtime capability upstream
 

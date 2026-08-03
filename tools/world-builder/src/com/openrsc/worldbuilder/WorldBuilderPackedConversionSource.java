@@ -59,6 +59,24 @@ final class WorldBuilderPackedConversionSource {
 
 	static WorldBuilderPackedConversionSource open(Path requestedSourceRoot, Path reportPath)
 		throws IOException, WorldBuilderContractException {
+		return openInternal(requestedSourceRoot, reportPath, null);
+	}
+
+	/**
+	 * Phase 3-only entry point for an unpublished project stage.  The normal
+	 * conversion CLI must continue to reject every source below the reported
+	 * target; a project installed inside that target can use only the exact
+	 * source/original child of its unique staging directory.
+	 */
+	static WorldBuilderPackedConversionSource openForProject(
+		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage)
+		throws IOException, WorldBuilderContractException {
+		return openInternal(requestedSourceRoot, reportPath, requestedProjectStage);
+	}
+
+	private static WorldBuilderPackedConversionSource openInternal(
+		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage)
+		throws IOException, WorldBuilderContractException {
 		Map<String,Object> report = readReport(reportPath);
 		WorldBuilderAdaptiveContracts.validateParsed(
 			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT, report);
@@ -88,6 +106,18 @@ final class WorldBuilderPackedConversionSource {
 
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedSourceRoot);
 		Path canonicalSource = realDirectory(target.root, "source-root");
+		Path canonicalProjectStage = requestedProjectStage == null ? null
+			: realDirectory(requestedProjectStage, "project-stage");
+		if (canonicalProjectStage != null) {
+			Path requiredSource = canonicalProjectStage.resolve("source/original").normalize();
+			if (!canonicalSource.equals(requiredSource)
+				|| Files.isSymbolicLink(requestedProjectStage)
+				|| !Files.isDirectory(canonicalProjectStage, LinkOption.NOFOLLOW_LINKS)) {
+				throw blocked("Project conversion source is not the exact unpublished "
+					+ "source/original staging directory.",
+					"Create one contained project stage and copy only the discovery inventory.");
+			}
+		}
 		String targetDisplay = string(report, "targetRootDisplay");
 		Path reportedTarget = null;
 		Path canonicalReportedTarget = null;
@@ -99,13 +129,19 @@ final class WorldBuilderPackedConversionSource {
 					"Use the unmodified report emitted by discover-adaptive.");
 			}
 			canonicalReportedTarget = existingRealDirectory(reportedTarget);
-			if (overlaps(target.root, reportedTarget)
+			if (canonicalProjectStage == null && (overlaps(target.root, reportedTarget)
 				|| canonicalReportedTarget != null
 					&& (overlaps(canonicalSource, canonicalReportedTarget)
 						|| containsByIdentity(canonicalSource, canonicalReportedTarget)
-						|| containsByIdentity(canonicalReportedTarget, canonicalSource))) {
+						|| containsByIdentity(canonicalReportedTarget, canonicalSource)))) {
 				throw blocked("Conversion source is the live discovered target, not an isolated copy.",
 					"Copy the complete inventoried evidence to an isolated source directory first.");
+			}
+			if (canonicalProjectStage != null && canonicalReportedTarget != null
+				&& (canonicalProjectStage.equals(canonicalReportedTarget)
+					|| canonicalReportedTarget.startsWith(canonicalProjectStage))) {
+				throw blocked("Project staging aliases or contains the reported target root.",
+					"Keep the unpublished project stage strictly below the World Builder projects directory.");
 			}
 		}
 
@@ -154,6 +190,13 @@ final class WorldBuilderPackedConversionSource {
 			|| canonicalReportedTargetRoot != null
 				&& (overlaps(canonicalPath, canonicalReportedTargetRoot)
 					|| containsByIdentity(canonicalReportedTargetRoot, canonicalParent));
+	}
+
+	boolean overlapsSource(Path lexicalPath, Path canonicalPath, Path canonicalParent)
+		throws WorldBuilderContractException {
+		return overlaps(lexicalPath, target.root)
+			|| overlaps(canonicalPath, canonicalSourceRoot)
+			|| containsByIdentity(canonicalSourceRoot, canonicalParent);
 	}
 
 	void reverify() throws WorldBuilderContractException {

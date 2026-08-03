@@ -58,13 +58,29 @@ final class WorldBuilderPackedConverter {
 
 	Result convert(Path sourceRoot, Path discoveryReport, Path requestedOutput)
 		throws IOException, WorldBuilderContractException {
+		return convertInternal(sourceRoot, discoveryReport, requestedOutput, null);
+	}
+
+	/** Internal Phase 3 conversion confined to one unpublished project stage. */
+	Result convertForProject(Path sourceRoot, Path discoveryReport,
+		Path requestedOutput, Path projectStage)
+		throws IOException, WorldBuilderContractException {
+		return convertInternal(sourceRoot, discoveryReport, requestedOutput, projectStage);
+	}
+
+	private Result convertInternal(Path sourceRoot, Path discoveryReport,
+		Path requestedOutput, Path projectStage)
+		throws IOException, WorldBuilderContractException {
 		WorldBuilderPackedConversionSource source;
 		try {
-			source = WorldBuilderPackedConversionSource.open(sourceRoot, discoveryReport);
+			source = projectStage == null
+				? WorldBuilderPackedConversionSource.open(sourceRoot, discoveryReport)
+				: WorldBuilderPackedConversionSource.openForProject(
+					sourceRoot, discoveryReport, projectStage);
 		} catch (WorldBuilderContractException refusal) {
 			throw asConversionRefusal(refusal);
 		}
-		Path output = validateOutput(source, requestedOutput);
+		Path output = validateOutput(source, requestedOutput, projectStage);
 		Prepared prepared = prepare(source);
 		WorldBuilderTargetCapability capability = prepared.capability;
 		WorldBuilderAdaptiveConfiguration configuration = prepared.configuration;
@@ -207,7 +223,7 @@ final class WorldBuilderPackedConverter {
 	}
 
 	private static Path validateOutput(
-		WorldBuilderPackedConversionSource source, Path requested)
+		WorldBuilderPackedConversionSource source, Path requested, Path projectStage)
 		throws WorldBuilderContractException {
 		if (requested == null) {
 			throw blocked("No conversion output directory was supplied.",
@@ -231,7 +247,23 @@ final class WorldBuilderPackedConverter {
 				"Choose a stable existing real directory outside source and target roots.", failure);
 		}
 		Path canonicalOutput = canonicalParent.resolve(output.getFileName()).normalize();
-		if (source.overlapsSourceOrReportedTarget(
+		if (projectStage != null) {
+			Path canonicalStage;
+			try {
+				canonicalStage = projectStage.toRealPath();
+			} catch (IOException failure) {
+				throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
+					OPERATION, "project-stage", false,
+					"Project conversion stage identity cannot be resolved safely.",
+					"Use the unique real unpublished project staging directory.", failure);
+			}
+			if (!canonicalOutput.startsWith(canonicalStage)
+				|| canonicalOutput.equals(canonicalStage)
+				|| source.overlapsSource(output, canonicalOutput, canonicalParent)) {
+				throw blocked("Project conversion output is outside its unpublished stage or aliases source evidence.",
+					"Use one new conversion-output child of the project staging directory.");
+			}
+		} else if (source.overlapsSourceOrReportedTarget(
 			output, canonicalOutput, canonicalParent)) {
 			throw blocked("Conversion output is inside or aliases source evidence or the reported target.",
 				"Choose a new path in an independent directory outside source and target roots.");

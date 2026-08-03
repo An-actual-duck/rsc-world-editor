@@ -9,12 +9,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -22,7 +25,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Owns the isolated local server/client lifecycle for one prepared workspace. */
+/** Owns the isolated local server/client lifecycle for one prepared workspace or project. */
 public final class WorldBuilderProcessSupervisor {
 	private static final long DEFAULT_READY_TIMEOUT_MILLIS = 60_000L;
 	private static final long SHUTDOWN_TIMEOUT_MILLIS = 20_000L;
@@ -36,6 +39,152 @@ public final class WorldBuilderProcessSupervisor {
 		Path workspace = validateWorkspace(requestedWorkspace, port);
 		return superviseWithCommands(
 			workspace, port, null, null, DEFAULT_READY_TIMEOUT_MILLIS);
+	}
+
+	/**
+	 * Refuses native adaptive launch until the separately owned Phase 4 runtime
+	 * capability is pinned. Validation happens first so corrupt projects never
+	 * get reported as a mere missing-runtime dependency.
+	 */
+	public int runAdaptiveProject(Path requestedProject)
+		throws IOException, WorldBuilderContractException, InterruptedException {
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+				requestedProject, true);
+		throw new WorldBuilderContractException(
+			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+			"adaptive-project-supervision",
+			"working/runtime/runtime.json",
+			false,
+			"The pinned Builder runtime does not yet advertise generic layered "
+				+ "loading and authoring for adaptive project " + project.projectId + ".",
+			"Complete the separately reviewed Phase 4 runtime capability, publish it, "
+				+ "then advance the pinned dependency through an authorized manager task.");
+	}
+
+	int superviseAdaptiveWithCommands(Path requestedProject,
+		List<String> serverCommand, List<String> clientCommand, long readyTimeoutMillis)
+		throws IOException, WorldBuilderContractException,
+			WorldBuilderDiscoveryException, InterruptedException {
+		if (serverCommand == null || clientCommand == null) {
+			throw new IllegalArgumentException(
+				"Adaptive server and client test commands must both be supplied.");
+		}
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+				requestedProject, true);
+		Path project = verified.projectRoot;
+		int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
+		requireAdaptiveMutableLayout(project);
+		Path run = project.resolve("run");
+		Path lockPath = run.resolve("world-builder.lock");
+		if (Files.exists(lockPath, LinkOption.NOFOLLOW_LINKS)
+			&& (!Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(lockPath))) {
+			throw unsafeAdaptive("run/world-builder.lock",
+				"Adaptive project lock path is not a contained regular file.");
+		}
+		try (FileChannel lockChannel = FileChannel.open(lockPath,
+			StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
+			FileLock lock;
+			try {
+				lock = lockChannel.tryLock();
+			} catch (OverlappingFileLockException busy) {
+				lock = null;
+			}
+			if (lock == null) {
+				throw new WorldBuilderContractException(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+					"adaptive-project-supervision", "run/world-builder.lock", false,
+					"This adaptive project is already running.",
+					"Close the other Builder process and retry this exact project.");
+			}
+			try {
+				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+				requireAdaptiveMutableLayout(project);
+				int exit = superviseLocked(ProcessLayout.adaptive(project), port,
+					serverCommand, clientCommand, readyTimeoutMillis);
+				if (exit == 0) {
+					new WorldBuilderAdaptiveProjectLifecycle()
+						.saveAfterSupervisedRun(project);
+					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+				}
+				return exit;
+			} finally {
+				lock.release();
+			}
+		}
+	}
+
+	private static void requireAdaptiveMutableLayout(final Path project)
+		throws IOException, WorldBuilderContractException {
+		final int[] count = new int[] {0};
+		for (String relative : Arrays.asList("working/runtime", "logs", "run")) {
+			final Path root = project.resolve(relative).normalize();
+			if (!root.startsWith(project)
+				|| !Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(root)
+				|| !root.toRealPath().startsWith(project)) {
+				throw unsafeAdaptive(relative,
+					"Adaptive mutable directory is missing, linked, or escaped its project.");
+			}
+			final String[] unsafe = new String[] {null};
+			Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+				@Override public FileVisitResult preVisitDirectory(Path directory,
+					BasicFileAttributes attributes) throws IOException {
+					if (!attributes.isDirectory() || Files.isSymbolicLink(directory)) {
+						unsafe[0] = project.relativize(directory).toString();
+						return FileVisitResult.TERMINATE;
+					}
+					return boundedEntry(count, directory, unsafe, project);
+				}
+
+				@Override public FileVisitResult visitFile(Path file,
+					BasicFileAttributes attributes) throws IOException {
+					if (!attributes.isRegularFile() || Files.isSymbolicLink(file)
+						|| hasMultipleLinks(file)) {
+						unsafe[0] = project.relativize(file).toString();
+						return FileVisitResult.TERMINATE;
+					}
+					return boundedEntry(count, file, unsafe, project);
+				}
+			});
+			if (unsafe[0] != null) {
+				throw unsafeAdaptive(
+					unsafe[0].replace('\\', '/'),
+					"Adaptive mutable state contains a link, unsupported entry, "
+						+ "or exceeds its bounded inventory.");
+			}
+		}
+	}
+
+	private static FileVisitResult boundedEntry(int[] count, Path path,
+		String[] unsafe, Path project) {
+		if (++count[0] > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) {
+			unsafe[0] = project.relativize(path).toString();
+			return FileVisitResult.TERMINATE;
+		}
+		return FileVisitResult.CONTINUE;
+	}
+
+	private static boolean hasMultipleLinks(Path path) throws IOException {
+		try {
+			Object links = Files.getAttribute(path, "unix:nlink", LinkOption.NOFOLLOW_LINKS);
+			return links instanceof Number && ((Number)links).longValue() > 1L;
+		} catch (UnsupportedOperationException ignored) {
+			return false;
+		} catch (IllegalArgumentException ignored) {
+			return false;
+		}
+	}
+
+	private static WorldBuilderContractException unsafeAdaptive(
+		String relative, String message) {
+		return new WorldBuilderContractException(
+			WorldBuilderErrorCodes.UNSAFE_PATH, "adaptive-project-supervision",
+			relative, false, message,
+			"Restore the complete project-local runtime, logs, and run directories "
+				+ "without links or external filesystem identities.");
 	}
 
 	int superviseWithCommands(Path workspace, int port, List<String> serverCommand,
@@ -66,8 +215,8 @@ public final class WorldBuilderProcessSupervisor {
 					serverCommand = defaultServerCommand(workspace);
 					clientCommand = defaultClientCommand(workspace, port);
 				}
-				int exit = superviseLocked(
-					workspace, port, serverCommand, clientCommand, readyTimeoutMillis);
+				int exit = superviseLocked(ProcessLayout.legacy(workspace), port,
+					serverCommand, clientCommand, readyTimeoutMillis);
 				if (preparedCommands && exit == 0) {
 					commitPendingLayeredTerrain(workspace);
 					validateWorkspace(workspace, port);
@@ -102,15 +251,15 @@ public final class WorldBuilderProcessSupervisor {
 		}
 	}
 
-	private int superviseLocked(Path workspace, int port, List<String> serverCommand,
+	private int superviseLocked(ProcessLayout layout, int port, List<String> serverCommand,
 		List<String> clientCommand, long readyTimeoutMillis)
 		throws IOException, WorldBuilderDiscoveryException, InterruptedException {
-		Path run = workspace.resolve("run");
-		Path logs = workspace.resolve("logs");
-		Path control = workspace.resolve("working/server/run/world-builder");
+		Path run = layout.run;
+		Path logs = layout.logs;
+		Path control = layout.control;
 		Path ready = control.resolve("ready");
 		Path shutdown = control.resolve("shutdown.request");
-		Path credential = workspace.resolve(WorldBuilderRuntimePreparer.BUILDER_CREDENTIAL);
+		Path credential = layout.credential;
 		Files.createDirectories(run);
 		Files.createDirectories(logs);
 		Files.createDirectories(control);
@@ -143,11 +292,11 @@ public final class WorldBuilderProcessSupervisor {
 		int serverExit = -1;
 		boolean serverFailedFirst = false;
 		try {
-			active[0] = startProcess(serverCommand, workspace.resolve("working/server"), serverLog);
+			active[0] = startProcess(serverCommand, layout.server, serverLog);
 			writePid(run.resolve("server.pid"), active[0]);
 			waitForReady(active[0], ready, credential, port, readyTimeoutMillis);
 
-			active[1] = startProcess(clientCommand, workspace.resolve("working/Client_Base"), clientLog);
+			active[1] = startProcess(clientCommand, layout.client, clientLog);
 			writePid(run.resolve("client.pid"), active[1]);
 			while (active[1].isAlive() && active[0].isAlive()) {
 				Thread.sleep(200L);
@@ -454,5 +603,40 @@ public final class WorldBuilderProcessSupervisor {
 			+ "  \"serverFailedFirst\": " + serverFailedFirst + "\n"
 			+ "}\n";
 		Files.write(destination, json.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static final class ProcessLayout {
+		final Path server;
+		final Path client;
+		final Path control;
+		final Path credential;
+		final Path logs;
+		final Path run;
+
+		ProcessLayout(Path server, Path client, Path control,
+			Path credential, Path logs, Path run) {
+			this.server = server;
+			this.client = client;
+			this.control = control;
+			this.credential = credential;
+			this.logs = logs;
+			this.run = run;
+		}
+
+		static ProcessLayout legacy(Path workspace) {
+			return new ProcessLayout(workspace.resolve("working/server"),
+				workspace.resolve("working/Client_Base"),
+				workspace.resolve("working/server/run/world-builder"),
+				workspace.resolve(WorldBuilderRuntimePreparer.BUILDER_CREDENTIAL),
+				workspace.resolve("logs"), workspace.resolve("run"));
+		}
+
+		static ProcessLayout adaptive(Path project) {
+			Path runtime = project.resolve("working/runtime");
+			return new ProcessLayout(runtime.resolve("server"), runtime.resolve("client"),
+				runtime.resolve("server/run/world-builder"),
+				runtime.resolve("server/inc/sqlite/world-builder.credential"),
+				project.resolve("logs"), project.resolve("run"));
+		}
 	}
 }

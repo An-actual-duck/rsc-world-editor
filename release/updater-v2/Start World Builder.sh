@@ -6,7 +6,7 @@ TARGET_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 RUNTIME_ROOT="$ROOT_DIR/builder-runtime"
 WORKSPACE="$ROOT_DIR/workspace"
 TOOLS_JAR="$RUNTIME_ROOT/launcher/world-builder-tools.jar"
-LAYERED_PACKAGE="$RUNTIME_ROOT/layered-world/package"
+PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
 RELEASE_IDENTITY="$ROOT_DIR/RELEASE-IDENTITY.json"
 UPDATE_LOCK="$ROOT_DIR/.world-builder-v2-update.lock"
 
@@ -45,8 +45,6 @@ fi
 
 [[ -n "$JAVA_EXE" ]] || fail "Java 17 or newer was not found."
 [[ -f "$TOOLS_JAR" ]] || fail "The packaged launcher is missing: $TOOLS_JAR"
-[[ -f "$LAYERED_PACKAGE/manifest.json" ]] \
-	|| fail "The packaged signed-layered map is missing."
 [[ -f "$RELEASE_IDENTITY" ]] \
 	|| fail "World Builder 2 release identity is missing."
 grep -F '"productId": "rsc-world-editor-v2"' "$RELEASE_IDENTITY" >/dev/null \
@@ -54,25 +52,24 @@ grep -F '"productId": "rsc-world-editor-v2"' "$RELEASE_IDENTITY" >/dev/null \
 "$JAVA_EXE" -version >/dev/null 2>&1 \
 	|| fail "Java could not be executed: $JAVA_EXE"
 
-if [[ -f "$WORKSPACE/project-source.json" ]]; then
-	[[ -f "$WORKSPACE/layered-review.json" ]] \
-		|| fail "The existing workspace is legacy or unidentified; World Builder 2 will not open or migrate it."
-	exec "$JAVA_EXE" -jar "$TOOLS_JAR" run --workspace "$WORKSPACE"
-fi
-if [[ -e "$WORKSPACE" ]]; then
-	fail "The workspace folder exists but is incomplete. Preserve it and review its contents before retrying."
+if [[ -e "$WORKSPACE" && ! -f "$PROJECT_REGISTRY" ]]; then
+	fail "A historical World Builder 2 workspace is present. It was preserved, but the adaptive launcher will not migrate or replace it. Keep this installation intact for matching-version recovery, or move the complete adaptive installation to a separate folder."
 fi
 
 PORT="${WORLD_BUILDER_PORT:-43615}"
 [[ "$PORT" =~ ^[0-9]+$ ]] && ((PORT >= 1 && PORT < 65535)) \
 	|| fail "WORLD_BUILDER_PORT must be between 1 and 65534."
 
-exec "$JAVA_EXE" -jar "$TOOLS_JAR" launch \
-	--server-root "$TARGET_ROOT" \
-	--runtime-root "$RUNTIME_ROOT" \
-	--workspace "$WORKSPACE" \
-	--port "$PORT" \
-	--config server/myworld.conf \
-	--runtime-config server/myworld.conf \
-	--layered-package "$LAYERED_PACKAGE" \
-	--layered-profile spoiled-milk-replacement
+ADAPTIVE_ARGUMENTS=(
+	launch-adaptive
+	--installation-root "$ROOT_DIR"
+	--runtime-root "$RUNTIME_ROOT"
+	--target-root "$TARGET_ROOT"
+	--port "$PORT"
+)
+if [[ -n "${WORLD_BUILDER_CONFIGURATION_ROLE:-}" ]]; then
+	ADAPTIVE_ARGUMENTS+=(
+		--configuration-role "$WORLD_BUILDER_CONFIGURATION_ROLE"
+	)
+fi
+exec "$JAVA_EXE" -jar "$TOOLS_JAR" "${ADAPTIVE_ARGUMENTS[@]}"

@@ -21,9 +21,12 @@ The repository is divided into four layers:
 
 An installed package has two fundamentally different classes of files.
 
-Durable user state includes `workspace/source`, `workspace/working` authored
-map files, exports, backups, receipts, credentials, the Builder database, and
-settings. It must survive application updates and is never committed here.
+Durable World Builder 2 state includes `projects/<uuid>/`,
+`project-registry.json`, `active-project.json`, and each project's source,
+working package, generated runtime state, exports, backups, receipts, logs,
+and settings. The historical v2-alpha `workspace/` is also durable and is
+preserved without implicit migration. Durable state must survive application
+updates and is never committed here.
 
 Replaceable application state includes the packaged Java runtime, launcher
 tooling, client/server binaries, definitions, caches, schemas, scripts, and
@@ -39,12 +42,14 @@ files before replacement begins.
 
 ## World-data transaction
 
-The workspace stores an immutable source snapshot and a mutable working copy.
-Saving affects only the working copy. Export produces a validated five-file
-authored bundle. Import compares that bundle with the exact target revision,
-requires an offline target, creates verified backups, replaces all destinations
-transactionally, and writes a receipt. Undo uses the receipt and refuses to
-overwrite files changed after import.
+An adaptive project stores a complete immutable source snapshot and layered
+baseline beside a mutable working layered package. Creation adopts compatible
+layered input, invokes deterministic packed conversion on the isolated copy,
+or generates the standalone structural void. Saving validates only the
+project-local working package and updates its fingerprint; it does not read or
+write a target. Generic adaptive export/import remains a later transaction
+phase. The historical workspace transaction continues to use its existing
+validated export, offline import, backup, receipt, and undo contracts.
 
 There is deliberately no force-import path.
 
@@ -78,12 +83,20 @@ Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative contracts, phases,
 tests, and acceptance criteria.
 
 The repository currently implements the Phase 0 contracts, Phase 1 read-only
-adapter discovery, and Phase 2 conversion boundary. Phase 2 accepts only an
-isolated exact copy of descriptor-backed packed evidence from a compatible
-Phase 1 report, emits a generic signed-layered package plus validated
-conversion plan/report, and publishes atomically. It does not yet create or
-select a durable project, prepare a converted runtime, or install anything on
-the target; those remain later phase gates.
+adapter discovery, Phase 2 conversion boundary, and the repository-owned
+portion of Phase 3. Phase 3 adds a UUID registry, atomic project creation and
+selection, immutable source snapshot v2, layered adoption, contained packed
+conversion, deterministic standalone empty generation, save/reopen,
+portability/detachment, project-only supervision, and immediate standalone
+import/undo refusal. The Linux and Windows v2 launchers now use adaptive
+parent-target discovery instead of a fixed config or packaged world.
+
+Native adaptive client/server launch deliberately returns
+`LOADER_INCOMPATIBLE` before process creation because the pinned dependency
+does not yet supply the separately approved Phase 4 generic layered loading
+and void-authoring capability. Generic export/import and content-neutral
+packaging are also later phases. Therefore the complete adaptive release gate
+is not open.
 
 ## Planned custom materials
 

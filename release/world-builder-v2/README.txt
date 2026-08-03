@@ -10,215 +10,126 @@ v1.1.0. World Builder 2 uses product and update channel
 rsc-world-editor-v2. It never installs as an automatic v1 update, and it does
 not open or migrate a v1 workspace.
 
+IMPLEMENTATION STATUS
+---------------------
+
+This source template contains the repository-owned Phase 3 adaptive project
+lifecycle. It is not the final adaptive release guide. Native editing remains
+blocked until a separately reviewed compatible client/server runtime is
+published and pinned. Content-neutral packaging and adaptive export/import are
+also later release gates. Do not publish a new adaptive archive from this state.
+
 INSTALLATION
 ------------
 
-Place the entire "Spoiled Milk World Builder 2" folder directly inside the root
-of your private server. The result should look like this:
+For a target-backed project, place the entire "Spoiled Milk World Builder 2"
+folder directly inside the root of a compatible private server:
 
   Your Private Server/
-    Client_Base/
+    client-or-Client_Base/
     server/
     Spoiled Milk World Builder 2/
 
-Do not place it inside the server/ or Client_Base/ folder.
-Do not extract it over a legacy World Editor or copy a legacy workspace into
-this folder. Keep both installations side by side if both map formats are
-needed.
+For a standalone empty project, place the complete folder in an ordinary
+parent directory that contains no recognizable server. Do not place it inside
+server/ or a client folder. Do not extract it over World Editor v1 or copy a v1
+workspace into it.
 
-STARTING AND SAVING
--------------------
+FIRST LAUNCH AND PROJECTS
+-------------------------
 
 Linux: run "Start World Builder.sh".
 Windows: double-click "Start World Builder.cmd".
 
-On Linux, the executable Import and Undo .sh files may also be double-clicked
-directly. They open a terminal window for the required preview and confirmation,
-then keep the result visible until you press Enter. If the file manager asks
-what to do with the script, choose Run rather than Display.
+The launcher treats its parent as the possible target and performs strictly
+read-only adaptive discovery. It does not assume server/myworld.conf and does
+not select a map bundled with World Builder. Discovery has three safe results:
 
-The first launch validates the parent private server and creates an isolated
-workspace. Later launches reopen that same workspace. The local Builder account
-logs in automatically, is invulnerable, and opens the world editor.
+- a compatible layered map is copied into an isolated project unchanged;
+- a compatible packed map is copied and converted deterministically; or
+- no recognizable server creates a labelled standalone empty project at layer
+  0, coordinate 0,0.
 
-Use the editor's Save control before closing. Save writes the current terrain,
-scenery, NPC, and respawning ground-item work to project files inside:
+A malformed, ambiguous, unsupported, or partially recognized server is a
+blocker, not an empty world. Review the report and type CREATE exactly before
+the first project is published. Project creation writes only beneath:
 
-  Spoiled Milk World Builder 2/workspace/
+  Spoiled Milk World Builder 2/projects/<project-uuid>/
 
-Save does not copy those files into the parent private server. You can save,
-close, and reopen World Builder as often as you like while the server continues
-using its existing map. The server map changes only when you deliberately run
-"Import Map Changes.sh" or "Import Map Changes.cmd" and confirm its preview.
+The parent server remains byte-for-byte unchanged. Later launches validate and
+reopen active-project.json. Advanced users can list and select multiple project
+UUIDs with the packaged World Builder CLI. Moving the complete folder preserves
+project identity; a target-backed project becomes detached until the exact
+compatible target is found again. There is no automatic rebase.
 
-RECOMMENDED WORKFLOW
---------------------
+CURRENT NATIVE-RUNTIME LIMIT
+----------------------------
 
-1. Start World Builder and make edits in its isolated map.
-2. Select Save regularly and once more before closing World Builder.
-3. Continue editing and testing for as long as needed. The parent server is
-   unaffected during this work.
-4. When the saved map is ready, close World Builder and stop the target private
-   server and client.
-5. Run "Import Map Changes.sh" or "Import Map Changes.cmd", review the exact
-   preview, and type IMPORT only when it is correct.
-6. Restart the target server and inspect the imported map.
-7. If the imported map is not right, stop the target server again and run
-   "Undo Last Map Import.sh" or "Undo Last Map Import.cmd". Review the preview
-   and type UNDO to restore the map state from immediately before that import.
+After creating or reopening a valid project, this phase stops with
+LOADER_INCOMPATIBLE before starting a real server or client. The pinned runtime
+does not yet advertise the Phase 4 generic layered-loader, existing-level
+authoring, and empty-world void-authoring capability. The project is valid and
+preserved; this refusal does not modify the target and is not a partial launch.
 
-EDITOR KEYBOARD SHORTCUTS
--------------------------
+The repository tests process supervision with isolated temporary runtimes.
+Those tests keep logs, PIDs, credentials, client settings, generated
+server/ipbans.txt, and all other operational state inside the selected project.
+They do not claim that the current packaged client/server can edit an adaptive
+project.
 
-Editor shortcuts are active by default and ordinary chat typing is paused.
-Press Ctrl+Enter to switch between editor shortcuts and normal chat/command
-entry. Numeric editor fields still accept typing when explicitly selected.
+SAVING AND SOURCE SAFETY
+------------------------
 
-  B                 Brush; press again while the Brush tool is active to
-                    switch between 1x1 and 3x3
-  N                 Navigate; press again to toggle click teleport
-  I                 Inspect; press again to copy the current inspection
-  D                 Collapse or expand the editor dock
-  H / C / T / R     Toggle Elevation, Floor Color, Floor Texture, or Roof while
-                    in Terrain mode
-  Shift+N / E / D   Toggle North, East, or Diagonal Wall in Terrain mode
-  Ctrl+H/C/T/R      Open that terrain value and select its numeric field
-  Ctrl+N/E/D        Open that wall value and select its numeric field
-  Ctrl+Shift+S      Save world edits
-  Ctrl+Enter        Toggle editor-shortcut mode and chat/command-entry mode
-  Esc               Cancel numeric entry, close the current flyout, leave the
-                    full-size editor view, or begin closing the editor
+Each project contains an immutable source snapshot and layered baseline plus a
+mutable working/layered-world/package. The save-project command validates the
+complete working package and atomically updates its fingerprint. It never reads
+or writes the target. Source corruption, an unsaved manifest mismatch, linked
+runtime state, target drift, or a concurrent project operation fails closed.
 
-When a numeric field is selected:
+The in-game Save workflow becomes available only after the compatible Phase 4
+runtime is pinned. Until then, do not represent the native editor as usable.
 
-  0 through 9       Replace or append digits
-  Backspace         Remove the last digit
-  Enter             Apply the entered value
-  Tab               Move between the Navigate X and Y coordinate fields
+IMPORT AND UNDO
+---------------
 
-Hold Ctrl while left-clicking and dragging terrain to paint continuously.
-A normal left click paints one 1x1 or 3x3 stamp. Middle mouse remains reserved
-for rotating the camera. Arrow keys and camera controls remain available in
-either input mode.
+Adaptive generic export/import is Phase 6 and is not implemented here. When an
+adaptive registry exists, the Linux and Windows Import and Undo scripts inspect
+the active project before target access:
 
-ERASING TERRAIN AND WALLS
---------------------------
+- standalone empty projects return NO_TARGET; and
+- target-backed projects report that adaptive mutation is reserved for Phase 6.
 
-World Builder erases map features by painting their empty raw value. The field
-must be enabled (checked) before the value is painted.
+Neither result creates a preview, backup, receipt, or target change. There is no
+force option. The historical workspace transaction remains versioned legacy v2
+behavior and is not silently reused for an adaptive project.
 
-- Set a North Wall, East Wall, or Diagonal Wall value to 0 to erase that wall.
-  Both the 1x1 and 3x3 brushes can erase walls; use 3x3 carefully because it
-  changes all nine tiles around the clicked center.
-- Set Floor Texture to 8 to erase terrain and return those tiles to void space.
-  Build mode keeps its grid visible over this empty area so you can continue
-  locating and editing void tiles.
+HISTORICAL V2 STATE AND UPDATES
+-------------------------------
 
-Inspect or copy a nearby tile when you need a known value to restore terrain or
-a wall. Only checked fields are changed when a terrain stamp is painted.
+An existing workspace/ belongs to the earlier v2-alpha workflow. It is
+preserved, but the adaptive launcher refuses to migrate, replace, or open it.
+Keep the complete matching installation for recovery. Do not copy individual
+files between workspace/ and projects/.
 
-IMPORTING MAP CHANGES
----------------------
-
-1. Close World Builder.
-2. Stop the target private server and client.
-3. Run "Import Map Changes.sh" or "Import Map Changes.cmd".
-4. Review the exact preview.
-5. Type IMPORT only if the listed files are correct.
-
-The script exports the complete latest saved signed-layered package from the
-World Builder workspace. It verifies that package is an allowed descendant of
-the immutable package the project started from, validates the target revision
-and layered-runtime capability, and previews every package file plus every
-server configuration value that will change.
-
-After confirmation it installs the package under:
-
-  server/conf/server/data/world-builder-layered/package/
-
-It also updates the selected server/myworld.conf in the same transaction so a
-normal private-server start uses the exact installed package and its pinned
-manifest SHA-256. Every destination is staged, backed up when it existed,
-verified, and recorded in a receipt. Unsaved editor changes are not imported.
-The script refuses unknown, running, changed, incompatible, or already-active
-targets. There is no force option. Undo an active import before importing a
-newer saved draft from the same workspace.
-
-UNDOING THE LAST IMPORT
------------------------
-
-Keep the target private server stopped, then run "Undo Last Map Import.sh" or
-"Undo Last Map Import.cmd". Review the preview and type UNDO. This restores the
-selected configuration, removes the transaction-owned layered package, and
-restores the target to its exact state immediately before the most recent
-successful import. It is intended both as the safety net for an unsatisfactory
-map and as the required first step before importing a newer saved draft. Undo
-refuses if the installed package or configuration changed after the import,
-because overwriting those newer changes would be unsafe.
-
-Backups, transaction receipts, exports, logs, and the editable project remain
-inside workspace/. Preserve that folder if you move or update World Builder.
-
-UPDATING OR STARTING A FRESH PROJECT
-------------------------------------
-
-Each workspace is tied to the exact private-server map, coordinate model, and
-definitions it was created from. World Builder 2 intentionally does not rebase
-an old project onto a different Spoiled Milk release and does not adopt a
-packed-map World Editor v1 workspace.
-
-When updating the target private server:
-
-1. Close World Builder 2 and preserve the entire old World Builder 2 folder.
-2. Finish or undo any import made by that old workspace.
-3. Install the World Builder 2 package shipped beside the new server release.
-4. Start it with no workspace/ folder so it creates a fresh project from the
-   new release.
-
-Do not copy only selected files between workspaces. Keep the old workspace,
-backups, and receipts until the imported result has been fully verified.
-
-WHEN AN ACTION IS REFUSED
--------------------------
-
-A refusal is a safety result, not a partial import. Read the displayed reason
-and the workspace logs. Common causes include a running target server, a
-different server release, changed destination files, an incomplete workspace,
-or a target layout that is not explicitly supported.
-
-There is no force option. Correct the reported condition and preview again.
-If an apply operation fails after starting, World Builder restores the prior
-files before reporting failure. Import and undo receipts and their associated
-backups remain under workspace/ for recovery review.
+Project/update durability and removal of every bundled world are separate
+Phase 5 release gates. Preserve a complete backup of this development
+installation. No release, update, import, undo, or dependency change is
+authorized merely because project creation succeeds.
 
 REQUIREMENTS AND LIMITS
 -----------------------
 
-- Use the package matching your operating system: Linux x64 or Windows x64.
-  Both packages include their own Java runtime; users do not install Java,
-  Git, Ant, or the project source code.
-- macOS is not included in the first public release.
-- The first release supports the current Spoiled Milk repository/private-server
-  layout using server/myworld.conf and the advertised World Builder 2 layered
-  import capability. It imports one complete package containing terrain,
-  scenery, NPC, and respawning ground-item data. Similar-looking OpenRSC forks
-  are not assumed compatible.
-- Use a World Builder package alongside the exact Spoiled Milk release it was
-  built for. Cross-version project rebasing and imports are intentionally
-  refused.
-- RSC World Editor v1 and World Builder 2 use separate product identities,
-  update channels, release tags, archive prefixes, install folders, and
-  workspace formats. There is no automatic upgrade or workspace migration
-  between them.
-- The default local Builder port is 43615. Before the first launch, advanced
-  users may set WORLD_BUILDER_PORT to another free port from 1 through 65534.
-- Boundary-object authoring and automatic project rebasing are not included.
-- Workspace backup and receipt management is filesystem-based; there is no
-  graphical retention manager in the first release.
-- Import and undo require the target private server to be offline.
-- After import, start the private server normally. The developer-only
-  --layered-production launcher option generates and selects the repository
-  baseline instead of the imported World Builder package and is not the
-  imported-map launch path.
+- The repository-owned launcher behavior is equivalent on Linux and Windows;
+  final native validation still requires the later compatible runtime.
+- Supported targets require a truthful versioned capability descriptor or one
+  exact built-in adapter layout. Similar-looking forks are not guessed.
+- The default local Builder port is 43615. Advanced users may set
+  WORLD_BUILDER_PORT to another port from 1 through 65534.
+- WORLD_BUILDER_CONFIGURATION_ROLE selects one exact declared role when the
+  compatibility report identifies more than one candidate.
+- World Editor v1 remains frozen at v1.1.0 and has separate identity, update
+  channel, install folder, and workspace behavior.
+- There is no native adaptive editing, generic export/import, packaging
+  readiness, automatic project rebase, migration, or force path in this phase.
 
 Release source commit: @SOURCE_COMMIT@

@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TARGET_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
 WORKSPACE="$ROOT_DIR/workspace"
 TOOLS_JAR="$ROOT_DIR/builder-runtime/launcher/world-builder-tools.jar"
+PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
 RELEASE_IDENTITY="$ROOT_DIR/RELEASE-IDENTITY.json"
 TERMINAL_SESSION="${WORLD_BUILDER_TERMINAL_SESSION:-0}"
 
@@ -74,6 +75,10 @@ fi
 	|| fail "World Builder 2 release identity is missing."
 grep -F '"productId": "rsc-world-editor-v2"' "$RELEASE_IDENTITY" >/dev/null \
 	|| fail "This is not a World Builder 2 release."
+if [[ -f "$PROJECT_REGISTRY" ]]; then
+	exec "$JAVA_EXE" -jar "$TOOLS_JAR" import-active-adaptive \
+		--installation-root "$ROOT_DIR"
+fi
 [[ -f "$WORKSPACE/project-source.json" ]] || fail "Run Start World Builder before importing."
 [[ -f "$ROOT_DIR/VERSION.txt" && -f "$ROOT_DIR/SOURCE-COMMIT.txt" ]] \
 	|| fail "Release provenance files are missing."
