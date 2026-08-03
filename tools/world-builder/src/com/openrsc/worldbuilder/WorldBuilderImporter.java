@@ -58,6 +58,8 @@ public final class WorldBuilderImporter {
 
 	private Operation operate(Path requestedWorkspace, Path requestedExport,
 		Path requestedTarget, boolean apply) throws IOException, WorldBuilderDiscoveryException {
+		WorldBuilderAdaptiveProjectLifecycle.refuseAdaptiveMutationBeforeTarget(
+			requestedWorkspace, apply ? "import" : "import preview");
 		Path workspace = canonicalDirectory(requestedWorkspace, "Builder workspace");
 		Path target = canonicalDirectory(requestedTarget, "target private-server root");
 		Path workspaceLockPath = workspace.getParent()
@@ -95,6 +97,8 @@ public final class WorldBuilderImporter {
 
 	private RollbackOperation operateRollback(Path requestedWorkspace,
 		Path requestedTarget, boolean apply) throws IOException, WorldBuilderDiscoveryException {
+		WorldBuilderAdaptiveProjectLifecycle.refuseAdaptiveMutationBeforeTarget(
+			requestedWorkspace, apply ? "undo" : "undo preview");
 		Path workspace = canonicalDirectory(requestedWorkspace, "Builder workspace");
 		Path target = canonicalDirectory(requestedTarget, "target private-server root");
 		Path workspaceLockPath = workspace.getParent()

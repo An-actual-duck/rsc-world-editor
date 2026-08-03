@@ -133,6 +133,10 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		return summary;
 	}
 
+	String fingerprintSha256() {
+		return (String)document.get("discoveryFingerprintSha256");
+	}
+
 	private static Map<String,Object> base(
 		String targetDisplay, List<String> adapterIds, Map<String,Object> descriptor) {
 		Map<String,Object> root = new LinkedHashMap<String,Object>();

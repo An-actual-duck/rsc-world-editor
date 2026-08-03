@@ -28,6 +28,21 @@ public final class WorldBuilderCli {
 		if ("convert-packed".equals(args[0])) {
 			return convertPacked(args);
 		}
+		if ("create-project".equals(args[0])) {
+			return createProject(args);
+		}
+		if ("list-projects".equals(args[0])) {
+			return listProjects(args);
+		}
+		if ("select-project".equals(args[0])) {
+			return selectProject(args);
+		}
+		if ("open-project".equals(args[0])) {
+			return openProject(args);
+		}
+		if ("save-project".equals(args[0])) {
+			return saveProject(args);
+		}
 		if ("prepare".equals(args[0])) {
 			return prepare(args);
 		}
@@ -94,6 +109,180 @@ public final class WorldBuilderCli {
 			System.err.println("ERROR: " + refusal.getMessage());
 			return 3;
 		}
+	}
+
+	private static int createProject(String[] args) {
+		Path installation = null;
+		Path runtime = null;
+		Path target = null;
+		Path report = null;
+		String displayName = null;
+		String confirmation = null;
+		int port = 0;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--installation-root".equals(argument) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--runtime-root".equals(argument) && index + 1 < args.length) {
+				runtime = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--discovery-report".equals(argument)
+				&& index + 1 < args.length) {
+				report = Paths.get(args[++index]);
+			} else if ("--display-name".equals(argument) && index + 1 < args.length) {
+				displayName = args[++index];
+			} else if ("--port".equals(argument) && index + 1 < args.length) {
+				Integer parsed = parseIntOption("--port", args[++index]);
+				if (parsed == null) return 2;
+				port = parsed.intValue();
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (installation == null || runtime == null || report == null
+			|| displayName == null || port == 0 || confirmation == null) {
+			System.err.println("ERROR: create-project requires --installation-root, "
+				+ "--runtime-root, --discovery-report, --display-name, --port, "
+				+ "and --confirm CREATE. --target-root is required for a target-backed report.");
+			usage();
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
+				new WorldBuilderAdaptiveProjectLifecycle().create(
+					installation, runtime, target, report, displayName, port, confirmation);
+			System.out.print(created.toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive project creation failed before completion: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int listProjects(String[] args) {
+		Path installation = singlePathOption(args, "--installation-root",
+			"list-projects");
+		if (installation == null) return 2;
+		try {
+			System.out.print(new WorldBuilderAdaptiveProjectLifecycle().list(installation));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Could not list adaptive projects: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int selectProject(String[] args) {
+		Path installation = null;
+		String projectId = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--project-id".equals(args[index]) && index + 1 < args.length) {
+				projectId = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (installation == null || projectId == null) {
+			System.err.println("ERROR: select-project requires --installation-root and --project-id.");
+			return 2;
+		}
+		try {
+			System.out.print(new WorldBuilderAdaptiveProjectLifecycle()
+				.select(installation, projectId).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Could not select adaptive project: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int openProject(String[] args) {
+		Path installation = null;
+		Path target = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--target-root".equals(args[index]) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (installation == null) {
+			System.err.println("ERROR: open-project requires --installation-root.");
+			return 2;
+		}
+		try {
+			System.out.print(new WorldBuilderAdaptiveProjectLifecycle()
+				.openActive(installation, target).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Could not open adaptive project: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int saveProject(String[] args) {
+		Path project = singlePathOption(args, "--project", "save-project");
+		if (project == null) return 2;
+		try {
+			System.out.print(new WorldBuilderAdaptiveProjectLifecycle()
+				.save(project).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Could not save adaptive project: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static Path singlePathOption(String[] args, String option,
+		String command) {
+		Path value = null;
+		for (int index = 1; index < args.length; index++) {
+			if (option.equals(args[index]) && index + 1 < args.length && value == null) {
+				value = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ args[index]);
+				return null;
+			}
+		}
+		if (value == null) {
+			System.err.println("ERROR: " + command + " requires " + option + ".");
+		}
+		return value;
+	}
+
+	private static int adaptiveRefusal(WorldBuilderContractException refusal) {
+		System.err.println("ERROR [" + refusal.code() + "]: " + refusal.getMessage()
+			+ (refusal.relativePath().isEmpty() ? ""
+				: " Source: " + refusal.relativePath() + ".")
+			+ " Next step: " + refusal.nextStep());
+		return 3;
 	}
 
 	private static int convertPacked(String[] args) {
@@ -609,6 +798,16 @@ public final class WorldBuilderCli {
 			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli convert-packed --source-root <immutable-copy>"
 			+ " --discovery-report <report.json> --output <new-directory>"
+			+ "\n  WorldBuilderCli create-project --installation-root <World Builder 2>"
+			+ " --runtime-root <builder-runtime> [--target-root <server-root>]"
+			+ " --discovery-report <report.json> --display-name <name> --port <port>"
+			+ " --confirm CREATE"
+			+ "\n  WorldBuilderCli list-projects --installation-root <World Builder 2>"
+			+ "\n  WorldBuilderCli select-project --installation-root <World Builder 2>"
+			+ " --project-id <uuid>"
+			+ "\n  WorldBuilderCli open-project --installation-root <World Builder 2>"
+			+ " [--target-root <server-root>]"
+			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"
