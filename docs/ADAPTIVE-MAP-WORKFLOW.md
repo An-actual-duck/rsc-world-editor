@@ -4,7 +4,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-2 and the repository-owned Phase 3 lifecycle implemented; Phase 3 native-runtime gate blocked on Phase 4 |
+| Status | Approved architecture and implementation plan; Phases 0-2 implemented; repository-owned Phase 3 implementation ready for manager review |
+| Product/release readiness | NOT READY; native runtime remains blocked on Phase 4 and generic export/import remains Phase 6 |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -997,9 +998,16 @@ project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
 confinement are tested with temporary runtime processes for all three origins,
 but `run-adaptive-project` returns `LOADER_INCOMPATIBLE` before starting real
 processes until the separately owned Phase 4 generic-loader and void-authoring
-capability is published and pinned. Generic export is Phase 6 work. Because the
-full gate below includes real launch/edit/export, Phase 3 is not release-ready
-yet.
+capability is published and pinned. Generic export is Phase 6 work.
+
+Repository implementation readiness and product readiness are separate gates.
+A repository-owned Phase 3 branch MAY be handed off as READY for manager review
+when the lifecycle, launch boundary, isolation, fail-closed runtime refusal, and
+temporary-fixture tests below pass. Such a handoff MUST NOT be described as
+native-runtime, product, package, or release readiness, and merging it MUST NOT
+open any release gate. This split allows reviewed repository infrastructure to
+land without pretending that separately owned runtime or later import/export
+work exists.
 
 - Add UUID registry/selection/creation and source snapshot v2.
 - Refactor runtime preparation/supervision for adopted, converted, and empty
@@ -1009,9 +1017,17 @@ yet.
 - Update Linux/Windows launchers and test atomic project creation, multiple
   projects, portability, drift, save/reopen, and generated-state confinement.
 
-Gate: all three origins launch/edit/save/reopen/export in isolation; target and
-pre-existing projects remain byte-identical through success and injected
-failure; standalone import fails before target access.
+Repository handoff gate: all three origins create, select, save, and reopen
+isolated working projects; project-only supervision proves locking, process
+lifecycle, and generated-state confinement; the native path refuses before
+process creation; targets and pre-existing projects remain byte-identical
+through success and injected failure; and standalone import/undo fail before
+target access.
+
+Product/release gate, which remains closed: all three origins launch and edit
+with the real compatible runtime, then save, reopen, and export in isolation.
+This requires Phase 4 and Phase 6. Phase 5 content-neutral packaging and all
+later release validation gates also remain mandatory.
 
 ### Phase 4 — required runtime capability upstream
 
