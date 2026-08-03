@@ -955,7 +955,9 @@ at or below the locally existing reported target or source through normalized,
 canonical, symlinked-ancestor, and equivalent filesystem identities. It emits
 `package/`, `conversion-plan.json`, and
 `conversion-report.json` through same-filesystem atomic staging. It does not
-create a project or runtime and does not read or mutate the reported target.
+create a project or runtime, read reported-target content, or mutate the
+reported target; bounded local filesystem-identity metadata is checked only to
+enforce those source/output boundaries.
 
 - Add adapter-owned terrain/coordinate codecs and effective placement
   composition with provenance.

@@ -411,10 +411,10 @@ final class WorldBuilderPackedConverter {
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_PLAN, planPath);
 		WorldBuilderAdaptiveContracts.read(
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
+		WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
 		WorldBuilderGenericLayeredPackage validated =
 			WorldBuilderGenericLayeredPackage.inspect(
-				WorldBuilderReadOnlyTarget.open(stage), "package", "converted", definitions);
-		WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
+				stageTarget, "package", "converted", definitions);
 		model.requireExactPackage(stageTarget, "package", validated, expectedPackage);
 		if (!expectedPackage.fingerprintSha256.equals(validated.fingerprintSha256)
 			|| validated.levelCount != model.levels.size()

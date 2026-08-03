@@ -220,8 +220,12 @@ final class WorldBuilderPackedConversionSource {
 	private static Path existingRealDirectory(Path path)
 		throws WorldBuilderContractException {
 		try {
-			if (!Files.exists(path) || !Files.isDirectory(path)) return null;
-			return path.toRealPath();
+			if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null;
+			Path real = path.toRealPath();
+			if (!Files.isDirectory(real, LinkOption.NOFOLLOW_LINKS)) {
+				throw new IOException("reported target is no longer a directory");
+			}
+			return real;
 		} catch (IOException failure) {
 			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
 				OPERATION, "reported-target", false,
