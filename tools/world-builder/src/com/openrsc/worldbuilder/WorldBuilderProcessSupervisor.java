@@ -105,7 +105,8 @@ public final class WorldBuilderProcessSupervisor {
 				int exit = superviseLocked(ProcessLayout.adaptive(project), port,
 					serverCommand, clientCommand, readyTimeoutMillis);
 				if (exit == 0) {
-					new WorldBuilderAdaptiveProjectLifecycle().save(project);
+					new WorldBuilderAdaptiveProjectLifecycle()
+						.saveAfterSupervisedRun(project);
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 				}
 				return exit;

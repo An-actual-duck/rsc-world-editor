@@ -230,6 +230,14 @@ public final class AdaptiveProjectSupervisorHarness {
         try (FileChannel channel = FileChannel.open(lockPath,
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE);
              FileLock lock = channel.lock()) {
+            boolean saveRefused = false;
+            try {
+                new WorldBuilderAdaptiveProjectLifecycle().save(project);
+            } catch (WorldBuilderContractException expected) {
+                saveRefused = WorldBuilderErrorCodes.RECOVERY_REQUIRED.equals(
+                    expected.code());
+            }
+            require(saveRefused, "external save must share the adaptive run lock");
             boolean refused = false;
             try {
                 supervisor.superviseAdaptiveWithCommands(
@@ -908,6 +916,53 @@ public final class AdaptiveProjectSupervisorHarness {
             self.assertEqual(target_before, tree_bytes(target))
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertFalse((project / "run/world-builder.lock").exists())
+
+    def test_empty_origin_is_deterministic_across_absolute_roots(self):
+        generated = []
+        with tempfile.TemporaryDirectory(prefix="adaptive-empty-portable-a-") as first:
+            with tempfile.TemporaryDirectory(
+                prefix="adaptive-empty-portable-b-"
+            ) as second:
+                for index, location in enumerate((first, second)):
+                    base = Path(location)
+                    installation = base / "World Builder 2"
+                    installation.mkdir()
+                    runtime = self.make_runtime(installation)
+                    target = base / "ordinary-parent"
+                    target.mkdir()
+                    report = base / "report.json"
+                    self.discover(target, report)
+                    created, summary = self.create_project(
+                        installation,
+                        runtime,
+                        target,
+                        report,
+                        "Portable empty",
+                        43840 + index,
+                    )
+                    self.assertEqual(0, created.returncode, created.stderr)
+                    project = Path(summary["projectRoot"])
+                    package = project / "source/layered-baseline/package"
+                    generated.append(
+                        {
+                            "package": tree_bytes(package),
+                            "descriptor": (
+                                project / "source/original/empty-world-v1.json"
+                            ).read_bytes(),
+                            "catalog": (
+                                project
+                                / "source/runtime/default-definition-catalog.json"
+                            ).read_bytes(),
+                            "runtime": (
+                                project
+                                / "source/runtime/default-runtime-evidence.json"
+                            ).read_bytes(),
+                        }
+                    )
+                    for path in package.rglob("*"):
+                        if path.is_file():
+                            self.assertNotIn(b"Spoiled Milk", path.read_bytes())
+                self.assertEqual(generated[0], generated[1])
 
     def test_mid_creation_drift_and_source_corruption_fail_closed(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-drift-") as temp:

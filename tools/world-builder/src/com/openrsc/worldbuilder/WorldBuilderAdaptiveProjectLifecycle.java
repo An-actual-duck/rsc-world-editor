@@ -663,6 +663,34 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	ProjectResult save(Path requestedProject)
 		throws IOException, WorldBuilderContractException {
 		Path project = realDirectory(requestedProject, "adaptive project");
+		Path run = project.resolve("run");
+		if (!Files.isDirectory(run, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(run) || !run.toRealPath().startsWith(project)) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "run",
+				"Adaptive project run directory is missing, linked, or escaped.",
+				"Restore the complete contained project run directory.");
+		}
+		try (FileChannel channel = openLock(run.resolve("world-builder.lock"))) {
+			FileLock lock = tryLock(channel);
+			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				"run/world-builder.lock", "Adaptive project is currently running.",
+				"Close the Builder before invoking save-project separately.");
+			try {
+				return saveWithRunLockHeld(project);
+			} finally {
+				lock.release();
+			}
+		}
+	}
+
+	ProjectResult saveAfterSupervisedRun(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		return saveWithRunLockHeld(
+			realDirectory(requestedProject, "adaptive project"));
+	}
+
+	private ProjectResult saveWithRunLockHeld(Path project)
+		throws IOException, WorldBuilderContractException {
 		Path projects = project.getParent();
 		if (projects == null || projects.getParent() == null
 			|| !PROJECTS_DIRECTORY.equals(projects.getFileName().toString())) {
