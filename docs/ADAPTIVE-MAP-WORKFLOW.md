@@ -667,6 +667,11 @@ tests, and product approval. There is never a generic force flag.
    origin `0,0`, the empty generator, and default catalog/runtime hashes.
 3. Generate a canonical signed-layered baseline with no authored terrain or
    placements beyond minimal void addressability required by the runtime.
+   The single `global` sector at level `0`, sector `0,0` consists only of the
+   repeated ten-byte tile record `0,1,8,0,0,0,0,0,0,0`: elevation `0`, ground
+   texture `1`, ground overlay `8`, and zero roof, wall, and diagonal values.
+   The default catalog therefore includes one-based overlay definition ID `7`
+   as well as the deliberately supported authoring IDs.
 4. Validate it, copy it to working state, and prepare an isolated runtime whose
    initial editor location is exactly layer `0`, coordinate `0,0`.
 5. Publish the project and registry atomically.
@@ -792,14 +797,13 @@ open/export/finish/undo using its matching runtime when available, with no
 adaptive attachment or migration. If that runtime cannot be retained safely,
 the update refuses and explains how to preserve the old installation.
 
-`release/world-builder-v2/RELEASE-READY` and
-`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md` remain historical
-evidence. Adaptive implementation does not reinterpret them as approval of a
-new release design. The current marker is not version-scoped, so the release
-workflow MUST replace or constrain it with an exact adaptive-version and
-candidate-commit acceptance record before adaptive implementation can be
-packaged. Until then, no adaptive release is authorized by that historical
-marker.
+`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md` remains historical
+evidence, but `release/world-builder-v2/RELEASE-READY` is deliberately absent.
+Adaptive implementation does not reinterpret the historical validation as
+approval of a new release design. A future release review MUST restore or
+replace the marker with an exact adaptive-version and candidate-commit
+acceptance record before adaptive implementation can be packaged. Until then,
+the packager's existing marker guard keeps public packaging closed.
 
 ### Packaging
 
@@ -903,6 +907,7 @@ suite.
 | `WorldBuilderGenericLayeredPackage.java`, `WorldBuilderRawLayeredTerrainCodec.java`, `WorldBuilderPlacementSemantics.java` | Content-neutral package/runtime decoding validation and shared semantic placement comparison without fixed world identity. |
 | `WorldBuilderProjectSource.java` and `project-manifest-v1.schema.json` | Preserve old meaning; add v2 origin/project/source contracts. |
 | `WorldBuilderRuntimePreparer.java` | Stage adopted, converted, or generated-empty layered baselines; create isolated project working runtime; never copy release world data. |
+| `WorldBuilderCanonicalVoidTerrain.java`, `WorldBuilderEmptyWorldGenerator.java`, `WorldBuilderLayeredTerrainDraftJournal.java` | Share the exact pinned-runtime `global` void-sector bytes between initial empty generation and later sector growth. |
 | `WorldBuilderSourceSnapshot.java` | Verify complete immutable original, baseline, compatibility, and conversion evidence. |
 | `WorldBuilderProcessSupervisor.java` | Run one selected layered project, start empty mode at layer 0/origin 0,0, retain loopback/process/source locks, confine generated state. |
 | `WorldBuilderConfigWriter.java` | Render only adapter-approved isolated and target profiles; retain duplicate-key and exact semantic verification. |

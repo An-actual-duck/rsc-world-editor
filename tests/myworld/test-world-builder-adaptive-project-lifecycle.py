@@ -18,6 +18,8 @@ SOURCE_ROOT = ROOT / "tools/world-builder/src"
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
 DISCOVERY_TEST = ROOT / "tests/myworld/test-world-builder-adaptive-discovery.py"
 PACKED_CONVERSION_TEST = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
+CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
+CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
 
 
 def load_discovery_fixtures():
@@ -440,6 +442,49 @@ public final class AdaptiveProjectSupervisorHarness {
         declaration["sha256"] = sha256(terrain)
         write_json(manifest_path, manifest)
 
+    def assert_canonical_empty_package(self, package: Path) -> None:
+        manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            [{"id": "global", "kind": "static"}], manifest["worldSpaces"]
+        )
+        self.assertEqual(1, len(manifest["levels"]))
+        self.assertEqual(0, manifest["levels"][0]["level"])
+        self.assertEqual("global", manifest["levels"][0]["worldSpace"])
+
+        self.assertEqual(1, len(manifest["terrainSectors"]))
+        sector = manifest["terrainSectors"][0]
+        self.assertEqual(
+            {
+                "encoding": "raw-layered-sector-v1",
+                "level": 0,
+                "path": "terrain/global/lp0/xp0-yp0.raw",
+                "sectorX": 0,
+                "sectorY": 0,
+                "worldSpace": "global",
+            },
+            {key: sector[key] for key in (
+                "encoding", "level", "path", "sectorX", "sectorY", "worldSpace"
+            )},
+        )
+        terrain = package / sector["path"]
+        self.assertEqual(CANONICAL_VOID_SECTOR, terrain.read_bytes())
+        self.assertEqual(sha256(terrain), sector["sha256"])
+
+        self.assertEqual(1, len(manifest["placementSets"]))
+        placement_set = manifest["placementSets"][0]
+        self.assertEqual(0, placement_set["level"])
+        self.assertEqual("global", placement_set["worldSpace"])
+        self.assertEqual("placements/global/lp0.json", placement_set["path"])
+        placement_path = package / placement_set["path"]
+        placement = json.loads(placement_path.read_text(encoding="utf-8"))
+        self.assertEqual(0, placement["level"])
+        self.assertEqual("global", placement["worldSpace"])
+        self.assertEqual([], placement["boundaries"])
+        self.assertEqual([], placement["groundItems"])
+        self.assertEqual([], placement["npcs"])
+        self.assertEqual([], placement["scenery"])
+        self.assertEqual(sha256(placement_path), placement_set["sha256"])
+
     def test_standalone_empty_create_save_reopen_and_no_target_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-empty-") as temp:
             base = Path(temp)
@@ -487,15 +532,16 @@ public final class AdaptiveProjectSupervisorHarness {
                 {"level": 0, "x": 0, "y": 0}, descriptor["initialLocation"]
             )
             package = project / "working/layered-world/package"
-            package_manifest = json.loads(
-                (package / "manifest.json").read_text(encoding="utf-8")
+            self.assert_canonical_empty_package(
+                project / "source/layered-baseline/package"
             )
-            self.assertEqual([0], [level["level"] for level in package_manifest["levels"]])
-            self.assertEqual(1, len(package_manifest["terrainSectors"]))
-            self.assertEqual(
-                bytes(48 * 48 * 10),
-                (package / package_manifest["terrainSectors"][0]["path"]).read_bytes(),
+            self.assert_canonical_empty_package(package)
+            catalog = json.loads(
+                (
+                    project / "source/runtime/default-definition-catalog.json"
+                ).read_text(encoding="utf-8")
             )
+            self.assertEqual([0, 7], catalog["tiles"])
 
             self.change_working_terrain(project)
             unsaved = self.run_cli(
@@ -943,6 +989,7 @@ public final class AdaptiveProjectSupervisorHarness {
                     self.assertEqual(0, created.returncode, created.stderr)
                     project = Path(summary["projectRoot"])
                     package = project / "source/layered-baseline/package"
+                    self.assert_canonical_empty_package(package)
                     generated.append(
                         {
                             "package": tree_bytes(package),

@@ -21,7 +21,8 @@ final class WorldBuilderEmptyWorldGenerator {
 	private static final String PACKAGE_PATH = "source/layered-baseline/package";
 	private static final String PACKAGE_ID = "world-builder.empty-world-v1";
 	private static final String PACKAGE_VERSION = "1.0.0";
-	private static final String WORLD_SPACE = "empty-world";
+	private static final String WORLD_SPACE =
+		WorldBuilderCanonicalVoidTerrain.WORLD_SPACE;
 
 	private WorldBuilderEmptyWorldGenerator() {
 	}
@@ -34,7 +35,9 @@ final class WorldBuilderEmptyWorldGenerator {
 		catalog.put("schemaVersion", Long.valueOf(1L));
 		catalog.put("manifestType", "world-builder-definition-catalog");
 		catalog.put("catalogId", CATALOG_ID);
-		catalog.put("tiles", Arrays.<Object>asList(Long.valueOf(0L)));
+		catalog.put("tiles", Arrays.<Object>asList(
+			Long.valueOf(0L), Long.valueOf(
+				WorldBuilderCanonicalVoidTerrain.GROUND_OVERLAY_DEFINITION_ID)));
 		catalog.put("boundaries", new ArrayList<Object>());
 		catalog.put("scenery", new ArrayList<Object>());
 		catalog.put("npcs", new ArrayList<Object>());
@@ -95,11 +98,11 @@ final class WorldBuilderEmptyWorldGenerator {
 		Path projectRoot, Path packageRoot,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
 		throws IOException, WorldBuilderContractException {
-		Path terrain = packageRoot.resolve("terrain/empty/lp0/xp0-yp0.raw");
-		Path placements = packageRoot.resolve("placements/empty/lp0.json");
+		Path terrain = packageRoot.resolve("terrain/global/lp0/xp0-yp0.raw");
+		Path placements = packageRoot.resolve("placements/global/lp0.json");
 		Files.createDirectories(terrain.getParent());
 		Files.createDirectories(placements.getParent());
-		Files.write(terrain, new byte[WorldBuilderRawLayeredTerrainCodec.BYTE_COUNT]);
+		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sector());
 
 		Map<String,Object> placement = new LinkedHashMap<String,Object>();
 		placement.put("schemaVersion", Long.valueOf(3L));
@@ -140,7 +143,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		Map<String,Object> sector = new LinkedHashMap<String,Object>();
 		sector.put("encoding", "raw-layered-sector-v1");
 		sector.put("level", Long.valueOf(0L));
-		sector.put("path", "terrain/empty/lp0/xp0-yp0.raw");
+		sector.put("path", "terrain/global/lp0/xp0-yp0.raw");
 		sector.put("sectorX", Long.valueOf(0L));
 		sector.put("sectorY", Long.valueOf(0L));
 		sector.put("sha256", WorldBuilderHashes.sha256(terrain));
@@ -152,7 +155,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		set.put("encoding", "layered-world-placements-v3");
 		set.put("id", "empty-level-0");
 		set.put("level", Long.valueOf(0L));
-		set.put("path", "placements/empty/lp0.json");
+		set.put("path", "placements/global/lp0.json");
 		set.put("sha256", WorldBuilderHashes.sha256(placements));
 		set.put("worldSpace", WORLD_SPACE);
 		sets.add(set);
