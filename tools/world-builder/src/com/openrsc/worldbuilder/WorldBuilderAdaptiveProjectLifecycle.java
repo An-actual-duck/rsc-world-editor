@@ -270,7 +270,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			WorldBuilderReadOnlyTarget.FileState state = live.requiredState(
 				item.role, item.targetRelativePath);
-			if (state.size != item.size || !state.sha256.equals(item.sha256)) {
+			if (item.size >= 0L && state.size != item.size
+				|| !state.sha256.equals(item.sha256)) {
 				throw problem(WorldBuilderErrorCodes.TARGET_DRIFT,
 					item.targetRelativePath,
 					"Target evidence changed before its immutable copy was verified.",
