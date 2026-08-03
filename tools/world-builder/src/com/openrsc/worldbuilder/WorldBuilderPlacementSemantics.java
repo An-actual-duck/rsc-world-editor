@@ -23,6 +23,10 @@ final class WorldBuilderPlacementSemantics {
 		return key("scenery", level, id, x, y, direction);
 	}
 
+	static String identity(String placementId, String semantic) {
+		return placementId + '\u0000' + semantic;
+	}
+
 	private static String key(String family, int... values) {
 		StringBuilder result = new StringBuilder(family);
 		for (int value : values) result.append('\u0000').append(value);

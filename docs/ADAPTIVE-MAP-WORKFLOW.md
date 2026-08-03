@@ -949,15 +949,24 @@ mid-discovery drift pass. Discovery never mutates target or project state.
 Implementation status: complete in this repository. The advanced
 `convert-packed` boundary accepts only an exact isolated evidence copy tied to
 a compatible descriptor-backed Phase 1 report. It rejects the live reported
-target, fallback-only evidence, links, hard links, missing/extra files, and
-hash drift. It emits `package/`, `conversion-plan.json`, and
+target, canonical/same-file source aliases, fallback-only evidence, links, hard
+links, missing/extra files, and hash drift. Output and staging are also refused
+at or below the locally existing reported target or source through normalized,
+canonical, symlinked-ancestor, and equivalent filesystem identities. It emits
+`package/`, `conversion-plan.json`, and
 `conversion-report.json` through same-filesystem atomic staging. It does not
 create a project or runtime and does not read or mutate the reported target.
 
 - Add adapter-owned terrain/coordinate codecs and effective placement
   composition with provenance.
 - Add canonical package writer, plan/report, stable IDs, reverse terrain, and
-  semantic placement parity.
+  semantic placement parity. Before initial validation and immediately before
+  publication, re-read the complete staged inventory and require exact model
+  paths, coordinates, encodings, hashes, terrain bytes/reverse evidence,
+  placement semantics, and deterministic IDs.
+- Enforce one cumulative bound across all placement inputs, the effective
+  composition, and report decisions while sources are read and composed; the
+  per-file limit is not an aggregate allowance.
 - Reuse only generic pinned layered contracts through the repository/runtime
   boundary; do not copy Spoiled Milk content policy.
 

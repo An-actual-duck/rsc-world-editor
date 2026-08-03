@@ -35,15 +35,25 @@ final class WorldBuilderPackedConverter {
 
 	private final Observer observer;
 	private final WorldBuilderPackedConversionModel.PlacementIdFactory idFactory;
+	private final int cumulativeRecordLimit;
 
 	WorldBuilderPackedConverter() {
-		this(NO_OP_OBSERVER, null);
+		this(NO_OP_OBSERVER, null,
+			WorldBuilderPackedConversionModel.DEFAULT_CUMULATIVE_RECORD_LIMIT);
 	}
 
 	WorldBuilderPackedConverter(Observer observer,
 		WorldBuilderPackedConversionModel.PlacementIdFactory idFactory) {
+		this(observer, idFactory,
+			WorldBuilderPackedConversionModel.DEFAULT_CUMULATIVE_RECORD_LIMIT);
+	}
+
+	WorldBuilderPackedConverter(Observer observer,
+		WorldBuilderPackedConversionModel.PlacementIdFactory idFactory,
+		int cumulativeRecordLimit) {
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
 		this.idFactory = idFactory;
+		this.cumulativeRecordLimit = cumulativeRecordLimit;
 	}
 
 	Result convert(Path sourceRoot, Path discoveryReport, Path requestedOutput)
@@ -73,13 +83,16 @@ final class WorldBuilderPackedConverter {
 			observe("stage-created", stage);
 			Path planPath = stage.resolve("conversion-plan.json");
 			writeJson(planPath, plan);
-			model.writePackage(stage.resolve("package"), source.sourceFingerprintSha256);
+			WorldBuilderPackedConversionModel.PackageExpectation expectedPackage =
+				model.writePackage(stage.resolve("package"), source.sourceFingerprintSha256);
 			observe("package-written", stage);
 
 			WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
 			WorldBuilderGenericLayeredPackage validated =
 				WorldBuilderGenericLayeredPackage.inspect(
 					stageTarget, "package", "converted", common.definitions);
+			model.requireExactPackage(
+				stageTarget, "package", validated, expectedPackage);
 			if (validated.levelCount != model.levels.size()
 				|| validated.terrainCount != model.terrain.size()
 				|| validated.placementSemantics.size() != model.placementSemantics.size()
@@ -91,7 +104,7 @@ final class WorldBuilderPackedConverter {
 
 			String planSha256 = WorldBuilderHashes.sha256(planPath);
 			Map<String,Object> report = report(
-				model, planSha256, validated.fingerprintSha256);
+				model, planSha256, expectedPackage.fingerprintSha256);
 			WorldBuilderAdaptiveContracts.validateParsed(
 				WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, report);
 			Path reportPath = stage.resolve("conversion-report.json");
@@ -102,12 +115,12 @@ final class WorldBuilderPackedConverter {
 				WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
 			requireSelfFingerprint(report, "reportFingerprintSha256");
 			String reportSha256 = WorldBuilderHashes.sha256(reportPath);
-			requireExactOutput(stage, validated.files.size() + 2);
+			requireExactOutput(stage, expectedPackage.files.size() + 2);
 			source.reverify();
 			observe("before-publish", stage);
 			source.reverify();
-			requireFinalStage(stage, common.definitions, model, planSha256,
-				reportSha256, validated.fingerprintSha256, validated.files.size() + 2);
+			requireFinalStage(stage, common.definitions, model, expectedPackage,
+				planSha256, reportSha256, expectedPackage.files.size() + 2);
 			try {
 				Files.move(stage, output, StandardCopyOption.ATOMIC_MOVE);
 			} catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
@@ -116,7 +129,8 @@ final class WorldBuilderPackedConverter {
 			}
 			return new Result(output, source.sourceFingerprintSha256, planSha256,
 				reportSha256,
-				validated.fingerprintSha256, model.terrain.size(), model.placements.size());
+				expectedPackage.fingerprintSha256,
+				model.terrain.size(), model.placements.size());
 		} catch (IOException failure) {
 			deleteTree(stage);
 			throw failure;
@@ -182,11 +196,9 @@ final class WorldBuilderPackedConverter {
 			}
 			WorldBuilderGenericLayeredAdapter.validateInventoryAndRoles(
 				files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
-			WorldBuilderPackedConversionModel model = idFactory == null
-				? WorldBuilderPackedConversionModel.read(
-					source, configuration, common.definitions)
-				: WorldBuilderPackedConversionModel.read(
-					source, configuration, common.definitions, idFactory);
+			WorldBuilderPackedConversionModel model =
+				WorldBuilderPackedConversionModel.read(source, configuration,
+					common.definitions, idFactory, cumulativeRecordLimit);
 			source.reverify();
 			return new Prepared(capability, configuration, common, model);
 		} catch (WorldBuilderContractException refusal) {
@@ -205,12 +217,26 @@ final class WorldBuilderPackedConverter {
 		Path parent = output.getParent();
 		if (parent == null || Files.isSymbolicLink(parent)
 			|| !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
-			|| output.startsWith(source.target.root)
 			|| Files.exists(output, LinkOption.NOFOLLOW_LINKS)) {
 			throw blocked("Conversion output is unsafe, already exists, or is inside source evidence.",
-				"Choose a new path under an existing real directory outside the source root.");
+				"Choose a new path under an existing real directory outside source and target roots.");
 		}
-		return output;
+		Path canonicalParent;
+		try {
+			canonicalParent = parent.toRealPath();
+		} catch (IOException failure) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
+				OPERATION, "output", false,
+				"Conversion output parent identity cannot be resolved safely.",
+				"Choose a stable existing real directory outside source and target roots.", failure);
+		}
+		Path canonicalOutput = canonicalParent.resolve(output.getFileName()).normalize();
+		if (source.overlapsSourceOrReportedTarget(
+			output, canonicalOutput, canonicalParent)) {
+			throw blocked("Conversion output is inside or aliases source evidence or the reported target.",
+				"Choose a new path in an independent directory outside source and target roots.");
+		}
+		return canonicalOutput;
 	}
 
 	private static Map<String,Object> plan(
@@ -370,9 +396,9 @@ final class WorldBuilderPackedConverter {
 		Path stage,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		WorldBuilderPackedConversionModel model,
+		WorldBuilderPackedConversionModel.PackageExpectation expectedPackage,
 		String planSha256,
 		String reportSha256,
-		String outputFingerprintSha256,
 		int expectedFiles) throws IOException, WorldBuilderContractException {
 		Path planPath = stage.resolve("conversion-plan.json");
 		Path reportPath = stage.resolve("conversion-report.json");
@@ -388,10 +414,13 @@ final class WorldBuilderPackedConverter {
 		WorldBuilderGenericLayeredPackage validated =
 			WorldBuilderGenericLayeredPackage.inspect(
 				WorldBuilderReadOnlyTarget.open(stage), "package", "converted", definitions);
-		if (!outputFingerprintSha256.equals(validated.fingerprintSha256)
+		WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
+		model.requireExactPackage(stageTarget, "package", validated, expectedPackage);
+		if (!expectedPackage.fingerprintSha256.equals(validated.fingerprintSha256)
 			|| validated.levelCount != model.levels.size()
 			|| validated.terrainCount != model.terrain.size()
-			|| !validated.placementSemantics.equals(model.placementSemantics)) {
+			|| !validated.placementSemantics.equals(model.placementSemantics)
+			|| !validated.placementIdentities.equals(model.placementIdentities)) {
 			throw blocked("Staged package changed after semantic parity validation.",
 				"Retry conversion in an output parent not modified by another process.");
 		}

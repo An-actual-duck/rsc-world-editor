@@ -23,6 +23,9 @@ final class WorldBuilderPackedConversionSource {
 		"0000000000000000000000000000000000000000000000000000000000000000";
 
 	final WorldBuilderReadOnlyTarget target;
+	final Path canonicalSourceRoot;
+	final Path reportedTargetRoot;
+	final Path canonicalReportedTargetRoot;
 	final Map<String,Object> discoveryReport;
 	final String sourceFingerprintSha256;
 	final String selectedConfigurationRole;
@@ -32,6 +35,9 @@ final class WorldBuilderPackedConversionSource {
 
 	private WorldBuilderPackedConversionSource(
 		WorldBuilderReadOnlyTarget target,
+		Path canonicalSourceRoot,
+		Path reportedTargetRoot,
+		Path canonicalReportedTargetRoot,
 		Map<String,Object> discoveryReport,
 		String sourceFingerprintSha256,
 		String selectedConfigurationRole,
@@ -39,6 +45,9 @@ final class WorldBuilderPackedConversionSource {
 		String selectedConfigurationSha256,
 		List<WorldBuilderBoundedInventory.Record> inputs) {
 		this.target = target;
+		this.canonicalSourceRoot = canonicalSourceRoot;
+		this.reportedTargetRoot = reportedTargetRoot;
+		this.canonicalReportedTargetRoot = canonicalReportedTargetRoot;
 		this.discoveryReport = discoveryReport;
 		this.sourceFingerprintSha256 = sourceFingerprintSha256;
 		this.selectedConfigurationRole = selectedConfigurationRole;
@@ -78,16 +87,23 @@ final class WorldBuilderPackedConversionSource {
 		}
 
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedSourceRoot);
+		Path canonicalSource = realDirectory(target.root, "source-root");
 		String targetDisplay = string(report, "targetRootDisplay");
+		Path reportedTarget = null;
+		Path canonicalReportedTarget = null;
 		if (!targetDisplay.isEmpty()) {
-			Path reportedTarget;
 			try {
 				reportedTarget = java.nio.file.Paths.get(targetDisplay).toAbsolutePath().normalize();
 			} catch (RuntimeException invalidPath) {
 				throw blocked("The discovery report target display is not a valid local path.",
 					"Use the unmodified report emitted by discover-adaptive.");
 			}
-			if (target.root.equals(reportedTarget)) {
+			canonicalReportedTarget = existingRealDirectory(reportedTarget);
+			if (overlaps(target.root, reportedTarget)
+				|| canonicalReportedTarget != null
+					&& (overlaps(canonicalSource, canonicalReportedTarget)
+						|| containsByIdentity(canonicalSource, canonicalReportedTarget)
+						|| containsByIdentity(canonicalReportedTarget, canonicalSource))) {
 				throw blocked("Conversion source is the live discovered target, not an isolated copy.",
 					"Copy the complete inventoried evidence to an isolated source directory first.");
 			}
@@ -122,9 +138,22 @@ final class WorldBuilderPackedConversionSource {
 		});
 
 		List<WorldBuilderBoundedInventory.Record> verified = verifyExactTree(target, expected);
-		return new WorldBuilderPackedConversionSource(target, report, sourceFingerprint,
+		return new WorldBuilderPackedConversionSource(target, canonicalSource,
+			reportedTarget, canonicalReportedTarget, report, sourceFingerprint,
 			string(selected, "role"), string(selected, "relativePath"),
 			string(selected, "sha256"), verified);
+	}
+
+	boolean overlapsSourceOrReportedTarget(
+		Path lexicalPath, Path canonicalPath, Path canonicalParent)
+		throws WorldBuilderContractException {
+		return overlaps(lexicalPath, target.root)
+			|| overlaps(canonicalPath, canonicalSourceRoot)
+			|| containsByIdentity(canonicalSourceRoot, canonicalParent)
+			|| reportedTargetRoot != null && overlaps(lexicalPath, reportedTargetRoot)
+			|| canonicalReportedTargetRoot != null
+				&& (overlaps(canonicalPath, canonicalReportedTargetRoot)
+					|| containsByIdentity(canonicalReportedTargetRoot, canonicalParent));
 	}
 
 	void reverify() throws WorldBuilderContractException {
@@ -174,6 +203,55 @@ final class WorldBuilderPackedConversionSource {
 				"The Phase 1 discovery report is malformed.",
 				"Supply the unmodified bounded UTF-8 report from discover-adaptive.", malformed);
 		}
+	}
+
+	private static Path realDirectory(Path path, String label)
+		throws WorldBuilderContractException {
+		try {
+			return path.toRealPath();
+		} catch (IOException failure) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
+				OPERATION, label, false,
+				"The conversion directory identity cannot be resolved safely.",
+				"Use an existing real directory with stable filesystem identity.", failure);
+		}
+	}
+
+	private static Path existingRealDirectory(Path path)
+		throws WorldBuilderContractException {
+		try {
+			if (!Files.exists(path) || !Files.isDirectory(path)) return null;
+			return path.toRealPath();
+		} catch (IOException failure) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
+				OPERATION, "reported-target", false,
+				"The locally existing reported target identity cannot be resolved safely.",
+				"Stop target changes and rediscover before conversion.", failure);
+		}
+	}
+
+	private static boolean sameFile(Path first, Path second)
+		throws WorldBuilderContractException {
+		try {
+			return Files.isSameFile(first, second);
+		} catch (IOException failure) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSAFE_PATH,
+				OPERATION, "source-root", false,
+				"Source and reported target filesystem identity cannot be compared safely.",
+				"Use stable, locally accessible real directories and retry.", failure);
+		}
+	}
+
+	private static boolean containsByIdentity(Path protectedRoot, Path candidate)
+		throws WorldBuilderContractException {
+		for (Path current = candidate; current != null; current = current.getParent()) {
+			if (sameFile(protectedRoot, current)) return true;
+		}
+		return false;
+	}
+
+	private static boolean overlaps(Path first, Path second) {
+		return first.equals(second) || first.startsWith(second) || second.startsWith(first);
 	}
 
 	private static String requireReportFingerprint(Map<String,Object> report)

@@ -30,7 +30,7 @@ final class WorldBuilderPackedConversionModel {
 	static final int OUTPUT_ENCODING_VERSION = 1;
 	private static final String WORLD_SPACE = "global";
 	private static final int MAX_SECTORS = 65536;
-	private static final int MAX_RECORDS = 65536;
+	static final int DEFAULT_CUMULATIVE_RECORD_LIMIT = 65536;
 	private static final Set<String> ALL_FAMILIES = Collections.unmodifiableSet(
 		new HashSet<String>(Arrays.asList(
 			"boundary", "ground-item", "npc", "scenery")));
@@ -51,6 +51,7 @@ final class WorldBuilderPackedConversionModel {
 	final List<Placement> placements;
 	final List<Integer> levels;
 	final List<String> placementSemantics;
+	final List<String> placementIdentities;
 	final List<Object> placementSummaries;
 	final List<Object> decisions;
 	final int reverseMatched;
@@ -60,6 +61,7 @@ final class WorldBuilderPackedConversionModel {
 		List<Placement> placements,
 		List<Integer> levels,
 		List<String> placementSemantics,
+		List<String> placementIdentities,
 		List<Object> placementSummaries,
 		List<Object> decisions) {
 		this.terrain = Collections.unmodifiableList(new ArrayList<TerrainSector>(terrain));
@@ -67,6 +69,8 @@ final class WorldBuilderPackedConversionModel {
 		this.levels = Collections.unmodifiableList(new ArrayList<Integer>(levels));
 		this.placementSemantics = Collections.unmodifiableList(
 			new ArrayList<String>(placementSemantics));
+		this.placementIdentities = Collections.unmodifiableList(
+			new ArrayList<String>(placementIdentities));
 		this.placementSummaries = Collections.unmodifiableList(
 			new ArrayList<Object>(placementSummaries));
 		this.decisions = Collections.unmodifiableList(new ArrayList<Object>(decisions));
@@ -78,7 +82,8 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderAdaptiveConfiguration configuration,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
 		throws WorldBuilderContractException {
-		return read(source, configuration, definitions, HASHED_IDS);
+		return read(source, configuration, definitions, HASHED_IDS,
+			DEFAULT_CUMULATIVE_RECORD_LIMIT);
 	}
 
 	static WorldBuilderPackedConversionModel read(
@@ -86,7 +91,21 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderAdaptiveConfiguration configuration,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		PlacementIdFactory idFactory) throws WorldBuilderContractException {
+		return read(source, configuration, definitions, idFactory,
+			DEFAULT_CUMULATIVE_RECORD_LIMIT);
+	}
+
+	static WorldBuilderPackedConversionModel read(
+		WorldBuilderPackedConversionSource source,
+		WorldBuilderAdaptiveConfiguration configuration,
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		PlacementIdFactory idFactory,
+		int cumulativeRecordLimit) throws WorldBuilderContractException {
 		if (idFactory == null) idFactory = HASHED_IDS;
+		if (cumulativeRecordLimit < 1
+			|| cumulativeRecordLimit > DEFAULT_CUMULATIVE_RECORD_LIMIT) {
+			throw new IllegalArgumentException("invalid cumulative conversion record limit");
+		}
 		source.requireInput("server-terrain", configuration.serverMapRelativePath);
 		source.requireInput("client-terrain", configuration.clientMapRelativePath);
 		List<TerrainSector> terrain = readTerrain(
@@ -111,6 +130,8 @@ final class WorldBuilderPackedConversionModel {
 		Set<String> declaredFamilies = new HashSet<String>();
 		Set<String> generatedIds = new HashSet<String>();
 		List<Decision> decisions = new ArrayList<Decision>();
+		int inputRecordCount = 0;
+		int effectiveRecordCount = 0;
 		for (WorldBuilderAdaptiveConfiguration.PlacementSource placementSource
 			: configuration.placements) {
 			declaredFamilies.add(placementSource.family);
@@ -118,7 +139,9 @@ final class WorldBuilderPackedConversionModel {
 			source.requireInput(inputRole, placementSource.relativePath);
 			requireEncoding(placementSource);
 			List<Placement> records = parsePlacementSource(source, placementSource,
-				definitions, idFactory, generatedIds);
+				definitions, idFactory, generatedIds,
+				cumulativeRecordLimit - inputRecordCount);
+			inputRecordCount += records.size();
 			Map<String,Placement> family = effective.get(placementSource.family);
 			Set<String> sourceSlots = new HashSet<String>();
 			for (Placement placement : records) {
@@ -135,22 +158,34 @@ final class WorldBuilderPackedConversionModel {
 								+ " does not exactly match an earlier effective placement.");
 					}
 					family.remove(placement.slot);
-					decisions.add(new Decision("removal", inputRole,
+					effectiveRecordCount--;
+					addDecision(decisions, new Decision("removal", inputRole,
 						placement.provenance + " removes " + removed.provenance,
-						removed.placementId, "removed"));
+						removed.placementId, "removed"), cumulativeRecordLimit,
+						placement.sourcePath);
 				} else if ("base".equals(placementSource.kind)) {
 					if (family.containsKey(placement.slot)) {
 						throw placementProblem(placement,
 							"Packed base placement collides at record "
 								+ placement.recordIndex + ".");
 					}
+					requireEffectiveCapacity(effectiveRecordCount,
+						cumulativeRecordLimit, placement.sourcePath);
 					family.put(placement.slot, placement);
+					effectiveRecordCount++;
 				} else if ("overlay".equals(placementSource.kind)) {
-					Placement replaced = family.put(placement.slot, placement);
+					Placement replaced = family.get(placement.slot);
+					if (replaced == null) {
+						requireEffectiveCapacity(effectiveRecordCount,
+							cumulativeRecordLimit, placement.sourcePath);
+						effectiveRecordCount++;
+					}
+					family.put(placement.slot, placement);
 					if (replaced != null) {
-						decisions.add(new Decision("replacement", inputRole,
+						addDecision(decisions, new Decision("replacement", inputRole,
 							placement.provenance + " replaces " + replaced.provenance,
-							replaced.placementId, "replaced"));
+							replaced.placementId, "replaced"), cumulativeRecordLimit,
+							placement.sourcePath);
 					}
 				} else {
 					throw blocked(placementSource.relativePath,
@@ -169,6 +204,7 @@ final class WorldBuilderPackedConversionModel {
 		}
 		Collections.sort(placements);
 		List<String> semantics = new ArrayList<String>(placements.size());
+		List<String> identities = new ArrayList<String>(placements.size());
 		Map<SummaryKey,Long> summaries = new TreeMap<SummaryKey,Long>();
 		Map<Integer,Integer> perLevel = new HashMap<Integer,Integer>();
 		for (Placement placement : placements) {
@@ -176,28 +212,29 @@ final class WorldBuilderPackedConversionModel {
 			if (placement.minimum != null) {
 				requireCoverageRectangle(terrainCoverage, placement);
 			}
-			semantics.add(placement.semantic());
+			String semantic = placement.semantic();
+			semantics.add(semantic);
+			identities.add(WorldBuilderPlacementSemantics.identity(
+				placement.placementId, semantic));
 			SummaryKey summary = new SummaryKey(placement.family, placement.level,
 				placement.sourceRole, placement.definitionId);
 			Long count = summaries.get(summary);
 			summaries.put(summary, Long.valueOf(count == null ? 1L : count.longValue() + 1L));
 			Integer levelCount = perLevel.get(Integer.valueOf(placement.level));
 			int next = levelCount == null ? 1 : levelCount.intValue() + 1;
-			if (next > MAX_RECORDS) {
+			if (next > DEFAULT_CUMULATIVE_RECORD_LIMIT) {
 				throw blocked(placement.sourcePath,
 					"Converted placement set exceeds 65,536 records on level "
 						+ placement.level + ".");
 			}
 			perLevel.put(Integer.valueOf(placement.level), Integer.valueOf(next));
-			decisions.add(new Decision("precedence", placement.sourceRole,
-				placement.provenance, placement.placementId, "retained"));
+			addDecision(decisions, new Decision("precedence", placement.sourceRole,
+				placement.provenance, placement.placementId, "retained"),
+				cumulativeRecordLimit, placement.sourcePath);
 		}
 		Collections.sort(semantics);
+		Collections.sort(identities);
 		Collections.sort(decisions);
-		if (decisions.size() > WorldBuilderContractLimits.MAX_PLACEMENT_SUMMARIES) {
-			throw blocked(configuration.relativePath,
-				"Conversion decisions exceed the bounded report contract.");
-		}
 		List<Object> decisionDocuments = new ArrayList<Object>(decisions.size());
 		Decision previous = null;
 		for (Decision decision : decisions) {
@@ -213,20 +250,22 @@ final class WorldBuilderPackedConversionModel {
 			summaryDocuments.add(summary.getKey().toJson(summary.getValue().longValue()));
 		}
 		return new WorldBuilderPackedConversionModel(terrain, placements,
-			new ArrayList<Integer>(levelSet), semantics, summaryDocuments,
+			new ArrayList<Integer>(levelSet), semantics, identities, summaryDocuments,
 			decisionDocuments);
 	}
 
-	void writePackage(Path packageRoot, String sourceFingerprintSha256)
+	PackageExpectation writePackage(Path packageRoot, String sourceFingerprintSha256)
 		throws IOException, WorldBuilderContractException {
 		Files.createDirectories(packageRoot);
+		Map<String,WorldBuilderReadOnlyTarget.FileState> expectedFiles =
+			new TreeMap<String,WorldBuilderReadOnlyTarget.FileState>();
 		List<Object> terrainDeclarations = new ArrayList<Object>(terrain.size());
 		for (TerrainSector sector : terrain) {
 			String relative = terrainPath(sector.coordinate);
 			Path payload = packageRoot.resolve(relative).normalize();
 			requireContained(packageRoot, payload, relative);
 			Files.createDirectories(payload.getParent());
-			Files.write(payload, sector.layeredBytes);
+			writeExpected(payload, relative, sector.layeredBytes, expectedFiles);
 			Map<String,Object> declaration = new LinkedHashMap<String,Object>();
 			declaration.put("encoding", WorldBuilderPackedTerrainCodec.OUTPUT_ENCODING);
 			declaration.put("level", Long.valueOf(sector.coordinate.level));
@@ -254,8 +293,8 @@ final class WorldBuilderPackedConversionModel {
 			Path path = packageRoot.resolve(relative).normalize();
 			requireContained(packageRoot, path, relative);
 			Files.createDirectories(path.getParent());
-			Files.write(path, WorldBuilderJsonDocuments.pretty(payload)
-				.getBytes(StandardCharsets.UTF_8));
+			writeExpected(path, relative, WorldBuilderJsonDocuments.pretty(payload)
+				.getBytes(StandardCharsets.UTF_8), expectedFiles);
 			Map<String,Object> declaration = new LinkedHashMap<String,Object>();
 			declaration.put("encoding", "layered-world-placements-v3");
 			declaration.put("id", "global-l"
@@ -295,8 +334,12 @@ final class WorldBuilderPackedConversionModel {
 		manifest.put("levels", levelDocuments);
 		manifest.put("terrainSectors", terrainDeclarations);
 		manifest.put("placementSets", placementDeclarations);
-		Files.write(packageRoot.resolve("manifest.json"),
-			WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8));
+		byte[] manifestBytes = WorldBuilderJsonDocuments.pretty(manifest)
+			.getBytes(StandardCharsets.UTF_8);
+		writeExpected(packageRoot.resolve("manifest.json"), "manifest.json",
+			manifestBytes, expectedFiles);
+		return new PackageExpectation(expectedFiles,
+			WorldBuilderJsonDocuments.canonical(manifest));
 	}
 
 	private static List<TerrainSector> readTerrain(Path archive, String relative,
@@ -414,7 +457,8 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderAdaptiveConfiguration.PlacementSource source,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		PlacementIdFactory idFactory,
-		Set<String> generatedIds) throws WorldBuilderContractException {
+		Set<String> generatedIds,
+		int remainingRecordCapacity) throws WorldBuilderContractException {
 		Map<String,Object> root = conversionSource.target.readObject(source.relativePath);
 		String rootKey = rootKey(source.family, source.kind);
 		if (root.size() != 1 || !root.containsKey(rootKey)) {
@@ -422,11 +466,16 @@ final class WorldBuilderPackedConversionModel {
 				"Packed placement document must contain only array " + rootKey + ".");
 		}
 		Object raw = root.get(rootKey);
-		if (!(raw instanceof List) || ((List<?>)raw).size() > MAX_RECORDS) {
+		if (!(raw instanceof List)
+			|| ((List<?>)raw).size() > DEFAULT_CUMULATIVE_RECORD_LIMIT) {
 			throw blocked(source.relativePath,
 				"Packed placement array is absent or exceeds 65,536 records.");
 		}
 		List<?> records = (List<?>)raw;
+		if (remainingRecordCapacity < 0 || records.size() > remainingRecordCapacity) {
+			throw blocked(source.relativePath,
+				"Cumulative packed placement inputs exceed the bounded conversion record limit.");
+		}
 		List<Placement> result = new ArrayList<Placement>(records.size());
 		for (int index = 0; index < records.size(); index++) {
 			Map<String,Object> record = object(records.get(index), source.relativePath, index);
@@ -583,6 +632,25 @@ final class WorldBuilderPackedConversionModel {
 		}
 	}
 
+	private static void requireEffectiveCapacity(
+		int effectiveRecordCount, int limit, String path)
+		throws WorldBuilderContractException {
+		if (effectiveRecordCount >= limit) {
+			throw blocked(path,
+				"Cumulative effective placements exceed the bounded conversion record limit.");
+		}
+	}
+
+	private static void addDecision(List<Decision> decisions, Decision decision,
+		int limit, String path) throws WorldBuilderContractException {
+		if (decisions.size() >= limit
+			|| decisions.size() >= WorldBuilderContractLimits.MAX_PLACEMENT_SUMMARIES) {
+			throw blocked(path,
+				"Cumulative conversion decisions exceed the bounded report record limit.");
+		}
+		decisions.add(decision);
+	}
+
 	private static String rootKey(String family, String kind) {
 		boolean removal = "removal".equals(kind);
 		if ("boundary".equals(family)) return removal ? "boundary_removals" : "boundaries";
@@ -658,6 +726,18 @@ final class WorldBuilderPackedConversionModel {
 
 	private static String placementPath(int level) {
 		return "placements/global/l" + WorldBuilderLayeredPackage.signedToken(level) + ".json";
+	}
+
+	private static void writeExpected(Path path, String relative, byte[] bytes,
+		Map<String,WorldBuilderReadOnlyTarget.FileState> expectedFiles)
+		throws IOException, WorldBuilderContractException {
+		Files.write(path, bytes);
+		WorldBuilderReadOnlyTarget.FileState previous = expectedFiles.put(relative,
+			new WorldBuilderReadOnlyTarget.FileState("converted-package", relative, true,
+				bytes.length, WorldBuilderHashes.sha256(bytes)));
+		if (previous != null) {
+			throw blocked(relative, "Generated package path was written more than once.");
+		}
 	}
 
 	private static void requireContained(Path root, Path child, String relative)
@@ -742,6 +822,87 @@ final class WorldBuilderPackedConversionModel {
 			WorldBuilderPackedLayoutAdapter.ID, path, provenance,
 			"One exact adapter-owned packed coordinate or terrain identity.",
 			failure.getMessage(), false, failure.getMessage(), failure.nextStep(), failure);
+	}
+
+	void requireExactPackage(WorldBuilderReadOnlyTarget stageTarget,
+		String packageRelative, WorldBuilderGenericLayeredPackage validated,
+		PackageExpectation expected) throws IOException, WorldBuilderContractException {
+		if (!expected.fingerprintSha256.equals(validated.fingerprintSha256)) {
+			throw blocked(packageRelative,
+				"Staged package fingerprint differs from the exact package produced by the model.");
+		}
+		if (!placementSemantics.equals(validated.placementSemantics)
+			|| !placementIdentities.equals(validated.placementIdentities)) {
+			throw blocked(packageRelative,
+				"Staged placement semantics or deterministic placement IDs differ from the model.");
+		}
+		Map<String,WorldBuilderReadOnlyTarget.FileState> actual =
+			new TreeMap<String,WorldBuilderReadOnlyTarget.FileState>();
+		String prefix = packageRelative + "/";
+		for (WorldBuilderReadOnlyTarget.FileState state : validated.files) {
+			if (!state.relativePath.startsWith(prefix)) {
+				throw blocked(packageRelative,
+					"Staged package inventory escaped its expected package root.");
+			}
+			String relative = state.relativePath.substring(prefix.length());
+			if (actual.put(relative, state) != null) {
+				throw blocked(packageRelative,
+					"Staged package inventory contains a duplicate relative path.");
+			}
+		}
+		if (!actual.keySet().equals(expected.files.keySet())) {
+			throw blocked(packageRelative,
+				"Staged package inventory differs from the complete model inventory.");
+		}
+		for (Map.Entry<String,WorldBuilderReadOnlyTarget.FileState> entry
+			: expected.files.entrySet()) {
+			WorldBuilderReadOnlyTarget.FileState state = actual.get(entry.getKey());
+			WorldBuilderReadOnlyTarget.FileState wanted = entry.getValue();
+			if (state.size != wanted.size || !state.sha256.equals(wanted.sha256)) {
+				throw blocked(entry.getKey(),
+					"Staged package bytes differ from the exact model inventory.");
+			}
+		}
+		Map<String,Object> manifest = stageTarget.readObject(
+			packageRelative + "/manifest.json");
+		if (!expected.manifestCanonical.equals(WorldBuilderJsonDocuments.canonical(manifest))) {
+			throw blocked(packageRelative + "/manifest.json",
+				"Staged terrain paths, coordinates, encodings, or hashes differ from the model.");
+		}
+		for (TerrainSector sector : terrain) {
+			String relative = terrainPath(sector.coordinate);
+			Path actualPath = stageTarget.requiredFile(packageRelative + "/" + relative);
+			byte[] actualBytes = Files.readAllBytes(actualPath);
+			if (!Arrays.equals(sector.layeredBytes, actualBytes)) {
+				throw blocked(relative,
+					"Staged terrain byte sequence differs from the converted model.");
+			}
+			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(actualBytes);
+			if (!Arrays.equals(sector.legacyBytes, reversed)) {
+				throw blocked(relative,
+					"Staged terrain does not reverse to its exact immutable source ZIP entry.");
+			}
+		}
+	}
+
+	static final class PackageExpectation {
+		final Map<String,WorldBuilderReadOnlyTarget.FileState> files;
+		final String manifestCanonical;
+		final String fingerprintSha256;
+
+		PackageExpectation(Map<String,WorldBuilderReadOnlyTarget.FileState> files,
+			String manifestCanonical) {
+			this.files = Collections.unmodifiableMap(
+				new TreeMap<String,WorldBuilderReadOnlyTarget.FileState>(files));
+			this.manifestCanonical = manifestCanonical;
+			java.security.MessageDigest digest = WorldBuilderHashes.newDigest();
+			for (WorldBuilderReadOnlyTarget.FileState file : this.files.values()) {
+				WorldBuilderHashes.updateText(digest, file.relativePath);
+				WorldBuilderHashes.updateText(digest, Long.toString(file.size));
+				WorldBuilderHashes.updateText(digest, file.sha256);
+			}
+			this.fingerprintSha256 = WorldBuilderHashes.hex(digest.digest());
+		}
 	}
 
 	static final class TerrainSector implements Comparable<TerrainSector> {

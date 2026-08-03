@@ -26,12 +26,6 @@ TERRAIN_ENTRIES = [
     "h3x48y56",   # maximum packed Y, level -1
     "h1x48y37",   # level +1
     "h3x48y37",   # level -1 origin sector
-    # Phase 1's frozen packed placement coverage probe treats legacy Y as one
-    # surface coordinate. These otherwise unused sectors keep that historical
-    # probe satisfied while Phase 2 proves the adapter-owned signed codec.
-    "h0x730y76",
-    "h0x48y56",
-    "h0x48y115",
 ]
 
 
@@ -129,9 +123,62 @@ package com.openrsc.worldbuilder;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardOpenOption;
+import java.util.List;
+import java.util.Map;
 
 public final class PackedConversionFailureHarness {
+    @SuppressWarnings("unchecked")
+    private static Map<String,Object> object(Object value) {
+        return (Map<String,Object>)value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> array(Object value) {
+        return (List<Object>)value;
+    }
+
+    private static void writeJson(Path path, Map<String,Object> value) throws Exception {
+        Files.write(path, WorldBuilderJsonDocuments.pretty(value)
+            .getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static void tamperTerrainAndDeclaration(Path stage) throws Exception {
+        Path manifestPath = stage.resolve("package/manifest.json");
+        Map<String,Object> manifest = WorldBuilderJsonDocuments.readObject(manifestPath);
+        Map<String,Object> declaration = object(array(manifest.get("terrainSectors")).get(0));
+        Path payload = stage.resolve("package").resolve((String)declaration.get("path"));
+        byte[] bytes = Files.readAllBytes(payload);
+        bytes[0] ^= 1;
+        Files.write(payload, bytes);
+        declaration.put("sha256", WorldBuilderHashes.sha256(bytes));
+        writeJson(manifestPath, manifest);
+    }
+
+    private static void tamperPlacementIdAndDeclaration(Path stage) throws Exception {
+        Path manifestPath = stage.resolve("package/manifest.json");
+        Map<String,Object> manifest = WorldBuilderJsonDocuments.readObject(manifestPath);
+        for (Object rawDeclaration : array(manifest.get("placementSets"))) {
+            Map<String,Object> declaration = object(rawDeclaration);
+            Path payloadPath = stage.resolve("package").resolve(
+                (String)declaration.get("path"));
+            Map<String,Object> payload = WorldBuilderJsonDocuments.readObject(payloadPath);
+            for (String family : new String[] {"boundaries", "groundItems", "npcs", "scenery"}) {
+                List<Object> records = array(payload.get(family));
+                if (records.isEmpty()) continue;
+                object(records.get(0)).put("placementId", "p-tampered-deterministic-id");
+                byte[] bytes = WorldBuilderJsonDocuments.pretty(payload)
+                    .getBytes(StandardCharsets.UTF_8);
+                Files.write(payloadPath, bytes);
+                declaration.put("sha256", WorldBuilderHashes.sha256(bytes));
+                writeJson(manifestPath, manifest);
+                return;
+            }
+        }
+        throw new Exception("fixture has no placement ID to tamper");
+    }
+
     public static void main(String[] args) throws Exception {
         final String mode = args[3];
         WorldBuilderPackedConverter.Observer observer =
@@ -150,6 +197,14 @@ public final class PackedConversionFailureHarness {
                         && "before-publish".equals(milestone)) {
                         Files.createDirectory(stage.resolve("unexpected-empty"));
                     }
+                    if ("tamper-terrain-and-manifest".equals(mode)
+                        && "package-written".equals(milestone)) {
+                        tamperTerrainAndDeclaration(stage);
+                    }
+                    if ("tamper-placement-id-and-manifest".equals(mode)
+                        && "package-written".equals(milestone)) {
+                        tamperPlacementIdAndDeclaration(stage);
+                    }
                 }
             };
         WorldBuilderPackedConversionModel.PlacementIdFactory ids = null;
@@ -162,7 +217,8 @@ public final class PackedConversionFailureHarness {
             };
         }
         try {
-            new WorldBuilderPackedConverter(observer, ids).convert(
+            int recordLimit = "aggregate-limit".equals(mode) ? 8 : 65536;
+            new WorldBuilderPackedConverter(observer, ids, recordLimit).convert(
                 Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]));
             System.exit(0);
         } catch (WorldBuilderContractException expected) {
@@ -648,8 +704,8 @@ public final class PackedConversionFailureHarness {
                 },
                 report["validation"],
             )
-            self.assertEqual(8, report["terrain"]["entriesRead"])
-            self.assertEqual(8, report["terrain"]["reverseMatched"])
+            self.assertEqual(5, report["terrain"]["entriesRead"])
+            self.assertEqual(5, report["terrain"]["reverseMatched"])
             self.assertEqual(0, report["terrain"]["reverseMismatches"])
             families = {summary["family"] for summary in report["placements"]}
             self.assertEqual(set(FAMILIES), families)
@@ -891,6 +947,42 @@ public final class PackedConversionFailureHarness {
             self.assertEqual(target_before, tree_bytes(target))
             self.assertEqual(workspace_before, tree_bytes(workspace))
 
+    def test_reported_target_and_canonical_aliases_are_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="packed-conversion-target-boundary-") as temp:
+            base = Path(temp)
+            target = self.fixture(base / "fixture")
+            source, report, _ = self.discover_and_copy(target, base / "fixture")
+            target_before = tree_bytes(target)
+            source_before = tree_bytes(source)
+
+            inside_target = target / "conversion-result"
+            direct = self.run_conversion(source, report, inside_target)
+            self.assertEqual(3, direct.returncode, direct.stderr)
+            self.assertFalse(inside_target.exists())
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(source))
+            self.assertFalse(list(target.glob(".conversion-result.staging-*")))
+
+            alias_parent = base / "target-parent-alias"
+            try:
+                alias_parent.symlink_to(target.parent, target_is_directory=True)
+            except OSError:
+                return
+
+            aliased_target = alias_parent / target.name
+            aliased_output = aliased_target / "conversion-result"
+            output_alias = self.run_conversion(source, report, aliased_output)
+            self.assertEqual(3, output_alias.returncode, output_alias.stderr)
+            self.assertFalse(aliased_output.exists())
+
+            source_alias_output = base / "source-alias-output"
+            source_alias = self.run_conversion(aliased_target, report, source_alias_output)
+            self.assertEqual(3, source_alias.returncode, source_alias.stderr)
+            self.assertFalse(source_alias_output.exists())
+            self.assertFalse(list(base.glob(".source-alias-output.staging-*")))
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(source))
+
     def test_injected_failures_and_id_collisions_publish_nothing(self):
         with tempfile.TemporaryDirectory(prefix="packed-conversion-injected-") as temp:
             base = Path(temp)
@@ -910,12 +1002,24 @@ public final class PackedConversionFailureHarness {
                 "before-publish",
                 "tamper-before-publish",
                 "extra-directory-before-publish",
+                "tamper-terrain-and-manifest",
+                "tamper-placement-id-and-manifest",
                 "id-collision",
+                "aggregate-limit",
             ):
                 with self.subTest(mode=mode):
                     output = base / f"output-{mode}"
                     result = self.run_injected(source, report, output, mode)
                     self.assertEqual(3, result.returncode, result.stderr)
+                    if mode in (
+                        "tamper-terrain-and-manifest",
+                        "tamper-placement-id-and-manifest",
+                    ):
+                        self.assertIn("fingerprint", result.stderr.lower())
+                    if mode == "aggregate-limit":
+                        self.assertIn(
+                            "cumulative packed placement inputs", result.stderr.lower()
+                        )
                     self.assertFalse(output.exists())
                     self.assertFalse(list(base.glob(f".{output.name}.staging-*")))
                     self.assertEqual(target_before, tree_bytes(target))

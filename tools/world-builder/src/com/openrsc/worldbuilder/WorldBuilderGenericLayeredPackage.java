@@ -36,6 +36,7 @@ final class WorldBuilderGenericLayeredPackage {
 	final long npcCount;
 	final long sceneryCount;
 	final List<String> placementSemantics;
+	final List<String> placementIdentities;
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
 
 	private WorldBuilderGenericLayeredPackage(
@@ -51,6 +52,7 @@ final class WorldBuilderGenericLayeredPackage {
 		long npcCount,
 		long sceneryCount,
 		List<String> placementSemantics,
+		List<String> placementIdentities,
 		List<WorldBuilderReadOnlyTarget.FileState> files) {
 		this.packageId = packageId;
 		this.packageVersion = packageVersion;
@@ -65,6 +67,8 @@ final class WorldBuilderGenericLayeredPackage {
 		this.sceneryCount = sceneryCount;
 		this.placementSemantics = Collections.unmodifiableList(
 			new ArrayList<String>(placementSemantics));
+		this.placementIdentities = Collections.unmodifiableList(
+			new ArrayList<String>(placementIdentities));
 		this.files = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files));
 	}
@@ -191,6 +195,7 @@ final class WorldBuilderGenericLayeredPackage {
 		long npcs = 0L;
 		long scenery = 0L;
 		List<String> placementSemantics = new ArrayList<String>();
+		List<String> placementIdentities = new ArrayList<String>();
 		for (Object raw : rawPlacementSets) {
 			Map<String,Object> placement = object(raw, manifestRelative, "placementSet");
 			exact(placement, manifestRelative, "encoding", "id", "level", "path",
@@ -222,7 +227,7 @@ final class WorldBuilderGenericLayeredPackage {
 			register(referenced, state, manifestRelative);
 			PlacementCounts counts = validatePlacements(
 				target, targetPath, worldSpace, level, terrainCoverage, definitions,
-				placementSemantics);
+				placementSemantics, placementIdentities);
 			boundaries += counts.boundaries;
 			groundItems += counts.groundItems;
 			npcs += counts.npcs;
@@ -251,10 +256,11 @@ final class WorldBuilderGenericLayeredPackage {
 			WorldBuilderHashes.updateText(digest, file.sha256);
 		}
 		Collections.sort(placementSemantics);
+		Collections.sort(placementIdentities);
 		return new WorldBuilderGenericLayeredPackage(packageId, packageVersion,
 			worldSpace, WorldBuilderHashes.hex(digest.digest()), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
-			npcs, scenery, placementSemantics, files);
+			npcs, scenery, placementSemantics, placementIdentities, files);
 	}
 
 	private static PlacementCounts validatePlacements(
@@ -264,7 +270,8 @@ final class WorldBuilderGenericLayeredPackage {
 		int level,
 		Set<String> terrainCoverage,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		List<String> semantics)
+		List<String> semantics,
+		List<String> identities)
 		throws WorldBuilderContractException {
 		Map<String,Object> payload = target.readObject(path);
 		exact(payload, path, "boundaries", "encoding", "groundItems", "level",
@@ -280,16 +287,16 @@ final class WorldBuilderGenericLayeredPackage {
 		Set<String> placementIds = new HashSet<String>();
 		long boundaryCount = validateBoundaries(array(payload.get("boundaries"), path,
 			"boundaries", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds, semantics);
+			definitions, placementIds, semantics, identities);
 		long groundItemCount = validateGroundItems(array(payload.get("groundItems"), path,
 			"groundItems", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds, semantics);
+			definitions, placementIds, semantics, identities);
 		long npcCount = validateNpcs(array(payload.get("npcs"), path,
 			"npcs", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds, semantics);
+			definitions, placementIds, semantics, identities);
 		long sceneryCount = validateScenery(array(payload.get("scenery"), path,
 			"scenery", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds, semantics);
+			definitions, placementIds, semantics, identities);
 		long total = boundaryCount + groundItemCount + npcCount + sceneryCount;
 		if (total > MAX_PLACEMENTS_PER_SET) {
 			throw problem(WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, path,
@@ -302,7 +309,7 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateBoundaries(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds, List<String> semantics)
+		Set<String> placementIds, List<String> semantics, List<String> identities)
 		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
@@ -322,8 +329,10 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("boundary", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
-			semantics.add(WorldBuilderPlacementSemantics.boundary(
-				level, id, point.x, point.y, direction));
+			String semantic = WorldBuilderPlacementSemantics.boundary(
+				level, id, point.x, point.y, direction);
+			semantics.add(semantic);
+			identities.add(WorldBuilderPlacementSemantics.identity(placement, semantic));
 		}
 		return records.size();
 	}
@@ -331,7 +340,7 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateGroundItems(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds, List<String> semantics)
+		Set<String> placementIds, List<String> semantics, List<String> identities)
 		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
@@ -355,8 +364,10 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("ground-item", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
-			semantics.add(WorldBuilderPlacementSemantics.groundItem(
-				level, id, point.x, point.y, amount, respawn));
+			String semantic = WorldBuilderPlacementSemantics.groundItem(
+				level, id, point.x, point.y, amount, respawn);
+			semantics.add(semantic);
+			identities.add(WorldBuilderPlacementSemantics.identity(placement, semantic));
 		}
 		return records.size();
 	}
@@ -364,7 +375,7 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateNpcs(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds, List<String> semantics)
+		Set<String> placementIds, List<String> semantics, List<String> identities)
 		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
@@ -393,8 +404,10 @@ final class WorldBuilderGenericLayeredPackage {
 			definitions.require("npc", id, path);
 			requireCoverage(terrain, level, start.x, start.y, path);
 			requireCoverageRectangle(terrain, level, minimum, maximum, path);
-			semantics.add(WorldBuilderPlacementSemantics.npc(level, id,
-				start.x, start.y, minimum.x, minimum.y, maximum.x, maximum.y));
+			String semantic = WorldBuilderPlacementSemantics.npc(level, id,
+				start.x, start.y, minimum.x, minimum.y, maximum.x, maximum.y);
+			semantics.add(semantic);
+			identities.add(WorldBuilderPlacementSemantics.identity(placement, semantic));
 		}
 		return records.size();
 	}
@@ -402,7 +415,7 @@ final class WorldBuilderGenericLayeredPackage {
 	private static long validateScenery(
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		Set<String> placementIds, List<String> semantics)
+		Set<String> placementIds, List<String> semantics, List<String> identities)
 		throws WorldBuilderContractException {
 		Set<String> slots = new HashSet<String>();
 		String previous = null;
@@ -422,8 +435,10 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("scenery", id, path);
 			requireCoverage(terrain, level, point.x, point.y, path);
-			semantics.add(WorldBuilderPlacementSemantics.scenery(
-				level, id, point.x, point.y, direction));
+			String semantic = WorldBuilderPlacementSemantics.scenery(
+				level, id, point.x, point.y, direction);
+			semantics.add(semantic);
+			identities.add(WorldBuilderPlacementSemantics.identity(placement, semantic));
 		}
 		return records.size();
 	}
