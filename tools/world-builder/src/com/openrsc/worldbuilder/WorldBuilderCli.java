@@ -25,6 +25,9 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("convert-packed".equals(args[0])) {
+			return convertPacked(args);
+		}
 		if ("prepare".equals(args[0])) {
 			return prepare(args);
 		}
@@ -90,6 +93,51 @@ public final class WorldBuilderCli {
 		} catch (WorldBuilderDiscoveryException refusal) {
 			System.err.println("ERROR: " + refusal.getMessage());
 			return 3;
+		}
+	}
+
+	private static int convertPacked(String[] args) {
+		Path sourceRoot = null;
+		Path discoveryReport = null;
+		Path output = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--source-root".equals(argument) && index + 1 < args.length) {
+				sourceRoot = Paths.get(args[++index]);
+			} else if ("--discovery-report".equals(argument) && index + 1 < args.length) {
+				discoveryReport = Paths.get(args[++index]);
+			} else if ("--output".equals(argument) && index + 1 < args.length) {
+				output = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (sourceRoot == null || discoveryReport == null || output == null) {
+			System.err.println("ERROR: convert-packed requires --source-root, "
+				+ "--discovery-report, and --output.");
+			usage();
+			return 2;
+		}
+		try {
+			WorldBuilderPackedConverter.Result result =
+				new WorldBuilderPackedConverter().convert(
+					sourceRoot, discoveryReport, output);
+			System.out.print(result.toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			System.err.println("ERROR [" + refusal.code() + "]: " + refusal.getMessage()
+				+ (refusal.relativePath().isEmpty() ? ""
+					: " Source: " + refusal.relativePath() + ".")
+				+ (refusal.provenance().isEmpty() ? ""
+					: " Provenance: " + refusal.provenance() + ".")
+				+ " Next step: " + refusal.nextStep());
+			return 3;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Packed conversion failed before publication: "
+				+ failure.getMessage());
+			return 4;
 		}
 	}
 
@@ -559,6 +607,8 @@ public final class WorldBuilderCli {
 	private static void usage() {
 		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli convert-packed --source-root <immutable-copy>"
+			+ " --discovery-report <report.json> --output <new-directory>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"

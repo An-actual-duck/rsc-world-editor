@@ -113,10 +113,13 @@ See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the
 full contracts.
 
-The approved, not-yet-implemented foundation for target-derived maps,
-content-neutral releases, isolated projects, and packed-to-layered conversion
-is documented in [World Builder 2 Adaptive Map
-Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md).
+The approved foundation for target-derived maps, content-neutral releases,
+isolated projects, and packed-to-layered conversion is documented in [World
+Builder 2 Adaptive Map Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md). Its contracts,
+strictly read-only adaptive discovery, and standalone deterministic packed
+converter are implemented; automatic project creation, launch integration,
+empty mode, adaptive import, and content-neutral packaging remain later phase
+gates.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

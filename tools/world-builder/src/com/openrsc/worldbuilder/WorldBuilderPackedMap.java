@@ -124,8 +124,8 @@ final class WorldBuilderPackedMap {
 		}
 
 		for (Map<String,Placement> family : effective.values()) {
-			for (Placement placement : family.values()) {
-				requireCoverage(terrain, placement.x, placement.y, placement.path);
+				for (Placement placement : family.values()) {
+					requireCoverage(terrain, placement, placement.path);
 				if (placement.minimum != null && placement.maximum != null) {
 					requireCoverageRectangle(
 						terrain, placement.minimum, placement.maximum, placement.path);
@@ -186,7 +186,8 @@ final class WorldBuilderPackedMap {
 						"Packed terrain entry is not exactly 23,040 raw bytes: " + entry.getName(),
 						"Restore the exact raw packed sector payload.");
 				}
-				String coordinate = plane + ":" + (archiveX - 48) + ":" + (archiveY - 37);
+				String coordinate = WorldBuilderPackedCoordinateCodec.levelForPlane(plane)
+					+ ":" + (archiveX - 48) + ":" + (archiveY - 37);
 				String previousName = normalizedNames.put(coordinate, entry.getName());
 				if (previousName != null) {
 					throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, relative,
@@ -254,8 +255,8 @@ final class WorldBuilderPackedMap {
 		if (direction > 3) invalid(source.relativePath, "Boundary direction is outside 0..3.");
 		int id = removal ? -1 : nonnegative(value, "id", source.relativePath);
 		if (!removal) definitions.require("boundary", id, source.relativePath);
-		return new Placement(point.x + ":" + point.y + ":" + direction,
-			id, point.x, point.y, source.relativePath, null, null);
+		return new Placement(point.level + ":" + point.x + ":" + point.y + ":" + direction,
+			id, point.level, point.x, point.y, source.relativePath, null, null);
 	}
 
 	private static Placement groundItem(
@@ -277,8 +278,8 @@ final class WorldBuilderPackedMap {
 			}
 			definitions.require("ground-item", id, source.relativePath);
 		}
-		return new Placement(point.x + ":" + point.y, id,
-			point.x, point.y, source.relativePath, null, null);
+		return new Placement(point.level + ":" + point.x + ":" + point.y, id,
+			point.level, point.x, point.y, source.relativePath, null, null);
 	}
 
 	private static Placement npc(
@@ -291,15 +292,16 @@ final class WorldBuilderPackedMap {
 		Point start = legacyPoint(value.get("start"), source.relativePath);
 		Point minimum = legacyPoint(value.get("min"), source.relativePath);
 		Point maximum = legacyPoint(value.get("max"), source.relativePath);
-		if (minimum.x > start.x || start.x > maximum.x
+		if (minimum.level != start.level || maximum.level != start.level
+			|| minimum.x > start.x || start.x > maximum.x
 			|| minimum.y > start.y || start.y > maximum.y
 			|| (long)maximum.x - minimum.x > 128L
 			|| (long)maximum.y - minimum.y > 128L) {
 			invalid(source.relativePath, "Packed NPC roaming bounds are invalid.");
 		}
 		if (!"removal".equals(source.kind)) definitions.require("npc", id, source.relativePath);
-		return new Placement(id + ":" + start.x + ":" + start.y, id,
-			start.x, start.y, source.relativePath, minimum, maximum);
+		return new Placement(start.level + ":" + id + ":" + start.x + ":" + start.y, id,
+			start.level, start.x, start.y, source.relativePath, minimum, maximum);
 	}
 
 	private static Placement scenery(
@@ -319,13 +321,14 @@ final class WorldBuilderPackedMap {
 			if (direction > 7) invalid(source.relativePath, "Scenery direction is outside 0..7.");
 			definitions.require("scenery", id, source.relativePath);
 		}
-		return new Placement(point.x + ":" + point.y, id,
-			point.x, point.y, source.relativePath, null, null);
+		return new Placement(point.level + ":" + point.x + ":" + point.y, id,
+			point.level, point.x, point.y, source.relativePath, null, null);
 	}
 
-	private static void requireCoverage(Set<String> terrain, int x, int y, String path)
+	private static void requireCoverage(Set<String> terrain, Placement placement, String path)
 		throws WorldBuilderContractException {
-		String sector = "0:" + Math.floorDiv(x, 48) + ":" + Math.floorDiv(y, 48);
+		String sector = placement.level + ":" + Math.floorDiv(placement.x, 48)
+			+ ":" + Math.floorDiv(placement.y, 48);
 		if (!terrain.contains(sector)) {
 			invalid(path, "Packed placement coordinate is outside terrain coverage.");
 		}
@@ -334,11 +337,14 @@ final class WorldBuilderPackedMap {
 	private static void requireCoverageRectangle(
 		Set<String> terrain, Point minimum, Point maximum, String path)
 		throws WorldBuilderContractException {
+		if (minimum.level != maximum.level) {
+			invalid(path, "Packed NPC roaming bounds cross signed levels.");
+		}
 		for (long x = Math.floorDiv(minimum.x, 48);
 			x <= Math.floorDiv(maximum.x, 48); x++) {
 			for (long y = Math.floorDiv(minimum.y, 48);
 				y <= Math.floorDiv(maximum.y, 48); y++) {
-				if (!terrain.contains("0:" + x + ":" + y)) {
+				if (!terrain.contains(minimum.level + ":" + x + ":" + y)) {
 					invalid(path, "Packed NPC roaming bounds extend beyond terrain coverage.");
 				}
 			}
@@ -359,7 +365,16 @@ final class WorldBuilderPackedMap {
 		throws WorldBuilderContractException {
 		Map<String,Object> value = object(raw, path);
 		exact(value, path, "X", "Y");
-		return new Point(signed(value, "X", path), signed(value, "Y", path));
+		int packedX = signed(value, "X", path);
+		int packedY = signed(value, "Y", path);
+		try {
+			WorldBuilderPackedCoordinateCodec.Coordinate decoded =
+				WorldBuilderPackedCoordinateCodec.decode(packedX, packedY);
+			return new Point(decoded.level, decoded.x, decoded.y);
+		} catch (WorldBuilderContractException unsupported) {
+			invalid(path, unsupported.getMessage());
+			throw new AssertionError("invalid always throws");
+		}
 	}
 
 	private static Map<String,Object> object(Object raw, String path)
@@ -416,24 +431,31 @@ final class WorldBuilderPackedMap {
 	}
 
 	private static final class Point {
+		final int level;
 		final int x;
 		final int y;
-		Point(int x, int y) { this.x = x; this.y = y; }
+		Point(int level, int x, int y) {
+			this.level = level;
+			this.x = x;
+			this.y = y;
+		}
 	}
 
 	private static final class Placement {
 		final String key;
 		final int definitionId;
+		final int level;
 		final int x;
 		final int y;
 		final String path;
 		final Point minimum;
 		final Point maximum;
 
-		Placement(String key, int definitionId, int x, int y, String path,
+		Placement(String key, int definitionId, int level, int x, int y, String path,
 			Point minimum, Point maximum) {
 			this.key = key;
 			this.definitionId = definitionId;
+			this.level = level;
 			this.x = x;
 			this.y = y;
 			this.path = path;

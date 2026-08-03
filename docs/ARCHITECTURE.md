@@ -66,7 +66,7 @@ signed-layered workspace. Neither generation may identify the other as an
 automatic update, and v2 must refuse legacy or unidentified workspaces rather
 than attempting an implicit conversion.
 
-## Planned adaptive map workflow
+## Adaptive map workflow
 
 The approved World Builder 2 architecture makes each editable project derive
 from the compatible target server selected at first launch, or from an explicit
@@ -76,6 +76,14 @@ projects; editing and saving remain inside World Builder until an administrator
 runs the explicit transactional import script. See [World Builder 2 Adaptive
 Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative contracts, phases,
 tests, and acceptance criteria.
+
+The repository currently implements the Phase 0 contracts, Phase 1 read-only
+adapter discovery, and Phase 2 conversion boundary. Phase 2 accepts only an
+isolated exact copy of descriptor-backed packed evidence from a compatible
+Phase 1 report, emits a generic signed-layered package plus validated
+conversion plan/report, and publishes atomically. It does not yet create or
+select a durable project, prepare a converted runtime, or install anything on
+the target; those remain later phase gates.
 
 ## Planned custom materials
 
