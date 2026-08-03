@@ -21,8 +21,11 @@ Run the complete repository test suite:
 ./scripts/test.sh
 ```
 
-Tests create temporary server layouts and workspaces. They must not use an
-installed Builder or a real private-server directory.
+Tests create temporary server layouts, UUID project registries, workspaces,
+conversion outputs, and fake isolated runtimes. They must not use an installed
+Builder, a user project, or a real private-server directory. Adaptive runtime
+tests must keep generated credentials, settings, logs, PIDs, and
+`server/ipbans.txt` inside their temporary project fixture.
 
 ## Core-Framework dependency
 

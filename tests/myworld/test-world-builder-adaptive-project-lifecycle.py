@@ -163,6 +163,155 @@ public final class AdaptiveProjectFailureHarness {
             capture_output=True,
             text=True,
         )
+        supervisor_harness = (
+            Path(cls.compile_temp.name)
+            / "harness/com/openrsc/worldbuilder/AdaptiveProjectSupervisorHarness.java"
+        )
+        supervisor_harness.write_text(
+            r"""
+package com.openrsc.worldbuilder;
+
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
+import java.util.List;
+
+public final class AdaptiveProjectSupervisorHarness {
+    private static void require(boolean condition, String message) {
+        if (!condition) throw new AssertionError(message);
+    }
+
+    private static List<String> command(String classes, String nested,
+        Path project, int port) {
+        return Arrays.asList(
+            Paths.get(System.getProperty("java.home"), "bin", "java").toString(),
+            "-cp", classes,
+            "com.openrsc.worldbuilder.AdaptiveProjectSupervisorHarness$" + nested,
+            project.toString(), Integer.toString(port));
+    }
+
+    public static void main(String[] args) throws Exception {
+        Path project = Paths.get(args[0]);
+        String classes = args[1];
+        int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
+        WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
+        boolean unavailable = false;
+        try {
+            supervisor.runAdaptiveProject(project);
+        } catch (WorldBuilderContractException expected) {
+            unavailable = WorldBuilderErrorCodes.LOADER_INCOMPATIBLE.equals(expected.code())
+                && expected.getMessage().contains("generic layered");
+        }
+        require(unavailable, "native adaptive runtime must fail closed before Phase 4");
+
+        List<String> server = command(classes, "FakeServer", project, port);
+        List<String> client = command(classes, "FakeClient", project, port);
+        if (args.length > 2 && "unsafe".equals(args[2])) {
+            boolean refused = false;
+            try {
+                supervisor.superviseAdaptiveWithCommands(
+                    project, server, client, 5000L);
+            } catch (WorldBuilderContractException expected) {
+                refused = WorldBuilderErrorCodes.UNSAFE_PATH.equals(expected.code());
+            }
+            require(refused, "unsafe adaptive mutable layout");
+            System.out.println("unsafe-adaptive-supervision-refused");
+            return;
+        }
+        Path lockPath = project.resolve("run/world-builder.lock");
+        try (FileChannel channel = FileChannel.open(lockPath,
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+             FileLock lock = channel.lock()) {
+            boolean refused = false;
+            try {
+                supervisor.superviseAdaptiveWithCommands(
+                    project, server, client, 5000L);
+            } catch (WorldBuilderContractException expected) {
+                refused = WorldBuilderErrorCodes.RECOVERY_REQUIRED.equals(expected.code());
+            }
+            require(refused, "adaptive project lock");
+        }
+
+        int result = supervisor.superviseAdaptiveWithCommands(
+            project, server, client, 5000L);
+        require(result == 0, "adaptive isolated run");
+        require(!Files.exists(project.resolve("run/server.pid")), "server PID cleanup");
+        require(!Files.exists(project.resolve("run/client.pid")), "client PID cleanup");
+        require(!Files.exists(project.resolve(
+            "working/runtime/server/run/world-builder/ready")), "ready cleanup");
+        require(Files.isRegularFile(project.resolve("run/last-run.json")),
+            "bounded run receipt");
+        System.out.println("adaptive-supervision-ok");
+    }
+
+    public static final class FakeServer {
+        public static void main(String[] args) throws Exception {
+            Path project = Paths.get(args[0]);
+            int port = Integer.parseInt(args[1]);
+            Path server = project.resolve("working/runtime/server");
+            Path control = server.resolve("run/world-builder");
+            Path credential = server.resolve("inc/sqlite/world-builder.credential");
+            Files.createDirectories(control);
+            Files.createDirectories(credential.getParent());
+            Files.write(credential,
+                "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
+            Files.write(server.resolve("ipbans.txt"), new byte[0]);
+            try (ServerSocket listener = new ServerSocket(
+                    port, 1, InetAddress.getByName("127.0.0.1"))) {
+                listener.setSoTimeout(100);
+                Files.write(control.resolve("ready"),
+                    "ready\n".getBytes(StandardCharsets.US_ASCII));
+                while (!Files.exists(control.resolve("shutdown.request"))) {
+                    try (Socket ignored = listener.accept()) {
+                        // Readiness probes connect and immediately close.
+                    } catch (java.net.SocketTimeoutException expected) {
+                        // Poll the project-local shutdown request again.
+                    }
+                }
+            }
+        }
+    }
+
+    public static final class FakeClient {
+        public static void main(String[] args) throws Exception {
+            Path project = Paths.get(args[0]);
+            Path client = project.resolve("working/runtime/client");
+            Files.write(client.resolve("clientSettings.conf"),
+                "generated=true\n".getBytes(StandardCharsets.UTF_8));
+            Thread.sleep(250L);
+        }
+    }
+}
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac",
+                "-source",
+                "8",
+                "-target",
+                "8",
+                "-cp",
+                str(cls.classes),
+                "-d",
+                str(cls.classes),
+                str(supervisor_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         cls.fixtures = load_discovery_fixtures()
         cls.packed_fixtures = load_packed_fixtures()
 
@@ -250,6 +399,27 @@ public final class AdaptiveProjectFailureHarness {
             capture_output=True,
         )
 
+    def run_supervision(
+        self, project: Path, mode: str | None = None
+    ) -> subprocess.CompletedProcess:
+        arguments = [
+            "java",
+            "-cp",
+            str(self.classes),
+            "com.openrsc.worldbuilder.AdaptiveProjectSupervisorHarness",
+            str(project),
+            str(self.classes),
+        ]
+        if mode is not None:
+            arguments.append(mode)
+        return subprocess.run(
+            arguments,
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+
     @staticmethod
     def change_working_terrain(project: Path) -> None:
         manifest_path = project / "working/layered-world/package/manifest.json"
@@ -290,6 +460,7 @@ public final class AdaptiveProjectFailureHarness {
             self.assertEqual(before_target, tree_bytes(target))
             project = Path(summary["projectRoot"])
             source_before = tree_bytes(project / "source")
+            baseline_before = tree_bytes(project / "source/layered-baseline/package")
 
             stored_report = json.loads(
                 (project / "discovery/report.json").read_text(encoding="utf-8")
@@ -332,6 +503,31 @@ public final class AdaptiveProjectFailureHarness {
             self.assertEqual(0, reopened.returncode, reopened.stderr)
             self.assertEqual(before_target, tree_bytes(target))
             self.assertEqual(source_before, tree_bytes(project / "source"))
+
+            for command in ("import-active-adaptive", "undo-active-adaptive"):
+                refused_active = self.run_cli(
+                    command, "--installation-root", installation
+                )
+                self.assertEqual(3, refused_active.returncode)
+                self.assertIn("NO_TARGET", refused_active.stderr)
+                self.assertEqual(before_target, tree_bytes(target))
+            native = self.run_cli("run-adaptive-project", "--project", project)
+            self.assertEqual(3, native.returncode)
+            self.assertIn("LOADER_INCOMPATIBLE", native.stderr)
+            self.assertFalse((project / "working/runtime/server/ipbans.txt").exists())
+            supervised = self.run_supervision(project)
+            self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
+            self.assertEqual("adaptive-supervision-ok\n", supervised.stdout)
+            self.assertTrue((project / "working/runtime/server/ipbans.txt").is_file())
+            self.assertTrue(
+                (project / "working/runtime/client/clientSettings.conf").is_file()
+            )
+            self.assertEqual(before_target, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(
+                baseline_before,
+                tree_bytes(project / "source/layered-baseline/package"),
+            )
 
             missing_target = base / "must-not-be-created-or-read"
             import_result = self.run_cli(
@@ -398,6 +594,19 @@ public final class AdaptiveProjectFailureHarness {
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertEqual(target_before, tree_bytes(target, installation))
 
+            supervised = self.run_supervision(project)
+            self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target, installation))
+
+            for command in ("import-active-adaptive", "undo-active-adaptive"):
+                refused_active = self.run_cli(
+                    command, "--installation-root", installation
+                )
+                self.assertEqual(3, refused_active.returncode)
+                self.assertIn("reserved for Phase 6", refused_active.stderr)
+                self.assertEqual(target_before, tree_bytes(target, installation))
+
             portable = base / "portable-copy"
             shutil.copytree(installation, portable)
             copied_project = portable / "projects" / summary["projectId"]
@@ -408,6 +617,54 @@ public final class AdaptiveProjectFailureHarness {
             self.assertEqual("ready-detached", opened_summary["state"])
             self.assertEqual(copied_source, tree_bytes(copied_project / "source"))
             self.assertEqual(target_before, tree_bytes(target, installation))
+            copied_manifest = json.loads(
+                (copied_project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                str(target.resolve()), copied_manifest["target"]["locatorDisplay"]
+            )
+
+            wrong_target = base / "wrong-target"
+            wrong_target.mkdir()
+            wrong = self.run_cli(
+                "open-project",
+                "--installation-root",
+                portable,
+                "--target-root",
+                wrong_target,
+            )
+            self.assertEqual(0, wrong.returncode, wrong.stderr)
+            copied_manifest = json.loads(
+                (copied_project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                str(target.resolve()), copied_manifest["target"]["locatorDisplay"]
+            )
+
+            moved_target = base / "moved-target"
+            shutil.copytree(
+                target,
+                moved_target,
+                ignore=shutil.ignore_patterns("World Builder 2"),
+            )
+            moved_before = tree_bytes(moved_target)
+            reattached = self.run_cli(
+                "open-project",
+                "--installation-root",
+                portable,
+                "--target-root",
+                moved_target,
+            )
+            self.assertEqual(0, reattached.returncode, reattached.stderr)
+            self.assertEqual("ready-attached", json.loads(reattached.stdout)["state"])
+            copied_manifest = json.loads(
+                (copied_project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                str(moved_target.resolve()),
+                copied_manifest["target"]["locatorDisplay"],
+            )
+            self.assertEqual(moved_before, tree_bytes(moved_target))
 
     def test_packed_conversion_is_project_local_and_preserves_target(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-") as temp:
@@ -439,6 +696,11 @@ public final class AdaptiveProjectFailureHarness {
             )
             self.assertFalse(list(project.rglob(".conversion-output")))
             self.assertFalse(list((installation / "projects").glob(".staging-*")))
+            source_before = tree_bytes(project / "source")
+            supervised = self.run_supervision(project)
+            self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
             opened = self.run_cli(
                 "open-project", "--installation-root", installation, "--target-root", target
             )
@@ -543,6 +805,109 @@ public final class AdaptiveProjectFailureHarness {
                         [path for path in projects.iterdir() if path.is_dir()], mode
                     )
                     self.assertFalse(list(projects.glob(".staging-*")), mode)
+
+    def test_adaptive_launch_creates_once_and_reopens_active_project(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-launch-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            target_before = tree_bytes(target)
+            arguments = (
+                "launch-adaptive",
+                "--installation-root",
+                installation,
+                "--runtime-root",
+                runtime,
+                "--target-root",
+                target,
+                "--port",
+                "43831",
+            )
+
+            cancelled = subprocess.run(
+                ["java", "-cp", str(self.classes), MAIN_CLASS, *map(str, arguments)],
+                cwd=ROOT,
+                input="\n",
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, cancelled.returncode, cancelled.stderr)
+            self.assertIn("creation cancelled", cancelled.stdout)
+            self.assertFalse((installation / "project-registry.json").exists())
+            self.assertEqual(target_before, tree_bytes(target))
+
+            first = self.run_cli(*arguments, "--confirm", "CREATE")
+            self.assertEqual(3, first.returncode)
+            self.assertIn("LOADER_INCOMPATIBLE", first.stderr)
+            listing = self.run_cli(
+                "list-projects", "--installation-root", installation
+            )
+            self.assertEqual(0, listing.returncode, listing.stderr)
+            projects = json.loads(listing.stdout)["projects"]
+            self.assertEqual(1, len(projects))
+            first_project = projects[0]["projectId"]
+            self.assertFalse(list(installation.glob(".adaptive-discovery-*")))
+            self.assertEqual(target_before, tree_bytes(target))
+
+            reopened = self.run_cli(*arguments)
+            self.assertEqual(3, reopened.returncode)
+            self.assertIn("LOADER_INCOMPATIBLE", reopened.stderr)
+            listing = self.run_cli(
+                "list-projects", "--installation-root", installation
+            )
+            projects = json.loads(listing.stdout)["projects"]
+            self.assertEqual([first_project], [project["projectId"] for project in projects])
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_adaptive_supervision_rejects_linked_or_shared_mutable_state(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-runtime-paths-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Unsafe runtime fixture", 43832
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source_before = tree_bytes(project / "source")
+            target_before = tree_bytes(target)
+
+            external = base / "must-not-be-runtime"
+            external.mkdir()
+            (external / "preserve.txt").write_text("preserve\n", encoding="utf-8")
+            external_before = tree_bytes(external)
+            server = project / "working/runtime/server"
+            server.rmdir()
+            server.symlink_to(external, target_is_directory=True)
+            linked = self.run_supervision(project, "unsafe")
+            self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
+            self.assertEqual(external_before, tree_bytes(external))
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertFalse((project / "run/world-builder.lock").exists())
+
+            server.unlink()
+            server.mkdir()
+            shared = external / "shared.log"
+            shared.write_text("shared\n", encoding="utf-8")
+            os.link(shared, project / "logs/shared.log")
+            shared_before = tree_bytes(external)
+            hard_linked = self.run_supervision(project, "unsafe")
+            self.assertEqual(
+                0, hard_linked.returncode, hard_linked.stdout + hard_linked.stderr
+            )
+            self.assertEqual(shared_before, tree_bytes(external))
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertFalse((project / "run/world-builder.lock").exists())
 
     def test_mid_creation_drift_and_source_corruption_fail_closed(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-drift-") as temp:

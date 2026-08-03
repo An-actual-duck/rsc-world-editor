@@ -10,9 +10,9 @@ The packed-map editor is frozen and unmaintained at release tag
 `v1.1.0`. Current signed-layered work belongs to the separate
 `Spoiled Milk World Builder 2` product and update channel
 `rsc-world-editor-v2`. Its archive prefix, install folder, signed-layered
-workspace, and release identity are distinct; automatic updates are eligible
-only from v2 itself, and the v2 packaged launcher refuses a legacy or
-unidentified workspace.
+projects, and release identity are distinct; automatic updates are eligible
+only from v2 itself. The adaptive launcher preserves but refuses to migrate a
+historical v2-alpha `workspace/`, and it never opens a v1 workspace.
 
 The ambiguous `scripts/package-world-builder-release.sh` command therefore
 fails closed. Future v2 artifacts use
@@ -47,8 +47,9 @@ standard output and a short compatibility summary on standard error. Exit `0`
 means either a compatible target or clearly labelled standalone/no-server
 classification; exit `3` means the report is blocked. This command never
 creates a project, converts a map, prepares a runtime, or writes target state.
-The existing `discover`, `prepare`, and `launch` behavior is intentionally
-unchanged until the later adaptive project-lifecycle phases replace it.
+The historical `discover`, `prepare`, `launch`, and `run` commands retain their
+versioned workspace behavior for compatibility. World Builder 2 launchers use
+the separate `launch-adaptive` lifecycle described below.
 
 Descriptor-backed servers put the strict Phase 0 capability contract at
 `server/world-builder-capabilities.json`. Each declared lowercase
@@ -124,10 +125,73 @@ approximation mode.
 
 This command does not copy evidence from a target, create/select a World
 Builder project, launch a runtime, create an empty world, export/import target
-data, or update a release. Phase 3 will own the user-facing copy and project
-lifecycle around this conversion boundary.
+data, or update a release. The Phase 3 lifecycle invokes this same converter
+only after copying and verifying target evidence inside unpublished project
+staging.
 
-The Phase 1 runtime can prepare an isolated workspace and launch the local
+### Adaptive project lifecycle (workflow Phase 3)
+
+The advanced commands below expose the implemented repository-owned lifecycle:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar create-project \
+  --installation-root '/path/to/World Builder 2' \
+  --runtime-root '/path/to/World Builder 2/builder-runtime' \
+  --target-root /path/to/server-or-ordinary-parent \
+  --discovery-report /path/to/report.json \
+  --display-name 'My World' \
+  --port 43615 \
+  --confirm CREATE
+
+java -jar output/world-builder-tools/world-builder-tools.jar list-projects \
+  --installation-root '/path/to/World Builder 2'
+java -jar output/world-builder-tools/world-builder-tools.jar select-project \
+  --installation-root '/path/to/World Builder 2' --project-id <uuid>
+java -jar output/world-builder-tools/world-builder-tools.jar open-project \
+  --installation-root '/path/to/World Builder 2' \
+  --target-root /path/to/server-or-ordinary-parent
+java -jar output/world-builder-tools/world-builder-tools.jar save-project \
+  --project '/path/to/World Builder 2/projects/<uuid>'
+```
+
+A compatible layered report is adopted exactly. A compatible packed report is
+copied and converted inside project staging. A standalone report generates one
+canonical structural void sector at layer `0`, coordinate `0,0`; no release
+world is used. Creation publishes a UUID directory, registry, and active pointer
+only after source, baseline, working package, and metadata validation. Existing
+projects and target files are never replaced. Project manifests are portable:
+only the display locator may contain an absolute target path and it is excluded
+from project identity. Moving the complete installation detaches a target-backed
+project until an exact compatible target is supplied; there is no implicit
+rebase.
+
+The packaged Linux/Windows launchers call the guided boundary:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar launch-adaptive \
+  --installation-root '/path/to/World Builder 2' \
+  --runtime-root '/path/to/World Builder 2/builder-runtime' \
+  --target-root /path/to/parent \
+  --port 43615
+```
+
+On first use it prints read-only discovery and requires exact `CREATE`
+confirmation. Later use verifies and reopens the active project; multiple
+projects are selected explicitly by UUID. Project-only process supervision
+keeps locks, logs, PIDs, credentials, `ipbans.txt`, and other generated state
+under that project and rejects linked/shared mutable paths.
+
+The pinned real client/server does not yet advertise the separately owned
+Phase 4 generic layered-loader and void-authoring capability. Consequently
+`launch-adaptive` creates or reopens a valid isolated project and then stops
+with `LOADER_INCOMPATIBLE` before starting a native process. This is an
+actionable dependency gate, not a partial launch. Adaptive generic export and
+target-backed import/undo are also not implemented; standalone import/undo
+returns `NO_TARGET` before resolving a target. There is no force option.
+
+### Historical fixed-layout workspace commands
+
+The pre-adaptive runtime can prepare an isolated workspace and launch the local
 Builder server/client pair:
 
 ```bash

@@ -547,6 +547,28 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	ProjectResult openActive(Path requestedInstallRoot, Path requestedTargetRoot)
 		throws IOException, WorldBuilderContractException {
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
+		Path projects = install.resolve(PROJECTS_DIRECTORY);
+		if (!Files.isDirectory(projects, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(projects)) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				PROJECTS_DIRECTORY, "Adaptive projects directory is missing or unsafe.",
+				"Create the first project or restore the complete projects directory.");
+		}
+		try (FileChannel channel = openLock(projects.resolve(".registry.lock"))) {
+			FileLock lock = tryLock(channel);
+			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				PROJECTS_DIRECTORY, "Project registry is busy.",
+				"Wait for the active lifecycle operation and retry.");
+			try {
+				return openActiveLocked(install, requestedTargetRoot);
+			} finally {
+				lock.release();
+			}
+		}
+	}
+
+	private ProjectResult openActiveLocked(Path install, Path requestedTargetRoot)
+		throws IOException, WorldBuilderContractException {
 		RegistryState registry = loadRegistry(install, true);
 		ActiveState active = loadActive(install, registry, true);
 		if (active.projectId.isEmpty()) {
@@ -558,6 +580,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		VerifiedProject verified = verifyProjectDirectory(project, true);
 		if (!"standalone-empty".equals(verified.origin)) {
 			boolean attached = false;
+			String attachedLocator = "";
+			Map<String,Object> targetInfo = object(
+				verified.manifest.get("target"), "target");
 			if (requestedTargetRoot != null) {
 				try {
 					Path target = realDirectory(requestedTargetRoot, "target root");
@@ -567,20 +592,22 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					WorldBuilderAdaptiveDiscoveryReport fresh =
 						new WorldBuilderAdaptiveDiscovery().discover(
 							target, string(selected, "role"));
-					Map<String,Object> targetInfo = object(
-						verified.manifest.get("target"), "target");
 					attached = "compatible".equals(fresh.status)
 						&& fresh.fingerprintSha256().equals(
 							string(targetInfo, "targetFingerprintSha256"));
+					if (attached) attachedLocator = target.toString();
 				} catch (WorldBuilderContractException ignored) {
+					attached = false;
+				} catch (IOException ignored) {
 					attached = false;
 				}
 			}
 			String wanted = attached ? "ready-attached" : "ready-detached";
-			if (!wanted.equals(verified.state)) {
-				verified = updateState(install, verified, wanted,
-					requestedTargetRoot == null ? ""
-						: requestedTargetRoot.toAbsolutePath().normalize().toString());
+			if (!wanted.equals(verified.state)
+				|| attached && !attachedLocator.equals(
+					string(targetInfo, "locatorDisplay"))) {
+				verified = updateState(
+					install, verified, wanted, attachedLocator);
 			}
 		}
 		int port = readRuntimePort(verified.projectRoot);
@@ -690,6 +717,27 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				+ WorldBuilderErrorCodes.UNSUPPORTED_FORMAT
 				+ "] Adaptive target mutation is reserved for Phase 6; "
 				+ operation + " stopped before target access.");
+		} catch (WorldBuilderContractException refusal) {
+			throw new WorldBuilderDiscoveryException(
+				"Adaptive project mutation preflight failed [" + refusal.code()
+					+ "]: " + refusal.getMessage(), refusal);
+		}
+	}
+
+	static void refuseActiveMutationBeforeTarget(Path requestedInstallRoot,
+		String operation) throws IOException, WorldBuilderDiscoveryException {
+		try {
+			Path install = realDirectory(
+				requestedInstallRoot, "World Builder install root");
+			RegistryState registry = loadRegistry(install, true);
+			ActiveState active = loadActive(install, registry, true);
+			if (active.projectId.isEmpty()) {
+				throw new WorldBuilderDiscoveryException(
+					"No active adaptive project is selected; " + operation
+						+ " stopped before target access.");
+			}
+			Path project = install.resolve(active.manifestRelativePath).getParent();
+			refuseAdaptiveMutationBeforeTarget(project, operation);
 		} catch (WorldBuilderContractException refusal) {
 			throw new WorldBuilderDiscoveryException(
 				"Adaptive project mutation preflight failed [" + refusal.code()
@@ -1259,13 +1307,19 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	}
 
 	private static void rollbackCreation(Path install, Path project, Path stage,
-		boolean published, byte[] registry, byte[] active, Throwable original) {
+		boolean published, byte[] registry, byte[] active, Throwable original)
+		throws WorldBuilderContractException {
 		try {
 			restoreAtomic(install.resolve(ACTIVE_FILE), active);
 			restoreAtomic(install.resolve(REGISTRY_FILE), registry);
 			if (published) deleteTree(project); else deleteTree(stage);
 		} catch (Exception recoveryFailure) {
-			original.addSuppressed(recoveryFailure);
+			recoveryFailure.addSuppressed(original);
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				PROJECTS_DIRECTORY,
+				"Project creation failed and automatic cleanup could not be verified.",
+				"Preserve the install and inspect the project stage, registry, and "
+					+ "active pointer before any new lifecycle operation.", recoveryFailure);
 		}
 	}
 
@@ -1296,7 +1350,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Files.createDirectories(path.getParent());
 		try (FileChannel channel = FileChannel.open(path,
 			StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-			channel.write(java.nio.ByteBuffer.wrap(bytes));
+			java.nio.ByteBuffer buffer = java.nio.ByteBuffer.wrap(bytes);
+			while (buffer.hasRemaining()) channel.write(buffer);
 			channel.force(true);
 		}
 	}

@@ -621,7 +621,35 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     self.assertIn("never treats the frozen World Editor v1.1.0", readme)
                     start = archive.read(prefix + "Start World Builder.sh").decode()
                     self.assertIn("Update World Builder.sh", start)
-                    self.assertIn("--layered-profile spoiled-milk-replacement", start)
+                    self.assertIn("launch-adaptive", start)
+                    self.assertIn("--installation-root", start)
+                    self.assertIn("--target-root", start)
+                    self.assertNotIn("--layered-package", start)
+                    self.assertNotIn("server/myworld.conf", start)
+                    windows_start = archive.read(
+                        prefix + "Start World Builder.cmd"
+                    ).decode()
+                    for expected in (
+                        "launch-adaptive",
+                        "--installation-root",
+                        "--runtime-root",
+                        "--target-root",
+                        "--port",
+                        "WORLD_BUILDER_CONFIGURATION_ROLE",
+                    ):
+                        self.assertIn(expected, start)
+                        self.assertIn(expected, windows_start)
+                    self.assertNotIn("--layered-package", windows_start)
+                    self.assertNotIn("server/myworld.conf", windows_start)
+                    for script_name, command in (
+                        ("Import Map Changes.sh", "import-active-adaptive"),
+                        ("Import Map Changes.cmd", "import-active-adaptive"),
+                        ("Undo Last Map Import.sh", "undo-active-adaptive"),
+                        ("Undo Last Map Import.cmd", "undo-active-adaptive"),
+                    ):
+                        script = archive.read(prefix + script_name).decode()
+                        self.assertIn("project-registry.json", script)
+                        self.assertIn(command, script)
                     with zipfile.ZipFile(
                         io.BytesIO(
                             archive.read(
@@ -686,7 +714,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
             self.assertEqual(0, started.returncode, started.stdout + started.stderr)
             start_call = calls.read_text(encoding="utf-8")
-            self.assertIn("launch\n", start_call)
+            self.assertIn("launch-adaptive\n", start_call)
+            self.assertIn(str(package), start_call)
             self.assertIn(str(extracted), start_call)
             self.assertIn("44600\n", start_call)
 
@@ -699,7 +728,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 capture_output=True,
             )
             self.assertNotEqual(0, legacy.returncode)
-            self.assertIn("legacy or unidentified", legacy.stderr)
+            self.assertIn("historical World Builder 2 workspace", legacy.stderr)
 
             write(package / "workspace/layered-review.json", "{}\n")
             restarted = subprocess.run(
@@ -709,8 +738,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 text=True,
                 capture_output=True,
             )
-            self.assertEqual(0, restarted.returncode, restarted.stdout + restarted.stderr)
-            self.assertIn("run\n", calls.read_text(encoding="utf-8"))
+            self.assertNotEqual(0, restarted.returncode)
+            self.assertIn("will not migrate or replace it", restarted.stderr)
 
             imported = subprocess.run(
                 [str(package / "Import Map Changes.sh")],

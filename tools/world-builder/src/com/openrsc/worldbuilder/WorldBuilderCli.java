@@ -2,6 +2,9 @@ package com.openrsc.worldbuilder;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -42,6 +45,18 @@ public final class WorldBuilderCli {
 		}
 		if ("save-project".equals(args[0])) {
 			return saveProject(args);
+		}
+		if ("run-adaptive-project".equals(args[0])) {
+			return runAdaptiveProject(args);
+		}
+		if ("launch-adaptive".equals(args[0])) {
+			return launchAdaptive(args);
+		}
+		if ("import-active-adaptive".equals(args[0])) {
+			return refuseActiveAdaptiveMutation(args, "import");
+		}
+		if ("undo-active-adaptive".equals(args[0])) {
+			return refuseActiveAdaptiveMutation(args, "undo");
 		}
 		if ("prepare".equals(args[0])) {
 			return prepare(args);
@@ -255,6 +270,157 @@ public final class WorldBuilderCli {
 		} catch (Exception failure) {
 			System.err.println("ERROR: Could not save adaptive project: "
 				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int runAdaptiveProject(String[] args) {
+		Path project = singlePathOption(args, "--project", "run-adaptive-project");
+		if (project == null) return 2;
+		try {
+			return new WorldBuilderProcessSupervisor().runAdaptiveProject(project);
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			System.err.println("ERROR: Adaptive World Builder launch was interrupted.");
+			return 130;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive World Builder launch failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int launchAdaptive(String[] args) {
+		Path installation = null;
+		Path runtime = null;
+		Path target = null;
+		String configurationRole = null;
+		String displayName = null;
+		String confirmation = null;
+		int port = 0;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--installation-root".equals(argument) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--runtime-root".equals(argument) && index + 1 < args.length) {
+				runtime = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--configuration-role".equals(argument)
+				&& index + 1 < args.length) {
+				configurationRole = args[++index];
+			} else if ("--display-name".equals(argument) && index + 1 < args.length) {
+				displayName = args[++index];
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else if ("--port".equals(argument) && index + 1 < args.length) {
+				Integer parsed = parseIntOption("--port", args[++index]);
+				if (parsed == null) return 2;
+				port = parsed.intValue();
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (installation == null || runtime == null || target == null || port == 0) {
+			System.err.println("ERROR: launch-adaptive requires --installation-root, "
+				+ "--runtime-root, --target-root, and --port.");
+			usage();
+			return 2;
+		}
+
+		Path temporaryReport = null;
+		try {
+			WorldBuilderAdaptiveProjectLifecycle lifecycle =
+				new WorldBuilderAdaptiveProjectLifecycle();
+			Path registry = installation.toAbsolutePath().normalize()
+				.resolve(WorldBuilderAdaptiveProjectLifecycle.REGISTRY_FILE);
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult project;
+			if (Files.exists(registry, LinkOption.NOFOLLOW_LINKS)) {
+				project = lifecycle.openActive(installation, target);
+				System.out.print(project.toJson());
+				return new WorldBuilderProcessSupervisor()
+					.runAdaptiveProject(project.projectRoot);
+			}
+
+			WorldBuilderAdaptiveDiscoveryReport report =
+				new WorldBuilderAdaptiveDiscovery().discover(target, configurationRole);
+			System.out.print(report.toJson());
+			System.err.println("Discovery summary: " + report.summary());
+			if ("blocked".equals(report.status)) return 3;
+			if (confirmation == null) {
+				boolean approved = confirm("CREATE",
+					"Review the discovery report above. Type CREATE to make one isolated "
+						+ "project, or press Enter to cancel: ");
+				if (!approved) {
+					System.out.println("Project creation cancelled; no project or target "
+						+ "data was changed.");
+					return 0;
+				}
+				confirmation = "CREATE";
+			}
+			if (displayName == null) {
+				displayName = "standalone".equals(report.status)
+					? "Standalone Empty World" : "Imported Server Map";
+			}
+			Path install = installation.toAbsolutePath().normalize();
+			if (!Files.isDirectory(install, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(install)) {
+				throw new java.io.IOException(
+					"World Builder installation root is missing or unsafe");
+			}
+			temporaryReport = Files.createTempFile(
+				install, ".adaptive-discovery-", ".json");
+			Files.write(temporaryReport,
+				report.toJson().getBytes(StandardCharsets.UTF_8));
+			project = lifecycle.create(installation, runtime, target, temporaryReport,
+				displayName, port, confirmation);
+			Files.delete(temporaryReport);
+			temporaryReport = null;
+			System.out.print(project.toJson());
+			return new WorldBuilderProcessSupervisor()
+				.runAdaptiveProject(project.projectRoot);
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt();
+			System.err.println("ERROR: Adaptive World Builder launch was interrupted.");
+			return 130;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive World Builder launch failed: "
+				+ failure.getMessage());
+			return 4;
+		} finally {
+			if (temporaryReport != null) {
+				try {
+					Files.deleteIfExists(temporaryReport);
+				} catch (Exception ignored) {
+					// A failed temporary-report cleanup does not hide the primary refusal.
+				}
+			}
+		}
+	}
+
+	private static int refuseActiveAdaptiveMutation(
+		String[] args, String operation) {
+		Path installation = singlePathOption(
+			args, "--installation-root", operation + "-active-adaptive");
+		if (installation == null) return 2;
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.refuseActiveMutationBeforeTarget(
+				installation, operation);
+			System.err.println("ERROR: Adaptive " + operation
+				+ " preflight unexpectedly returned without a refusal.");
+			return 4;
+		} catch (WorldBuilderDiscoveryException refusal) {
+			System.err.println("ERROR: " + refusal.getMessage());
+			return 3;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive " + operation
+				+ " preflight failed: " + failure.getMessage());
 			return 4;
 		}
 	}
@@ -808,6 +974,12 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli open-project --installation-root <World Builder 2>"
 			+ " [--target-root <server-root>]"
 			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
+			+ "\n  WorldBuilderCli run-adaptive-project --project <projects/uuid>"
+			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
+			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
+			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
+			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
+			+ "\n  WorldBuilderCli undo-active-adaptive --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"

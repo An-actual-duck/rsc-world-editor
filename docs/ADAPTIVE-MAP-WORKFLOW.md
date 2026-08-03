@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-2 implemented, later phases not started |
+| Status | Approved architecture and implementation plan; Phases 0-2 and the repository-owned Phase 3 lifecycle implemented; Phase 3 native-runtime gate blocked on Phase 4 |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -884,9 +884,13 @@ proposed schema numbers after adaptive contracts are final.
 
 Dedicated `test-world-builder-adaptive-contracts.py`,
 `test-world-builder-adaptive-discovery.py`, and
-`test-world-builder-packed-conversion.py` suites now cover Phases 0-2. Project
-registry/lifecycle, standalone empty generation, layered adoption, and
-cross-platform adaptive transactions remain later dedicated suites.
+`test-world-builder-packed-conversion.py` suites cover Phases 0-2.
+`test-world-builder-adaptive-project-lifecycle.py` now covers atomic registry
+publication and rollback, all three origins, source/baseline protection,
+portable detach/reattach, multiple selection, save/reopen, standalone
+no-target refusal, project-only supervision, generated-state confinement, and
+unsafe mutable paths. Generic adaptive export/import remains a later dedicated
+suite.
 
 ## Existing implementation-file impact
 
@@ -977,6 +981,25 @@ scenery, NPCs, and ground items have zero-delta parity; every unknown/loss/
 approximation case fails visibly.
 
 ### Phase 3 — layered project lifecycle and empty mode
+
+Implementation status: the repository-owned lifecycle and launcher boundary
+are implemented. UUID projects adopt layered targets, invoke Phase 2 conversion
+inside project staging for packed targets, or generate `empty-world-v1`.
+Registry/active metadata publishes atomically; source and baseline state are
+verified immutable; working packages save/reopen independently; portable
+copies detach and can reattach only to exact discovery lineage; and standalone
+import/undo stops with `NO_TARGET` before target access. Linux and Windows
+launchers auto-discover the parent, preserve historical `workspace/`, and use
+the active project instead of a fixed config/package.
+
+The native runtime part of this phase is intentionally fail-closed. The
+project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
+confinement are tested with temporary runtime processes for all three origins,
+but `run-adaptive-project` returns `LOADER_INCOMPATIBLE` before starting real
+processes until the separately owned Phase 4 generic-loader and void-authoring
+capability is published and pinned. Generic export is Phase 6 work. Because the
+full gate below includes real launch/edit/export, Phase 3 is not release-ready
+yet.
 
 - Add UUID registry/selection/creation and source snapshot v2.
 - Refactor runtime preparation/supervision for adopted, converted, and empty

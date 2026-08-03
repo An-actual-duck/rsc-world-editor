@@ -116,10 +116,13 @@ full contracts.
 The approved foundation for target-derived maps, content-neutral releases,
 isolated projects, and packed-to-layered conversion is documented in [World
 Builder 2 Adaptive Map Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md). Its contracts,
-strictly read-only adaptive discovery, and standalone deterministic packed
-converter are implemented; automatic project creation, launch integration,
-empty mode, adaptive import, and content-neutral packaging remain later phase
-gates.
+strictly read-only adaptive discovery, standalone deterministic packed
+converter, and repository-owned adaptive project lifecycle are implemented.
+The lifecycle can atomically create, select, move, validate, save, and reopen
+target-layered, converted-packed, and standalone-empty projects without target
+writes. Native client/server authoring still fails closed until the separately
+owned Phase 4 generic-loader capability is published and pinned; content-neutral
+packaging and adaptive export/import remain later phase gates.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor
