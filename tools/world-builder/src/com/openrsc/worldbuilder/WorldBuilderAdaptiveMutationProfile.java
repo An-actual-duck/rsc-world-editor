@@ -40,13 +40,17 @@ final class WorldBuilderAdaptiveMutationProfile {
 			WorldBuilderErrorCodes.NO_TARGET, "target-root",
 			"Standalone projects have no compatible target server.",
 			"Continue editing/exporting this standalone project; Import is unavailable.");
-		Path target = requireTarget(targetRoot);
 		Map<String,Object> projectTarget = WorldBuilderAdaptiveExporter.object(
 			project.manifest.get("target"), "target");
 		Map<String,Object> selectedReference = WorldBuilderAdaptiveExporter.object(
 			project.snapshot.get("selectedConfiguration"), "selectedConfiguration");
 		String selectedRole = WorldBuilderAdaptiveExporter.string(
 			selectedReference, "role");
+		Path target = requireTarget(targetRoot);
+		preflightCompiledInstallRoots(target);
+		safeExistingFile(target,
+			WorldBuilderAdaptiveConfiguration.pathForRole(selectedRole),
+			"Selected target configuration");
 
 		WorldBuilderAdaptiveDiscoveryReport fresh =
 			new WorldBuilderAdaptiveDiscovery().discover(target, selectedRole);
@@ -173,6 +177,17 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directoriesToCreate, document);
+	}
+
+	private static void preflightCompiledInstallRoots(Path target)
+		throws IOException, WorldBuilderContractException {
+		for (String probe : new String[] {
+			"server/world-builder/packages/probe",
+			"client/world-builder/packages/probe",
+			"Client_Base/world-builder/packages/probe"
+		}) {
+			safeDestination(target, probe);
+		}
 	}
 
 	/**
@@ -345,7 +360,25 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"backups/" + transactionId + "/mutation-plan.json",
 			"Durable mutation plan does not match independently compiled project/export paths.",
 			"Keep the target offline and restore exact transaction evidence; do not force undo.");
+		requireBeforeBackups(plan);
 		return plan;
+	}
+
+	private static void requireBeforeBackups(Plan plan)
+		throws IOException, WorldBuilderContractException {
+		for (Action action : plan.actions) {
+			if (!action.before.present) continue;
+			Path backup = WorldBuilderAdaptiveExporter.requireFile(
+				plan.project.projectRoot, action.backupRelativePath,
+				"adaptive transaction before-state backup");
+			if (Files.size(backup) != action.before.size
+				|| !action.before.sha256.equals(WorldBuilderHashes.sha256(backup))) {
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+					action.backupRelativePath,
+					"Adaptive transaction backup differs from its exact before state.",
+					"Retain the project and restore the exact verified backup; do not force undo or recovery.");
+			}
+		}
 	}
 
 	private static void verifyUnchangedTargetEvidence(
@@ -736,6 +769,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"backups/" + plan.transactionId() + "/created-directories.json",
 			"Durable directory evidence differs from the independently compiled plan.",
 			"Restore exact transaction evidence; do not force recovery.");
+		requireBeforeBackups(plan);
 	}
 
 	private static boolean stateMatches(Path target, String relative, FileState state)

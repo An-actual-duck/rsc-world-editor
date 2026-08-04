@@ -4,8 +4,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phases 0-3 and repository-owned Phase 5 are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
-| Product/release readiness | NOT READY; Phase 4 owner validation and generic export/import Phase 6 remain gated |
+| Status | Phases 0-3, repository-owned Phase 5, and Phase 6 transactions are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
+| Product/release readiness | NOT READY; Phase 4 owner validation and the Phase 7 candidate-validation record remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -905,8 +905,10 @@ Dedicated `test-world-builder-adaptive-contracts.py`,
 publication and rollback, all three origins, source/baseline protection,
 portable detach/reattach, multiple selection, save/reopen, standalone
 no-target refusal, project-only supervision, generated-state confinement, and
-unsafe mutable paths. Generic adaptive export/import remains a later dedicated
-suite.
+unsafe mutable paths. `test-world-builder-adaptive-transactions.py` now covers
+complete export, layered and packed-origin preview/import/undo, standalone
+isolation, free-space/no-force/changed-after refusal, partial rollback, and
+explicit recovery after injected rollback failure.
 
 ## Existing implementation-file impact
 
@@ -1015,7 +1017,8 @@ project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
 confinement are tested with temporary runtime processes for all three origins,
 but `run-adaptive-project` remains fail-closed before starting real processes
 until owner-native validation accepts the already published and pinned Phase 4
-generic-loader/authoring capability. Generic export is Phase 6 work.
+generic-loader/authoring capability. Phase 6 export and target transactions are
+implemented independently of that visual-validation gate.
 
 Repository implementation readiness and product readiness are separate gates.
 The Phase 3 repository gate is satisfied by the published merge above, but that
@@ -1041,9 +1044,9 @@ import/undo fail before target access.
 
 Product/release gate, which remains closed: all three origins launch and edit
 with the real compatible runtime, then save, reopen, and export in isolation.
-This requires Phase 4 owner validation and Phase 6. Phase 5 content-neutral
-packaging is implemented; its release tests and all later candidate validation
-gates remain mandatory.
+This requires Phase 4 owner validation and the Phase 7 candidate record. Phase
+5 content-neutral packaging and Phase 6 transactions are implemented; their
+release tests and all later candidate-validation gates remain mandatory.
 
 ### Phase 4 — required external runtime capability
 
@@ -1102,6 +1105,20 @@ is preserved and refused with side-by-side installation guidance. The adaptive
 
 ### Phase 6 — generic export, install, recovery, and undo
 
+Implementation status: complete in this repository. Export locks and verifies
+one UUID project, publishes a unique complete deterministic layered export,
+and never accesses a target. Target-backed preview uses real transaction IDs
+and independently compiled `generic-layered-install-v1` or
+`spoiled-milk-layered-install-v1` destinations. Apply reacquires immutable
+project/export/source lineage and all declared offline evidence, creates
+verified project-owned backups and a durable receipt, stages content-addressed
+server/client packages, activates configuration last, and verifies both
+selections. Reverse rollback, explicit `RECOVER`, successful-receipt-authorized
+`UNDO`, extra/changed-path refusal, and exact original-lineage verification are
+covered with temporary layered and packed-origin fixtures. Linux and Windows
+packages expose Import, Recover, and Undo launchers. Standalone origin refuses
+all three target operations before target resolution or lock acquisition.
+
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.
 - Generalize offline evidence, configuration changes, receipts, backups,
@@ -1110,7 +1127,8 @@ is preserved and refused with side-by-side installation guidance. The adaptive
 
 Gate: adopted and converted target projects preview/apply/verify/rollback/undo
 exactly; missing loader, target drift, changed-after, source corruption, and
-force attempts fail closed; standalone import/undo never touches a target.
+force attempts fail closed; standalone import/undo/recovery never touches a
+target.
 
 ### Phase 7 — UX, documentation, and release validation
 

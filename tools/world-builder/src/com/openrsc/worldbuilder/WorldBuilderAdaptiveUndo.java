@@ -66,11 +66,22 @@ final class WorldBuilderAdaptiveUndo {
 	}
 
 	UndoResult apply(Preview preview, String confirmation)
-		throws Exception {
+		throws IOException, WorldBuilderContractException {
 		if (preview == null) throw new IllegalArgumentException("preview");
-		Preview applied = operate(preview.requestedProject, preview.requestedTarget,
-			confirmation, preview);
-		return applied.result;
+		try {
+			Preview applied = operate(preview.requestedProject, preview.requestedTarget,
+				confirmation, preview);
+			return applied.result;
+		} catch (WorldBuilderContractException failure) {
+			throw failure;
+		} catch (IOException failure) {
+			throw failure;
+		} catch (Exception callbackFailure) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
+				"confirmation", false,
+				"Adaptive undo was interrupted before transaction publication.",
+				"Request a fresh undo preview and confirm again.", callbackFailure);
+		}
 	}
 
 	private Preview operate(Path requestedProject, Path requestedTarget,
@@ -192,13 +203,17 @@ final class WorldBuilderAdaptiveUndo {
 				observeContract("undo-after-" + pad(index), destination, true);
 				index++;
 			}
+			observeContract("undo-before-directory-cleanup", undo.targetRoot, true);
 			cleanupImportedDirectories(installed);
+			observeContract("undo-after-directory-cleanup", undo.targetRoot, true);
 			List<WorldBuilderAdaptiveReceipt.Verification> verified =
 				verifyUndoAfter(undo, installed);
 			WorldBuilderAdaptiveReceipt.State reverted =
 				WorldBuilderAdaptiveReceipt.create(undo, "undo", "reverted",
 					createdAt, true, offline.evidence, true, true, verified,
 					authority.transactionId(), "");
+			observeContract("undo-before-success-receipt",
+				receiptPath(project, undo.transactionId()), true);
 			WorldBuilderAdaptiveReceipt.write(project, reverted);
 			return new UndoResult(undo.transactionId(), authority.transactionId(),
 				"reverted", receiptPath(project, undo.transactionId()));
@@ -246,8 +261,13 @@ final class WorldBuilderAdaptiveUndo {
 		FileStore targetStore = Files.getFileStore(plan.targetRoot);
 		FileStore projectStore = Files.getFileStore(plan.project.projectRoot);
 		long override = testUsableBytes();
-		long targetUsable = override < 0L ? targetStore.getUsableSpace() : override;
-		long projectUsable = override < 0L ? projectStore.getUsableSpace() : override;
+		long targetUsable = targetStore.getUsableSpace();
+		long projectUsable = projectStore.getUsableSpace();
+		/* The internal test bound may only make this check stricter. */
+		if (override >= 0L) {
+			targetUsable = Math.min(targetUsable, override);
+			projectUsable = Math.min(projectUsable, override);
+		}
 		if (targetUsable < targetBytes || projectUsable < backupBytes) throw problem(
 			WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,
 			"Target or project storage lacks space for undo staging and backups.",

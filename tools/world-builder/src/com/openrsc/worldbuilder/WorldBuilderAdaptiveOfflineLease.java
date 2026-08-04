@@ -129,19 +129,29 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 
 	private static ServerSocket bindPort()
 		throws WorldBuilderContractException {
-		ServerSocket socket = null;
-		try {
-			socket = new ServerSocket();
-			socket.setReuseAddress(false);
-			socket.bind(new InetSocketAddress("0.0.0.0", COMPILED_TARGET_PORT));
-			return socket;
-		} catch (IOException unavailable) {
-			if (socket != null) try { socket.close(); } catch (IOException ignored) { }
-			throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
-				"The compiled target server port is in use or cannot be reserved.",
-				"Stop the target server and any process using port "
-					+ COMPILED_TARGET_PORT + ", then retry.", unavailable);
+		IOException unavailable = null;
+		for (int attempt = 0; attempt < 4; attempt++) {
+			ServerSocket socket = null;
+			try {
+				socket = new ServerSocket();
+				socket.setReuseAddress(false);
+				socket.bind(new InetSocketAddress("0.0.0.0", COMPILED_TARGET_PORT));
+				return socket;
+			} catch (IOException failure) {
+				unavailable = failure;
+				if (socket != null) try { socket.close(); } catch (IOException ignored) { }
+				if (attempt < 3) try {
+					Thread.sleep(25L);
+				} catch (InterruptedException interrupted) {
+					Thread.currentThread().interrupt();
+					break;
+				}
+			}
 		}
+		throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
+			"The compiled target server port is in use or cannot be reserved.",
+			"Stop the target server and any process using port "
+				+ COMPILED_TARGET_PORT + ", then retry.", unavailable);
 	}
 
 	private static boolean targetProcessAppearsActive(Path target) {

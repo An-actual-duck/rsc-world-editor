@@ -96,17 +96,28 @@ final class WorldBuilderAdaptiveImporter {
 	}
 
 	ImportResult apply(Preview preview, final String confirmation)
-		throws Exception {
+		throws IOException, WorldBuilderContractException {
 		if (preview == null) throw new IllegalArgumentException("preview");
-		ImportOutcome outcome = operate(preview.requestedProject,
-			preview.requestedExport, preview.requestedTarget,
-			new ConfirmationGate() {
-				@Override public String confirm(
-					WorldBuilderAdaptiveMutationProfile.Plan plan) {
-					return confirmation;
-				}
-			}, preview);
-		return outcome.result;
+		try {
+			ImportOutcome outcome = operate(preview.requestedProject,
+				preview.requestedExport, preview.requestedTarget,
+				new ConfirmationGate() {
+					@Override public String confirm(
+						WorldBuilderAdaptiveMutationProfile.Plan plan) {
+						return confirmation;
+					}
+				}, preview);
+			return outcome.result;
+		} catch (WorldBuilderContractException failure) {
+			throw failure;
+		} catch (IOException failure) {
+			throw failure;
+		} catch (Exception callbackFailure) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
+				"confirmation", false,
+				"Adaptive import was interrupted before transaction publication.",
+				"Request a fresh preview and confirm again.", callbackFailure);
+		}
 	}
 
 	ImportOutcome applyInteractive(Path requestedProject, Path requestedExport,
@@ -129,10 +140,20 @@ final class WorldBuilderAdaptiveImporter {
 			"Standalone project " + initial.projectId
 				+ " has no target; import stopped before target access.",
 			"Continue editing/exporting the standalone project; Import is unavailable.");
-		if (!"ready-attached".equals(initial.state)) throw problem(
-			WorldBuilderErrorCodes.PROJECT_DETACHED, "project.json", false,
-			"Only an exactly attached target-backed project can be imported.",
-			"Open the project against its exact compatible target before importing.");
+		if (!"ready-attached".equals(initial.state)) {
+			Map<String,Object> targetIdentity = WorldBuilderAdaptiveExporter.object(
+				initial.manifest.get("target"), "target");
+			String profile = WorldBuilderAdaptiveExporter.string(
+				targetIdentity, "importProfileId");
+			if ("no-import-v1".equals(profile)) throw problem(
+				WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, "project.json", false,
+				"This target-backed project was created without compatible server/client install capability.",
+				"Install a runtime that truthfully advertises the matching layered loader, client, definitions, protocol, and bounded mutation profile, then create a fresh project.");
+			throw problem(WorldBuilderErrorCodes.PROJECT_DETACHED,
+				"project.json", false,
+				"Only an exactly attached target-backed project can be imported.",
+				"Open the project against its exact compatible target before importing.");
+		}
 
 		Path project = initial.projectRoot;
 		Path run = WorldBuilderAdaptiveExporter.requireDirectory(
@@ -353,8 +374,13 @@ final class WorldBuilderAdaptiveImporter {
 		FileStore targetStore = Files.getFileStore(plan.targetRoot);
 		FileStore projectStore = Files.getFileStore(plan.project.projectRoot);
 		long override = testUsableBytes();
-		long targetUsable = override < 0L ? targetStore.getUsableSpace() : override;
-		long projectUsable = override < 0L ? projectStore.getUsableSpace() : override;
+		long targetUsable = targetStore.getUsableSpace();
+		long projectUsable = projectStore.getUsableSpace();
+		/* The internal test bound may only make this check stricter. */
+		if (override >= 0L) {
+			targetUsable = Math.min(targetUsable, override);
+			projectUsable = Math.min(projectUsable, override);
+		}
 		if (targetUsable < targetBytes
 			|| projectUsable < backupBytes + 1_048_576L) {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,

@@ -14,7 +14,7 @@ The repository is divided into four layers:
 
 - `tools/world-builder/` contains Java tooling for target discovery,
   conversion, UUID project lifecycle, process supervision, export, import,
-  and rollback.
+  rollback, recovery, and undo.
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
@@ -57,9 +57,28 @@ baseline beside a mutable working layered package. Creation adopts compatible
 layered input, invokes deterministic packed conversion on the isolated copy,
 or generates the standalone structural void. Saving validates only the
 project-local working package and updates its fingerprint; it does not read or
-write a target. Generic adaptive export/import remains a later transaction
-phase. The historical workspace transaction continues to use its existing
-validated export, offline import, backup, receipt, and undo contracts.
+write a target. Adaptive export locks and revalidates that project, copies its
+complete working package, independently validates the stage, and atomically
+publishes a unique deterministic result without target access.
+
+Target mutation begins only after a fresh capability/source-lineage check and
+all compiled offline evidence. Adapter code—not target JSON or a receipt—owns
+the bounded content-addressed server/client destinations and selected-
+configuration path. Preview binds a real transaction UUID to exact before and
+after bytes, backups, receipt, free space, activation order, and verification.
+Exact `IMPORT` writes a durable pending receipt and project-owned backups,
+publishes verified package content, activates configuration last, and verifies
+both selected packages. Failures restore the exact before state or leave a
+blocking recovery receipt.
+
+Undo independently rebuilds the successful import plan from immutable project
+evidence, its exact export, compiled profile, durable plan, and receipt. It
+refuses any changed or extra installed path before producing new artifacts;
+exact `UNDO` restores the original configuration and removes only recorded
+content-addressed files and directories. Explicit `RECOVER` accepts only exact
+before/after transaction states. Standalone origin is checked before target
+resolution for import, undo, and recovery. The historical workspace
+transaction continues to use its existing fixed-layout contracts.
 
 There is deliberately no force-import path.
 
@@ -109,8 +128,12 @@ layered-loader, authoring, placement, isolation, and copy-on-write capability.
 Owner-run adopted-project and standalone-empty visual/edit/save/reopen
 validation remains pending. Phase 5 supplies the generic identity, exact
 runtime/default-catalog allowlist, no-world archive validation, and durable
-Linux/Windows updater boundary. Phase 6 generic export/import and the owner
-validation still keep the adaptive release gate closed.
+Linux/Windows updater boundary. Phase 6 supplies complete adaptive export,
+compiled mutation profiles, exact preview/import, durable receipt/backup
+authority, reverse rollback, explicit recovery, changed-after refusal, and
+exact undo for layered and packed-origin projects. Owner-native Phase 4
+validation and Phase 7 release validation still keep the adaptive release gate
+closed.
 
 ## Planned custom materials
 

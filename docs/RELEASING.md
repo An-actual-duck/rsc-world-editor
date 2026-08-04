@@ -24,8 +24,9 @@ Repository readiness is audited with:
 `./scripts/ai-manager.sh release` delegates to the v2 packager only when
 `release/world-builder-v2/RELEASE-READY` contains a deliberately accepted
 candidate record. That marker is currently absent. Phase 4 owner-native
-validation and Phase 6 generic export/import still block adaptive release
-readiness; completing Phase 5 does not reopen the gate.
+validation and the Phase 7 candidate-validation record still block adaptive
+release readiness. Phase 6 transactions are implemented, but that does not
+open or replace the missing release gate.
 
 The dependency checkout used for packaging must already be clean and at the
 exact commit in `core-framework.lock`. Packaging never checks for a newer
@@ -70,7 +71,8 @@ The production packager requires and verifies:
 - exact `rsc-world-editor-v2`, `World Builder 2`, and `target-adaptive-v1`
   identity plus both source commits;
 - only files named by the checked-in runtime/default-catalog allowlist,
-  repository schemas, launchers, documentation, and platform JRE;
+  repository schemas, launch/import/recovery/undo scripts, documentation, and
+  platform JRE;
 - one user/world-empty Builder-only database seed whose only nonempty tables
   are reviewed migration metadata, generic recovery questions, and SQLite
   counters;
@@ -114,8 +116,9 @@ Each platform updater must demonstrate the same behavior:
   relabelling or workspace migration.
 
 The compatibility check validates what the current project lifecycle exposes;
-it does not export, import, alter, rebase, or migrate a project. Those mutation
-transactions remain Phase 6.
+it does not export, import, alter, rebase, or migrate a project. Implemented
+Phase 6 transactions remain separate explicit user commands and are never run
+by an application update.
 
 ## Final candidate validation
 
@@ -135,8 +138,10 @@ Before adding a new adaptive `RELEASE-READY` record:
 5. Run Linux and PowerShell update success, incompatibility, installation
    failure, and rollback fixtures. Perform the available native platform smoke
    check and record any reviewed launcher-only platform limitation explicitly.
-6. Complete and validate Phase 6 generic export/import/undo against disposable
-   offline compatible targets before testing or claiming target mutation.
+6. Validate Phase 6 export/import/rollback/recovery/undo against disposable
+   offline layered and packed-origin targets, including exact preview,
+   server/client distribution identity, changed-after refusal, standalone
+   refusal, and injected failures at mutation boundaries.
 7. Record the exact source commits, commands, artifact hashes, compatibility
    matrix, owner report, remaining limitations, and accepted candidate commit
    in a new adaptive validation record.

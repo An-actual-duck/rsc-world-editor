@@ -28,6 +28,14 @@ installed Builder, a user project, or a real private-server directory. Adaptive
 runtime tests keep generated credentials, settings, logs, PIDs, and
 `server/ipbans.txt` inside their temporary project fixture.
 
+Phase 6 transaction fixtures create disposable descriptor-backed layered and
+packed targets. They verify deterministic complete export, preview
+non-mutation, exact server/client installation, standalone refusal, free-space
+and no-force preflight, changed-after refusal before artifacts, partial import
+and undo rollback, rollback-failure recovery, and byte-exact undo. Failure
+observers are package-local test hooks; production commands cannot request an
+injected failure or bypass a check.
+
 Phase 5 packaging fixtures must prove the exact runtime/default-catalog
 allowlist and inject renamed terrain, layered manifests, placement data, and a
 nonempty database placement or user/operational table. Updater fixtures use

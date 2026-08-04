@@ -63,10 +63,23 @@ final class WorldBuilderAdaptiveRecovery {
 		}
 	}
 
-	RecoveryResult apply(Preview preview, String confirmation) throws Exception {
+	RecoveryResult apply(Preview preview, String confirmation)
+		throws IOException, WorldBuilderContractException {
 		if (preview == null) throw new IllegalArgumentException("preview");
-		return operate(preview.requestedProject, preview.requestedTarget,
-			confirmation, preview).result;
+		try {
+			return operate(preview.requestedProject, preview.requestedTarget,
+				confirmation, preview).result;
+		} catch (WorldBuilderContractException failure) {
+			throw failure;
+		} catch (IOException failure) {
+			throw failure;
+		} catch (Exception callbackFailure) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
+				"confirmation", false,
+				"Adaptive recovery was interrupted before transaction publication.",
+				"Keep the target offline and request a fresh recovery preview.",
+				callbackFailure);
+		}
 	}
 
 	private Outcome operate(Path requestedProject, Path requestedTarget,
@@ -231,14 +244,24 @@ final class WorldBuilderAdaptiveRecovery {
 				observe("recovery-action-applied-" + pad(index), destination);
 			}
 			if ("import".equals(plan.failed.transactionType())) {
+				observeContract("recovery-before-directory-cleanup",
+					plan.targetRoot, mutation);
 				mutation |= removeImportDirectories(plan);
+				observeContract("recovery-after-directory-cleanup",
+					plan.targetRoot, mutation);
 			}
 			List<WorldBuilderAdaptiveReceipt.Verification> verified =
 				verifyRecoveredBeforeState(plan);
 			if (!plan.actions.isEmpty()) {
+				observeContract("recovery-before-success-receipt",
+					project.resolve("receipts").resolve(plan.transactionId + ".json"),
+					mutation);
 				WorldBuilderAdaptiveReceipt.write(project, receipt(plan, "successful",
 					createdAt, true, true, false, verified));
 			}
+			observeContract("recovery-before-original-finalize",
+				project.resolve("receipts").resolve(
+					plan.failed.transactionId() + ".json"), mutation);
 			WorldBuilderAdaptiveReceipt.write(project,
 				WorldBuilderAdaptiveReceipt.markRolledBack(plan.failed));
 			return new RecoveryResult(plan.transactionId, "successful",
@@ -883,6 +906,23 @@ final class WorldBuilderAdaptiveRecovery {
 
 	private void observe(String milestone, Path path) throws Exception {
 		observer.observe(milestone, path);
+	}
+
+	private void observeContract(String milestone, Path path, boolean mutation)
+		throws WorldBuilderContractException {
+		try {
+			observe(milestone, path);
+		} catch (WorldBuilderContractException failure) {
+			throw failure;
+		} catch (Exception failure) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
+				path.getFileName() == null ? "target" : path.getFileName().toString(),
+				mutation,
+				"Injected or external failure interrupted adaptive recovery.",
+				mutation
+					? "Keep the target offline while recovery rollback runs."
+					: "Request a fresh recovery preview.", failure);
+		}
 	}
 
 	private static FileLock tryLock(FileChannel channel) throws IOException {
