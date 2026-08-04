@@ -18,8 +18,10 @@ content-neutral application layer.
 Updates never install a map, terrain archive, placement set, project, export,
 backup, receipt, credential, database state, log, or PID. A valid application
 contains only the generic runtime, tools, launchers, schemas, default
-definitions/rendering assets, and an empty Builder-only database seed allowed
-by the release inventory.
+definitions/rendering assets, and a Builder-only database seed with no terrain/
+placement, player/account, log, security, or generated-operational rows. Its
+only rows are reviewed migration metadata, generic recovery questions, and
+SQLite counters allowed by the release inventory.
 
 DURABLE STATE
 -------------

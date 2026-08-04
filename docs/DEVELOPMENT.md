@@ -30,8 +30,9 @@ runtime tests keep generated credentials, settings, logs, PIDs, and
 
 Phase 5 packaging fixtures must prove the exact runtime/default-catalog
 allowlist and inject renamed terrain, layered manifests, placement data, and a
-nonempty database placement table. Updater fixtures use multiple projects,
-registry/selection state, unknown paths, historical `workspace/`, and injected
+nonempty database placement or user/operational table. Updater fixtures use
+multiple projects, registry/selection state, unknown paths, historical
+`workspace/`, and injected
 installation/compatibility/rollback failures. Every durable byte is compared
 before and after. Linux and PowerShell implement the same contract; native
 PowerShell execution is run when `WORLD_BUILDER_PWSH` is available, with static

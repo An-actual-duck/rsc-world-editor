@@ -343,7 +343,10 @@ a blocklist. The managed runtime MAY include:
 
 - release-marked tools, client/server code, libraries, schemas, UI resources,
   JRE, and platform natives;
-- a fresh Builder-only database seed and configuration template;
+- a Builder-only database seed with no terrain/placement, player/account, log,
+  security, or generated-operational rows—only reviewed migration metadata,
+  generic recovery questions, and SQLite counters—plus a configuration
+  template;
 - versioned layout adapters and conversion codecs;
 - non-world rendering assets; and
 - a versioned default definition/rendering catalog needed by standalone empty

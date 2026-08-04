@@ -678,12 +678,49 @@ for path in root.rglob("*"):
 seed = root / "builder-runtime/server/inc/sqlite/world_builder_seed.db"
 try:
     connection = sqlite3.connect(f"file:{seed}?mode=ro", uri=True)
+    integrity = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+    if integrity != ["ok"]:
+        raise SystemExit(
+            "Builder database seed failed SQLite integrity_check: "
+            + "; ".join(str(item) for item in integrity)
+        )
+    table_names = [
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"
+        )
+    ]
+    table_counts = {}
+    for table in table_names:
+        quoted = '"' + table.replace('"', '""') + '"'
+        table_counts[table] = connection.execute(
+            f"SELECT COUNT(*) FROM {quoted}"
+        ).fetchone()[0]
     for table in ("grounditems", "npclocs", "objects"):
-        count = connection.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+        if table not in table_counts:
+            raise SystemExit(
+                f"Builder database seed is missing required placement table {table}"
+            )
+        count = table_counts[table]
         if count:
             raise SystemExit(
                 f"Builder database seed contains forbidden generated/static {table} state"
             )
+    # The pinned empty Builder seed intentionally carries only migration history,
+    # generic recovery-question definitions, and SQLite AUTOINCREMENT counters.
+    # Every other table is terrain/placement, player/account, log, security, or
+    # generated operational state and must be empty even when a future table is
+    # unfamiliar.
+    allowed_static_seed_tables = {
+        "db_patches", "recovery_questions", "sqlite_sequence",
+    }
+    for table, count in table_counts.items():
+        if count and table not in allowed_static_seed_tables:
+            raise SystemExit(
+                f"Builder database seed contains forbidden user/operational {table} state"
+            )
+except sqlite3.Error as error:
+    raise SystemExit(f"Builder database seed is not a valid readable SQLite database: {error}")
 finally:
     if "connection" in locals():
         connection.close()

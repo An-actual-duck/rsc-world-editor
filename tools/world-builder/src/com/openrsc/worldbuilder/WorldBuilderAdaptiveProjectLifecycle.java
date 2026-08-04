@@ -565,7 +565,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Adaptive projects directory is missing or unsafe.",
 				"Create the first project or restore the complete projects directory.");
 		}
-		try (FileChannel channel = openLock(projects.resolve(".registry.lock"))) {
+		Path registryLock = projects.resolve(".registry.lock");
+		try (FileChannel channel = updateAttachmentState
+			? openLock(registryLock) : openExistingLock(registryLock)) {
 			FileLock lock = tryLock(channel);
 			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 				PROJECTS_DIRECTORY, "Project registry is busy.",
@@ -1610,6 +1612,19 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			throw new IOException("Project registry lock path is unsafe");
 		}
 		return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+	}
+
+	private static FileChannel openExistingLock(Path path)
+		throws IOException, WorldBuilderContractException {
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				PROJECTS_DIRECTORY + "/.registry.lock",
+				"Project registry lock is missing or unsafe for read-only validation.",
+				"Restore the exact existing registry lock; validation will not create or repair it.");
+		}
+		return FileChannel.open(path, StandardOpenOption.READ,
+			StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
 	}
 
 	private static FileLock tryLock(FileChannel channel) throws IOException {

@@ -15,7 +15,8 @@ from the Spoiled Milk repository before this dedicated repository was created.
 - Replaced the bundled-world package input and broad runtime copies with an
   explicit content-neutral runtime/default-catalog allowlist. Production
   validation now rejects terrain, placements, layered packages, creator state,
-  operational state, nonempty placement seed tables, and renamed world bytes.
+  operational state, nonempty terrain/placement, player/account, log, security,
+  or generated-operational seed tables, and renamed world bytes.
 - Changed the v2 install/display identity to `World Builder 2` and the
   world-source identity to `target-adaptive-v1`, without changing the
   `rsc-world-editor-v2` product or update channel.

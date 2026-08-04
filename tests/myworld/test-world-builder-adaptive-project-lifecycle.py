@@ -731,6 +731,39 @@ public final class AdaptiveProjectSupervisorHarness {
             )
             self.assertEqual(moved_before, tree_bytes(moved_target))
 
+    def test_validate_only_refuses_missing_registry_lock_without_creating_it(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-read-only-lock-") as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(str(base))
+            installation = target / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "layered-report.json"
+            self.discover(target, report)
+            created, _ = self.create_project(
+                installation, runtime, target, report, "Read-only validation", 43812
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+
+            registry_lock = installation / "projects/.registry.lock"
+            self.assertTrue(registry_lock.is_file())
+            registry_lock.unlink()
+            installation_before = tree_bytes(installation)
+
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+            self.assertIn("registry lock is missing or unsafe", refused.stderr)
+            self.assertFalse(registry_lock.exists())
+            self.assertEqual(installation_before, tree_bytes(installation))
+
     def test_packed_conversion_is_project_local_and_preserves_target(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-") as temp:
             base = Path(temp)

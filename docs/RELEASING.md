@@ -71,7 +71,9 @@ The production packager requires and verifies:
   identity plus both source commits;
 - only files named by the checked-in runtime/default-catalog allowlist,
   repository schemas, launchers, documentation, and platform JRE;
-- one fresh Builder-only database seed whose static placement tables are empty;
+- one user/world-empty Builder-only database seed whose only nonempty tables
+  are reviewed migration metadata, generic recovery questions, and SQLite
+  counters;
 - safe, case-collision-free, link-free platform archives with an exhaustive
   `PACKAGE-MANIFEST.sha256`; and
 - archive checksums generated after final integrity verification.
@@ -82,9 +84,12 @@ forbidden. Stage validation rejects terrain archives, static boundary/scenery/
 NPC/ground-item data, active layered packages, project/registry/selection
 state, exports, backups, receipts, diagnostics, settings, credentials, logs,
 PIDs, endpoint identity, downloaded/generated state, and every database except
-the empty Builder seed. It compares staged file and nested-archive hashes with
-the pinned dependency's forbidden world sources, parses renamed structured
-payloads, checks the database content, and enforces an exact path allowlist.
+the reviewed user/world-empty Builder seed. It compares staged file and
+nested-archive hashes with the pinned dependency's forbidden world sources,
+parses renamed structured
+payloads, runs SQLite integrity validation, rejects rows in every terrain/
+placement, player/account, log, security, generated-operational, or unknown
+non-static seed table, and enforces an exact path allowlist.
 
 The external runtime still uses its provider-specific production build marker
 name. That marker is a build-integrity input, not the World Builder product,

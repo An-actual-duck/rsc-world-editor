@@ -82,6 +82,7 @@ def make_fixture(
     release_ready: bool = False,
     disguised_world: bool = False,
     seeded_placement: bool = False,
+    seeded_user_state: bool = False,
 ) -> tuple[Path, Path, Path, Path, Path]:
     standalone = base / "standalone"
     core = base / "core"
@@ -173,8 +174,24 @@ def make_fixture(
             with sqlite3.connect(path) as database:
                 for table in ("grounditems", "npclocs", "objects"):
                     database.execute(f'CREATE TABLE "{table}" (id INTEGER)')
+                database.execute(
+                    "CREATE TABLE db_patches "
+                    "(id INTEGER PRIMARY KEY AUTOINCREMENT, patch TEXT)"
+                )
+                database.execute(
+                    "INSERT INTO db_patches (patch) VALUES ('base-schema')"
+                )
+                database.execute(
+                    "CREATE TABLE recovery_questions (id INTEGER, question TEXT)"
+                )
+                database.execute(
+                    "INSERT INTO recovery_questions VALUES (1, 'generic question')"
+                )
+                database.execute("CREATE TABLE players (id INTEGER, username TEXT)")
                 if seeded_placement:
                     database.execute("INSERT INTO objects VALUES (1)")
+                if seeded_user_state:
+                    database.execute("INSERT INTO players VALUES (1, 'private-user')")
             continue
         if not path.exists():
             write(path, f"fixture {role}\n")
@@ -493,6 +510,14 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             seeded = run_packager(*fixture)
             self.assertNotEqual(0, seeded.returncode)
             self.assertIn("forbidden generated/static objects state", seeded.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-user-seed-") as temp:
+            fixture = make_fixture(
+                Path(temp), release_ready=True, seeded_user_state=True
+            )
+            seeded = run_packager(*fixture)
+            self.assertNotEqual(0, seeded.returncode)
+            self.assertIn("forbidden user/operational players state", seeded.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-path-") as temp:
             fixture = make_fixture(Path(temp), release_ready=True)
