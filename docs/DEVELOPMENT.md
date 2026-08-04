@@ -21,11 +21,22 @@ Run the complete repository test suite:
 ./scripts/test.sh
 ```
 
-Tests create temporary server layouts, UUID project registries, workspaces,
-conversion outputs, and fake isolated runtimes. They must not use an installed
-Builder, a user project, or a real private-server directory. Adaptive runtime
-tests must keep generated credentials, settings, logs, PIDs, and
+Tests create temporary server layouts, packed and layered inputs, standalone
+empty origins, UUID project registries, historical workspaces, conversion
+outputs, release archives, and fake isolated runtimes. They must not use an
+installed Builder, a user project, or a real private-server directory. Adaptive
+runtime tests keep generated credentials, settings, logs, PIDs, and
 `server/ipbans.txt` inside their temporary project fixture.
+
+Phase 5 packaging fixtures must prove the exact runtime/default-catalog
+allowlist and inject renamed terrain, layered manifests, placement data, and a
+nonempty database placement or user/operational table. Updater fixtures use
+multiple projects, registry/selection state, unknown paths, historical
+`workspace/`, and injected
+installation/compatibility/rollback failures. Every durable byte is compared
+before and after. Linux and PowerShell implement the same contract; native
+PowerShell execution is run when `WORLD_BUILDER_PWSH` is available, with static
+contract coverage always required.
 
 ## Core-Framework dependency
 

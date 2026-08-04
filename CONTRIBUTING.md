@@ -17,7 +17,9 @@ Before opening a change:
 6. Preserve the frozen v1 and active v2 product identities; do not create an
    automatic updater or workspace migration between them.
 
-Reports should include the World Builder version, operating system, whether
-the legacy or OpenGL renderer was used, exact reproduction steps, and the
-relevant `workspace/logs` excerpts. Remove credentials, private server
-addresses, and unrelated player data before attaching files.
+Reports should include the World Builder version, operating system, selected
+project UUID and origin, whether the legacy or OpenGL renderer was used, exact
+reproduction steps, and relevant `projects/<project-uuid>/logs/` excerpts.
+For a historical pre-adaptive install, identify it explicitly and use
+`workspace/logs/`. Remove credentials, private server addresses, target paths,
+and unrelated player data before attaching files.

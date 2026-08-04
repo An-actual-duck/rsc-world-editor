@@ -4,8 +4,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phases 0-3 are implemented in this repository; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
-| Product/release readiness | NOT READY; Phase 4 owner validation, content-neutral packaging/identity Phase 5, and generic export/import Phase 6 remain gated |
+| Status | Phases 0-3 and repository-owned Phase 5 are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
+| Product/release readiness | NOT READY; Phase 4 owner validation and generic export/import Phase 6 remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -343,7 +343,10 @@ a blocklist. The managed runtime MAY include:
 
 - release-marked tools, client/server code, libraries, schemas, UI resources,
   JRE, and platform natives;
-- a fresh Builder-only database seed and configuration template;
+- a Builder-only database seed with no terrain/placement, player/account, log,
+  security, or generated-operational rows—only reviewed migration metadata,
+  generic recovery questions, and SQLite counters—plus a configuration
+  template;
 - versioned layout adapters and conversion codecs;
 - non-world rendering assets; and
 - a versioned default definition/rendering catalog needed by standalone empty
@@ -1010,9 +1013,9 @@ config/package.
 The native runtime part of this phase is intentionally fail-closed. The
 project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
 confinement are tested with temporary runtime processes for all three origins,
-but `run-adaptive-project` returns `LOADER_INCOMPATIBLE` before starting real
-processes until the separately owned Phase 4 generic-loader and void-authoring
-capability is published and pinned. Generic export is Phase 6 work.
+but `run-adaptive-project` remains fail-closed before starting real processes
+until owner-native validation accepts the already published and pinned Phase 4
+generic-loader/authoring capability. Generic export is Phase 6 work.
 
 Repository implementation readiness and product readiness are separate gates.
 The Phase 3 repository gate is satisfied by the published merge above, but that
@@ -1038,8 +1041,9 @@ import/undo fail before target access.
 
 Product/release gate, which remains closed: all three origins launch and edit
 with the real compatible runtime, then save, reopen, and export in isolation.
-This requires Phase 4 and Phase 6. Phase 5 content-neutral packaging and all
-later release validation gates also remain mandatory.
+This requires Phase 4 owner validation and Phase 6. Phase 5 content-neutral
+packaging is implemented; its release tests and all later candidate validation
+gates remain mandatory.
 
 ### Phase 4 — required external runtime capability
 
@@ -1081,6 +1085,20 @@ remains required before the Phase 4 product gate is considered complete.
 Gate: no world or creator data ships; production marker, locked clean
 dependency, natives, provenance, archive safety, project independence, update
 channel, rollback, and Linux/PowerShell equivalence all still pass.
+
+Implementation record: the v2 package/install identity is `World Builder 2`
+with world-source identity `target-adaptive-v1`; product/update channel remains
+`rsc-world-editor-v2`. The packager has no layered-package input or generator.
+It copies only a checked-in runtime/default-catalog allowlist, repository
+schemas, launchers, documentation, and verified platform JREs, and rejects
+forbidden world hashes, renamed structured packages/placements, nonempty seed
+placement tables, creator/operational state, unsafe paths, and inventory drift.
+Linux and PowerShell updaters preserve adaptive projects, registry/selection,
+historical workspace, all creator/recovery paths, and unknown files through
+success and rollback; the Phase 3 selected-project compatibility check can
+roll back only the managed application. A historical-only pre-adaptive install
+is preserved and refused with side-by-side installation guidance. The adaptive
+`RELEASE-READY` marker remains deliberately absent.
 
 ### Phase 6 — generic export, install, recovery, and undo
 

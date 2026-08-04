@@ -42,9 +42,9 @@ public final class WorldBuilderProcessSupervisor {
 	}
 
 	/**
-	 * Refuses native adaptive launch until the separately owned Phase 4 runtime
-	 * capability is pinned. Validation happens first so corrupt projects never
-	 * get reported as a mere missing-runtime dependency.
+	 * Keeps native adaptive launch fail-closed until owner validation accepts the
+	 * already-pinned Phase 4 runtime. Validation happens first so corrupt projects
+	 * never get reported as a release-validation gate.
 	 */
 	public int runAdaptiveProject(Path requestedProject)
 		throws IOException, WorldBuilderContractException, InterruptedException {
@@ -56,10 +56,11 @@ public final class WorldBuilderProcessSupervisor {
 			"adaptive-project-supervision",
 			"working/runtime/runtime.json",
 			false,
-			"The pinned Builder runtime does not yet advertise generic layered "
-				+ "loading and authoring for adaptive project " + project.projectId + ".",
-			"Complete the separately reviewed Phase 4 runtime capability, publish it, "
-				+ "then advance the pinned dependency through an authorized manager task.");
+			"The pinned Builder runtime advertises the generic Phase 4 capability, but "
+				+ "owner-native validation has not yet accepted adaptive project "
+				+ project.projectId + " for release launch.",
+			"Complete and record owner-run adopted and standalone visual/edit/save/reopen "
+				+ "validation before opening the native release-launch gate.");
 	}
 
 	int superviseAdaptiveWithCommands(Path requestedProject,

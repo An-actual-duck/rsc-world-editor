@@ -2,42 +2,41 @@
 
 The packed-map v1 line is frozen at standalone release `v1.1.0`. Its existing
 `release/world-builder/` assets and `scripts/package-release.sh` remain for
-provenance, reproduction, and deliberate maintenance analysis; they are not an
-active release channel.
+provenance and reproduction and are not changed by v2 work.
 
-World Builder 2 is the active development generation. It has a distinct
-product/update identity (`rsc-world-editor-v2`), install folder, signed-layered
-workspace, and `release/world-builder-v2/` package assets. Public v2 alpha
-packaging is enabled after the real-archive validation and owner acceptance
-recorded in
-[`docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`](releases/world-builder-v2-v0.1.0-alpha.1-validation.md).
-The dedicated packager and workspace-preserving v2 updater remain separate
-from the frozen v1 channel.
+World Builder 2 is the active development generation. It has product/update
+identity `rsc-world-editor-v2`, install/display name `World Builder 2`,
+world-source identity `target-adaptive-v1`, and package assets under
+`release/world-builder-v2/`. The historical pre-adaptive alpha validation in
+[`world-builder-v2-v0.1.0-alpha.1-validation.md`](releases/world-builder-v2-v0.1.0-alpha.1-validation.md)
+remains unchanged historical evidence; it does not approve the adaptive
+package design.
 
-## Release readiness
+## Release gate
 
-Repository-level readiness can still be audited:
+Repository readiness is audited with:
 
 ```bash
 ./scripts/ai-manager.sh release-check
 ./scripts/test.sh
 ```
 
-Source parity is not a World Builder 2 packaging prerequisite. This repository
-owns `tools/world-builder/` and `release/world-builder-v2/`; those paths are
-never copied from the runtime provider. `check-core-parity.sh` now verifies the
-exact pinned commit/ref, adaptive capability, required runtime surfaces, and
-protocol compatibility. `sync-from-core-framework.sh` performs only an
-explicitly authorized lock/protocol adoption. The packager still requires the
-dependency checkout itself to be clean and at the exact commit named by
-`core-framework.lock`.
+`./scripts/ai-manager.sh release` delegates to the v2 packager only when
+`release/world-builder-v2/RELEASE-READY` contains a deliberately accepted
+candidate record. That marker is currently absent. Phase 4 owner-native
+validation and Phase 6 generic export/import still block adaptive release
+readiness; completing Phase 5 does not reopen the gate.
 
-`./scripts/ai-manager.sh release` applies the manager release check and then
-delegates to the v2 packager. It remains fail-closed if
-`release/world-builder-v2/RELEASE-READY` is absent. Removing or changing that
-marker requires a deliberate release-readiness review.
+The dependency checkout used for packaging must already be clean and at the
+exact commit in `core-framework.lock`. Packaging never checks for a newer
+provider commit and never manages the provider's branches or workers. An
+explicit dependency-update task uses `check-core-parity.sh` to verify the
+published ref, capability document, runtime surfaces, and protocol.
 
-The v2 packager is:
+## Production command
+
+Prepare the exact pinned LWJGL inputs and then run from clean, already-published
+manager `main`:
 
 ```bash
 LWJGL_VERSION=3.3.4 \
@@ -46,73 +45,101 @@ LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows' \
   /path/to/clean-pinned-core-framework/scripts/download-lwjgl.sh
 
 ./scripts/ai-manager.sh release \
-  --version v0.1.0-alpha.1 \
+  --version v0.2.0-alpha.1 \
   --core-framework /path/to/clean-pinned-core-framework \
   --linux-jre /path/to/temurin-17-linux-x64-jre \
   --windows-jre /path/to/temurin-17-windows-x64-jre \
   --assets-cleared
 ```
 
-Production packaging remains locked without the acceptance marker. Its restricted
-`--skip-build` path requires
-`SPOILED_MILK_WORLD_BUILDER_V2_RELEASE_TEST_MODE=1` and exists only for
-deterministic temporary-fixture tests; it is not release authorization.
+The restricted `--skip-build` fixture path requires
+`WORLD_BUILDER_V2_RELEASE_TEST_MODE=1`. It cannot bypass clean published main,
+the exact clean dependency, provenance, runtime, identity, archive, or
+no-world validation, and is never release authorization.
 
-The packager requires:
+## Packager requirements
 
-- clean, already-published `main` in this repository;
-- a clean checkout at the exact commit in `core-framework.lock`;
-- Linux and Windows JRE 17+ inputs;
-- the pinned LWJGL 3.3.4 base jars and both Linux-x64 and Windows-x64 native
-  classifiers prepared by the exact command above;
-- confirmed redistribution terms for every packaged asset;
-- a reviewed signed-layered package;
-- exact v2 product/update identity, v2-prefixed tag/archive names, and
-  self-only update eligibility;
-- provenance containing both repository commits; and
-- archives containing no workspace, credentials, databases, logs, backups,
-  receipts, generated endpoints, ignored `server/ipbans.txt`, or other user
-  state.
+The production packager requires and verifies:
 
-Production packaging always invokes the pinned client build with
-`SPOILED_MILK_RELEASE_BUILD=1` and then requires the client jar to contain the
-exact `spoiled-milk-release-build.marker` value. Missing, invalid, or extra
-LWJGL input jars fail before the build and print the cleanup guidance and
-reproducible preparation command; missing native entries or a missing release
-marker fail before staging.
+- clean published World Editor `main` and a clean exact pinned dependency;
+- Linux and Windows JRE 17+ inputs with contained links and legal notices;
+- the exact LWJGL 3.3.4 base/native set for Linux x64 and Windows x64;
+- confirmed redistribution terms and complete asset provenance;
+- the release-marked production client and required generic Phase 4
+  client/server/tool classes;
+- exact `rsc-world-editor-v2`, `World Builder 2`, and `target-adaptive-v1`
+  identity plus both source commits;
+- only files named by the checked-in runtime/default-catalog allowlist,
+  repository schemas, launchers, documentation, and platform JRE;
+- one user/world-empty Builder-only database seed whose only nonempty tables
+  are reviewed migration metadata, generic recovery questions, and SQLite
+  counters;
+- safe, case-collision-free, link-free platform archives with an exhaustive
+  `PACKAGE-MANIFEST.sha256`; and
+- archive checksums generated after final integrity verification.
 
-Each archive also contains an exhaustive `PACKAGE-MANIFEST.sha256` used by the
-v2 updater. The updater requires exact canonical identity before network use,
-queries the published releases collection rather than the repository-global
-latest release, includes prereleases, ignores drafts, v1 and malformed tags,
-selects the newest supported v2 semantic version, and refuses downgrades. It
-then validates the archive and complete extracted inventory, preserves
-`workspace/` and unknown unmanaged files, replaces only the installed
-manifest's managed layer, and restores it after an injected installation
-failure. Linux executes this transaction in automated tests; the native
-PowerShell success, prerelease selection, downgrade, and injected-rollback
-transactions are also exercised when `WORLD_BUILDER_PWSH` names a PowerShell
-runtime. Those tests can run cross-platform. Native Windows execution remains
-a release-validation expectation; the first alpha's explicitly accepted
-limitation is recorded in its validation record.
+There is no layered-package input or world generator. Broad recursive copies
+from client cache, server configuration, or server database trees are
+forbidden. Stage validation rejects terrain archives, static boundary/scenery/
+NPC/ground-item data, active layered packages, project/registry/selection
+state, exports, backups, receipts, diagnostics, settings, credentials, logs,
+PIDs, endpoint identity, downloaded/generated state, and every database except
+the reviewed user/world-empty Builder seed. It compares staged file and
+nested-archive hashes with the pinned dependency's forbidden world sources,
+parses renamed structured
+payloads, runs SQLite integrity validation, rejects rows in every terrain/
+placement, player/account, log, security, generated-operational, or unknown
+non-static seed table, and enforces an exact path allowlist.
 
-Before publishing, build from clean published manager `main` and the exact
-clean pinned Core revision with redistribution-ready JREs, then:
+The external runtime still uses its provider-specific production build marker
+name. That marker is a build-integrity input, not the World Builder product,
+install, world, or update identity.
 
-1. Verify both archives and `SHA256SUMS.txt` from outside either source tree.
-2. Exercise first launch, reopen, and isolated layered authoring on Linux x64
-   and Windows x64 without Git, Ant, source code, or a system JDK.
-3. Verify save/export/import/undo against a disposable compatible private
-   server that is offline during import and undo.
-4. Exercise a real v2-to-v2 update on both platforms and confirm the complete
-   workspace survives byte-for-byte.
-5. Inject or simulate an installation failure on both platforms and verify the
-   prior application plus workspace are restored and usable.
-6. Confirm a frozen v1 install cannot discover the v2 tag and a v2 install
-   refuses v1, malformed, wrong-identity, downgrade, and legacy-workspace
-   inputs.
-7. Record owner visual acceptance, remaining limitations, exact artifact
-   hashes, runtime sources, commands, and results before opening the gate.
+## Update validation
 
-Publishing a World Editor release does not authorize changing or restarting a
-public Spoiled Milk server.
+Each platform updater must demonstrate the same behavior:
+
+- exact adaptive identity/channel selection with no v1, draft, malformed,
+  duplicate, equal-version, or downgrade selection;
+- safe archive, exhaustive manifest, required-file, checksum, provenance, and
+  exact application-allowlist validation;
+- refusal to own or replace `projects/`, registry/selection, historical
+  `workspace/`, exports, backups, receipts, diagnostics, logs, settings,
+  recovery state, or unknown files;
+- byte-for-byte preservation of multiple projects and every durable path on
+  success and injected rollback;
+- rollback of only the managed application when the Phase 3 `open-project`
+  compatibility check rejects the selected project; and
+- explicit refusal of a historical-only pre-adaptive install, with no implicit
+  relabelling or workspace migration.
+
+The compatibility check validates what the current project lifecycle exposes;
+it does not export, import, alter, rebase, or migrate a project. Those mutation
+transactions remain Phase 6.
+
+## Final candidate validation
+
+Before adding a new adaptive `RELEASE-READY` record:
+
+1. Run `git diff --check`, focused release/updater/product suites, and the full
+   repository suite using the exact clean pinned dependency.
+2. Inspect both archives and manifests from outside either source tree. Confirm
+   the only root is `World Builder 2/` and search content as well as names for
+   world or creator payloads.
+3. Exercise target-layered adoption, packed conversion, and standalone empty
+   creation without Git, Ant, source code, or a system JDK. Confirm the target
+   remains byte-identical.
+4. Ask the owner to perform the native software/OpenGL visual, edit, save,
+   close, and reopen checks for adopted and standalone-empty projects. AI
+   sessions do not capture or judge screenshots.
+5. Run Linux and PowerShell update success, incompatibility, installation
+   failure, and rollback fixtures. Perform the available native platform smoke
+   check and record any reviewed launcher-only platform limitation explicitly.
+6. Complete and validate Phase 6 generic export/import/undo against disposable
+   offline compatible targets before testing or claiming target mutation.
+7. Record the exact source commits, commands, artifact hashes, compatibility
+   matrix, owner report, remaining limitations, and accepted candidate commit
+   in a new adaptive validation record.
+
+Publishing a World Editor release does not authorize changing, deploying, or
+restarting any public game server.

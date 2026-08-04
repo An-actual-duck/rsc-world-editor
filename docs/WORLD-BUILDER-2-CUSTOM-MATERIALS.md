@@ -19,8 +19,9 @@ implement one bounded phase without rediscovering product decisions.
 
 Its implementation MUST use the adaptive plan's project UUIDs, target or
 standalone origins, capability identities, and current export/import contracts.
-The older single-`workspace/` paths and proposed schema numbers in this document
-are descriptive history until that foundation is complete.
+All paths in this document are relative to `projects/<uuid>/`, and every new
+material-bearing schema MUST extend the current adaptive schema generation
+instead of reusing an existing number.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative.
 
@@ -34,21 +35,23 @@ Before working on any phase:
    `core-framework.lock`. Do not develop in it, modify it, fetch in it, or use
    it as a source worktree.
 4. Do not advance `core-framework.lock` unless the manager explicitly assigns
-   an exact published Spoiled Milk commit in a separate dependency-update task.
+   an exact published runtime-provider commit in a separate dependency-update
+   task.
 5. Do not change `release/world-builder/`, the v1 updater, v1 identities, or v1
    schemas. World Builder 2 materials MUST NOT cross-update or migrate v1.
 6. Preserve the source snapshot, offline-target, exact preview and
    confirmation, backup, receipt, verification, partial-failure rollback,
    changed-after-import, and no-force contracts.
 7. Use temporary fixtures for every test. Never use or replace a real user
-   workspace, server, client, export, backup, receipt, or material pack.
+   project, server, client, export, backup, receipt, or material pack.
 8. Add a new schema version instead of changing the meaning of a released
    schema. Parsers MUST reject unknown keys and unsupported versions.
 9. Checkpoint meaningful progress. Do not open a release gate, tag, publish,
    merge, or call a feature READY until that phase's acceptance criteria pass.
 
 Runtime support cannot be completed solely in this repository. Client,
-server, protocol, and in-game editor changes MUST land in Spoiled Milk first.
+server, protocol, and in-game editor changes MUST land in the external runtime
+provider first.
 Only a later, explicitly authorized manager task may select that exact commit
 and advance the lock. Editing `.core-framework/` is never a substitute.
 
@@ -123,22 +126,26 @@ directory. Do not rebuild or patch `Custom_Sprites.osar`.
 
 The base client definition table, server definition table, texture catalog,
 and capability descriptor MUST agree before authoring, launch, export, or
-import. The current discovery fingerprint is not sufficient by itself: it
-tracks `TileDef.xml` but does not fully bind `DoorDef.xml`, the base client
-texture catalog, and the new material capability.
+import. Existing adaptive project definition/runtime identity remains
+necessary but is not sufficient for materials: the material extension MUST add
+one base-catalog fingerprint that explicitly binds `TileDef.xml`, `DoorDef.xml`,
+the client texture catalog, and the new material capability.
 
-### Editor, workspace, and import
+### Editor, project, and import
 
 - The current editor exposes numeric floor controls and named wall-definition
   controls without a unified material thumbnail browser.
-- A workspace has an immutable-by-contract `source/` snapshot and a mutable
-  `working/` runtime. Custom material state belongs in the project and MUST NOT
-  be added to the packaged application's replaceable files.
+- Each `projects/<uuid>/project.json` binds an origin, adapter/capability and
+  definition/runtime identity. Its `source/` snapshot is immutable by contract
+  and its `working/` package is mutable. Custom material state belongs in that
+  UUID project and MUST NOT be added to the packaged application's replaceable
+  files.
 - The native signed-layered package schema has a strict inventory for terrain
   and placements. Arbitrary PNG files MUST NOT be inserted into that package.
-- Existing layered export/import moves the complete authored package and uses
-  fail-closed transactional import and undo. Materials must extend those
-  transactions through a new versioned companion bundle.
+- The current adaptive schemas describe complete layered export, compiled
+  target mutation, and transactional receipts; Phase 6 must finish that
+  material-free implementation before materials extend it through a new
+  versioned companion bundle.
 - A World Builder release archive MUST NOT contain any user's inbox, normalized
   images, material manifest, export, backup, or receipt.
 
@@ -146,19 +153,25 @@ texture catalog, and the new material capability.
 
 ### Folder convention
 
-Each World Builder 2 workspace contains these durable creator-owned paths:
+Each World Builder 2 project contains these durable creator-owned paths:
 
 ```text
-workspace/
-  material-inbox/
-    floors/
-    walls/
-  material-ingest-receipts/
-  working/
-    world-builder-materials/
-      manifest.json
-      images/
-        <lowercase-sha256>.png
+World Builder 2/
+  projects/
+    <uuid>/
+      project.json
+      material-inbox/
+        floors/
+        walls/
+      material-ingest-receipts/
+      source/
+        snapshot-manifest.json       # inventories the source pack or absence
+        original/                    # verified target material evidence
+      working/
+        world-builder-materials/
+          manifest.json
+          images/
+            <lowercase-sha256>.png
 ```
 
 `floors/` and `walls/` are input hints, not separate image formats. In the
@@ -317,8 +330,8 @@ duplicate/case-folded paths, unknown files, unknown presets, inconsistent
 hashes, and inconsistent ID references.
 
 The pack fingerprint is a domain-separated SHA-256 over the canonical manifest
-content and every inventoried canonical image. No workspace path, timestamp,
-host name, or platform separator participates.
+content and every inventoried canonical image. No project path, display target
+locator, timestamp, host name, or platform separator participates.
 
 ### Stable automatic ID allocation
 
@@ -336,8 +349,9 @@ The allocator MUST NOT hardcode `67`, `26`, `214`, `250`, or a presumed free
 range. Those values describe the reviewed base only.
 
 For a new asset, allocate the lowest usable texture ID that is neither reserved
-by the capability nor present or tombstoned in the source/working pack. For a
-new preset use, do the same in the matching definition-ID space. Persist the
+by the capability nor present or tombstoned in the source material state or
+working pack. For a new preset use, do the same in the matching definition-ID
+space. Persist the
 allocation before any map can reference it. IDs never change because of file
 renames, sorting, restart, export, import, or undo, and retired IDs are never
 reused.
@@ -355,11 +369,12 @@ Discovery must distinguish:
 - the optional active target material pack that forms part of the project's
   source state.
 
-If the target already has an active valid pack, workspace preparation copies
-it into both the immutable source snapshot and the mutable working material
-directory. If no pack exists, the snapshot records its exact absence and the
-working directory starts with a new empty pack. No file is taken from an
-unverified player installation.
+If the target already has an active valid pack, adaptive project creation
+copies its exact evidence into `source/original/`, inventories it in
+`source/snapshot-manifest.json`, and initializes the mutable working material
+directory from it. If no pack exists, the snapshot records its exact absence
+and the working directory starts with a new empty pack. No file is taken from
+an unverified player installation.
 
 Every launch, export, import, and undo revalidates the immutable source
 inventory and the full working pack. Import also rediscovers the target base
@@ -408,35 +423,37 @@ already allocated definition ID through the existing authoritative editor
 protocol. The server remains authoritative and rejects undefined IDs or preset
 catalog disagreement.
 
-## Workspace, export, import, and undo
+## Project, export, import, and undo
 
-### Workspace rules
+### Project rules
 
-- `source/` remains immutable and fully inventoried, including the initial
-  material pack or its absence.
+- `source/snapshot-manifest.json` remains immutable and fully inventories the
+  initial material pack or its exact absence, alongside the project's origin,
+  capability, definition/runtime, and layered-baseline lineage.
 - `working/world-builder-materials/` is the only authored canonical material
   state consumed by the isolated runtime.
 - Inbox files and ingest receipts are durable convenience state but are not
   part of the runtime pack or an export.
 - All updates use same-filesystem staging, exact reopen verification, and an
   atomic move where supported, with safe fallback and rollback.
-- Launch and material review share the workspace lock. A pending terrain
+- Launch and material review share the UUID project's lock. A pending terrain
   journal or active process blocks material mutation.
 
 ### Export format
 
-Do not add PNGs to the native signed-layered package. Add
-`export-manifest-v2.schema.json` for material-bearing layered exports. Keep
-schema v1 parsing and output unchanged for material-free projects.
+Do not add PNGs to the native signed-layered package. The current adaptive
+`export-manifest-v2.schema.json` already defines material-free complete layered
+exports and MUST retain its meaning. Add `export-manifest-v3.schema.json` for
+material-bearing adaptive exports while preserving historical v1 and current
+adaptive v2 parsing.
 
 A v2 export contains:
 
 ```text
 manifest.json
-CHANGE-SUMMARY.txt
-authored/layered-world/package/...
-authored/world-builder-materials/manifest.json
-authored/world-builder-materials/images/<sha256>.png
+package/...
+materials/manifest.json
+materials/images/<sha256>.png
 ```
 
 The v2 manifest retains all v1 layered provenance and inventories, then adds
@@ -447,15 +464,18 @@ export carries the complete working material pack, including currently unused
 or tombstoned definitions, so the project remains portable and old terrain
 always resolves.
 
-Existing v2 software that supports only export schema v1 must reject schema v2
-as unsupported without changing a target. It must not ignore the companion
-bundle.
+Existing adaptive software that supports only export schema v2 must reject
+schema v3 as unsupported without changing a target. It must not ignore the
+companion bundle.
 
 ### Import preview and apply
 
-Import remains a single transaction covering the complete layered package,
-the selected target configuration, the server material directory, and the
-client material directory. The preview MUST include:
+The material-bearing importer MUST emit a new
+`target-mutation-plan-v2.schema.json`; it MUST NOT expand or reinterpret the
+current material-free `target-mutation-plan-v1`. Import remains a single
+transaction covering the complete layered package, the selected target
+configuration, the server material directory, and the client material
+directory. The preview MUST include:
 
 - exact target root and offline proof;
 - source revision and base catalog/capability fingerprints;
@@ -476,14 +496,15 @@ reopens all destinations, and only then marks the receipt successful.
 
 An injected failure after any write restores every old byte and prior absence,
 including both active descriptors and any newly introduced pack directory.
-The target and workspace must match their pre-apply hashes after rollback.
+The target and UUID project must match their pre-apply hashes after rollback.
 There is no partial material-only success and no force option.
 
 ### Undo
 
-Add `import-receipt-v2.schema.json` for the expanded destination inventory;
-never reinterpret receipt v1. Undo preview still requires the exact
-confirmation `UNDO` to apply.
+The current adaptive receipt is `import-receipt-v3.schema.json`. Add
+`import-receipt-v4.schema.json` for the expanded material destination
+inventory; never reinterpret historical receipt v1 or current adaptive receipt
+v3. Undo preview still requires the exact confirmation `UNDO` to apply.
 
 Undo first verifies that every installed layered, configuration, server-pack,
 and client-pack path still matches the successful import receipt. If any path
@@ -496,16 +517,18 @@ failure restores the complete post-import state.
 
 - Frozen v1 files, identity, updater, archives, and workflows do not change.
 - A material-capable World Builder 2 release opens an existing material-free
-  v2 workspace and emits the existing schema-v1 export when no materials are
-  present.
+  adaptive UUID project and emits the existing adaptive schema-v2 export when
+  no materials are present.
 - A material-free target continues to run without `active.json` or a material
   directory.
-- Old v2 importers reject material-bearing schema v2 before mutation.
-- New v2 importers continue to validate and import schema-v1 exports exactly as
-  before.
+- Current adaptive importers reject material-bearing schema v3 before
+  mutation.
+- New material-capable importers continue to validate and import adaptive
+  schema-v2 exports exactly as before.
 - Material-bearing exports require the exact material runtime capability and
   matching base catalog. They are never downgraded, stripped, or remapped.
-- The updater preserves all workspace material directories as durable state.
+- The updater preserves every UUID project's material directories as durable
+  state.
 - Packaging never seeds a user material pack into a release archive.
 
 ## File-level implementation plan
@@ -530,7 +553,7 @@ Tests MUST validate strict keys, safe paths, exact inventories, ID uniqueness,
 preset tokens, fingerprints, malformed input, and cross-platform golden image
 output. Stop here if client/server owners cannot accept the contract.
 
-### Phase 1: Implement the runtime contract in Spoiled Milk
+### Phase 1: Implement the external runtime contract
 
 This is a separate upstream task, never work inside `.core-framework/`.
 Likely integration points must be confirmed in the exact upstream checkout:
@@ -562,7 +585,7 @@ before any lock update is considered.
 
 Manager-only, separately authorized work:
 
-- select the exact published Spoiled Milk commit;
+- select the exact published runtime-provider commit;
 - advance `core-framework.lock` to only that commit;
 - materialize a clean detached dependency checkout;
 - verify required client/server capability artifacts and matching fingerprints;
@@ -594,17 +617,19 @@ preview data, confirmation, cancel, deduplication, slug collision, replacement,
 tombstones, capacity, unsafe files, injected write failure, and exact no-change
 recovery.
 
-### Phase 4: Integrate discovery, workspace preparation, and launch
+### Phase 4: Integrate discovery, adaptive project creation, and launch
 
 Update:
 
 - `WorldBuilderDiscovery.java` and `WorldBuilderDiscoveryResult.java` to bind
   both definition catalogs, the client base texture catalog, runtime
   capabilities, and the optional active target pack;
-- `WorldBuilderRuntimePreparer.java` to create the inbox/receipt paths and copy
-  a verified source material pack into source and working state;
-- `WorldBuilderSourceSnapshot.java` and `WorldBuilderProjectSource.java` to
-  inventory the pack or exact absence without weakening source protection;
+- `WorldBuilderAdaptiveProjectLifecycle.java` to create project-relative
+  inbox/receipt paths and copy a verified source material pack into immutable
+  source evidence and mutable working state;
+- the adaptive source-snapshot and project-manifest models to bind the pack or
+  exact absence to project UUID, origin, capability, definition/runtime, and
+  layered-baseline identity without weakening source protection;
 - `WorldBuilderProcessSupervisor.java` to lock, review, verify, and then launch;
   and
 - `WorldBuilderConfigWriter.java` only if the upstream optional-pack loader
@@ -621,9 +646,11 @@ target bytes unchanged.
 
 Add:
 
-- `tools/world-builder/schema/export-manifest-v2.schema.json`;
-- `tools/world-builder/schema/import-receipt-v2.schema.json`; and
-- strict v2 models without modifying the meaning of v1 models.
+- `tools/world-builder/schema/export-manifest-v3.schema.json`;
+- `tools/world-builder/schema/target-mutation-plan-v2.schema.json`;
+- `tools/world-builder/schema/import-receipt-v4.schema.json`; and
+- strict material-bearing models without modifying adaptive export v2,
+  mutation-plan v1, adaptive receipt v3, or historical v1 meanings.
 
 Update:
 
@@ -639,10 +666,10 @@ Update:
 
 Extend `test-world-builder-export.py` and
 `test-world-builder-import.py`. Cover material-only export, mixed export,
-schema-v1 compatibility, exact previews, apply, undo, source/workspace/target
-preservation, client/server parity, changed-after-import refusal, and injected
-failure after each meaningful write boundary. Include Windows-invalid
-character and case-folded path fixtures.
+adaptive schema-v2 and historical schema-v1 compatibility, exact previews,
+apply, undo, source/project/target preservation, client/server parity,
+changed-after-import refusal, and injected failure after each meaningful write
+boundary. Include Windows-invalid character and case-folded path fixtures.
 
 ### Phase 6: Package validation and operator documentation
 
@@ -659,9 +686,9 @@ Update only v2-owned paths:
 
 Extend `test-world-builder-v2-release.py` and
 `test-world-builder-product-generations.py`. Prove the archive contains the
-capability but no workspace/inbox/custom image, the dependency is the exact
-clean lock, v1 is byte-for-byte outside the change, and player-distribution
-wording is present.
+capability but no project/inbox/custom image, the dependency is the exact clean
+lock, v1 is byte-for-byte outside the change, and player-distribution wording
+is present.
 
 This phase does not authorize opening `RELEASE-READY`, tagging, publishing, or
 uploading an archive.
@@ -684,7 +711,7 @@ Manual release-candidate verification MUST cover:
 - exact preview/render appearance in software and OpenGL modes;
 - save, close, reopen, export, dry-run import, `IMPORT`, dry-run undo, and
   `UNDO`;
-- a material-free existing v2 workspace and export;
+- a material-free existing adaptive UUID project and export;
 - matching player login plus missing, old, and mismatched client refusal; and
 - distribution of the documented client directory into a clean compatible
   player installation.
@@ -753,7 +780,7 @@ Every phase handoff must report:
 - manual platforms/renderers exercised;
 - untested behavior and why;
 - schema/capability versions and fixture hashes affected;
-- confirmation that v1, live checkouts, user workspaces, release gates, tags,
+- confirmation that v1, live checkouts, user projects, release gates, tags,
   published assets, and unrelated tasks were untouched;
 - known risks or follow-up phases; and
 - `READY` only for the bounded phase whose criteria passed, never for the

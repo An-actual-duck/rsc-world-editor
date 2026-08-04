@@ -8,6 +8,7 @@ import io
 import json
 import os
 import shutil
+import sqlite3
 import stat
 import subprocess
 import tempfile
@@ -20,8 +21,9 @@ SOURCE_ROOT = Path(__file__).resolve().parents[2]
 PACKAGER = SOURCE_ROOT / "scripts/package-world-builder-v2-release.sh"
 VERSION = "v0.1.0-alpha.1"
 VERSION_NUMBER = VERSION.removeprefix("v")
-PACKAGE_ROOT = "Spoiled Milk World Builder 2"
+PACKAGE_ROOT = "World Builder 2"
 PRODUCT_ID = "rsc-world-editor-v2"
+WORLD_SOURCE_IDENTITY = "target-adaptive-v1"
 RELEASE_MARKER_ENTRY = "spoiled-milk-release-build.marker"
 LWJGL_VERSION = "3.3.4"
 NATIVE_ENTRIES = (
@@ -78,6 +80,9 @@ def make_fixture(
     linux_os: str = "Linux",
     production_build: bool = False,
     release_ready: bool = False,
+    disguised_world: bool = False,
+    seeded_placement: bool = False,
+    seeded_user_state: bool = False,
 ) -> tuple[Path, Path, Path, Path, Path]:
     standalone = base / "standalone"
     core = base / "core"
@@ -153,6 +158,47 @@ def make_fixture(
         else "All editor icons | Pending confirmation | not release-ready\n"
     )
     write(core / "dev/myworld/assets/ui/world-editor/CREDITS.md", credits)
+
+    allowlist = (
+        standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+    ).read_text(encoding="utf-8")
+    for raw in allowlist.splitlines():
+        if not raw or raw.startswith("#"):
+            continue
+        source, _, role = raw.split("\t")
+        path = core / source
+        if role == "builder-database-seed":
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.exists():
+                path.unlink()
+            with sqlite3.connect(path) as database:
+                for table in ("grounditems", "npclocs", "objects"):
+                    database.execute(f'CREATE TABLE "{table}" (id INTEGER)')
+                database.execute(
+                    "CREATE TABLE db_patches "
+                    "(id INTEGER PRIMARY KEY AUTOINCREMENT, patch TEXT)"
+                )
+                database.execute(
+                    "INSERT INTO db_patches (patch) VALUES ('base-schema')"
+                )
+                database.execute(
+                    "CREATE TABLE recovery_questions (id INTEGER, question TEXT)"
+                )
+                database.execute(
+                    "INSERT INTO recovery_questions VALUES (1, 'generic question')"
+                )
+                database.execute("CREATE TABLE players (id INTEGER, username TEXT)")
+                if seeded_placement:
+                    database.execute("INSERT INTO objects VALUES (1)")
+                if seeded_user_state:
+                    database.execute("INSERT INTO players VALUES (1, 'private-user')")
+            continue
+        if not path.exists():
+            write(path, f"fixture {role}\n")
+    if disguised_world:
+        (core / "Client_Base/Cache/video/library.orsc").write_bytes(
+            (core / "Client_Base/Cache/video/Custom_Landscape.orsc").read_bytes()
+        )
     write(
         core / ".gitignore",
         "/output/\n"
@@ -197,15 +243,6 @@ def make_fixture(
         )
         write(core / "scripts/download-lwjgl.sh", "#!/usr/bin/env bash\nexit 0\n")
         write(
-            core / "scripts/lib/layered-world-package.sh",
-            "layered_world_require_promotion_approved() { return 0; }\n"
-            "layered_world_validate_package() { return 0; }\n",
-        )
-        write(
-            core / "tools/layered-maps/layered-maps.sh",
-            "#!/usr/bin/env bash\nexit 0\n",
-        )
-        write(
             standalone / "scripts/build-tools.sh",
             "#!/usr/bin/env bash\nexit 0\n",
         )
@@ -213,7 +250,6 @@ def make_fixture(
             core / "scripts/build-server.sh",
             core / "scripts/build-client.sh",
             core / "scripts/download-lwjgl.sh",
-            core / "tools/layered-maps/layered-maps.sh",
             standalone / "scripts/build-tools.sh",
         ):
             executable.chmod(0o755)
@@ -231,9 +267,9 @@ def make_fixture(
     git(standalone, "remote", "add", "origin", "https://example.invalid/editor.git")
     git(standalone, "update-ref", "refs/remotes/origin/main", standalone_commit)
 
-    layered_package = base / "layered-world-package"
-    write(layered_package / "manifest.json", '{"schemaVersion":1}\n')
-    write(layered_package / "terrain/fixture.raw", "layered terrain\n")
+    unbundled_world = base / "must-never-be-packaged"
+    write(unbundled_world / "manifest.json", '{"packageType":"layered-world"}\n')
+    write(unbundled_world / "terrain/fixture.raw", "layered terrain\n")
 
     linux_runtime = base / "temurin-linux-jre"
     write(
@@ -261,13 +297,13 @@ def make_fixture(
     )
     write(windows_runtime / "NOTICE", "Windows runtime notice\n")
     write(windows_runtime / "legal/java.base/LICENSE", "Windows runtime license\n")
-    return standalone, core, layered_package, linux_runtime, windows_runtime
+    return standalone, core, unbundled_world, linux_runtime, windows_runtime
 
 
 def run_packager(
     standalone: Path,
     core: Path,
-    layered_package: Path,
+    _unbundled_world: Path,
     linux_runtime: Path,
     windows_runtime: Path,
     *,
@@ -286,12 +322,10 @@ def run_packager(
         str(linux_runtime),
         "--windows-jre",
         str(windows_runtime),
-        "--layered-package",
-        str(layered_package),
         "--assets-cleared",
     ]
     if skip_build:
-        environment["SPOILED_MILK_WORLD_BUILDER_V2_RELEASE_TEST_MODE"] = "1"
+        environment["WORLD_BUILDER_V2_RELEASE_TEST_MODE"] = "1"
         arguments.append("--skip-build")
     return subprocess.run(
         arguments,
@@ -450,7 +484,9 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotEqual(0, wrong_core.returncode)
             self.assertIn("Core-Framework must be at locked commit", wrong_core.stderr)
 
-    def test_packager_rejects_wrong_runtime_or_unsafe_layered_package(self) -> None:
+    def test_packager_rejects_wrong_runtime_and_content_disguised_as_allowed_assets(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-inputs-") as temp:
             fixture = make_fixture(
                 Path(temp), linux_os="Windows", release_ready=True
@@ -459,17 +495,33 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotEqual(0, wrong_runtime.returncode)
             self.assertIn('Linux JRE must report OS_NAME="Linux"', wrong_runtime.stderr)
 
-        with tempfile.TemporaryDirectory(prefix="world-builder-v2-layered-") as temp:
-            fixture = make_fixture(Path(temp), release_ready=True)
-            layered_package = fixture[2]
-            (layered_package / "unsafe-link").symlink_to(layered_package / "manifest.json")
-            unsafe_layered = run_packager(*fixture)
-            self.assertNotEqual(0, unsafe_layered.returncode)
-            self.assertIn("must not contain symbolic links", unsafe_layered.stderr)
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-disguised-") as temp:
+            fixture = make_fixture(
+                Path(temp), release_ready=True, disguised_world=True
+            )
+            disguised = run_packager(*fixture)
+            self.assertNotEqual(0, disguised.returncode)
+            self.assertIn("forbidden map terrain", disguised.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-seed-") as temp:
+            fixture = make_fixture(
+                Path(temp), release_ready=True, seeded_placement=True
+            )
+            seeded = run_packager(*fixture)
+            self.assertNotEqual(0, seeded.returncode)
+            self.assertIn("forbidden generated/static objects state", seeded.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-user-seed-") as temp:
+            fixture = make_fixture(
+                Path(temp), release_ready=True, seeded_user_state=True
+            )
+            seeded = run_packager(*fixture)
+            self.assertNotEqual(0, seeded.returncode)
+            self.assertIn("forbidden user/operational players state", seeded.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-path-") as temp:
             fixture = make_fixture(Path(temp), release_ready=True)
-            write(fixture[2] / "terrain/CON.txt", "Windows device path\n")
+            write(fixture[3] / "lib/CON.txt", "Windows device path\n")
             unsafe_path = run_packager(*fixture)
             self.assertNotEqual(0, unsafe_path.returncode)
             self.assertIn("Windows-unsafe staged package path", unsafe_path.stderr)
@@ -490,6 +542,10 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             standalone, core, _, _, _ = fixture
             result = run_packager(*fixture)
             self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            packager_source = PACKAGER.read_text(encoding="utf-8")
+            self.assertNotIn("--layered-package", packager_source)
+            self.assertNotIn("layered-maps.sh", packager_source)
+            self.assertNotIn("spoiled-milk-package", packager_source)
 
             source_commit = git(standalone, "rev-parse", "HEAD")
             core_commit = git(core, "rev-parse", "HEAD")
@@ -530,14 +586,18 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         prefix + "CORE-SOURCE-COMMIT.txt",
                         prefix + "LICENSE",
                         prefix + "ASSET-SOURCES.txt",
+                        prefix + "RUNTIME-ASSET-ALLOWLIST.txt",
                         prefix + "PLAYER-ASSET-SOURCES.txt",
                         prefix + "EDITOR-ICON-CREDITS.txt",
                         prefix + "builder-runtime/Client_Base/Open_RSC_Client.jar",
                         prefix + "builder-runtime/server/core.jar",
                         prefix + "builder-runtime/server/plugins.jar",
-                        prefix + "builder-runtime/server/inc/sqlite/myworld_seed.db",
+                        prefix + "builder-runtime/server/inc/sqlite/world_builder_seed.db",
+                        prefix + "builder-runtime/server/world-builder.conf",
+                        prefix
+                        + "builder-runtime/server/conf/world-builder/"
+                        + "adaptive-runtime-capability-v1.json",
                         prefix + "builder-runtime/launcher/world-builder-tools.jar",
-                        prefix + "builder-runtime/layered-world/package/manifest.json",
                     }
                     self.assertFalse(required - names, required - names)
                     runtime_java = (
@@ -558,10 +618,12 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
 
                     forbidden = (
                         "/workspace/",
+                        "/projects/",
                         "/updates/",
                         "/exports/",
                         "/backups/",
                         "/receipts/",
+                        "/diagnostics/",
                         "/logs/",
                         "world_builder.db",
                         "world-builder.credential",
@@ -569,6 +631,9 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         "uid.dat",
                         "clientSettings.conf",
                         "builder-runtime/server/ipbans.txt",
+                        "builder-runtime/layered-world/",
+                        "Custom_Landscape.orsc",
+                        "/defs/locs/",
                         "/ip.txt",
                         "/port.txt",
                     )
@@ -600,7 +665,11 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     self.assertEqual("rsc-world-editor-v1", identity["legacyProductId"])
                     self.assertEqual("v1.1.0", identity["legacyFinalTag"])
                     self.assertFalse(identity["legacyWorkspaceMigration"])
-                    self.assertEqual("signed-layered-v1", identity["worldCoordinateModel"])
+                    self.assertEqual(
+                        WORLD_SOURCE_IDENTITY, identity["worldSourceIdentity"]
+                    )
+                    self.assertNotIn("worldCoordinateModel", identity)
+                    self.assertEqual(PACKAGE_ROOT, identity["displayName"])
                     self.assertEqual(
                         f"{PRODUCT_ID}-{VERSION_NUMBER}", identity["releaseTag"]
                     )
@@ -619,6 +688,19 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         and name != prefix + "PACKAGE-MANIFEST.sha256"
                     }
                     self.assertEqual(actual_files, manifest_paths)
+                    self.assertFalse(
+                        {
+                            path
+                            for path in manifest_paths
+                            if path.startswith(
+                                (
+                                    "projects/",
+                                    "workspace/",
+                                    "builder-runtime/layered-world/",
+                                )
+                            )
+                        }
+                    )
                     for line in manifest.splitlines():
                         digest, relative = line.split("  ./", 1)
                         self.assertEqual(

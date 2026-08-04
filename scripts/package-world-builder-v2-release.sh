@@ -10,7 +10,6 @@ VERSION=""
 CORE_ROOT=""
 LINUX_JRE=""
 WINDOWS_JRE=""
-LAYERED_PACKAGE=""
 ASSETS_CLEARED=false
 SKIP_BUILD=false
 SOURCE_COMMIT=""
@@ -20,8 +19,9 @@ PRODUCT_GENERATION=2
 UPDATE_CHANNEL="rsc-world-editor-v2"
 LEGACY_PRODUCT_ID="rsc-world-editor-v1"
 LEGACY_FINAL_TAG="v1.1.0"
-PACKAGE_NAME="Spoiled Milk World Builder 2"
+PACKAGE_NAME="World Builder 2"
 ARTIFACT_PREFIX="rsc-world-editor-v2"
+WORLD_SOURCE_IDENTITY="target-adaptive-v1"
 RELEASE_MARKER_ENTRY="spoiled-milk-release-build.marker"
 LWJGL_VERSION="3.3.4"
 LWJGL_MODULES="lwjgl lwjgl-glfw lwjgl-opengl"
@@ -44,12 +44,10 @@ Usage:
     --assets-cleared
 
 Options:
-  --layered-package  Override the generated signed-layered package. Intended
-                     for deterministic packaging tests and reviewed inputs.
   --assets-cleared   Attest that every packaged asset has confirmed
                      redistribution terms.
-  --skip-build       Use existing jars and a fixture layered package. This is
-                     restricted to World Builder 2 packaging tests.
+  --skip-build       Use existing fixture jars. This is restricted to World
+                     Builder 2 packaging tests.
 EOF
 }
 
@@ -73,11 +71,6 @@ while (($#)); do
 		--linux-jre)
 			[[ $# -ge 2 ]] || fail "--linux-jre requires a value"
 			LINUX_JRE="$2"
-			shift 2
-			;;
-		--layered-package)
-			[[ $# -ge 2 ]] || fail "--layered-package requires a value"
-			LAYERED_PACKAGE="$2"
 			shift 2
 			;;
 		--assets-cleared)
@@ -108,7 +101,7 @@ CORE_ROOT="$(cd "$CORE_ROOT" 2>/dev/null && pwd -P)" \
 [[ "$ASSETS_CLEARED" == true ]] \
 	|| fail "Confirm redistribution terms with --assets-cleared before packaging"
 if [[ "$SKIP_BUILD" == true \
-	&& "${SPOILED_MILK_WORLD_BUILDER_V2_RELEASE_TEST_MODE:-}" != 1 ]]; then
+	&& "${WORLD_BUILDER_V2_RELEASE_TEST_MODE:-}" != 1 ]]; then
 	fail "--skip-build is restricted to World Builder 2 packaging tests"
 fi
 
@@ -309,61 +302,27 @@ if [[ "$SKIP_BUILD" != true ]]; then
 	"$CORE_ROOT/scripts/build-server.sh"
 	SPOILED_MILK_RELEASE_BUILD=1 "$CORE_ROOT/scripts/build-client.sh"
 	"$ROOT_DIR/scripts/build-tools.sh"
-	"$CORE_ROOT/tools/layered-maps/layered-maps.sh" spoiled-milk-package
 fi
 require_release_git_state "$SOURCE_COMMIT"
 require_core_state "$CORE_COMMIT"
-
-if [[ -z "$LAYERED_PACKAGE" ]]; then
-	LAYERED_PACKAGE="$CORE_ROOT/tools/layered-maps/workspace/spoiled-milk-package/package"
-fi
-LAYERED_PACKAGE="$(cd "$LAYERED_PACKAGE" 2>/dev/null && pwd -P)" \
-	|| fail "Signed-layered package does not exist: $LAYERED_PACKAGE"
-[[ -f "$LAYERED_PACKAGE/manifest.json" ]] \
-	|| fail "Signed-layered package manifest is missing: $LAYERED_PACKAGE/manifest.json"
-if find "$LAYERED_PACKAGE" -type l -print -quit | grep -q .; then
-	fail "Signed-layered package must not contain symbolic links"
-fi
-if [[ "$SKIP_BUILD" != true ]]; then
-	LAYERED_VALIDATOR="$CORE_ROOT/scripts/lib/layered-world-package.sh"
-	[[ -f "$LAYERED_VALIDATOR" ]] \
-		|| fail "Pinned Core-Framework layered-package validator is missing"
-	# shellcheck disable=SC1090
-	source "$LAYERED_VALIDATOR"
-	layered_world_require_promotion_approved \
-		"$(dirname "$LAYERED_PACKAGE")/generation-report.json" \
-		|| fail "Signed-layered package is not production-approved"
-	LAYERED_VALIDATION="$(mktemp -d "${TMPDIR:-/tmp}/world-builder-v2-layered-validation-XXXXXX")"
-	trap 'rm -rf -- "$LAYERED_VALIDATION"' EXIT
-	layered_world_validate_package "$CORE_ROOT" "$LAYERED_PACKAGE" "$LAYERED_VALIDATION" \
-		|| fail "Reviewed signed-layered package validation failed"
-	rm -rf -- "$LAYERED_VALIDATION"
-	trap - EXIT
-fi
 
 CLIENT_JAR="$CORE_ROOT/Client_Base/Open_RSC_Client.jar"
 TOOLS_JAR="$ROOT_DIR/output/world-builder-tools/world-builder-tools.jar"
 SERVER_JAR="$CORE_ROOT/server/core.jar"
 PLUGINS_JAR="$CORE_ROOT/server/plugins.jar"
-SEED_DATABASE="$CORE_ROOT/server/inc/sqlite/myworld_seed.db"
+RUNTIME_ALLOWLIST="$PACKAGE_ASSETS/RUNTIME-ASSET-ALLOWLIST.txt"
 
 for required_path in \
 	"$CLIENT_JAR" \
-	"$CORE_ROOT/Client_Base/Cache/audio" \
-	"$CORE_ROOT/Client_Base/Cache/video" \
-	"$CORE_ROOT/Client_Base/Cache/config.txt" \
 	"$SERVER_JAR" \
 	"$PLUGINS_JAR" \
-	"$CORE_ROOT/server/lib" \
-	"$CORE_ROOT/server/conf" \
-	"$CORE_ROOT/server/database" \
-	"$SEED_DATABASE" \
 	"$TOOLS_JAR" \
 	"$ROOT_DIR/tools/world-builder/schema" \
 	"$ROOT_DIR/LICENSE" \
 	"$CORE_ROOT/release/player/ASSET-SOURCES.txt" \
 	"$PACKAGE_ASSETS/README.txt" \
 	"$PACKAGE_ASSETS/ASSET-SOURCES.txt" \
+	"$RUNTIME_ALLOWLIST" \
 	"$PACKAGE_ASSETS/world-builder-runtime.conf" \
 	"$PACKAGE_ASSETS/Import Map Changes.sh" \
 	"$PACKAGE_ASSETS/Import Map Changes.cmd" \
@@ -377,6 +336,55 @@ for required_path in \
 	"$UPDATE_ASSETS/README-AUTO-UPDATE.txt"; do
 	[[ -e "$required_path" ]] || fail "Missing release input: $required_path"
 done
+
+validate_allowlist() {
+	python3 - "$CORE_ROOT" "$RUNTIME_ALLOWLIST" <<'PY'
+import pathlib
+import re
+import sys
+
+core = pathlib.Path(sys.argv[1]).resolve()
+allowlist = pathlib.Path(sys.argv[2])
+allowed_roles = {
+    "runtime-audio", "client-template", "default-render-catalog",
+    "runtime-library", "runtime-configuration", "default-definition-catalog",
+    "runtime-capability", "runtime-database-contract", "builder-database-seed",
+}
+portable = re.compile(r"^[A-Za-z0-9._+ -]+(?:/[A-Za-z0-9._+ -]+)*$")
+seen_source = set()
+seen_destination = set()
+records = []
+for number, raw in enumerate(allowlist.read_text(encoding="utf-8").splitlines(), 1):
+    if not raw or raw.startswith("#"):
+        continue
+    fields = raw.split("\t")
+    if len(fields) != 3:
+        raise SystemExit(f"Malformed runtime allowlist line {number}")
+    source, destination, role = fields
+    if (
+        not portable.fullmatch(source)
+        or not portable.fullmatch(destination)
+        or any(part in ("", ".", "..") for part in pathlib.PurePosixPath(source).parts)
+        or any(part in ("", ".", "..") for part in pathlib.PurePosixPath(destination).parts)
+        or role not in allowed_roles
+        or source.casefold() in seen_source
+        or destination.casefold() in seen_destination
+    ):
+        raise SystemExit(f"Unsafe or duplicate runtime allowlist line {number}")
+    seen_source.add(source.casefold())
+    seen_destination.add(destination.casefold())
+    path = core.joinpath(*source.split("/"))
+    if not path.is_file() or path.is_symlink() or core not in path.resolve().parents:
+        raise SystemExit(f"Allowed runtime input is missing or unsafe: {source}")
+    records.append((source, destination, role))
+if not records:
+    raise SystemExit("Runtime asset allowlist is empty")
+if sum(role == "builder-database-seed" for _, _, role in records) != 1:
+    raise SystemExit("Runtime allowlist must contain exactly one Builder database seed")
+PY
+}
+
+validate_allowlist || fail "Content-neutral runtime asset allowlist validation failed"
 
 require_jar_entry() {
 	local archive="$1" entry="$2" label="$3"
@@ -445,7 +453,7 @@ write_release_identity() {
   "updateChannel": "$UPDATE_CHANNEL",
   "releaseTag": "$RELEASE_TAG",
   "artifactPrefix": "$ARTIFACT_PREFIX",
-  "worldCoordinateModel": "signed-layered-v1",
+  "worldSourceIdentity": "$WORLD_SOURCE_IDENTITY",
   "automaticUpgradeFromProductIds": [
     "$PRODUCT_ID"
   ],
@@ -462,26 +470,28 @@ EOF
 stage_builder() {
 	local destination="$1"
 	local runtime="$destination/builder-runtime"
+	local source relative role source_path destination_path
 
-	mkdir -p "$runtime/Client_Base/Cache" "$runtime/server/inc/sqlite" \
-		"$runtime/launcher/schema" "$runtime/layered-world/package"
+	mkdir -p "$runtime/Client_Base" "$runtime/server" "$runtime/launcher/schema"
 	cp "$CLIENT_JAR" "$runtime/Client_Base/Open_RSC_Client.jar"
-	cp -R "$CORE_ROOT/Client_Base/Cache/audio" "$runtime/Client_Base/Cache/audio"
-	cp -R "$CORE_ROOT/Client_Base/Cache/video" "$runtime/Client_Base/Cache/video"
-	cp "$CORE_ROOT/Client_Base/Cache/config.txt" "$runtime/Client_Base/Cache/config.txt"
 	cp "$SERVER_JAR" "$runtime/server/core.jar"
 	cp "$PLUGINS_JAR" "$runtime/server/plugins.jar"
-	cp -R "$CORE_ROOT/server/lib" "$runtime/server/lib"
-	cp -R "$CORE_ROOT/server/conf" "$runtime/server/conf"
-	cp -R "$CORE_ROOT/server/database" "$runtime/server/database"
-	cp "$SEED_DATABASE" "$runtime/server/inc/sqlite/myworld_seed.db"
-	for name in alertwords.txt badwords.txt goodwords.txt globalrules.txt; do
-		cp "$CORE_ROOT/server/$name" "$runtime/server/$name"
-	done
-	cp "$PACKAGE_ASSETS/world-builder-runtime.conf" "$runtime/server/myworld.conf"
+	while IFS=$'\t' read -r source relative role || [[ -n "$source$relative$role" ]]; do
+		[[ -n "$source" && "$source" != \#* ]] || continue
+		source_path="$CORE_ROOT/$source"
+		destination_path="$runtime/$relative"
+		mkdir -p "${destination_path%/*}"
+		cp "$source_path" "$destination_path"
+	done < "$RUNTIME_ALLOWLIST"
+	cp "$PACKAGE_ASSETS/world-builder-runtime.conf" "$runtime/server/world-builder.conf"
 	cp "$TOOLS_JAR" "$runtime/launcher/world-builder-tools.jar"
-	cp -R "$ROOT_DIR/tools/world-builder/schema"/. "$runtime/launcher/schema/"
-	cp -R "$LAYERED_PACKAGE"/. "$runtime/layered-world/package/"
+	while IFS= read -r -d '' source_path; do
+		relative="${source_path#"$ROOT_DIR/tools/world-builder/schema/"}"
+		if [[ "${relative%/*}" != "$relative" ]]; then
+			mkdir -p "$runtime/launcher/schema/${relative%/*}"
+		fi
+		cp "$source_path" "$runtime/launcher/schema/$relative"
+	done < <(find "$ROOT_DIR/tools/world-builder/schema" -type f -print0)
 
 	cp "$UPDATE_ASSETS/Start World Builder.sh" "$destination/Start World Builder.sh"
 	cp "$UPDATE_ASSETS/Start World Builder.cmd" "$destination/Start World Builder.cmd"
@@ -503,6 +513,7 @@ stage_builder() {
 		>> "$destination/README.txt"
 	cp "$ROOT_DIR/LICENSE" "$destination/LICENSE"
 	cp "$PACKAGE_ASSETS/ASSET-SOURCES.txt" "$destination/ASSET-SOURCES.txt"
+	cp "$RUNTIME_ALLOWLIST" "$destination/RUNTIME-ASSET-ALLOWLIST.txt"
 	cp "$CORE_ROOT/release/player/ASSET-SOURCES.txt" \
 		"$destination/PLAYER-ASSET-SOURCES.txt"
 	cp "$ICON_CREDITS" "$destination/EDITOR-ICON-CREDITS.txt"
@@ -524,22 +535,92 @@ validate_stage() {
 	if find "$stage" -type l -print -quit | grep -q .; then
 		fail "Staged World Builder package contains a symbolic link"
 	fi
-	if find "$stage" -type f | grep -E \
-		'/(workspace|updates|exports|backups|receipts|logs|credentials)/|world_builder\.db$|world-builder\.credential$|credentials\.txt$|uid\.dat$|clientSettings\.conf$|/ip\.txt$|/port\.txt$' \
-		>/dev/null; then
-		fail "Staged World Builder package contains generated project, credential, identity, endpoint, or transaction state"
-	fi
-	python3 - "$stage" <<'PY'
+	python3 - "$stage" "$CORE_ROOT" "$RUNTIME_ALLOWLIST" \
+		"$ROOT_DIR/tools/world-builder/schema" <<'PY'
+import hashlib
+import json
 import pathlib
+import sqlite3
 import sys
+import zipfile
 
-root = pathlib.Path(sys.argv[1])
+root = pathlib.Path(sys.argv[1]).resolve()
+core = pathlib.Path(sys.argv[2]).resolve()
+allowlist_path = pathlib.Path(sys.argv[3])
+schema_root = pathlib.Path(sys.argv[4]).resolve()
 seen = {}
 reserved = {
     "CON", "PRN", "AUX", "NUL",
     *(f"COM{number}" for number in range(1, 10)),
     *(f"LPT{number}" for number in range(1, 10)),
 }
+top_files = {
+    "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
+    "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
+    "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
+    "RUNTIME-ASSET-ALLOWLIST.txt", "SOURCE-COMMIT.txt", "Start World Builder.cmd",
+    "Start World Builder.sh", "Undo Last Map Import.cmd", "Undo Last Map Import.sh",
+    "Update World Builder.cmd", "Update World Builder.ps1", "Update World Builder.sh",
+    "VERSION.txt",
+}
+runtime_files = {
+    "builder-runtime/Client_Base/Open_RSC_Client.jar",
+    "builder-runtime/server/core.jar",
+    "builder-runtime/server/plugins.jar",
+    "builder-runtime/server/world-builder.conf",
+    "builder-runtime/launcher/world-builder-tools.jar",
+}
+for raw in allowlist_path.read_text(encoding="utf-8").splitlines():
+    if not raw or raw.startswith("#"):
+        continue
+    _, destination, _ = raw.split("\t")
+    runtime_files.add("builder-runtime/" + destination)
+for path in schema_root.rglob("*"):
+    if path.is_file():
+        runtime_files.add(
+            "builder-runtime/launcher/schema/" + path.relative_to(schema_root).as_posix()
+        )
+
+forbidden_hashes = {}
+for pattern, role in (
+    ("Client_Base/Cache/video/*Landscape*", "map terrain"),
+    ("server/conf/server/data/**/*", "map terrain"),
+    ("server/conf/server/defs/locs/**/*", "static placement data"),
+    ("tools/layered-maps/workspace/**/*", "layered world package"),
+):
+    for path in core.glob(pattern):
+        if path.is_file() and not path.is_symlink():
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            forbidden_hashes[digest] = (role, path.relative_to(core).as_posix())
+
+def reject_structured_world(data, relative):
+    if len(data) > 32 * 1024 * 1024:
+        return
+    try:
+        value = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return
+    pending = [value]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, dict):
+            if item.get("packageType") == "layered-world":
+                raise SystemExit("Layered world package content is forbidden: " + relative)
+            encoding = item.get("encoding")
+            if isinstance(encoding, str) and encoding in {
+                "layered-world-placements-v3", "legacy-packed-orsc-v1"
+            }:
+                raise SystemExit("Terrain or placement payload content is forbidden: " + relative)
+            manifest_type = item.get("manifestType")
+            if isinstance(manifest_type, str) and manifest_type in {
+                "world-builder-project", "world-builder-project-registry",
+                "world-builder-active-project", "world-builder-import-receipt",
+            }:
+                raise SystemExit("Creator or transaction state is forbidden: " + relative)
+            pending.extend(item.values())
+        elif isinstance(item, list):
+            pending.extend(item)
+
 for path in root.rglob("*"):
     relative = path.relative_to(root).as_posix()
     for component in path.relative_to(root).parts:
@@ -562,6 +643,87 @@ for path in root.rglob("*"):
         raise SystemExit("Unsafe staged package path: " + repr(relative))
     if path.is_symlink() or not (path.is_dir() or path.is_file()):
         raise SystemExit("Unsupported staged package entry: " + relative)
+    if not path.is_file():
+        continue
+    if not (
+        relative in top_files
+        or relative in runtime_files
+        or relative.startswith("runtime/")
+    ):
+        raise SystemExit("Staged file is outside the application allowlist: " + relative)
+    data = path.read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    if digest in forbidden_hashes:
+        role, source = forbidden_hashes[digest]
+        raise SystemExit(
+            f"Staged file contains forbidden {role} copied from {source}: {relative}"
+        )
+    reject_structured_world(data, relative)
+    if zipfile.is_zipfile(path):
+        with zipfile.ZipFile(path) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                nested = archive.read(info)
+                nested_digest = hashlib.sha256(nested).hexdigest()
+                if nested_digest in forbidden_hashes:
+                    role, source = forbidden_hashes[nested_digest]
+                    raise SystemExit(
+                        f"Archive entry contains forbidden {role} copied from {source}: "
+                        f"{relative}!{info.filename}"
+                    )
+                if not info.filename.endswith(".class"):
+                    reject_structured_world(nested, relative + "!" + info.filename)
+
+seed = root / "builder-runtime/server/inc/sqlite/world_builder_seed.db"
+try:
+    connection = sqlite3.connect(f"file:{seed}?mode=ro", uri=True)
+    integrity = [row[0] for row in connection.execute("PRAGMA integrity_check")]
+    if integrity != ["ok"]:
+        raise SystemExit(
+            "Builder database seed failed SQLite integrity_check: "
+            + "; ".join(str(item) for item in integrity)
+        )
+    table_names = [
+        row[0]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_schema WHERE type = 'table' ORDER BY name"
+        )
+    ]
+    table_counts = {}
+    for table in table_names:
+        quoted = '"' + table.replace('"', '""') + '"'
+        table_counts[table] = connection.execute(
+            f"SELECT COUNT(*) FROM {quoted}"
+        ).fetchone()[0]
+    for table in ("grounditems", "npclocs", "objects"):
+        if table not in table_counts:
+            raise SystemExit(
+                f"Builder database seed is missing required placement table {table}"
+            )
+        count = table_counts[table]
+        if count:
+            raise SystemExit(
+                f"Builder database seed contains forbidden generated/static {table} state"
+            )
+    # The pinned empty Builder seed intentionally carries only migration history,
+    # generic recovery-question definitions, and SQLite AUTOINCREMENT counters.
+    # Every other table is terrain/placement, player/account, log, security, or
+    # generated operational state and must be empty even when a future table is
+    # unfamiliar.
+    allowed_static_seed_tables = {
+        "db_patches", "recovery_questions", "sqlite_sequence",
+    }
+    for table, count in table_counts.items():
+        if count and table not in allowed_static_seed_tables:
+            raise SystemExit(
+                f"Builder database seed contains forbidden user/operational {table} state"
+            )
+except sqlite3.Error as error:
+    raise SystemExit(f"Builder database seed is not a valid readable SQLite database: {error}")
+finally:
+    if "connection" in locals():
+        connection.close()
 PY
 }
 

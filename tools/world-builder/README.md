@@ -1,89 +1,201 @@
 # World Builder Tools
 
-This module owns standalone World Builder project discovery, manifests,
-workspace management, export, import, rollback, and launch supervision as
-those phases are implemented.
+This module owns the standalone, content-neutral World Builder 2 project
+lifecycle. It discovers a compatible server map or a true no-server location,
+creates an isolated UUID project, preserves immutable source lineage, manages
+the mutable layered working package, and supervises the isolated runtime.
 
-## Product generations
+World Builder 2 is not tied to one game world. A release contains definitions
+and non-world runtime assets, but no terrain, placements, active layered
+package, project, export, backup, or receipt.
 
-The packed-map editor is frozen and unmaintained at release tag
-`v1.1.0`. Current signed-layered work belongs to the separate
-`Spoiled Milk World Builder 2` product and update channel
-`rsc-world-editor-v2`. Its archive prefix, install folder, signed-layered
-projects, and release identity are distinct; automatic updates are eligible
-only from v2 itself. The adaptive launcher preserves but refuses to migrate a
-historical v2-alpha `workspace/`, and it never opens a v1 workspace.
+## Product boundary and current status
 
-The ambiguous `scripts/package-world-builder-release.sh` command therefore
-fails closed. Future v2 artifacts use
-`scripts/package-world-builder-v2-release.sh`, which embeds the reviewed
-signed-layered package and remains production-locked until layered
-export/import and final release validation are accepted.
+The packed-map World Editor is frozen at `v1.1.0`. Its identity, workspaces,
+archives, update channel, and legacy commands remain separate from World
+Builder 2 and `rsc-world-editor-v2`.
 
-Read-only target discovery remains available independently:
+Adaptive discovery, lossless packed conversion, UUID projects, isolated
+working copies, save/reopen, a generic pinned runtime capability, content-
+neutral packaging, and durable application updates are implemented. Native
+adaptive launch remains intentionally fail-closed with `LOADER_INCOMPATIBLE`
+until the owner records target-backed and standalone visual/edit/save/reopen
+validation. Generic adaptive export, target install, recovery, and undo are
+Phase 6 work and are not exposed as a working mutation path yet.
+
+Build the standalone tools with:
 
 ```bash
 ./scripts/build-world-builder-tools.sh
-java -jar output/world-builder-tools/world-builder-tools.jar discover \
-  --server-root /path/to/private-server
 ```
 
-Discovery supports the versioned `spoiled-milk-repository-v1` layout and
-writes its deterministic source manifest to standard output. It does not
-create a workspace or change the target.
+The examples below use:
 
-### Adaptive discovery (workflow Phase 1)
+```text
+output/world-builder-tools/world-builder-tools.jar
+```
 
-The adaptive read-only inspection boundary is available separately from the
-historical prepare/launch workflow:
+Packaged launchers use the identical JAR under
+`builder-runtime/launcher/world-builder-tools.jar`.
+
+## Primary guided launch
+
+The packaged Linux and Windows launchers use `launch-adaptive`:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar launch-adaptive \
+  --installation-root '/path/to/World Builder 2' \
+  --runtime-root '/path/to/World Builder 2/builder-runtime' \
+  --target-root /path/to/server-root-or-ordinary-parent \
+  --port 43615
+```
+
+On first use, this command performs bounded read-only discovery. If the path is
+a supported server root, it offers to adopt a complete layered map or copy and
+losslessly convert a complete packed map. If no server evidence exists, it
+offers a canonical standalone empty project at layer `0`, coordinate `0,0`.
+Recognizable but incomplete, malformed, unsupported, changing, or ambiguous
+server evidence is blocked; it is never treated as an empty world.
+
+The discovery report is printed before the exact `CREATE` confirmation. The
+command then creates one isolated UUID project without changing the target.
+Later launches validate and reopen the selected project. Optional
+`--configuration-role <role>` resolves an explicitly declared multi-role
+server, and `--display-name <name>` names the first project.
+
+The current native-process step stops at the owner-validation gate described
+above. Project creation and validation remain useful and fully transactional;
+the refusal does not partially start a client or server.
+
+## Read-only discovery
+
+Advanced users can inspect a target without creating state:
 
 ```bash
 java -jar output/world-builder-tools/world-builder-tools.jar discover-adaptive \
+  --target-root /path/to/server-root \
+  > discovery-report.json
+```
+
+Add `--configuration-role <role>` only when a descriptor truthfully declares
+more than one active role. The command emits a strict
+`world-builder-discovery-report` v2 document. Exit `0` means compatible or a
+clearly labelled no-server classification; exit `3` means blocked.
+
+A descriptor-backed server publishes
+`server/world-builder-capabilities.json` and maps a lowercase role to
+`server/world-builder-configs/<role>.json`. Compiled adapters—not target data—
+own parsing, conversion, and mutation destinations. The current registry
+supports:
+
+- `generic-layered-v1` for a complete compatible signed-layered package; and
+- `spoiled-milk-packed-v1` as a format adapter for the reviewed packed layout.
+
+The second name identifies a packed layout codec, not the World Builder
+product, release contents, target world, or install folder. Discovery binds
+the exact server/client map pair, definition catalog, rendering assets,
+runtime evidence, configuration role, and all four placement families.
+
+## Explicit project creation
+
+The guided command is preferred. To create from a reviewed report explicitly:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar create-project \
+  --installation-root '/path/to/World Builder 2' \
+  --runtime-root '/path/to/World Builder 2/builder-runtime' \
+  --target-root /path/to/server-root \
+  --discovery-report /path/to/discovery-report.json \
+  --display-name 'My World' \
+  --port 43615 \
+  --confirm CREATE
+```
+
+Omit `--target-root` only for a report whose origin is exactly
+`standalone-empty`. A target-backed report must match the supplied target
+again during creation. Creation copies and verifies target evidence into
+unpublished staging, adopts or converts the map, and publishes the project,
+registry, and active pointer only after complete validation.
+
+Each project has this durable shape:
+
+```text
+World Builder 2/
+  project-registry.json
+  active-project.json
+  projects/
+    <uuid>/
+      project.json
+      discovery/report.json
+      source/
+        snapshot-manifest.json
+        original/
+        layered-baseline/package/
+        conversion/                 # packed origin only
+      working/
+        layered-world/package/
+        runtime/
+      exports/
+      backups/
+      receipts/
+      diagnostics/
+      logs/
+      run/
+```
+
+`source/` is immutable by contract. Editing and saves affect only the
+project's working package. The original server remains read-only until a later
+explicit install transaction is requested. Project manifests bind the origin,
+adapter, capability, selected configuration, definition/runtime identity, and
+source/baseline/working fingerprints. Only a display locator may be absolute,
+and it is excluded from portable project identity.
+
+## Project selection, validation, and save
+
+List and select by exact UUID:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar list-projects \
+  --installation-root '/path/to/World Builder 2'
+
+java -jar output/world-builder-tools/world-builder-tools.jar select-project \
+  --installation-root '/path/to/World Builder 2' \
+  --project-id 12345678-1234-1234-1234-123456789abc
+```
+
+Validate and reopen the selected project:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar open-project \
+  --installation-root '/path/to/World Builder 2' \
   --target-root /path/to/server-root
 ```
 
-It emits a validated `world-builder-discovery-report` schema version 2 on
-standard output and a short compatibility summary on standard error. Exit `0`
-means either a compatible target or clearly labelled standalone/no-server
-classification; exit `3` means the report is blocked. This command never
-creates a project, converts a map, prepares a runtime, or writes target state.
-The historical `discover`, `prepare`, `launch`, and `run` commands retain their
-versioned workspace behavior for compatibility. World Builder 2 launchers use
-the separate `launch-adaptive` lifecycle described below.
+For a standalone project, omit `--target-root`. A target-backed project may
+still be edited in isolation after the original target moves or drifts, but it
+is reported detached and cannot later be installed until the exact compatible
+target is supplied and verified.
 
-Descriptor-backed servers put the strict Phase 0 capability contract at
-`server/world-builder-capabilities.json`. Each declared lowercase
-configuration role maps only to the compiled adapter path
-`server/world-builder-configs/<role>.json`; more than one active role requires
-an explicit `--configuration-role <role>`. Adapter configurations bind paired
-server/client maps, one exact definition catalog, paired rendering assets,
-paired runtime evidence, and—for packed maps—the complete ordered static
-placement composition. All paths are portable target-relative paths under
-compiled server/client roots. Target metadata cannot add executable adapter
-code or mutation destinations.
+Application updates use the same command with `--validate-only`. That mode
+verifies the selected project and optional target evidence without refreshing
+attachment state or changing any project, registry, or active-pointer bytes.
 
-The initial registry contains:
+Commit a verified working-package fingerprint to project metadata with:
 
-- `generic-layered-v1`, which requires a descriptor and validates any complete
-  compatible signed-layered package without fixed package identity, version,
-  hash, level, sector, or placement counts; and
-- `spoiled-milk-packed-v1`, which accepts the same strict descriptor/evidence
-  model for complete packed inputs and retains one narrow descriptor-free
-  probe for the reviewed legacy layout.
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar save-project \
+  --project '/path/to/World Builder 2/projects/<uuid>'
+```
 
-Both descriptor-backed adapters independently compare capability, config,
-runtime, definition, asset, and server/client map facts. Discovery parses all
-four placement families, validates definition references and terrain coverage,
-rejects links and unsafe/colliding paths, enforces resource limits, and repeats
-the complete inspection. A changing target is retried once and then reported
-as `DISCOVERY_DRIFT`. No recognizable server evidence reports standalone;
-recognizable but missing, malformed, unknown, or ambiguous evidence is always
-blocked instead of being mistaken for an empty project.
+Project creation, selection, open, and save use project/registry locks,
+copy-on-write publication, exact reopen verification, and rollback. They do
+not mutate a target.
 
-### Deterministic packed conversion (workflow Phase 2)
+## Deterministic packed conversion
 
-The repository-owned conversion boundary is available for advanced
-development and the later project-creation phase:
+Project creation invokes the converter internally for a packed origin. The
+advanced standalone boundary accepts only an isolated, immutable copy of the
+exact files inventoried by a compatible discovery report:
 
 ```bash
 java -jar output/world-builder-tools/world-builder-tools.jar convert-packed \
@@ -92,292 +204,58 @@ java -jar output/world-builder-tools/world-builder-tools.jar convert-packed \
   --output /path/to/new-conversion-result
 ```
 
-`--source-root` is not a server root. It must be a separate, immutable copy
-containing exactly the present files in a compatible descriptor-backed packed
-discovery report, plus that report's descriptor and selected configuration at
-their target-relative paths. Extra operational state such as
-`server/ipbans.txt`, links, missing files, changed hashes, and the live target
-itself are refused. The output path must not exist, must be outside the source,
-and must have an existing real parent on a filesystem that supports atomic
-same-directory publication.
+`--source-root` must not be the live server. Extra files, links, changed
+hashes, missing evidence, unsupported encoding, parity loss, unsafe paths, or
+an existing output path are refused. Success publishes only a canonical plan,
+report, and complete generic layered package. Every terrain sector is decoded
+and round-tripped, and base/overlay/removal placement composition retains
+record provenance and zero-delta semantics.
 
-Success creates only:
+## Runtime and application updates
 
-```text
-<conversion-result>/
-  conversion-plan.json
-  conversion-report.json
-  package/
-    manifest.json
-    terrain/...
-    placements/...
-```
+`run-adaptive-project --project <projects/uuid>` supervises only one verified
+adaptive project. Runtime PIDs, logs, locks, credentials, generated ban lists,
+and server/client mutable state remain inside that UUID project. At present it
+reaches the deliberate owner-validation gate and exits without a partial
+native launch.
 
-The adapter decodes packed planes/coordinates, converts and exactly reverses
-every terrain sector, composes all declared base/overlay/removal sources with
-record provenance, assigns content-derived placement IDs, and requires
-zero-delta placement semantics through the generic layered package validator.
-Plan, report, package paths, bytes, and hashes are canonical and independent
-of absolute installation paths. Unknown encodings, definitions, coordinates,
-collisions, removals, terrain coverage, ZIP records, or parity differences
-fail without publishing an output directory. There is no force or
-approximation mode.
+Application updates replace only manifest-owned content-neutral files. They
+preserve all UUID projects, registry/selection, historical `workspace/`,
+exports, backups, receipts, diagnostics, logs, settings, credentials,
+recovery, locks, and unknown files. After replacement, the new runtime invokes
+`open-project` for read-only selected-project compatibility; failure rolls
+back only the application layer.
 
-This command does not copy evidence from a target, create/select a World
-Builder project, launch a runtime, create an empty world, export/import target
-data, or update a release. The Phase 3 lifecycle invokes this same converter
-only after copying and verifying target evidence inside unpublished project
-staging.
+## Adaptive export, install, and recovery boundary
 
-### Adaptive project lifecycle (workflow Phase 3)
+The repository contains strict adaptive schema contracts for complete layered
+exports (`export-manifest-v2`), compiled target mutation plans
+(`target-mutation-plan-v1`), and transactional receipts
+(`import-receipt-v3`). Phase 6 must connect those contracts to project-relative
+export, exact target preview/install, backup, verification, rollback,
+changed-after-import refusal, recovery, and undo.
 
-The advanced commands below expose the implemented repository-owned lifecycle:
+Until that phase is implemented:
 
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar create-project \
-  --installation-root '/path/to/World Builder 2' \
-  --runtime-root '/path/to/World Builder 2/builder-runtime' \
-  --target-root /path/to/server-or-ordinary-parent \
-  --discovery-report /path/to/report.json \
-  --display-name 'My World' \
-  --port 43615 \
-  --confirm CREATE
+- there is no supported adaptive export/install command;
+- `import-active-adaptive` and `undo-active-adaptive` fail closed;
+- standalone import/undo returns `NO_TARGET` before resolving a target; and
+- no updater or launch command writes to a target.
 
-java -jar output/world-builder-tools/world-builder-tools.jar list-projects \
-  --installation-root '/path/to/World Builder 2'
-java -jar output/world-builder-tools/world-builder-tools.jar select-project \
-  --installation-root '/path/to/World Builder 2' --project-id <uuid>
-java -jar output/world-builder-tools/world-builder-tools.jar open-project \
-  --installation-root '/path/to/World Builder 2' \
-  --target-root /path/to/server-or-ordinary-parent
-java -jar output/world-builder-tools/world-builder-tools.jar save-project \
-  --project '/path/to/World Builder 2/projects/<uuid>'
-```
+There is no force path. Future apply and undo operations must retain exact
+confirmation, offline proof, immutable source validation, compiled adapter
+destinations, backups, receipts, verification, rollback, and target-drift
+protection.
 
-A compatible layered report is adopted exactly. A compatible packed report is
-copied and converted inside project staging. A standalone report generates one
-canonical structural void sector at layer `0`, coordinate `0,0`; no release
-world is used. Creation publishes a UUID directory, registry, and active pointer
-only after source, baseline, working package, and metadata validation. Existing
-projects and target files are never replaced. Project manifests are portable:
-only the display locator may contain an absolute target path and it is excluded
-from project identity. Moving the complete installation detaches a target-backed
-project until an exact compatible target is supplied; there is no implicit
-rebase.
+## Historical interfaces
 
-The packaged Linux/Windows launchers call the guided boundary:
+The JAR still parses the fixed-layout `discover`, `prepare`, `launch`, `run`,
+`create-level`, `export`, `import`, and undo commands for frozen historical
+fixtures and earlier v2-alpha compatibility. They operate on the old
+single-`workspace/` model and are not the adaptive World Builder 2 workflow.
+New launchers, documentation, releases, and projects must use the adaptive
+interfaces above. A historical-only installation is preserved rather than
+silently relabelled or migrated.
 
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar launch-adaptive \
-  --installation-root '/path/to/World Builder 2' \
-  --runtime-root '/path/to/World Builder 2/builder-runtime' \
-  --target-root /path/to/parent \
-  --port 43615
-```
-
-On first use it prints read-only discovery and requires exact `CREATE`
-confirmation. Later use verifies and reopens the active project; multiple
-projects are selected explicitly by UUID. Project-only process supervision
-keeps locks, logs, PIDs, credentials, `ipbans.txt`, and other generated state
-under that project and rejects linked/shared mutable paths.
-
-The pinned real client/server does not yet advertise the separately owned
-Phase 4 generic layered-loader and void-authoring capability. Consequently
-`launch-adaptive` creates or reopens a valid isolated project and then stops
-with `LOADER_INCOMPATIBLE` before starting a native process. This is an
-actionable dependency gate, not a partial launch. Adaptive generic export and
-target-backed import/undo are also not implemented; standalone import/undo
-returns `NO_TARGET` before resolving a target. There is no force option.
-
-### Historical fixed-layout workspace commands
-
-The pre-adaptive runtime can prepare an isolated workspace and launch the local
-Builder server/client pair:
-
-```bash
-./scripts/build-server.sh
-./scripts/build-client.sh
-./scripts/build-world-builder-tools.sh
-
-java -jar output/world-builder-tools/world-builder-tools.jar launch \
-  --server-root /path/to/private-server \
-  --runtime-root /path/to/world-builder-release \
-  --workspace /path/to/world-builder-project \
-  --port 43615
-```
-
-`prepare` accepts the same arguments but stops after staging. `run` starts an
-existing prepared workspace with `--workspace`; it reads the recorded port
-from `runtime.json`. An explicit matching `--port` remains available for
-diagnostics.
-
-Preparation never replaces an existing workspace. It records the target's
-verified authored files under immutable-by-contract `<workspace>/source` and
-creates the complete runnable copy under `<workspace>/working`. The working
-tree receives a clean Builder database, no generated client identity or
-connection files, and a loopback-only configuration before the project is
-published atomically. Launch re-verifies every source-snapshot hash and refuses
-added, changed, missing, or symlinked source files. The target private-server
-tree is read-only throughout preparation and use.
-
-The Builder server receives the canonical workspace root explicitly and
-refuses to start from any directory other than `<workspace>/working/server`.
-Terrain, scenery, NPC and ground-item overlays, the client terrain mirror, and
-terrain backups all resolve through that validated context. The editor shows
-the project folder name, source revision, and current saved/unsaved state.
-
-The launcher keeps logs under `<workspace>/logs`, active PID files and the
-last-run receipt under `<workspace>/run`, and refuses a second process for the
-same workspace. Closing the client requests an orderly local server shutdown.
-Generated credentials are never printed or placed in manifests.
-
-## Layered draft: Create Level
-
-The first native layered writer is deliberately narrower than ordinary map
-editing. With the layered Builder closed, create a workspace-owned signed
-level around a geographic anchor:
-
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar create-level \
-  --workspace /path/to/world-builder-project \
-  --level -3 \
-  --anchor-x 140 \
-  --anchor-y 640
-```
-
-Optional `--name` and lowercase identifier `--role` values override the
-generated level metadata. The transaction takes the same per-workspace lock as
-the launcher, revalidates the immutable source package, stages a complete
-copy-on-write draft, creates a void-backed 3-by-3 sector window with a
-walkable 3-by-3 tile pad centered on the anchor plus an empty v3 placement
-set, rewrites all manifest hashes deterministically, validates the full
-descendant, and swaps it into `working` with rollback protection. The source
-snapshot and target game are reverified unchanged before success.
-
-Reopen the Builder to navigate to the new level. Repeating an existing level,
-running the operation while the Builder is open, malformed metadata, source
-drift, or a draft that changes accepted package content is refused. The
-Builder-only runtime profile cannot start an ordinary server. Terrain/entity
-editing on the accepted source levels and layered export remain disabled.
-
-### Layered draft: generated-level authoring
-
-Once at least one level has been created, the Builder enables terrain,
-scenery, NPC, and collectible ground-item tools only on Builder-created
-levels. Inspect or copy a tile, choose the checked elevation, floor-color,
-floor-texture, roof, wall, or diagonal fields, and paint with the 1-by-1 or
-3-by-3 brush. The server applies the working overlay immediately to terrain
-presentation and collision. Scenery and NPC tools place and remove
-package-owned entities through their native signed-level registries.
-
-The **Items** tab places one respawning package-owned spawn per tile. Select an
-item definition, stack amount, and `1..86400` second respawn time, then
-right-click allocated terrain to place it. Non-stackable definitions always
-use amount `1`. In Remove mode, right-click a visible authored ground item and
-choose **Remove spawn**; removal permanently cancels any delayed respawn for
-that slot. A picked-up spawn keeps its slot reserved while absent and must
-respawn before the first removal control can select it.
-
-All mutation on accepted source levels `-2`, `-1`, `0`, `1`, `2`, and `10`
-is refused. Generated-level placement also refuses absent terrain, invalid
-definitions, conflicting authored slots, and unallocated NPC roaming bounds.
-
-Select **Save** to write one bounded deterministic v5 draft journal containing
-terrain, sector growth, scenery, NPC, and ground-item operations. Saving does
-not modify the source snapshot, target private server, or exported game files.
-Close the Builder normally; while holding the workspace lock, the launcher
-materializes that journal through a copy-on-write package transaction, verifies
-the complete source descendant and hashes, then removes the journal. Reopen the
-same workspace to review the durable result. The launcher remains backward
-compatible with earlier v1-v4 journals.
-
-Allocate one new void-backed sector at an existing edge from an active
-Builder-created level with:
-
-```text
-::buildergrow 192 640 -3
-```
-
-The optional signed level defaults to the current level. Allocation must share
-an edge with existing or already queued terrain; gaps, duplicates, source
-levels, and more than 64 sectors per transaction are refused. New sector tiles
-use Floor Color `1` plus blocking/invisible Floor Texture `8`, so creators
-paint only the area they want instead of erasing a large floor or ocean.
-Unallocated sectors use the same explicit-void presentation. Save, close, and
-reopen before painting a new sector. Each transaction is also limited to 4,096
-distinct edited tiles. Standalone boundary-object authoring, terrain deletion,
-layered-package export, and target-game import remain separate future gates.
-
-After closing the Builder, export the saved working map with explicit release
-provenance:
-
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar export \
-  --workspace /path/to/world-builder-project \
-  --builder-version v0.2.39 \
-  --source-commit 0123456789abcdef0123456789abcdef01234567
-```
-
-Export revalidates the immutable source snapshot, working layout, matching
-server/client terrain archives, and all four authored JSON overlays. A changed
-project publishes atomically under `<workspace>/exports/export-<fingerprint>`.
-The directory contains only the canonical five authored files, a strict v1
-manifest, and a readable change summary. Identical input and provenance reuse
-the byte-identical verified export; no-op projects report `no-changes` without
-creating an export. Active Builder sessions, source drift, malformed input,
-unsafe paths, incomplete data, and tampered existing exports are refused.
-
-Preview an import while the target private server is offline:
-
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar import \
-  --workspace /path/to/world-builder-project \
-  --export /path/to/world-builder-project/exports/export-0123456789abcdef \
-  --target-root /path/to/private-server \
-  --dry-run
-```
-
-After reviewing the exact additions/replacements, repeat with `--apply` in
-place of `--dry-run`. Apply reserves the configured server port for the whole
-transaction, rechecks the source revision, writes a pending receipt, verifies
-backups and same-filesystem staging, replaces in deterministic order, and
-marks success only after reopening every installed file. Any partial failure
-restores the prior bytes and prior file absence before reporting failure.
-
-Preview or apply the newest eligible receipt-based undo with:
-
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar undo-import \
-  --workspace /path/to/world-builder-project \
-  --target-root /path/to/private-server \
-  --dry-run
-```
-
-Use `--apply` only after reviewing the undo. Undo refuses if any installed file
-changed after import, safeguards the installed state, restores the exact prior
-state, and records a successful rollback receipt. There is intentionally no
-force option.
-
-Packaged launchers use two human-oriented commands so shell and Windows batch
-files do not parse transaction JSON or duplicate safety logic:
-
-```bash
-java -jar world-builder-tools.jar export-import \
-  --workspace /path/to/world-builder-project \
-  --target-root /path/to/private-server \
-  --builder-version v0.1.0 \
-  --source-commit 0123456789abcdef0123456789abcdef01234567
-
-java -jar world-builder-tools.jar undo-latest-import \
-  --workspace /path/to/world-builder-project \
-  --target-root /path/to/private-server
-```
-
-The first command exports saved working data, prints the full import preview,
-and requires the exact confirmation `IMPORT`. The second prints the rollback
-preview and requires `UNDO`. Empty input or any other response cancels without
-changing the target. Both retain the same offline, revision, backup, receipt,
-and changed-after-import protections as the lower-level commands.
-
-The manifest schemas in `schema/` are release contracts. Add a new schema
-version instead of changing the meaning of an existing version.
+Schemas under `schema/` are versioned release contracts. Add a new schema
+version instead of changing an existing version's meaning.

@@ -29,6 +29,9 @@ def main() -> None:
     v2_packager = (
         ROOT / "scripts/package-world-builder-v2-release.sh"
     ).read_text(encoding="utf-8")
+    runtime_allowlist = (
+        ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+    ).read_text(encoding="utf-8")
     normalized_agents = " ".join(agents.split())
     normalized_development = " ".join(development.split())
 
@@ -59,6 +62,24 @@ def main() -> None:
     require(
         "check-core-parity.sh" not in v2_packager,
         "World Builder 2 packaging still requires repository source parity",
+    )
+    for forbidden in (
+        "--layered-package",
+        'cp -R "$CORE_ROOT/server/conf"',
+        'cp -R "$CORE_ROOT/server/database"',
+        'cp -R "$CORE_ROOT/Client_Base/Cache/video"',
+        "spoiled-milk-package",
+    ):
+        require(
+            forbidden not in v2_packager,
+            f"World Builder 2 packaging still uses broad or world-specific input: {forbidden}",
+        )
+    require(
+        "default-definition-catalog" in runtime_allowlist
+        and "default-render-catalog" in runtime_allowlist
+        and "/defs/locs/" not in runtime_allowlist
+        and "Landscape.orsc" not in runtime_allowlist,
+        "runtime allowlist is missing generic catalogs or admits world content",
     )
     require(
         "./scripts/checkout-core-framework.sh" in ci_workflow

@@ -29,7 +29,8 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         for text in (v2_readme, v2_start_sh, v2_start_cmd):
             self.assertIn("rsc-world-editor-v2", text)
         self.assertIn("v1.1.0", v2_readme)
-        self.assertIn("Spoiled Milk World Builder 2", v2_readme)
+        self.assertIn("World Builder 2", v2_readme)
+        self.assertNotIn("Spoiled Milk World Builder 2", v2_readme)
 
         manager = (ROOT / "scripts" / "ai-manager.sh").read_text(encoding="utf-8")
         self.assertIn("legacy v1.1.0 release line is frozen", manager)
@@ -53,7 +54,11 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         )
         for text in (packager, updater):
             self.assertIn("rsc-world-editor-v2", text)
-            self.assertIn("Spoiled Milk World Builder 2", text)
+            self.assertIn("target-adaptive-v1", text)
+        self.assertIn('PACKAGE_NAME="World Builder 2"', packager)
+        self.assertIn('PACKAGE_NAME="World Builder 2"', updater)
+        self.assertNotIn('PACKAGE_NAME="Spoiled Milk World Builder 2"', packager)
+        self.assertNotIn('PACKAGE_NAME="Spoiled Milk World Builder 2"', updater)
         self.assertIn("RELEASE-READY", packager)
         self.assertIn("final cross-platform release validation", packager)
         self.assertIn("rsc-world-editor-v1", updater)
@@ -65,7 +70,7 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         legacy_updater = (ROOT / "release/updater/Update World Builder.sh").read_text(
             encoding="utf-8"
         )
-        self.assertNotIn("Spoiled Milk World Builder 2", legacy_packager)
+        self.assertNotIn("target-adaptive-v1", legacy_packager)
         self.assertNotIn("rsc-world-editor-v2", legacy_updater)
 
     def test_runtime_adoption_preserves_owned_source_and_v1(self) -> None:

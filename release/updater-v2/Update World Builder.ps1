@@ -8,12 +8,16 @@ $ErrorActionPreference = "Stop"
 )
 $RootDir = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
 $Workspace = Join-Path $RootDir "workspace"
+$Projects = Join-Path $RootDir "projects"
+$ProjectRegistry = Join-Path $RootDir "project-registry.json"
+$ActiveProject = Join-Path $RootDir "active-project.json"
 $UpdatesDir = Join-Path $RootDir "updates"
 $LockDir = Join-Path $RootDir ".world-builder-v2-update.lock"
 $Repository = "An-actual-duck/rsc-world-editor"
 $ProductId = "rsc-world-editor-v2"
-$PackageName = "Spoiled Milk World Builder 2"
+$PackageName = "World Builder 2"
 $ArtifactPrefix = "rsc-world-editor-v2"
+$WorldSourceIdentity = "target-adaptive-v1"
 $TagPrefix = "$ArtifactPrefix-"
 $ApiUrl = if ($env:WORLD_BUILDER_V2_RELEASE_API_URL) {
     $env:WORLD_BUILDER_V2_RELEASE_API_URL
@@ -117,7 +121,7 @@ function Read-ReleaseIdentity(
     $ExpectedProperties = @(
         "schemaVersion", "productId", "productGeneration", "displayName",
         "updateChannel", "releaseTag", "artifactPrefix",
-        "worldCoordinateModel", "automaticUpgradeFromProductIds",
+        "worldSourceIdentity", "automaticUpgradeFromProductIds",
         "legacyProductId", "legacyFinalTag", "legacyWorkspaceMigration",
         "version", "sourceCommit", "coreSourceCommit"
     )
@@ -134,7 +138,7 @@ function Read-ReleaseIdentity(
         $Identity.updateChannel -cne $ProductId -or
         $Identity.releaseTag -cne $ExpectedTag -or
         $Identity.artifactPrefix -cne $ArtifactPrefix -or
-        $Identity.worldCoordinateModel -cne "signed-layered-v1" -or
+        $Identity.worldSourceIdentity -cne $WorldSourceIdentity -or
         $UpgradeSources.Count -ne 1 -or
         $UpgradeSources[0] -cne $ProductId -or
         $Identity.legacyProductId -cne "rsc-world-editor-v1" -or
@@ -155,7 +159,7 @@ function Read-ReleaseIdentity(
         ('  "updateChannel": "{0}",' -f $ProductId),
         ('  "releaseTag": "{0}",' -f $ExpectedTag),
         ('  "artifactPrefix": "{0}",' -f $ArtifactPrefix),
-        '  "worldCoordinateModel": "signed-layered-v1",',
+        ('  "worldSourceIdentity": "{0}",' -f $WorldSourceIdentity),
         '  "automaticUpgradeFromProductIds": [',
         ('    "{0}"' -f $ProductId),
         '  ],',
@@ -207,9 +211,10 @@ function Test-SafeRelativePath([string]$Relative) {
 function Test-DurablePath([string]$Relative) {
     $Top = $Relative.Split('/')[0]
     return $Top -in @(
-        "workspace", "updates", "exports", "backups", "receipts", "logs",
-        "credentials", ".world-builder-v2-update.lock",
-        ".workspace.world-builder.lock"
+        "projects", "project-registry.json", "active-project.json", "workspace",
+        "updates", "exports", "backups", "receipts", "diagnostics", "logs",
+        "settings", "credentials", "recovery", ".world-builder-v2-update.lock",
+        ".workspace.world-builder.lock", ".project-registry.lock"
     )
 }
 
@@ -316,16 +321,81 @@ function Assert-RequiredManagedFiles(
         "Update World Builder.cmd", "Update World Builder.ps1",
         "Import Map Changes.sh", "Import Map Changes.cmd",
         "Undo Last Map Import.sh", "Undo Last Map Import.cmd",
+        "RUNTIME-ASSET-ALLOWLIST.txt",
         "builder-runtime/Client_Base/Open_RSC_Client.jar",
         "builder-runtime/server/core.jar",
         "builder-runtime/server/plugins.jar",
-        "builder-runtime/server/inc/sqlite/myworld_seed.db",
+        "builder-runtime/server/inc/sqlite/world_builder_seed.db",
+        "builder-runtime/server/world-builder.conf",
+        "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json",
         "builder-runtime/launcher/world-builder-tools.jar",
-        "builder-runtime/layered-world/package/manifest.json",
         $RuntimeJava
     )) {
         if (-not $Managed.Contains($Required)) {
             Fail-Update "package manifest omits required application file: $Required"
+        }
+    }
+}
+
+function Assert-ApplicationAllowlist(
+    [string]$PackageRoot,
+    [object[]]$Records
+) {
+    $Allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($Relative in @(
+        "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
+        "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
+        "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
+        "RUNTIME-ASSET-ALLOWLIST.txt", "SOURCE-COMMIT.txt", "Start World Builder.cmd",
+        "Start World Builder.sh", "Undo Last Map Import.cmd", "Undo Last Map Import.sh",
+        "Update World Builder.cmd", "Update World Builder.ps1", "Update World Builder.sh",
+        "VERSION.txt", "builder-runtime/Client_Base/Open_RSC_Client.jar",
+        "builder-runtime/server/core.jar", "builder-runtime/server/plugins.jar",
+        "builder-runtime/server/world-builder.conf",
+        "builder-runtime/launcher/world-builder-tools.jar"
+    )) {
+        [void]$Allowed.Add($Relative)
+    }
+    foreach ($Schema in @(
+        "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
+        "conversion-plan-v1.schema.json", "conversion-report-v1.schema.json",
+        "discovery-report-v2.schema.json", "export-manifest-v1.schema.json",
+        "export-manifest-v2.schema.json", "import-receipt-v1.schema.json",
+        "import-receipt-v3.schema.json", "project-manifest-v1.schema.json",
+        "project-manifest-v2.schema.json", "project-registry-v1.schema.json",
+        "source-snapshot-v2.schema.json", "target-capability-v1.schema.json",
+        "target-mutation-plan-v1.schema.json"
+    )) {
+        [void]$Allowed.Add("builder-runtime/launcher/schema/$Schema")
+    }
+    $RuntimeAllowlist = Join-Path $PackageRoot "RUNTIME-ASSET-ALLOWLIST.txt"
+    if (
+        -not (Test-Path -LiteralPath $RuntimeAllowlist -PathType Leaf) -or
+        ((Get-Item -LiteralPath $RuntimeAllowlist -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+    ) {
+        Fail-Update "runtime asset allowlist is missing or unsafe"
+    }
+    foreach ($Line in Get-Content -LiteralPath $RuntimeAllowlist) {
+        if ([string]::IsNullOrEmpty($Line) -or $Line.StartsWith("#", [StringComparison]::Ordinal)) {
+            continue
+        }
+        $Fields = $Line.Split("`t")
+        if (
+            $Fields.Count -ne 3 -or
+            -not (Test-SafeRelativePath $Fields[0]) -or
+            -not (Test-SafeRelativePath $Fields[1]) -or
+            [string]::IsNullOrWhiteSpace($Fields[2]) -or
+            -not $Allowed.Add("builder-runtime/$($Fields[1])")
+        ) {
+            Fail-Update "runtime asset allowlist is malformed or has duplicate destinations"
+        }
+    }
+    foreach ($Record in $Records) {
+        if (
+            -not $Allowed.Contains($Record.Relative) -and
+            -not $Record.Relative.StartsWith("runtime/", [StringComparison]::Ordinal)
+        ) {
+            Fail-Update "package manifest owns a path outside the content-neutral application allowlist: $($Record.Relative)"
         }
     }
 }
@@ -410,7 +480,14 @@ if (-not (Test-BuilderVersion $CurrentVersion)) {
     Fail-Update "VERSION.txt does not contain a supported World Builder 2 version"
 }
 $CurrentTag = "$TagPrefix$($CurrentVersion.Substring(1))"
-$InstalledIdentity = Read-ReleaseIdentity (Join-Path $RootDir "RELEASE-IDENTITY.json") $CurrentVersion $CurrentTag
+$InstalledIdentityPath = Join-Path $RootDir "RELEASE-IDENTITY.json"
+if (
+    (Test-Path -LiteralPath $InstalledIdentityPath -PathType Leaf) -and
+    ([IO.File]::ReadAllText($InstalledIdentityPath).Contains('"worldCoordinateModel": "signed-layered-v1"'))
+) {
+    Fail-Update "this is a historical pre-adaptive World Builder 2 installation. Automatic relabelling or workspace migration is unsupported; preserve the complete folder and install adaptive World Builder 2 separately"
+}
+$InstalledIdentity = Read-ReleaseIdentity $InstalledIdentityPath $CurrentVersion $CurrentTag
 if (
     (Get-Content -LiteralPath (Join-Path $RootDir "SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.sourceCommit -or
     (Get-Content -LiteralPath (Join-Path $RootDir "CORE-SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.coreSourceCommit
@@ -420,11 +497,26 @@ if (
 $InstalledManifestPath = Join-Path $RootDir "PACKAGE-MANIFEST.sha256"
 $InstalledRecords = @(Read-PackageManifest $RootDir $InstalledManifestPath)
 Assert-RequiredManagedFiles $InstalledRecords "runtime/bin/java.exe"
+Assert-ApplicationAllowlist $RootDir $InstalledRecords
 
+if ((Test-Path -LiteralPath $Workspace) -and -not (Test-Path -LiteralPath $ProjectRegistry)) {
+    Fail-Update "this is a historical pre-adaptive World Builder 2 installation. Its workspace was preserved, but it cannot be relabelled or migrated automatically. Keep the complete installation for matching-version recovery and install adaptive World Builder 2 in a separate folder"
+}
+
+$PidPaths = [Collections.Generic.List[string]]::new()
 foreach ($PidPath in @(
     (Join-Path $Workspace "run/server.pid"),
     (Join-Path $Workspace "run/client.pid")
 )) {
+    $PidPaths.Add($PidPath)
+}
+$ProjectsItem = Get-Item -LiteralPath $Projects -Force -ErrorAction SilentlyContinue
+if ($ProjectsItem -and $ProjectsItem.PSIsContainer -and -not ($ProjectsItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    Get-ChildItem -LiteralPath $Projects -Filter "*.pid" -File -Recurse -Force |
+        Where-Object { $_.FullName -match '[\\/]run[\\/](?:server|client)\.pid$' } |
+        ForEach-Object { $PidPaths.Add($_.FullName) }
+}
+foreach ($PidPath in $PidPaths) {
     if (Test-Path -LiteralPath $PidPath -PathType Leaf) {
         $PidText = (Get-Content -LiteralPath $PidPath -Raw).Trim()
         if ($PidText -match '^\d+$' -and (Get-Process -Id ([int]$PidText) -ErrorAction SilentlyContinue)) {
@@ -518,6 +610,7 @@ try {
     $DownloadedRecords = @(Read-PackageManifest $PackageRoot $DownloadedManifestPath)
     Assert-ExactPackageInventory $PackageRoot $DownloadedRecords
     Assert-RequiredManagedFiles $DownloadedRecords "runtime/bin/java.exe"
+    Assert-ApplicationAllowlist $PackageRoot $DownloadedRecords
 
     if ((Get-Content -LiteralPath (Join-Path $PackageRoot "VERSION.txt") -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "downloaded package version does not match its release tag"
@@ -582,16 +675,48 @@ try {
     Copy-Item -LiteralPath $DownloadedManifestPath -Destination (Join-Path $RootDir "PACKAGE-MANIFEST.sha256") -Force
     $VerifiedRecords = @(Read-PackageManifest $RootDir (Join-Path $RootDir "PACKAGE-MANIFEST.sha256"))
     Assert-RequiredManagedFiles $VerifiedRecords "runtime/bin/java.exe"
+    Assert-ApplicationAllowlist $RootDir $VerifiedRecords
     $VerifiedIdentity = Read-ReleaseIdentity (Join-Path $RootDir "RELEASE-IDENTITY.json") $LatestVersion $LatestTag
     if ((Get-Content -LiteralPath $VersionPath -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "installed update version verification failed"
     }
+    if (
+        (Test-Path -LiteralPath $ProjectRegistry) -or
+        (Test-Path -LiteralPath $ActiveProject) -or
+        (Test-Path -LiteralPath $Projects)
+    ) {
+        $RegistryItem = Get-Item -LiteralPath $ProjectRegistry -Force -ErrorAction SilentlyContinue
+        $ActiveItem = Get-Item -LiteralPath $ActiveProject -Force -ErrorAction SilentlyContinue
+        $ProjectsItem = Get-Item -LiteralPath $Projects -Force -ErrorAction SilentlyContinue
+        if (
+            -not $RegistryItem -or $RegistryItem.PSIsContainer -or
+            ($RegistryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not $ActiveItem -or $ActiveItem.PSIsContainer -or
+            ($ActiveItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not $ProjectsItem -or -not $ProjectsItem.PSIsContainer -or
+            ($ProjectsItem.Attributes -band [IO.FileAttributes]::ReparsePoint)
+        ) {
+            Fail-Update "adaptive project state is incomplete or unsafe after the application update"
+        }
+        $CompatibilityJava = if ($env:WORLD_BUILDER_V2_COMPATIBILITY_JAVA) {
+            $env:WORLD_BUILDER_V2_COMPATIBILITY_JAVA
+        } else {
+            Join-Path $RootDir "runtime/bin/java.exe"
+		}
+		& $CompatibilityJava -jar (Join-Path $RootDir "builder-runtime/launcher/world-builder-tools.jar") `
+			open-project --installation-root $RootDir --target-root (Split-Path -Parent $RootDir) `
+			--validate-only |
+			Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Fail-Update "the selected adaptive project is incompatible with the updated runtime"
+        }
+    }
     $RollbackArmed = $false
 
     Write-Host "World Builder 2 updated successfully to $LatestVersion."
-    if (Test-Path -LiteralPath $Workspace -PathType Container) {
-        Write-Host "Your existing v2 workspace, exports, backups, receipts, credentials, database, and logs were preserved."
-        Write-Host "The existing project remains tied to the runtime snapshot with which it was created."
+    if ((Test-Path -LiteralPath $Projects -PathType Container) -or (Test-Path -LiteralPath $Workspace -PathType Container)) {
+        Write-Host "All adaptive projects, registries, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved."
+        Write-Host "The selected project passed the compatibility checks available in this runtime."
     }
 } catch {
     $OriginalFailure = $_

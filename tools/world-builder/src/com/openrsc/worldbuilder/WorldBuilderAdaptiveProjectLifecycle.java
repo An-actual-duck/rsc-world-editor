@@ -546,6 +546,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 	ProjectResult openActive(Path requestedInstallRoot, Path requestedTargetRoot)
 		throws IOException, WorldBuilderContractException {
+		return openActive(requestedInstallRoot, requestedTargetRoot, true);
+	}
+
+	ProjectResult validateActive(Path requestedInstallRoot, Path requestedTargetRoot)
+		throws IOException, WorldBuilderContractException {
+		return openActive(requestedInstallRoot, requestedTargetRoot, false);
+	}
+
+	private ProjectResult openActive(Path requestedInstallRoot,
+		Path requestedTargetRoot, boolean updateAttachmentState)
+		throws IOException, WorldBuilderContractException {
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
 		Path projects = install.resolve(PROJECTS_DIRECTORY);
 		if (!Files.isDirectory(projects, LinkOption.NOFOLLOW_LINKS)
@@ -554,20 +565,24 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Adaptive projects directory is missing or unsafe.",
 				"Create the first project or restore the complete projects directory.");
 		}
-		try (FileChannel channel = openLock(projects.resolve(".registry.lock"))) {
+		Path registryLock = projects.resolve(".registry.lock");
+		try (FileChannel channel = updateAttachmentState
+			? openLock(registryLock) : openExistingLock(registryLock)) {
 			FileLock lock = tryLock(channel);
 			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 				PROJECTS_DIRECTORY, "Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
-				return openActiveLocked(install, requestedTargetRoot);
+				return openActiveLocked(
+					install, requestedTargetRoot, updateAttachmentState);
 			} finally {
 				lock.release();
 			}
 		}
 	}
 
-	private ProjectResult openActiveLocked(Path install, Path requestedTargetRoot)
+	private ProjectResult openActiveLocked(Path install, Path requestedTargetRoot,
+		boolean updateAttachmentState)
 		throws IOException, WorldBuilderContractException {
 		RegistryState registry = loadRegistry(install, true);
 		ActiveState active = loadActive(install, registry, true);
@@ -603,9 +618,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				}
 			}
 			String wanted = attached ? "ready-attached" : "ready-detached";
-			if (!wanted.equals(verified.state)
+			if (updateAttachmentState && (!wanted.equals(verified.state)
 				|| attached && !attachedLocator.equals(
-					string(targetInfo, "locatorDisplay"))) {
+					string(targetInfo, "locatorDisplay")))) {
 				verified = updateState(
 					install, verified, wanted, attachedLocator);
 			}
@@ -1051,7 +1066,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		runtime.put("initialLayer", Long.valueOf(0L));
 		runtime.put("initialX", Long.valueOf(0L));
 		runtime.put("initialY", Long.valueOf(0L));
-		runtime.put("upstreamAuthoringCapability", "phase4-required");
+		runtime.put("upstreamAuthoringCapability",
+			"adaptive-world-builder-runtime-capability-v1");
 		writeNew(stage.resolve(WORKING_RUNTIME_FILE),
 			WorldBuilderJsonDocuments.pretty(runtime).getBytes(StandardCharsets.UTF_8));
 	}
@@ -1075,7 +1091,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			|| integer(value, "initialLayer") != 0L
 			|| integer(value, "initialX") != 0L
 			|| integer(value, "initialY") != 0L
-			|| !"phase4-required".equals(
+			|| !"adaptive-world-builder-runtime-capability-v1".equals(
 				string(value, "upstreamAuthoringCapability"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, WORKING_RUNTIME_FILE,
 				"Project runtime metadata is inconsistent with the selected project.",
@@ -1596,6 +1612,19 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			throw new IOException("Project registry lock path is unsafe");
 		}
 		return FileChannel.open(path, StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+	}
+
+	private static FileChannel openExistingLock(Path path)
+		throws IOException, WorldBuilderContractException {
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				PROJECTS_DIRECTORY + "/.registry.lock",
+				"Project registry lock is missing or unsafe for read-only validation.",
+				"Restore the exact existing registry lock; validation will not create or repair it.");
+		}
+		return FileChannel.open(path, StandardOpenOption.READ,
+			StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
 	}
 
 	private static FileLock tryLock(FileChannel channel) throws IOException {

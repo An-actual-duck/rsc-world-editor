@@ -12,8 +12,9 @@ but it never connects to or edits a public server.
 
 The repository is divided into four layers:
 
-- `tools/world-builder/` contains Java tooling for target discovery, workspace
-  preparation, process supervision, export, import, and rollback.
+- `tools/world-builder/` contains Java tooling for target discovery,
+  conversion, UUID project lifecycle, process supervision, export, import,
+  and rollback.
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
@@ -29,22 +30,25 @@ An installed package has two fundamentally different classes of files.
 
 Durable World Builder 2 state includes `projects/<uuid>/`,
 `project-registry.json`, `active-project.json`, and each project's source,
-working package, generated runtime state, exports, backups, receipts, logs,
-and settings. The historical v2-alpha `workspace/` is also durable and is
+working package, generated runtime state, exports, backups, receipts,
+diagnostics, logs, and settings. The historical v2-alpha `workspace/` is also durable and is
 preserved without implicit migration. Durable state must survive application
 updates and is never committed here.
 
 Replaceable application state includes the packaged Java runtime, launcher
-tooling, client/server binaries, definitions, caches, schemas, scripts, and
-documentation. Release and updater work may replace this layer only after the
+tooling, client/server binaries, schemas, scripts, documentation, and only the
+runtime/default-catalog files named in `RUNTIME-ASSET-ALLOWLIST.txt`. Terrain,
+placements, layered packages, projects, and generated operational state can
+never enter this layer. Release and updater work may replace it only after the
 Builder is closed and the replacement has been verified.
 
 Each v2 package inventories that replaceable layer in
 `PACKAGE-MANIFEST.sha256`. Updates back up and remove only paths owned by the
 installed manifest, refuse collisions with unknown files, and restore the old
-managed layer if installation or verification fails. Archive and manifest
-validation reject links, traversal, durable-state paths, and untracked package
-files before replacement begins.
+managed layer if installation, verification, or selected-project compatibility
+fails. Archive and manifest validation reject links, traversal, durable-state
+paths, files outside the application allowlist, and untracked package files
+before replacement begins.
 
 ## World-data transaction
 
@@ -65,15 +69,16 @@ The editor spans client and server code, so duplicating the full game source in
 this repository would create the same drift this repository is intended to
 prevent. Instead, releases use the exact dependency revision already selected
 in `core-framework.lock`. The release build refuses a different revision, and
-CI verifies the synchronized standalone directories against that revision.
-Neither CI nor the World Editor manager searches for newer upstream work;
+dependency-update/release checks verify its published capability, required
+runtime surfaces, and protocol. Neither CI nor the World Editor manager searches for newer upstream work;
 changing the pin is a separate, explicitly assigned task.
 
 ## Product-generation boundary
 
 Legacy v1 ends at standalone release `v1.1.0`. World Builder 2 uses product and
-update channel `rsc-world-editor-v2`, a different install folder, and a
-signed-layered workspace. Neither generation may identify the other as an
+update channel `rsc-world-editor-v2`, generic install folder `World Builder 2`,
+world-source identity `target-adaptive-v1`, and UUID signed-layered projects.
+Neither generation may identify the other as an
 automatic update, and v2 must refuse legacy or unidentified workspaces rather
 than attempting an implicit conversion.
 
@@ -99,12 +104,13 @@ immediate standalone import/undo refusal. The Linux and Windows v2 launchers
 now use adaptive parent-target discovery instead of a fixed config or packaged
 world.
 
-Native adaptive client/server launch deliberately returns
-`LOADER_INCOMPATIBLE` before process creation because the exact locked runtime
-does not yet supply the separately approved Phase 4 generic layered loading
-and void-authoring capability. Phase 5 content-neutral packaging and inherited
-identity cleanup and Phase 6 generic export/import also remain gated. Therefore
-the complete adaptive release gate is not open.
+The exact locked runtime now supplies the separately reviewed Phase 4 generic
+layered-loader, authoring, placement, isolation, and copy-on-write capability.
+Owner-run adopted-project and standalone-empty visual/edit/save/reopen
+validation remains pending. Phase 5 supplies the generic identity, exact
+runtime/default-catalog allowlist, no-world archive validation, and durable
+Linux/Windows updater boundary. Phase 6 generic export/import and the owner
+validation still keep the adaptive release gate closed.
 
 ## Planned custom materials
 

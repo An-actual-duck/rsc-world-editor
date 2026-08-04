@@ -23,8 +23,11 @@ UPDATER_ASSETS = ROOT / "release/updater-v2"
 UPDATER = UPDATER_ASSETS / "Update World Builder.sh"
 WINDOWS_UPDATER = UPDATER_ASSETS / "Update World Builder.ps1"
 WINDOWS_START = UPDATER_ASSETS / "Start World Builder.cmd"
-PACKAGE_NAME = "Spoiled Milk World Builder 2"
+PACKAGE_NAME = "World Builder 2"
 PRODUCT_ID = "rsc-world-editor-v2"
+WORLD_SOURCE_IDENTITY = "target-adaptive-v1"
+RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+NEW_MANAGED_PATH = "EDITOR-ICON-CREDITS.txt"
 POWERSHELL = os.environ.get("WORLD_BUILDER_PWSH") or shutil.which("pwsh")
 
 
@@ -87,7 +90,7 @@ def identity_text(
         "updateChannel": PRODUCT_ID,
         "releaseTag": release_tag(version),
         "artifactPrefix": PRODUCT_ID,
-        "worldCoordinateModel": "signed-layered-v1",
+        "worldSourceIdentity": WORLD_SOURCE_IDENTITY,
         "automaticUpgradeFromProductIds": [PRODUCT_ID],
         "legacyProductId": "rsc-world-editor-v1",
         "legacyFinalTag": "v1.1.0",
@@ -103,10 +106,15 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="world-builder-v2-updater-")
         self.base = Path(self.temp.name)
+        self.compatibility_command = self.base / "compatibility-ok"
+        self.compatibility_command.write_text(
+            "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8"
+        )
+        self.compatibility_command.chmod(0o755)
         self.install = self.base / PACKAGE_NAME
         self.install.mkdir()
         self.write_application(self.install, "v0.1.0", "old application\n")
-        (self.install / "application.txt").chmod(0o444)
+        (self.install / "README.txt").chmod(0o444)
         (self.install / "personal-note.txt").write_text(
             "unmanaged and preserved\n", encoding="utf-8"
         )
@@ -117,8 +125,45 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         (workspace / "credentials/secret.txt").write_text(
             "private\n", encoding="utf-8"
         )
-        self.workspace_snapshot = self.snapshot(workspace)
-        self.personal_snapshot = (self.install / "personal-note.txt").read_bytes()
+        project_ids = (
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        )
+        for index, project_id in enumerate(project_ids, 1):
+            project = self.install / "projects" / project_id
+            (project / "source/layered-baseline/package").mkdir(parents=True)
+            (project / "working/layered-world/package").mkdir(parents=True)
+            for directory in (
+                "exports", "backups", "receipts", "diagnostics", "logs", "run"
+            ):
+                (project / directory).mkdir()
+            (project / "project.json").write_text(
+                json.dumps({"project": index}) + "\n", encoding="utf-8"
+            )
+            (project / "working/layered-world/package/terrain.bin").write_bytes(
+                f"project-{index}-terrain".encode()
+            )
+        (self.install / "project-registry.json").write_text(
+            json.dumps({"projects": list(project_ids)}) + "\n", encoding="utf-8"
+        )
+        (self.install / "active-project.json").write_text(
+            json.dumps({"projectId": project_ids[0]}) + "\n", encoding="utf-8"
+        )
+        for relative in (
+            "exports/global.keep", "backups/global.keep", "receipts/global.keep",
+            "diagnostics/global.keep", "logs/global.keep", "settings/editor.keep",
+            "recovery/pending.keep", "updates/user-recovery/keep.txt",
+            "unknown-user-folder/keep.bin",
+        ):
+            path = self.install / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(("durable:" + relative).encode())
+        self.durable_targets = (
+            "workspace", "projects", "project-registry.json", "active-project.json",
+            "exports", "backups", "receipts", "diagnostics", "logs", "settings",
+            "recovery", "updates", "unknown-user-folder", "personal-note.txt",
+        )
+        self.durable_snapshot = self.snapshot_targets()
 
     def tearDown(self) -> None:
         self.temp.cleanup()
@@ -135,6 +180,13 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
                     "file",
                     hashlib.sha256(path.read_bytes()).hexdigest(),
                 )
+        return result
+
+    def snapshot_targets(self) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for relative in self.durable_targets:
+            path = self.install / relative
+            result[relative] = self.snapshot(path) if path.is_dir() else path.read_bytes()
         return result
 
     @staticmethod
@@ -162,10 +214,14 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         application: str,
         *,
         product_id: str = PRODUCT_ID,
+        compatibility_exit: int = 0,
     ) -> None:
-        for asset in UPDATER_ASSETS.iterdir():
-            if asset.is_file():
-                shutil.copy2(asset, package / asset.name)
+        for name in (
+            "Start World Builder.sh", "Start World Builder.cmd",
+            "Update World Builder.sh", "Update World Builder.cmd",
+            "Update World Builder.ps1",
+        ):
+            shutil.copy2(UPDATER_ASSETS / name, package / name)
         (package / "Update World Builder.sh").chmod(0o755)
         (package / "Start World Builder.sh").chmod(0o755)
         source_commit = "a" * 40 if application.startswith("old") else "c" * 40
@@ -194,10 +250,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "builder-runtime/Client_Base/Open_RSC_Client.jar": "client\n",
             "builder-runtime/server/core.jar": "server\n",
             "builder-runtime/server/plugins.jar": "plugins\n",
-            "builder-runtime/server/inc/sqlite/myworld_seed.db": "seed\n",
+            "builder-runtime/server/inc/sqlite/world_builder_seed.db": "seed\n",
+            "builder-runtime/server/world-builder.conf": "server_name: World Builder 2 Runtime\n",
+            "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json": "{}\n",
             "builder-runtime/launcher/world-builder-tools.jar": "tools\n",
-            "builder-runtime/layered-world/package/manifest.json": "{}\n",
-            "runtime/bin/java": "#!/usr/bin/env bash\nexit 0\n",
+            "runtime/bin/java": f"#!/usr/bin/env bash\nexit {compatibility_exit}\n",
             "runtime/bin/java.exe": "runtime\n",
         }
         for relative, contents in required_payloads.items():
@@ -210,9 +267,12 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "runtime/bin/java",
         ):
             (package / relative).chmod(0o755)
-        (package / "application.txt").write_text(application, encoding="utf-8")
+        (package / "README.txt").write_text(application, encoding="utf-8")
+        shutil.copy2(RUNTIME_ALLOWLIST, package / "RUNTIME-ASSET-ALLOWLIST.txt")
         managed_relatives = {
-            asset.name for asset in UPDATER_ASSETS.iterdir() if asset.is_file()
+            "Start World Builder.sh", "Start World Builder.cmd",
+            "Update World Builder.sh", "Update World Builder.cmd",
+            "Update World Builder.ps1",
         }
         managed_relatives.update(required_payloads)
         managed_relatives.update(
@@ -221,7 +281,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
                 "SOURCE-COMMIT.txt",
                 "CORE-SOURCE-COMMIT.txt",
                 "RELEASE-IDENTITY.json",
-                "application.txt",
+                "README.txt",
+                "RUNTIME-ASSET-ALLOWLIST.txt",
             }
         )
         managed = [package / relative for relative in sorted(managed_relatives)]
@@ -236,6 +297,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         durable_manifest_path: bool = False,
         untracked_file: bool = False,
         non_executable_launcher: bool = False,
+        renamed_world_payload: bool = False,
+        compatibility_exit: int = 0,
     ) -> tuple[str, str]:
         release_root = self.base / "release"
         package = self.base / "package" / PACKAGE_NAME
@@ -245,12 +308,19 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             version,
             "new application\n",
             product_id=product_id,
+            compatibility_exit=compatibility_exit,
         )
         if non_executable_launcher:
             (package / "Start World Builder.sh").chmod(0o644)
-        (package / "new-only.txt").write_text("new file\n", encoding="utf-8")
+        (package / NEW_MANAGED_PATH).write_text("new managed file\n", encoding="utf-8")
         if untracked_file:
             (package / "untracked.txt").write_text("not in manifest\n", encoding="utf-8")
+        if renamed_world_payload:
+            disguised = package / "builder-runtime/launcher/schema/disguised.schema.json"
+            disguised.parent.mkdir(parents=True, exist_ok=True)
+            disguised.write_text(
+                '{"packageType":"layered-world","levels":[]}\n', encoding="utf-8"
+            )
         managed = [
             path
             for path in sorted(package.rglob("*"))
@@ -389,14 +459,15 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             capture_output=True,
         )
 
-    def assert_durable_state_unchanged(self) -> None:
-        self.assertEqual(
-            self.workspace_snapshot, self.snapshot(self.install / "workspace")
-        )
-        self.assertEqual(
-            self.personal_snapshot, (self.install / "personal-note.txt").read_bytes()
-        )
-        self.assertFalse((self.install / ".world-builder-v2-update.lock").exists())
+    def assert_durable_state_unchanged(self, *, allow_recovery_stage: bool = False) -> None:
+        expected = dict(self.durable_snapshot)
+        actual = self.snapshot_targets()
+        if allow_recovery_stage:
+            expected.pop("updates")
+            actual.pop("updates")
+        self.assertEqual(expected, actual)
+        if not allow_recovery_stage:
+            self.assertFalse((self.install / ".world-builder-v2-update.lock").exists())
 
     def test_verified_v2_update_replaces_managed_files_only(self) -> None:
         api_url, download_url = self.make_release()
@@ -406,9 +477,56 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual("v0.1.1", (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual(
             "new application\n",
-            (self.install / "application.txt").read_text(encoding="utf-8"),
+            (self.install / "README.txt").read_text(encoding="utf-8"),
         )
-        self.assertTrue((self.install / "new-only.txt").is_file())
+        self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
+        self.assert_durable_state_unchanged()
+
+    def test_historical_pre_adaptive_workspace_refuses_automatic_migration(
+        self,
+    ) -> None:
+        workspace = self.snapshot(self.install / "workspace")
+        personal = (self.install / "personal-note.txt").read_bytes()
+        for relative in ("projects", "project-registry.json", "active-project.json"):
+            path = self.install / relative
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+        result = self.run_updater(
+            (self.base / "must-not-be-read.json").as_uri(),
+            (self.base / "must-not-be-read").as_uri(),
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("historical pre-adaptive World Builder 2", result.stderr)
+        self.assertIn("cannot be relabelled or migrated automatically", result.stderr)
+        self.assertEqual(workspace, self.snapshot(self.install / "workspace"))
+        self.assertEqual(personal, (self.install / "personal-note.txt").read_bytes())
+        self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
+
+    def test_downloaded_renamed_world_payload_is_outside_exact_allowlist(self) -> None:
+        api_url, download_url = self.make_release(renamed_world_payload=True)
+        result = self.run_updater(api_url, download_url)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("content-neutral application allowlist", result.stderr)
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assert_durable_state_unchanged()
+
+    def test_selected_project_incompatibility_rolls_back_application_only(
+        self,
+    ) -> None:
+        before_manifest = (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
+        api_url, download_url = self.make_release(compatibility_exit=37)
+        result = self.run_updater(api_url, download_url)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("selected adaptive project is incompatible", result.stderr)
+        self.assertIn("previous World Builder 2 application files were restored", result.stderr)
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assertEqual(
+            before_manifest, (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
+        )
         self.assert_durable_state_unchanged()
 
     def test_v2_channel_selects_newer_alpha_beside_frozen_v1_and_decoys(
@@ -425,7 +543,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual(version, (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual(
             "new application\n",
-            (self.install / "application.txt").read_text(encoding="utf-8"),
+            (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assert_durable_state_unchanged()
 
@@ -442,7 +560,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         result = self.run_updater(api_url, download_url)
         self.assertNotEqual(0, result.returncode)
         self.assertIn("not an exact rsc-world-editor-v2 release", result.stderr)
-        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
         self.assert_durable_state_unchanged()
 
     def test_bad_checksum_refuses_before_installation(self) -> None:
@@ -450,7 +568,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         result = self.run_updater(api_url, download_url)
         self.assertNotEqual(0, result.returncode)
         self.assertIn("checksum does not match", result.stderr)
-        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
         self.assert_durable_state_unchanged()
 
     def test_active_builder_process_refuses_before_network_or_update_state(self) -> None:
@@ -465,7 +583,9 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Close World Builder 2 before updating", result.stderr)
         self.assertEqual(expected_workspace, self.snapshot(self.install / "workspace"))
-        self.assertFalse((self.install / "updates").exists())
+        self.assertEqual(
+            self.durable_snapshot["updates"], self.snapshot(self.install / "updates")
+        )
 
     def test_installed_manifest_path_cannot_cross_a_symbolic_link(self) -> None:
         external = self.base / "external"
@@ -488,7 +608,9 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("application manifest is missing or does not verify", result.stderr)
         self.assertEqual("outside installation\n", sentinel.read_text(encoding="utf-8"))
-        self.assertFalse((self.install / "updates").exists())
+        self.assertEqual(
+            self.durable_snapshot["updates"], self.snapshot(self.install / "updates")
+        )
 
     def test_installed_manifest_must_own_the_complete_application(self) -> None:
         manifest = self.install / "PACKAGE-MANIFEST.sha256"
@@ -505,7 +627,9 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         )
         self.assertNotEqual(0, result.returncode)
         self.assertIn("Installed package manifest omits", result.stderr)
-        self.assertFalse((self.install / "updates").exists())
+        self.assertEqual(
+            self.durable_snapshot["updates"], self.snapshot(self.install / "updates")
+        )
         self.assert_durable_state_unchanged()
 
     def test_durable_or_untracked_downloaded_content_is_refused(self) -> None:
@@ -529,7 +653,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("package file is not executable", result.stderr)
         self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
-        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
         self.assert_durable_state_unchanged()
 
     def test_archive_symbolic_link_is_refused_before_extraction(self) -> None:
@@ -561,7 +685,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assert_durable_state_unchanged()
 
     def test_older_channel_release_does_not_downgrade(self) -> None:
-        (self.install / "application.txt").chmod(0o644)
+        (self.install / "README.txt").chmod(0o644)
         self.write_application(self.install, "v0.2.0", "old application\n")
         api_url = self.write_channel_tag(release_tag("v0.1.9"))
         result = self.run_updater(api_url, (self.base / "missing").as_uri())
@@ -579,7 +703,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "for argument in \"$@\"; do\n"
-            "  if [[ \"$argument\" == */extracted/'Spoiled Milk World Builder 2'/new-only.txt ]]; then\n"
+            f"  if [[ \"$argument\" == */extracted/'{PACKAGE_NAME}'/{NEW_MANAGED_PATH} ]]; then\n"
             "    destination=\"${@: -1}\"\n"
             "    /bin/cp -a \"$argument\" \"$destination\"\n"
             "    exit 19\n"
@@ -598,8 +722,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertIn("Unable to install", result.stderr)
         self.assertIn("previous World Builder 2 application files were restored", result.stderr)
         self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
-        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
-        self.assertFalse((self.install / "new-only.txt").exists())
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assertFalse((self.install / NEW_MANAGED_PATH).exists())
         self.assertEqual(
             before_manifest, (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
         )
@@ -614,14 +738,14 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
             "for argument in \"$@\"; do\n"
-            "  if [[ \"$argument\" == */extracted/'Spoiled Milk World Builder 2'/new-only.txt ]]; then\n"
+            f"  if [[ \"$argument\" == */extracted/'{PACKAGE_NAME}'/{NEW_MANAGED_PATH} ]]; then\n"
             "    /bin/cp -a \"$argument\" \"${@: -1}\"\n"
             "    exit 19\n"
             "  fi\n"
             "  if [[ \"$argument\" == */backup/. ]]; then\n"
             "    destination=\"${@: -1}\"\n"
             "    /bin/cp -a \"$argument\" \"$destination\"\n"
-            "    /bin/rm -f \"$destination/application.txt\"\n"
+            "    /bin/rm -f \"$destination/README.txt\"\n"
             "    exit 23\n"
             "  fi\n"
             "done\n"
@@ -652,12 +776,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         )
         self.assertNotEqual(0, launched.returncode)
         self.assertIn("update is already in progress", launched.stderr)
-        self.assertEqual(
-            self.workspace_snapshot, self.snapshot(self.install / "workspace")
-        )
-        self.assertEqual(
-            self.personal_snapshot, (self.install / "personal-note.txt").read_bytes()
-        )
+        self.assert_durable_state_unchanged(allow_recovery_stage=True)
 
     def test_windows_updater_carries_equivalent_identity_and_rollback_guards(self) -> None:
         powershell = WINDOWS_UPDATER.read_text(encoding="utf-8")
@@ -666,18 +785,36 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "Read-ReleaseIdentity",
             "Assert-SafeArchive",
             "Assert-ExactPackageInventory",
+            "Assert-ApplicationAllowlist",
             "Remove-ManagedFiles",
             "Get-FileHash",
             "PACKAGE-MANIFEST.sha256",
             "rsc-world-editor-v2",
             "rsc-world-editor-v1",
             "legacyWorkspaceMigration",
+            "target-adaptive-v1",
+            "project-registry.json",
+            "active-project.json",
+            "--validate-only",
+            "selected adaptive project is incompatible",
+            "historical pre-adaptive World Builder 2",
             "Close World Builder 2 before updating",
             "RollbackArmed",
             "Select-NewestV2Release",
             "releases?per_page=100",
         ):
             self.assertIn(snippet, powershell)
+        linux = UPDATER.read_text(encoding="utf-8")
+        for snippet in (
+            "target-adaptive-v1", "project-registry.json", "active-project.json",
+            "--validate-only",
+            "selected adaptive project is incompatible",
+            "historical pre-adaptive World Builder 2",
+            "validate_application_paths",
+        ):
+            self.assertIn(snippet, linux)
+        self.assertNotIn("Spoiled Milk World Builder 2", powershell)
+        self.assertNotIn("Spoiled Milk World Builder 2", linux)
         self.assertIn("Update World Builder.cmd", windows_start)
         self.assertIn("WORLD_BUILDER_SKIP_UPDATE", windows_start)
         self.assertIn(".world-builder-v2-update.lock", windows_start)
@@ -691,6 +828,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -713,8 +851,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stdout + result.stderr)
         self.assertIn("updated successfully to v0.1.1", result.stdout)
         self.assertEqual("v0.1.1", (self.install / "VERSION.txt").read_text().strip())
-        self.assertEqual("new application\n", (self.install / "application.txt").read_text())
-        self.assertTrue((self.install / "new-only.txt").is_file())
+        self.assertEqual("new application\n", (self.install / "README.txt").read_text())
+        self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
         self.assert_durable_state_unchanged()
 
     @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")
@@ -730,6 +868,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -754,13 +893,13 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual(version, (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual(
             "new application\n",
-            (self.install / "application.txt").read_text(encoding="utf-8"),
+            (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assert_durable_state_unchanged()
 
     @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")
     def test_powershell_channel_does_not_downgrade(self) -> None:
-        (self.install / "application.txt").chmod(0o644)
+        (self.install / "README.txt").chmod(0o644)
         self.write_application(self.install, "v0.2.0", "old application\n")
         version = "v0.1.9"
         self.make_release(version)
@@ -769,6 +908,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -793,7 +933,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual("v0.2.0", (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual(
             "old application\n",
-            (self.install / "application.txt").read_text(encoding="utf-8"),
+            (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assert_durable_state_unchanged()
 
@@ -814,7 +954,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "    [switch]$Force\n"
             "  )\n"
             "  Microsoft.PowerShell.Management\\Copy-Item @PSBoundParameters\n"
-            "  if (-not $script:Injected -and ($LiteralPath -join '') -like '*extracted*new-only.txt') {\n"
+            f"  if (-not $script:Injected -and ($LiteralPath -join '') -like '*extracted*{NEW_MANAGED_PATH}') {{\n"
             "    $script:Injected = $true\n"
             "    throw 'injected copy failure'\n"
             "  }\n"
@@ -827,6 +967,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -851,8 +992,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertIn("injected copy failure", result.stderr)
         self.assertIn("previous World Builder 2 application files were restored", result.stdout)
         self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
-        self.assertEqual("old application\n", (self.install / "application.txt").read_text())
-        self.assertFalse((self.install / "new-only.txt").exists())
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assertFalse((self.install / NEW_MANAGED_PATH).exists())
         self.assertEqual(
             before_manifest, (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
         )
@@ -876,7 +1017,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "  )\n"
             "  Microsoft.PowerShell.Management\\Copy-Item @PSBoundParameters\n"
             "  $Source = $LiteralPath -join ''\n"
-            "  if (-not $script:InstallFailed -and $Source -like '*extracted*new-only.txt') {\n"
+            f"  if (-not $script:InstallFailed -and $Source -like '*extracted*{NEW_MANAGED_PATH}') {{\n"
             "    $script:InstallFailed = $true\n"
             "    throw 'injected installation failure'\n"
             "  }\n"
@@ -891,6 +1032,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -919,12 +1061,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         recovery_stages = list((self.install / "updates").glob(".update-*/backup"))
         self.assertEqual(1, len(recovery_stages))
         self.assertTrue((recovery_stages[0] / "VERSION.txt").is_file())
-        self.assertEqual(
-            self.workspace_snapshot, self.snapshot(self.install / "workspace")
-        )
-        self.assertEqual(
-            self.personal_snapshot, (self.install / "personal-note.txt").read_bytes()
-        )
+        self.assert_durable_state_unchanged(allow_recovery_stage=True)
 
 
 if __name__ == "__main__":
