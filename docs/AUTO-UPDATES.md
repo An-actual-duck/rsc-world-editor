@@ -1,104 +1,93 @@
 # Automatic updates
 
-The frozen v1 line and World Builder 2 have independent update identities,
-tags, archives, install folders, scripts, and durable workspaces. They never
+The frozen v1 line and World Builder 2 have independent product identities,
+tags, archives, install folders, scripts, and durable state. They never
 cross-update.
 
 ## Frozen v1 channel
 
 The existing `release/updater/` implementation describes the frozen v1 update
-channel through final release `v1.1.0`. It recognizes only ordinary semantic
-v1 tags such as `v1.1.0`; the `rsc-world-editor-v2-*` tag form is invalid on
-that channel. Its source remains unchanged for provenance and reproduction.
+channel through final release `v1.1.0`. It recognizes only ordinary semantic v1
+tags such as `v1.1.0`; `rsc-world-editor-v2-*` is invalid on that channel. Its
+source and single-`workspace/` durability contract remain unchanged for
+provenance and reproduction.
 
-Every packaged launch checks the latest normal release in
-`An-actual-duck/rsc-world-editor`. Network failure does not block the installed
-application: the launcher prints a warning and continues with its current
-version.
-
-An available update follows this sequence:
-
-1. Refuse if the workspace records a live Builder server or client process.
-2. Acquire a package-level update lock.
-3. Download the platform archive and `SHA256SUMS.txt` from the same GitHub
-   release.
-4. Verify the archive SHA-256 digest.
-5. Extract into a private staging directory under `updates/`.
-6. Validate the release version and every file in
-   `PACKAGE-MANIFEST.sha256`.
-7. Reject any package manifest that attempts to manage `workspace/` or
-   `updates/`.
-8. Create a temporary rollback copy of the installed application layer.
-9. Remove only the managed application layer, install and verify the new
-   package, and restore the prior files if installation or verification fails.
-10. Remove temporary download, extraction, and rollback state.
-
-`workspace/` is durable user data. It contains authored maps, source snapshots,
-working files, exports, backups, receipts, credentials, the local Builder
-database, logs, and run history. The updater neither includes nor replaces that
-directory.
-
-Existing projects remain tied to the definitions and runtime snapshot with
-which they were created. Updating the application does not silently rebase a
-map project onto changed game definitions. Finish and import existing work, or
-preserve the old project and create a fresh one, when moving between
-incompatible private-server revisions.
-
-Manual update checks use `Update World Builder.sh` on Linux or
-`Update World Builder.cmd` on Windows. Set `WORLD_BUILDER_SKIP_UPDATE=1` before
-launching to suppress the automatic check for an offline session.
+The v1 launcher warns and continues with its installed version when a network
+check fails. A verified update downloads the platform archive and checksums,
+validates the v1 identity and complete manifest, backs up only managed
+application files, preserves `workspace/`, and restores the managed layer on
+failure. See the frozen scripts for the exact historical transaction.
 
 ## World Builder 2 channel
 
-World Builder 2 uses product and update identity `rsc-world-editor-v2`, tags
-such as `rsc-world-editor-v2-0.1.0-alpha.1`, archive prefix
-`rsc-world-editor-v2`, and install folder `Spoiled Milk World Builder 2`.
-Its separate scripts live under `release/updater-v2/`. Public v2 alpha
-packaging is enabled by its reviewed acceptance marker, and the updater
-transaction and package contracts remain covered by release-readiness fixtures.
+Adaptive World Builder 2 uses:
 
-Before making any network request, the v2 updater requires the installed
-`VERSION.txt`, both source-commit files, package manifest, and canonical
-`RELEASE-IDENTITY.json` to agree. That identity permits automatic updates only
-from `rsc-world-editor-v2`, records frozen legacy product
-`rsc-world-editor-v1` at `v1.1.0`, and explicitly disables legacy workspace
-migration. A v1 release record is therefore ignored, never an update offer;
-if no published valid v2 record exists, the v2 channel check fails closed.
-The v2 scripts do not use GitHub's repository-global `releases/latest`
-endpoint. They inspect the published releases collection, accept stable and
-supported alpha prerelease records, discard drafts, v1 and malformed tags,
-and select the greatest valid v2 semantic version before comparing it with the
-installed version. Thus frozen v1 can remain the latest normal release while a
-newer World Builder 2 alpha remains discoverable only by the v2 channel.
+- product/update identity `rsc-world-editor-v2`;
+- tags such as `rsc-world-editor-v2-0.2.0-alpha.1`;
+- archive prefix `rsc-world-editor-v2`;
+- install/display name `World Builder 2`; and
+- world-source identity `target-adaptive-v1`.
 
-An eligible newer v2 release follows this sequence:
+The canonical identity permits automatic updates only from the same v2 product
+and explicitly disables v1 workspace migration. The updater inspects published
+releases, including supported alpha prereleases, while rejecting drafts,
+duplicate or malformed tags, v1 records, equal versions, and downgrades.
 
-1. Refuse if the workspace records a live Builder server or client process.
-2. Acquire the v2-specific package update lock.
-3. Query up to 100 published release records, including prereleases, and
-   select the newest valid non-draft `rsc-world-editor-v2` semantic tag.
-4. Refuse an equal version or downgrade without downloading an archive.
-5. Download the platform archive and `SHA256SUMS.txt` from the exact v2 tag.
-6. Verify the archive digest, reject unsafe or duplicate archive paths and
-   links, and extract only into private `updates/` staging.
-7. Require the downloaded version, tag, product identity, update channel, and
-   both provenance commits to agree exactly.
-8. Validate every package-manifest path and hash, require complete inventory
-   coverage, and reject durable-state paths or untracked files.
-9. Refuse any collision with an installed path not owned by
-   the current application manifest.
-10. Back up the exact currently managed application files, arm rollback, and
-   remove only those managed files. Unknown installed files are not silently
-   deleted or overwritten.
-11. Install and reverify the new managed layer. Any copy or verification
-   failure removes the partial new layer and restores the previous managed
-   files before releasing the lock.
-12. Remove temporary archive, extraction, and rollback state. If rollback
-    itself cannot complete, retain its staging and update lock for recovery;
-    the launcher refuses to start while that lock remains.
+The historical `rsc-world-editor-v2-0.1.0-alpha.1` package predates the adaptive
+identity and install name. It is not silently relabelled. A historical
+`workspace/` without an adaptive registry causes the update to refuse before
+network or update staging; keep that complete installation for matching-version
+recovery and install adaptive World Builder 2 in a separate folder. If an
+adaptive installation also retains historical `workspace/` state, the updater
+preserves it byte-for-byte but never calls it an adaptive project.
 
-The entire v2 `workspace/` remains durable. Updating never rebases a signed-
-layered project, imports a map, changes the parent private server, or adopts a
-v1 or unidentified workspace. Manual and automatic controls use the same
-filenames and `WORLD_BUILDER_SKIP_UPDATE=1` switch as v1, but only inside the
-separate World Builder 2 install folder.
+### Durable state
+
+The v2 managed manifest must never own or replace:
+
+- `projects/`, including every project's source, working runtime/map, exports,
+  backups, receipts, diagnostics, logs, run state, settings, and recovery data;
+- `project-registry.json` or `active-project.json`;
+- historical `workspace/`;
+- root-level exports, backups, receipts, diagnostics, logs, settings, recovery,
+  or update-recovery data; or
+- any unknown unmanaged file or directory.
+
+These paths remain byte-identical through a successful update and through an
+injected rollback. A failed emergency restoration keeps its private recovery
+stage and update lock without changing creator state.
+
+### Transaction
+
+An eligible newer release follows the same bounded transaction on Linux and
+PowerShell:
+
+1. Validate installed version, canonical adaptive identity, provenance,
+   manifest hashes, required files, and the content-neutral application
+   allowlist before network access.
+2. Refuse a historical-only installation or any live server/client PID found
+   in the historical workspace or an adaptive project.
+3. Acquire `.world-builder-v2-update.lock` and stage only under `updates/`.
+4. Select the newest valid published v2 release; never select v1, a draft,
+   malformed record, equal version, or downgrade.
+5. Download the exact platform archive and `SHA256SUMS.txt`, then verify its
+   digest, root name, safe paths, link-free inventory, and complete package
+   manifest.
+6. Require exact `rsc-world-editor-v2` / `target-adaptive-v1` identity and both
+   source commits. Reject every manifest path outside the replaceable
+   application/runtime allowlist, every durable path, and every untracked file.
+7. Refuse collisions where a downloaded managed file would overwrite an
+   installed path not owned by the old manifest.
+8. Back up only the old managed files, arm rollback, remove that managed layer,
+   install the new layer, and reverify identity, inventory, and hashes.
+9. When adaptive registry state exists, run the compatibility check currently
+   available through the new runtime against the selected project. A failure
+   restores only the old managed application layer; project state is untouched.
+10. Remove temporary transaction state and the lock after success or successful
+    rollback. Preserve both after an incomplete emergency restore.
+
+Manual checks use `Update World Builder.sh` on Linux or
+`Update World Builder.cmd` on Windows. `WORLD_BUILDER_SKIP_UPDATE=1` suppresses
+the automatic check for an offline session. A launch-time network failure warns
+and continues with the already verified installed application; a retained
+update lock always blocks launch.

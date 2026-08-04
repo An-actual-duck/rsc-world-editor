@@ -1051,7 +1051,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		runtime.put("initialLayer", Long.valueOf(0L));
 		runtime.put("initialX", Long.valueOf(0L));
 		runtime.put("initialY", Long.valueOf(0L));
-		runtime.put("upstreamAuthoringCapability", "phase4-required");
+		runtime.put("upstreamAuthoringCapability",
+			"adaptive-world-builder-runtime-capability-v1");
 		writeNew(stage.resolve(WORKING_RUNTIME_FILE),
 			WorldBuilderJsonDocuments.pretty(runtime).getBytes(StandardCharsets.UTF_8));
 	}
@@ -1075,7 +1076,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			|| integer(value, "initialLayer") != 0L
 			|| integer(value, "initialX") != 0L
 			|| integer(value, "initialY") != 0L
-			|| !"phase4-required".equals(
+			|| !"adaptive-world-builder-runtime-capability-v1".equals(
 				string(value, "upstreamAuthoringCapability"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, WORKING_RUNTIME_FILE,
 				"Project runtime metadata is inconsistent with the selected project.",

@@ -106,6 +106,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="world-builder-v2-updater-")
         self.base = Path(self.temp.name)
+        self.compatibility_command = self.base / "compatibility-ok"
+        self.compatibility_command.write_text(
+            "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8"
+        )
+        self.compatibility_command.chmod(0o755)
         self.install = self.base / PACKAGE_NAME
         self.install.mkdir()
         self.write_application(self.install, "v0.1.0", "old application\n")
@@ -209,6 +214,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         application: str,
         *,
         product_id: str = PRODUCT_ID,
+        compatibility_exit: int = 0,
     ) -> None:
         for name in (
             "Start World Builder.sh", "Start World Builder.cmd",
@@ -248,7 +254,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "builder-runtime/server/world-builder.conf": "server_name: World Builder 2 Runtime\n",
             "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json": "{}\n",
             "builder-runtime/launcher/world-builder-tools.jar": "tools\n",
-            "runtime/bin/java": "#!/usr/bin/env bash\nexit 0\n",
+            "runtime/bin/java": f"#!/usr/bin/env bash\nexit {compatibility_exit}\n",
             "runtime/bin/java.exe": "runtime\n",
         }
         for relative, contents in required_payloads.items():
@@ -291,6 +297,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         durable_manifest_path: bool = False,
         untracked_file: bool = False,
         non_executable_launcher: bool = False,
+        renamed_world_payload: bool = False,
+        compatibility_exit: int = 0,
     ) -> tuple[str, str]:
         release_root = self.base / "release"
         package = self.base / "package" / PACKAGE_NAME
@@ -300,12 +308,19 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             version,
             "new application\n",
             product_id=product_id,
+            compatibility_exit=compatibility_exit,
         )
         if non_executable_launcher:
             (package / "Start World Builder.sh").chmod(0o644)
         (package / NEW_MANAGED_PATH).write_text("new managed file\n", encoding="utf-8")
         if untracked_file:
             (package / "untracked.txt").write_text("not in manifest\n", encoding="utf-8")
+        if renamed_world_payload:
+            disguised = package / "builder-runtime/launcher/schema/disguised.schema.json"
+            disguised.parent.mkdir(parents=True, exist_ok=True)
+            disguised.write_text(
+                '{"packageType":"layered-world","levels":[]}\n', encoding="utf-8"
+            )
         managed = [
             path
             for path in sorted(package.rglob("*"))
@@ -465,6 +480,53 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
+        self.assert_durable_state_unchanged()
+
+    def test_historical_pre_adaptive_workspace_refuses_automatic_migration(
+        self,
+    ) -> None:
+        workspace = self.snapshot(self.install / "workspace")
+        personal = (self.install / "personal-note.txt").read_bytes()
+        for relative in ("projects", "project-registry.json", "active-project.json"):
+            path = self.install / relative
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+
+        result = self.run_updater(
+            (self.base / "must-not-be-read.json").as_uri(),
+            (self.base / "must-not-be-read").as_uri(),
+        )
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("historical pre-adaptive World Builder 2", result.stderr)
+        self.assertIn("cannot be relabelled or migrated automatically", result.stderr)
+        self.assertEqual(workspace, self.snapshot(self.install / "workspace"))
+        self.assertEqual(personal, (self.install / "personal-note.txt").read_bytes())
+        self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
+
+    def test_downloaded_renamed_world_payload_is_outside_exact_allowlist(self) -> None:
+        api_url, download_url = self.make_release(renamed_world_payload=True)
+        result = self.run_updater(api_url, download_url)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("content-neutral application allowlist", result.stderr)
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assert_durable_state_unchanged()
+
+    def test_selected_project_incompatibility_rolls_back_application_only(
+        self,
+    ) -> None:
+        before_manifest = (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
+        api_url, download_url = self.make_release(compatibility_exit=37)
+        result = self.run_updater(api_url, download_url)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("selected adaptive project is incompatible", result.stderr)
+        self.assertIn("previous World Builder 2 application files were restored", result.stderr)
+        self.assertEqual("old application\n", (self.install / "README.txt").read_text())
+        self.assertEqual(
+            before_manifest, (self.install / "PACKAGE-MANIFEST.sha256").read_bytes()
+        )
         self.assert_durable_state_unchanged()
 
     def test_v2_channel_selects_newer_alpha_beside_frozen_v1_and_decoys(
@@ -723,18 +785,34 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "Read-ReleaseIdentity",
             "Assert-SafeArchive",
             "Assert-ExactPackageInventory",
+            "Assert-ApplicationAllowlist",
             "Remove-ManagedFiles",
             "Get-FileHash",
             "PACKAGE-MANIFEST.sha256",
             "rsc-world-editor-v2",
             "rsc-world-editor-v1",
             "legacyWorkspaceMigration",
+            "target-adaptive-v1",
+            "project-registry.json",
+            "active-project.json",
+            "selected adaptive project is incompatible",
+            "historical pre-adaptive World Builder 2",
             "Close World Builder 2 before updating",
             "RollbackArmed",
             "Select-NewestV2Release",
             "releases?per_page=100",
         ):
             self.assertIn(snippet, powershell)
+        linux = UPDATER.read_text(encoding="utf-8")
+        for snippet in (
+            "target-adaptive-v1", "project-registry.json", "active-project.json",
+            "selected adaptive project is incompatible",
+            "historical pre-adaptive World Builder 2",
+            "validate_application_paths",
+        ):
+            self.assertIn(snippet, linux)
+        self.assertNotIn("Spoiled Milk World Builder 2", powershell)
+        self.assertNotIn("Spoiled Milk World Builder 2", linux)
         self.assertIn("Update World Builder.cmd", windows_start)
         self.assertIn("WORLD_BUILDER_SKIP_UPDATE", windows_start)
         self.assertIn(".world-builder-v2-update.lock", windows_start)
@@ -748,6 +826,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -787,6 +866,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -826,6 +906,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -884,6 +965,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [
@@ -948,6 +1030,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             environment = {
                 **os.environ,
                 "WORLD_BUILDER_V2_RELEASE_API_URL": api_url,
+                "WORLD_BUILDER_V2_COMPATIBILITY_JAVA": str(self.compatibility_command),
             }
             result = subprocess.run(
                 [

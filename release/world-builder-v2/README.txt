@@ -1,135 +1,135 @@
-SPOILED MILK WORLD BUILDER 2 @VERSION@
-======================================
+WORLD BUILDER 2 @VERSION@
+=========================
 
-This package edits a compatible Spoiled Milk private server without changing
-its active map until you deliberately import your work.
+World Builder 2 is a server-agnostic drop-in world editor. Its archive contains
+the application runtime and default definition/rendering catalogs, but no map,
+terrain, static placements, layered world package, or sample project.
 
-This is the signed-layered second generation of the editor. It is a separate
-product from the frozen packed-map RSC World Editor v1 line, whose final tag is
-v1.1.0. World Builder 2 uses product and update channel
-rsc-world-editor-v2. It never installs as an automatic v1 update, and it does
-not open or migrate a v1 workspace.
+It is separate from the frozen packed-map World Editor v1 line, whose final tag
+is v1.1.0. This product and update channel is rsc-world-editor-v2, its install
+name is "World Builder 2", and its world-source identity is target-adaptive-v1.
+It never upgrades from, opens, or migrates a v1 workspace.
 
-IMPLEMENTATION STATUS
----------------------
+CURRENT STATUS
+--------------
 
-This source template contains the repository-owned Phase 3 adaptive project
-lifecycle. It is not the final adaptive release guide. Native editing remains
-blocked until a separately reviewed compatible client/server runtime is
-published and pinned. Content-neutral packaging and adaptive export/import are
-also later release gates. Do not publish a new adaptive archive from this state.
+Adaptive discovery, packed conversion, layered adoption, standalone empty
+creation, UUID project lifecycle, content-neutral packaging, and durable update
+preservation are implemented. The generic Phase 4 client/server capability is
+published and pinned, but owner-run native visual/edit/save/reopen validation
+has not yet accepted the release-launch path. Generic export/import/undo is
+Phase 6. A new public adaptive archive must not be published until those gates
+and a new candidate acceptance record are complete.
 
 INSTALLATION
 ------------
 
-For a target-backed project, place the entire "Spoiled Milk World Builder 2"
-folder directly inside the root of a compatible private server:
+For a target-backed project, place the complete folder directly inside the root
+of the server you want to edit:
 
-  Your Private Server/
+  Your Server/
     client-or-Client_Base/
     server/
-    Spoiled Milk World Builder 2/
+    World Builder 2/
 
-For a standalone empty project, place the complete folder in an ordinary
-parent directory that contains no recognizable server. Do not place it inside
-server/ or a client folder. Do not extract it over World Editor v1 or copy a v1
-workspace into it.
+For a standalone empty project, put the complete folder in an ordinary parent
+that contains no recognizable server. Do not put it inside server/ or a client
+folder, extract it over v1, or move individual files from another installation.
 
-FIRST LAUNCH AND PROJECTS
--------------------------
+FIRST LAUNCH
+------------
 
 Linux: run "Start World Builder.sh".
 Windows: double-click "Start World Builder.cmd".
 
-The launcher treats its parent as the possible target and performs strictly
-read-only adaptive discovery. It does not assume server/myworld.conf and does
-not select a map bundled with World Builder. Discovery has three safe results:
+The launcher treats its parent as the possible target and performs read-only
+adaptive discovery. It does not assume one configuration filename and never
+substitutes a world bundled with this application. Discovery produces one of
+these results:
 
 - a compatible layered map is copied into an isolated project unchanged;
-- a compatible packed map is copied and converted deterministically; or
+- a supported packed map is copied and converted deterministically;
 - no recognizable server creates a labelled standalone empty project at layer
-  0, coordinate 0,0.
+  0, coordinate 0,0; or
+- an ambiguous, malformed, partially recognized, or unsupported server stops
+  with a compatibility report and no project or target change.
 
-A malformed, ambiguous, unsupported, or partially recognized server is a
-blocker, not an empty world. Review the report and type CREATE exactly before
-the first project is published. Project creation writes only beneath:
+Review the report and type CREATE exactly before the first project is
+published. Project creation writes beneath:
 
-  Spoiled Milk World Builder 2/projects/<project-uuid>/
+  World Builder 2/projects/<project-uuid>/
 
-The parent server remains byte-for-byte unchanged. Later launches validate and
-reopen active-project.json. Advanced users can list and select multiple project
-UUIDs with the packaged World Builder CLI. Moving the complete folder preserves
-project identity; a target-backed project becomes detached until the exact
-compatible target is found again. There is no automatic rebase.
+The parent target remains byte-for-byte unchanged. Projects have immutable
+source evidence, a verified layered baseline, mutable working package, and
+their own runtime/log/backup/export/receipt/diagnostic state. Multiple projects
+coexist. Moving the complete folder preserves project identity; a target-backed
+project becomes detached until its exact compatible target is available again.
+There is no automatic rebase.
 
-CURRENT NATIVE-RUNTIME LIMIT
-----------------------------
+NATIVE VALIDATION GATE
+----------------------
 
-After creating or reopening a valid project, this phase stops with
-LOADER_INCOMPATIBLE before starting a real server or client. The pinned runtime
-does not yet advertise the Phase 4 generic layered-loader, existing-level
-authoring, and empty-world void-authoring capability. The project is valid and
-preserved; this refusal does not modify the target and is not a partial launch.
+The pinned provider now advertises generic layered loading, existing-level and
+canonical-void authoring, all placement families, isolated runtime binding, and
+verified copy-on-write save. This development release keeps native adaptive
+launch fail-closed with LOADER_INCOMPATIBLE until the owner records adopted and
+standalone visual/edit/save/reopen acceptance. The project stays valid and the
+target is not touched by that refusal.
 
-The repository tests process supervision with isolated temporary runtimes.
-Those tests keep logs, PIDs, credentials, client settings, generated
-server/ipbans.txt, and all other operational state inside the selected project.
-They do not claim that the current packaged client/server can edit an adaptive
-project.
+AI validation uses automated launcher/runtime contracts only. The owner must
+perform and report the visual inspection; screenshots are not captured or
+judged by the release process.
 
-SAVING AND SOURCE SAFETY
-------------------------
+SAVE, IMPORT, AND UNDO
+----------------------
 
-Each project contains an immutable source snapshot and layered baseline plus a
-mutable working/layered-world/package. The save-project command validates the
-complete working package and atomically updates its fingerprint. It never reads
-or writes the target. Source corruption, an unsaved manifest mismatch, linked
-runtime state, target drift, or a concurrent project operation fails closed.
+Project save validates the complete working layered package and atomically
+updates its fingerprint. It never reads or writes the target. Source corruption,
+unsaved manifest drift, linked runtime state, or concurrent project operations
+fail closed.
 
-The in-game Save workflow becomes available only after the compatible Phase 4
-runtime is pinned. Until then, do not represent the native editor as usable.
+Generic adaptive export/import/undo is Phase 6 and is not implemented here.
+Standalone Import and Undo return NO_TARGET before target access. Target-backed
+adaptive mutation remains unavailable until the bounded adapter-driven Phase 6
+transaction is complete. There is no force option and no binary patcher.
 
-IMPORT AND UNDO
----------------
+HISTORICAL V2 ALPHA
+-------------------
 
-Adaptive generic export/import is Phase 6 and is not implemented here. When an
-adaptive registry exists, the Linux and Windows Import and Undo scripts inspect
-the active project before target access:
+An existing workspace/ belongs to the historical pre-adaptive alpha. It is not
+called target-derived and is never migrated into projects/. A historical-only
+installation refuses automatic adaptive relabelling or update; preserve its
+complete folder for matching-version recovery and install adaptive World
+Builder 2 beside it in a separate folder.
 
-- standalone empty projects return NO_TARGET; and
-- target-backed projects report that adaptive mutation is reserved for Phase 6.
+UPDATES
+-------
 
-Neither result creates a preview, backup, receipt, or target change. There is no
-force option. The historical workspace transaction remains versioned legacy v2
-behavior and is not silently reused for an adaptive project.
+The Linux and PowerShell v2 updaters manage only the replaceable application
+layer. They never own projects/, project-registry.json, active-project.json,
+historical workspace/, exports, backups, receipts, diagnostics, settings, logs,
+recovery state, or unknown files. All remain byte-for-byte unchanged on success
+and rollback. After replacement, the updater runs the compatibility check
+available through the selected-project lifecycle; incompatibility restores only
+the old application layer.
 
-HISTORICAL V2 STATE AND UPDATES
--------------------------------
-
-An existing workspace/ belongs to the earlier v2-alpha workflow. It is
-preserved, but the adaptive launcher refuses to migrate, replace, or open it.
-Keep the complete matching installation for recovery. Do not copy individual
-files between workspace/ and projects/.
-
-Project/update durability and removal of every bundled world are separate
-Phase 5 release gates. Preserve a complete backup of this development
-installation. No release, update, import, undo, or dependency change is
-authorized merely because project creation succeeds.
+Run "Update World Builder.sh" or "Update World Builder.cmd" for a manual check.
+Set WORLD_BUILDER_SKIP_UPDATE=1 before launch for an offline session. A network
+failure warns and continues with the installed verified application. A retained
+update lock blocks launch pending recovery.
 
 REQUIREMENTS AND LIMITS
 -----------------------
 
-- The repository-owned launcher behavior is equivalent on Linux and Windows;
-  final native validation still requires the later compatible runtime.
-- Supported targets require a truthful versioned capability descriptor or one
-  exact built-in adapter layout. Similar-looking forks are not guessed.
-- The default local Builder port is 43615. Advanced users may set
-  WORLD_BUILDER_PORT to another port from 1 through 65534.
-- WORLD_BUILDER_CONFIGURATION_ROLE selects one exact declared role when the
-  compatibility report identifies more than one candidate.
-- World Editor v1 remains frozen at v1.1.0 and has separate identity, update
-  channel, install folder, and workspace behavior.
-- There is no native adaptive editing, generic export/import, packaging
-  readiness, automatic project rebase, migration, or force path in this phase.
+- A supported target supplies truthful capability evidence or matches one
+  exact repository-owned adapter. Similar-looking unknown forks are not guessed.
+- The default local port is 43615. WORLD_BUILDER_PORT may select 1 through
+  65534; WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
+- Server administrators remain responsible for distributing the matching
+  compatible client/map update after Phase 6 import is available.
+- World Editor v1 remains frozen with separate identity, update channel,
+  install folder, workspace, and artifacts.
+- Release readiness still requires Phase 4 owner validation, Phase 6, complete
+  automated tests, archive inspection, and an exact accepted candidate record.
 
 Release source commit: @SOURCE_COMMIT@

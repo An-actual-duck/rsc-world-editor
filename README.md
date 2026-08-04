@@ -24,11 +24,11 @@ standalone release is `v1.1.0`. Its source package assets remain under
 
 Current development is **World Builder 2**, a distinct signed-layered product
 with product/update identity `rsc-world-editor-v2` and package assets under
-`release/world-builder-v2/`. The checked-in pre-adaptive assets still use the
-inherited install-folder name `Spoiled Milk World Builder 2`; removing that
-target-specific packaging identity is pending Phase 5 and is not the adaptive
-product contract. V1 never automatically upgrades to v2, and v2 never opens or
-silently migrates a v1 workspace. The first public v2 alpha was accepted after
+`release/world-builder-v2/`. Adaptive packages use the generic install folder
+`World Builder 2` and world-source identity `target-adaptive-v1`; they contain
+no terrain, static placements, layered world, or creator project. V1 never
+automatically upgrades to v2, and v2 never opens or silently migrates a v1
+workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
@@ -40,7 +40,8 @@ ready; its new release gate remains closed.
 This repository contains:
 
 - the standalone project discovery, launch, export, import, and rollback tools;
-- separate checksum-verified, workspace-preserving v1 and v2 update channels;
+- separate checksum-verified v1 and v2 update channels, with v2 preserving all
+  adaptive projects and historical creator state;
 - Linux and Windows launch/import/undo packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
@@ -73,8 +74,9 @@ The legacy v1 packaged workflow is:
 5. Use `Undo Last Map Import` if the imported result needs to be reverted.
 
 The launcher checks this repository's latest normal release before starting.
-Updates replace application files only; saved projects, exports, backups,
-receipts, credentials, databases, and logs under `workspace/` are preserved.
+Updates replace application files only; adaptive `projects/`, registry and
+selection files, the historical `workspace/`, exports, backups, receipts,
+diagnostics, settings, logs, recovery state, and unknown files are preserved.
 See [Automatic updates](docs/AUTO-UPDATES.md) for the exact safety boundary.
 
 The complete legacy instructions are maintained in
@@ -148,11 +150,12 @@ including strictly read-only adaptive discovery, deterministic packed
 conversion, and the adaptive project lifecycle, are merged on published `main`
 at `dac388a32aa41754a49341e3ddcc8cc196389ab4`. The lifecycle can atomically
 create, select, move, validate, save, and reopen target-layered,
-converted-packed, and standalone-empty projects without target writes. Native
-client/server authoring still fails closed pending the external Phase 4 generic
-runtime capability. Phase 5 content-neutral packaging and identity cleanup and
-Phase 6 generic export/import are also required before adaptive release
-readiness.
+converted-packed, and standalone-empty projects without target writes. The
+generic Phase 4 runtime capability is now pinned; owner-run native visual,
+edit/save, and reopen validation remains pending. Phase 5 implements the
+content-neutral package identity, exact no-world runtime allowlist, and durable
+Linux/Windows update boundary. Phase 6 generic export/import and the remaining
+owner validation still block adaptive release readiness.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor
