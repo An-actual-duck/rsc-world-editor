@@ -49,11 +49,20 @@ public final class WorldBuilderCli {
 		if ("run-adaptive-project".equals(args[0])) {
 			return runAdaptiveProject(args);
 		}
+		if ("export-adaptive".equals(args[0])) {
+			return exportAdaptive(args);
+		}
+		if ("export-active-adaptive".equals(args[0])) {
+			return exportActiveAdaptive(args);
+		}
+		if ("import-adaptive".equals(args[0])) {
+			return importAdaptive(args);
+		}
 		if ("launch-adaptive".equals(args[0])) {
 			return launchAdaptive(args);
 		}
 		if ("import-active-adaptive".equals(args[0])) {
-			return refuseActiveAdaptiveMutation(args, "import");
+			return importActiveAdaptive(args);
 		}
 		if ("undo-active-adaptive".equals(args[0])) {
 			return refuseActiveAdaptiveMutation(args, "undo");
@@ -294,6 +303,139 @@ public final class WorldBuilderCli {
 			return 130;
 		} catch (Exception failure) {
 			System.err.println("ERROR: Adaptive World Builder launch failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int exportAdaptive(String[] args) {
+		Path project = singlePathOption(args, "--project", "export-adaptive");
+		if (project == null) return 2;
+		try {
+			System.out.print(new WorldBuilderAdaptiveExporter().export(project).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive project export failed before publication: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int exportActiveAdaptive(String[] args) {
+		Path installation = singlePathOption(args, "--installation-root",
+			"export-active-adaptive");
+		if (installation == null) return 2;
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject active =
+				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			System.out.print(new WorldBuilderAdaptiveExporter()
+				.export(active.projectRoot).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Active adaptive project export failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int importAdaptive(String[] args) {
+		Path project = null;
+		Path export = null;
+		Path target = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--project".equals(argument) && index + 1 < args.length) {
+				project = Paths.get(args[++index]);
+			} else if ("--export".equals(argument) && index + 1 < args.length) {
+				export = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ argument);
+				return 2;
+			}
+		}
+		if (project == null || export == null) {
+			System.err.println("ERROR: import-adaptive requires --project and --export. "
+				+ "--target-root is required only for a target-backed project; optional "
+				+ "--confirm IMPORT applies the exact preview.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+			WorldBuilderAdaptiveImporter.Preview preview =
+				importer.preview(project, export, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) return 0;
+			System.out.print(importer.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive import failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int importActiveAdaptive(String[] args) {
+		Path installation = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ args[index]);
+				return 2;
+			}
+		}
+		if (installation == null) {
+			System.err.println("ERROR: import-active-adaptive requires --installation-root.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if ("standalone-empty".equals(project.origin)) {
+				// The importer performs the stable NO_TARGET refusal without resolving parent.
+				new WorldBuilderAdaptiveImporter().preview(project.projectRoot, null, null);
+			}
+			Path install = installation.toAbsolutePath().normalize();
+			Path target = install.getParent();
+			if (target == null) throw new java.io.IOException(
+				"World Builder installation has no parent target directory");
+			WorldBuilderAdaptiveExporter.ExportResult exported =
+				new WorldBuilderAdaptiveExporter().export(project.projectRoot);
+			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+			WorldBuilderAdaptiveImporter.Preview preview = importer.preview(
+				project.projectRoot, exported.exportDirectory, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) {
+				if (!confirm("IMPORT", "Type IMPORT to install the exact preview, "
+					+ "or press Enter to cancel: ")) {
+					System.out.println("Import cancelled; no target file was changed.");
+					return 0;
+				}
+				confirmation = "IMPORT";
+			}
+			System.out.print(importer.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Active adaptive import failed: "
 				+ failure.getMessage());
 			return 4;
 		}
@@ -982,10 +1124,17 @@ public final class WorldBuilderCli {
 			+ " [--target-root <server-root>] [--validate-only]"
 			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli run-adaptive-project --project <projects/uuid>"
+			+ "\n  WorldBuilderCli export-adaptive --project <projects/uuid>"
+			+ "\n  WorldBuilderCli export-active-adaptive"
+			+ " --installation-root <World Builder 2>"
+			+ "\n  WorldBuilderCli import-adaptive --project <projects/uuid>"
+			+ " --export <export-directory> [--target-root <server-root>]"
+			+ " [--confirm IMPORT]"
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
 			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
+			+ " [--confirm IMPORT]"
 			+ "\n  WorldBuilderCli undo-active-adaptive --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"

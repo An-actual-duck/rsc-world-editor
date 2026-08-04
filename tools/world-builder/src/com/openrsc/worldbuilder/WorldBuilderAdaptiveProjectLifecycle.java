@@ -675,6 +675,45 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		return WorldBuilderJsonDocuments.pretty(result);
 	}
 
+	/**
+	 * Resolves and verifies the selected project without inspecting a target or
+	 * changing attachment metadata.  Adaptive import/undo use this boundary so
+	 * standalone projects can refuse before a target path is resolved.
+	 */
+	static VerifiedProject verifyActiveProject(Path requestedInstallRoot)
+		throws IOException, WorldBuilderContractException {
+		Path install = realDirectory(requestedInstallRoot,
+			"World Builder install root");
+		Path projects = install.resolve(PROJECTS_DIRECTORY);
+		if (!Files.isDirectory(projects, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(projects)) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				PROJECTS_DIRECTORY,
+				"Adaptive projects directory is missing or unsafe.",
+				"Create a project or restore the complete projects directory.");
+		}
+		try (FileChannel channel = openExistingLock(
+			projects.resolve(".registry.lock"))) {
+			FileLock lock = tryLock(channel);
+			if (lock == null) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, PROJECTS_DIRECTORY,
+				"Project registry is busy.",
+				"Wait for the active lifecycle operation and retry.");
+			try {
+				RegistryState registry = loadRegistry(install, true);
+				ActiveState active = loadActive(install, registry, true);
+				if (active.projectId.isEmpty()) throw problem(
+					WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, ACTIVE_FILE,
+					"No active adaptive project is selected.",
+					"Create a project or select one by UUID.");
+				return verifyProjectDirectory(
+					install.resolve(active.manifestRelativePath).getParent(), true);
+			} finally {
+				lock.release();
+			}
+		}
+	}
+
 	ProjectResult save(Path requestedProject)
 		throws IOException, WorldBuilderContractException {
 		Path project = realDirectory(requestedProject, "adaptive project");
