@@ -117,7 +117,7 @@ final class WorldBuilderAdaptiveConfiguration {
 		return new Selection(configurations, selected);
 	}
 
-	private static WorldBuilderAdaptiveConfiguration read(
+	static WorldBuilderAdaptiveConfiguration read(
 		WorldBuilderReadOnlyTarget target, String relative, String sha256)
 		throws WorldBuilderContractException {
 		Map<String,Object> root = target.readObject(relative);

@@ -207,6 +207,99 @@ final class WorldBuilderAdaptiveReceipt {
 		}
 	}
 
+	static void requireSuccessfulImportMatches(
+		WorldBuilderAdaptiveMutationProfile.Plan plan, State actual)
+		throws WorldBuilderContractException {
+		if (!"import".equals(actual.transactionType())
+			|| !"successful".equals(actual.status())
+			|| !plan.transactionId().equals(actual.transactionId())) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+			"Undo authority is not one successful import receipt for this transaction.",
+			"Select the latest successful unreverted adaptive import.");
+		requireTransactionMatches(plan, actual);
+	}
+
+	static void requireTransactionMatches(
+		WorldBuilderAdaptiveMutationProfile.Plan plan, State actual)
+		throws WorldBuilderContractException {
+		List<WorldBuilderAdaptiveOfflineLease.Evidence> evidence =
+			new ArrayList<WorldBuilderAdaptiveOfflineLease.Evidence>();
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			actual.document.get("offlineEvidence"), "offlineEvidence")) {
+			Map<String,Object> value = WorldBuilderAdaptiveExporter.object(
+				raw, "offlineEvidence");
+			evidence.add(new WorldBuilderAdaptiveOfflineLease.Evidence(
+				WorldBuilderAdaptiveExporter.string(value, "kind"),
+				WorldBuilderAdaptiveExporter.string(value, "observed"),
+				WorldBuilderAdaptiveExporter.bool(value, "verified")));
+		}
+		List<Verification> verifications = new ArrayList<Verification>();
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			actual.document.get("verificationResults"), "verificationResults")) {
+			Map<String,Object> value = WorldBuilderAdaptiveExporter.object(
+				raw, "verificationResults");
+			verifications.add(new Verification(
+				WorldBuilderAdaptiveExporter.string(value, "verificationId"),
+				WorldBuilderAdaptiveExporter.bool(value, "success"),
+				WorldBuilderAdaptiveExporter.string(value, "observed")));
+		}
+		boolean afterVerified = uniformVerificationFlag(
+			actual.document, "afterVerified");
+		boolean rollbackVerified = uniformVerificationFlag(
+			actual.document, "rollbackVerified");
+		State expected = create(plan, actual.transactionType(), actual.status(),
+			actual.createdAtUtc(), WorldBuilderAdaptiveExporter.bool(
+				actual.document, "mutationOccurred"), evidence,
+			afterVerified, rollbackVerified, verifications,
+			actual.revertsTransactionId(), WorldBuilderAdaptiveExporter.string(
+				actual.document, "recoveryTransactionId"));
+		if (!expected.canonicalSha256.equals(actual.canonicalSha256)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+			"receipts/" + actual.transactionId() + ".json",
+			"Successful receipt does not exactly match the independently compiled plan.",
+			"Retain the complete project and exact receipt; do not force undo.");
+	}
+
+	private static boolean uniformVerificationFlag(Map<String,Object> receipt,
+		String field) throws WorldBuilderContractException {
+		Boolean observed = null;
+		for (String collection : new String[] {"files", "configurationChanges"}) {
+			for (Object raw : WorldBuilderAdaptiveExporter.array(
+				receipt.get(collection), collection)) {
+				Map<String,Object> value = WorldBuilderAdaptiveExporter.object(raw, collection);
+				boolean current = WorldBuilderAdaptiveExporter.bool(value, field);
+				if (observed != null && observed.booleanValue() != current) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+					"Receipt uses inconsistent per-file verification flags.",
+					"Restore the exact durable transaction receipt.");
+				observed = Boolean.valueOf(current);
+			}
+		}
+		return observed != null && observed.booleanValue();
+	}
+
+	static State markRolledBack(State source)
+		throws WorldBuilderContractException {
+		Map<String,Object> value = copyMap(source.document);
+		value.put("status", "rolled-back");
+		value.put("mutationOccurred", Boolean.TRUE);
+		for (Object raw : WorldBuilderAdaptiveExporter.array(value.get("files"), "files")) {
+			WorldBuilderAdaptiveExporter.object(raw, "file")
+				.put("rollbackVerified", Boolean.TRUE);
+		}
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			value.get("configurationChanges"), "configurationChanges")) {
+			WorldBuilderAdaptiveExporter.object(raw, "configurationChange")
+				.put("rollbackVerified", Boolean.TRUE);
+		}
+		value.put("receiptFingerprintSha256", ZERO_HASH);
+		WorldBuilderAdaptiveExporter.bindFingerprint(
+			value, "receiptFingerprintSha256");
+		WorldBuilderAdaptiveContracts.validateParsed(
+			WorldBuilderAdaptiveContracts.Kind.ADAPTIVE_RECEIPT, value);
+		return new State(value);
+	}
+
 	@SuppressWarnings("unchecked")
 	private static Map<String,Object> copyMap(Map<String,Object> source) {
 		return (Map<String,Object>)copy(source);

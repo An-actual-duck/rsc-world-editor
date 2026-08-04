@@ -1,7 +1,6 @@
 @echo off
 setlocal EnableExtensions
 set "ROOT_DIR=%~dp0"
-set "WORKSPACE=%~dp0workspace"
 set "TOOLS_JAR=%~dp0builder-runtime\launcher\world-builder-tools.jar"
 set "PROJECT_REGISTRY=%~dp0project-registry.json"
 set "RELEASE_IDENTITY=%~dp0RELEASE-IDENTITY.json"
@@ -18,28 +17,22 @@ if not exist "%TOOLS_JAR%" goto missing_tools
 if not exist "%RELEASE_IDENTITY%" goto wrong_identity
 findstr /C:"rsc-world-editor-v2" "%RELEASE_IDENTITY%" >nul
 if errorlevel 1 goto wrong_identity
-if exist "%PROJECT_REGISTRY%" goto adaptive_project
-set "TARGET_ROOT=%~dp0.."
-if not exist "%WORKSPACE%\project-source.json" goto missing_project
+if not exist "%PROJECT_REGISTRY%" goto missing_project
 
-"%JAVA_EXE%" -jar "%TOOLS_JAR%" undo-latest-import --workspace "%WORKSPACE%" --target-root "%TARGET_ROOT%"
+"%JAVA_EXE%" -jar "%TOOLS_JAR%" recover-active-adaptive --installation-root "%ROOT_DIR%"
 if errorlevel 1 goto failed
 exit /b 0
 
-:adaptive_project
-"%JAVA_EXE%" -jar "%TOOLS_JAR%" undo-active-adaptive --installation-root "%ROOT_DIR%"
-goto failed
-
 :missing_tools
-echo Map undo could not start: the packaged launcher is missing.
+echo Map recovery could not start: the packaged launcher is missing.
 goto failed
 
 :wrong_identity
-echo Map undo could not start: this is not a World Builder 2 release.
+echo Map recovery could not start: this is not a World Builder 2 release.
 goto failed
 
 :missing_project
-echo Map undo could not start: no World Builder project was found.
+echo Map recovery could not start: no adaptive project registry was found.
 goto failed
 
 :failed

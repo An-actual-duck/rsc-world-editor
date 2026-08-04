@@ -64,8 +64,17 @@ public final class WorldBuilderCli {
 		if ("import-active-adaptive".equals(args[0])) {
 			return importActiveAdaptive(args);
 		}
+		if ("undo-adaptive".equals(args[0])) {
+			return undoAdaptive(args);
+		}
 		if ("undo-active-adaptive".equals(args[0])) {
-			return refuseActiveAdaptiveMutation(args, "undo");
+			return undoActiveAdaptive(args);
+		}
+		if ("recover-adaptive".equals(args[0])) {
+			return recoverAdaptive(args);
+		}
+		if ("recover-active-adaptive".equals(args[0])) {
+			return recoverActiveAdaptive(args);
 		}
 		if ("prepare".equals(args[0])) {
 			return prepare(args);
@@ -436,6 +445,194 @@ public final class WorldBuilderCli {
 			return adaptiveRefusal(refusal);
 		} catch (Exception failure) {
 			System.err.println("ERROR: Active adaptive import failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int undoAdaptive(String[] args) {
+		Path project = null;
+		Path target = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--project".equals(argument) && index + 1 < args.length) {
+				project = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ argument);
+				return 2;
+			}
+		}
+		if (project == null) {
+			System.err.println("ERROR: undo-adaptive requires --project. "
+				+ "--target-root is required only for a target-backed project; optional "
+				+ "--confirm UNDO applies the exact preview.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+			WorldBuilderAdaptiveUndo.Preview preview = undo.preview(project, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) return 0;
+			System.out.print(undo.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive undo failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int undoActiveAdaptive(String[] args) {
+		Path installation = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ args[index]);
+				return 2;
+			}
+		}
+		if (installation == null) {
+			System.err.println("ERROR: undo-active-adaptive requires --installation-root.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if ("standalone-empty".equals(project.origin)) {
+				new WorldBuilderAdaptiveUndo().preview(project.projectRoot, null);
+			}
+			Path install = installation.toAbsolutePath().normalize();
+			Path target = install.getParent();
+			if (target == null) throw new java.io.IOException(
+				"World Builder installation has no parent target directory");
+			WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+			WorldBuilderAdaptiveUndo.Preview preview =
+				undo.preview(project.projectRoot, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) {
+				if (!confirm("UNDO", "Type UNDO to restore the exact pre-import state, "
+					+ "or press Enter to cancel: ")) {
+					System.out.println("Undo cancelled; no target file was changed.");
+					return 0;
+				}
+				confirmation = "UNDO";
+			}
+			System.out.print(undo.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Active adaptive undo failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int recoverAdaptive(String[] args) {
+		Path project = null;
+		Path target = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--project".equals(argument) && index + 1 < args.length) {
+				project = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ argument);
+				return 2;
+			}
+		}
+		if (project == null) {
+			System.err.println("ERROR: recover-adaptive requires --project. "
+				+ "--target-root is required only for a target-backed project; optional "
+				+ "--confirm RECOVER applies the exact preview.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
+			WorldBuilderAdaptiveRecovery.Preview preview =
+				recovery.preview(project, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) return 0;
+			System.out.print(recovery.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Adaptive recovery failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int recoverActiveAdaptive(String[] args) {
+		Path installation = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ args[index]);
+				return 2;
+			}
+		}
+		if (installation == null) {
+			System.err.println(
+				"ERROR: recover-active-adaptive requires --installation-root.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if ("standalone-empty".equals(project.origin)) {
+				new WorldBuilderAdaptiveRecovery().preview(project.projectRoot, null);
+			}
+			Path install = installation.toAbsolutePath().normalize();
+			Path target = install.getParent();
+			if (target == null) throw new java.io.IOException(
+				"World Builder installation has no parent target directory");
+			WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
+			WorldBuilderAdaptiveRecovery.Preview preview =
+				recovery.preview(project.projectRoot, target);
+			System.err.print(preview.humanSummary());
+			System.out.print(preview.toJson());
+			if (confirmation == null) {
+				if (!confirm("RECOVER", "Type RECOVER to restore the exact transaction "
+					+ "before state, or press Enter to leave recovery pending: ")) {
+					System.out.println(
+						"Recovery left pending; keep the target offline.");
+					return 0;
+				}
+				confirmation = "RECOVER";
+			}
+			System.out.print(recovery.apply(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Active adaptive recovery failed: "
 				+ failure.getMessage());
 			return 4;
 		}
@@ -1130,12 +1327,19 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli import-adaptive --project <projects/uuid>"
 			+ " --export <export-directory> [--target-root <server-root>]"
 			+ " [--confirm IMPORT]"
+			+ "\n  WorldBuilderCli undo-adaptive --project <projects/uuid>"
+			+ " [--target-root <server-root>] [--confirm UNDO]"
+			+ "\n  WorldBuilderCli recover-adaptive --project <projects/uuid>"
+			+ " [--target-root <server-root>] [--confirm RECOVER]"
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
 			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
 			+ " [--confirm IMPORT]"
 			+ "\n  WorldBuilderCli undo-active-adaptive --installation-root <World Builder 2>"
+			+ " [--confirm UNDO]"
+			+ "\n  WorldBuilderCli recover-active-adaptive"
+			+ " --installation-root <World Builder 2> [--confirm RECOVER]"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"

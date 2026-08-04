@@ -1,7 +1,6 @@
 @echo off
 setlocal EnableExtensions
 set "ROOT_DIR=%~dp0"
-set "TARGET_ROOT=%~dp0.."
 set "WORKSPACE=%~dp0workspace"
 set "TOOLS_JAR=%~dp0builder-runtime\launcher\world-builder-tools.jar"
 set "PROJECT_REGISTRY=%~dp0project-registry.json"
@@ -20,6 +19,7 @@ if not exist "%RELEASE_IDENTITY%" goto wrong_identity
 findstr /C:"rsc-world-editor-v2" "%RELEASE_IDENTITY%" >nul
 if errorlevel 1 goto wrong_identity
 if exist "%PROJECT_REGISTRY%" goto adaptive_project
+set "TARGET_ROOT=%~dp0.."
 if not exist "%WORKSPACE%\project-source.json" goto missing_project
 if not exist "%ROOT_DIR%VERSION.txt" goto missing_provenance
 if not exist "%ROOT_DIR%SOURCE-COMMIT.txt" goto missing_provenance

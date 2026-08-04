@@ -2,6 +2,7 @@ package com.openrsc.worldbuilder;
 
 import java.io.Closeable;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.nio.channels.FileChannel;
@@ -146,9 +147,11 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 	private static boolean targetProcessAppearsActive(Path target) {
 		Path proc = Paths.get("/proc");
 		if (!Files.isDirectory(proc, LinkOption.NOFOLLOW_LINKS)) return false;
+		String ownPid = currentPid();
 		try (DirectoryStream<Path> processes = Files.newDirectoryStream(proc)) {
 			for (Path process : processes) {
 				if (!process.getFileName().toString().matches("[0-9]+")) continue;
+				if (process.getFileName().toString().equals(ownPid)) continue;
 				try {
 					Path commandPath = process.resolve("cmdline");
 					if (Files.isRegularFile(commandPath, LinkOption.NOFOLLOW_LINKS)
@@ -174,6 +177,13 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 			return false;
 		}
 		return false;
+	}
+
+	private static String currentPid() {
+		String runtime = ManagementFactory.getRuntimeMXBean().getName();
+		int separator = runtime.indexOf('@');
+		String candidate = separator < 0 ? runtime : runtime.substring(0, separator);
+		return candidate.matches("[0-9]+") ? candidate : "";
 	}
 
 	private static void closePartial(FileLock lock, FileChannel channel,

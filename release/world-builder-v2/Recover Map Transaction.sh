@@ -2,14 +2,13 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKSPACE="$ROOT_DIR/workspace"
 TOOLS_JAR="$ROOT_DIR/builder-runtime/launcher/world-builder-tools.jar"
 PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
 RELEASE_IDENTITY="$ROOT_DIR/RELEASE-IDENTITY.json"
 TERMINAL_SESSION="${WORLD_BUILDER_TERMINAL_SESSION:-0}"
 
 fail() {
-	printf 'Map undo could not start: %s\n' "$*" >&2
+	printf 'Map recovery could not start: %s\n' "$*" >&2
 	exit 1
 }
 
@@ -18,9 +17,9 @@ pause_terminal_session() {
 	trap - EXIT
 	printf '\n'
 	if [[ $status -eq 0 ]]; then
-		printf 'Map undo finished.\n'
+		printf 'Map recovery finished.\n'
 	else
-		printf 'Map undo stopped with an error (exit %d).\n' "$status" >&2
+		printf 'Map recovery stopped with an error (exit %d).\n' "$status" >&2
 	fi
 	if [[ -t 0 ]]; then
 		read -r -p "Press Enter to close this window..." _ || true
@@ -37,7 +36,7 @@ open_terminal_for_desktop_launch() {
 		return
 	fi
 
-	local script="$ROOT_DIR/Undo Last Map Import.sh"
+	local script="$ROOT_DIR/Recover Map Transaction.sh"
 	local -a command=(env WORLD_BUILDER_TERMINAL_SESSION=1 "$script")
 	if command -v x-terminal-emulator >/dev/null 2>&1; then
 		exec x-terminal-emulator -e "${command[@]}"
@@ -70,17 +69,11 @@ fi
 
 [[ -n "$JAVA_EXE" ]] || fail "Java 17 or newer was not found."
 [[ -f "$TOOLS_JAR" ]] || fail "The packaged launcher is missing."
-[[ -f "$RELEASE_IDENTITY" ]] \
-	|| fail "World Builder 2 release identity is missing."
+[[ -f "$RELEASE_IDENTITY" ]] || fail "World Builder 2 release identity is missing."
 grep -F '"productId": "rsc-world-editor-v2"' "$RELEASE_IDENTITY" >/dev/null \
 	|| fail "This is not a World Builder 2 release."
-if [[ -f "$PROJECT_REGISTRY" ]]; then
-	exec "$JAVA_EXE" -jar "$TOOLS_JAR" undo-active-adaptive \
-		--installation-root "$ROOT_DIR"
-fi
-TARGET_ROOT="$(cd "$ROOT_DIR/.." && pwd)"
-[[ -f "$WORKSPACE/project-source.json" ]] || fail "No World Builder project was found."
+[[ -f "$PROJECT_REGISTRY" ]] \
+	|| fail "No adaptive project registry was found; historical workspaces have no adaptive recovery receipt."
 
-"$JAVA_EXE" -jar "$TOOLS_JAR" undo-latest-import \
-	--workspace "$WORKSPACE" \
-	--target-root "$TARGET_ROOT"
+exec "$JAVA_EXE" -jar "$TOOLS_JAR" recover-active-adaptive \
+	--installation-root "$ROOT_DIR"

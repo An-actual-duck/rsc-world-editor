@@ -245,6 +245,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         required_payloads = {
             "Import Map Changes.sh": "#!/usr/bin/env bash\nexit 0\n",
             "Import Map Changes.cmd": "@exit /b 0\r\n",
+            "Recover Map Transaction.sh": "#!/usr/bin/env bash\nexit 0\n",
+            "Recover Map Transaction.cmd": "@exit /b 0\r\n",
             "Undo Last Map Import.sh": "#!/usr/bin/env bash\nexit 0\n",
             "Undo Last Map Import.cmd": "@exit /b 0\r\n",
             "builder-runtime/Client_Base/Open_RSC_Client.jar": "client\n",
@@ -263,6 +265,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             path.write_text(contents, encoding="utf-8")
         for relative in (
             "Import Map Changes.sh",
+            "Recover Map Transaction.sh",
             "Undo Last Map Import.sh",
             "runtime/bin/java",
         ):
