@@ -83,6 +83,19 @@ public final class AdaptiveTransactionFailureHarness {
                         }
                     };
                 new WorldBuilderAdaptiveExporter(observer).export(project);
+            } else if ("export-tamper".equals(operation)) {
+                WorldBuilderAdaptiveExporter.Observer observer =
+                    new WorldBuilderAdaptiveExporter.Observer() {
+                        @Override public void observe(String milestone, Path path)
+                            throws Exception {
+                            if ("after-publish".equals(milestone)) {
+                                Files.write(path.resolve(
+                                    "package/terrain/creator/lp0/xp0-yp0.raw"),
+                                    new byte[] {1}, StandardOpenOption.APPEND);
+                            }
+                        }
+                    };
+                new WorldBuilderAdaptiveExporter(observer).export(project);
             } else if ("import".equals(operation)) {
                 WorldBuilderAdaptiveImporter.Observer observer =
                     new WorldBuilderAdaptiveImporter.Observer() {
@@ -252,16 +265,17 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertFalse(component.endswith((" ", ".")), relative)
 
     def target_project(
-        self, base: Path, representation="layered", install_enabled=True
+        self, base: Path, representation="layered", install_enabled=True,
+        port_evidence=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
             if representation == "layered"
             else self.packed_fixtures.fixture(base)
         )
+        capability_path = target / "server/world-builder-capabilities.json"
+        capability = json.loads(capability_path.read_text(encoding="utf-8"))
         if not install_enabled:
-            capability_path = target / "server/world-builder-capabilities.json"
-            capability = json.loads(capability_path.read_text(encoding="utf-8"))
             capability["install"] = {
                 "enabled": False,
                 "serverRoles": [],
@@ -270,7 +284,9 @@ public final class AdaptiveTransactionFailureHarness {
                 "mutationProfileId": "",
                 "offlineEvidence": [],
             }
-            self.lifecycle.write_json(capability_path, capability)
+        elif not port_evidence:
+            capability["install"]["offlineEvidence"] = ["pid-file"]
+        self.lifecycle.write_json(capability_path, capability)
         installation = target / "World Builder 2"
         installation.mkdir()
         runtime = self.lifecycle.AdaptiveProjectLifecycleTest.make_runtime(base)
@@ -424,7 +440,9 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
 
             exports_before = self.lifecycle.tree_bytes(project / "exports")
-            for milestone in ("stage-created", "package-copied", "before-publish"):
+            for milestone in (
+                "stage-created", "package-copied", "before-publish", "after-publish"
+            ):
                 with self.subTest(milestone=milestone):
                     failed = self.run_failure(
                         "export", milestone, project, target
@@ -738,13 +756,19 @@ public final class AdaptiveTransactionFailureHarness {
             target, installation, project, export = self.target_project(Path(temp))
             target_before = self.lifecycle.tree_bytes(target, installation)
             exports_before = self.lifecycle.tree_bytes(project / "exports")
-            for milestone in ("stage-created", "package-copied", "before-publish"):
+            for milestone in (
+                "stage-created", "package-copied", "before-publish", "after-publish"
+            ):
                 with self.subTest(milestone=milestone):
                     failed = self.run_failure("export", milestone, project, target)
                     self.assertEqual(3, failed.returncode, failed.stderr)
                     self.assertEqual(exports_before, self.lifecycle.tree_bytes(project / "exports"))
                     self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
                     self.assertFalse(list((project / "exports").glob(".staging-*")))
+            tampered = self.run_failure("export-tamper", "none", project, target)
+            self.assertEqual(3, tampered.returncode, tampered.stderr)
+            self.assertEqual(exports_before, self.lifecycle.tree_bytes(project / "exports"))
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
 
     def test_free_space_and_force_refuse_before_artifacts(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-preflight-") as temp:
@@ -1014,7 +1038,9 @@ public final class AdaptiveTransactionFailureHarness {
 
     def test_z_port_bind_offline_evidence_refuses_and_releases_cleanly(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-port-") as temp:
-            target, installation, project, export = self.target_project(Path(temp))
+            target, installation, project, export = self.target_project(
+                Path(temp), port_evidence=True
+            )
             target_before = self.lifecycle.tree_bytes(target, installation)
             artifacts_before = self.transaction_artifacts(project)
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as held:

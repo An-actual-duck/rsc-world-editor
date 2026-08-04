@@ -6,6 +6,7 @@ import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -209,6 +210,7 @@ final class WorldBuilderAdaptiveRecovery {
 		String createdAt = WorldBuilderAdaptiveReceipt.now();
 		boolean mutation = false;
 		try {
+			ensureFreeSpace(plan);
 			Files.createDirectory(backupRoot);
 			writeBytes(backupRoot.resolve("recovery-plan.json"),
 				WorldBuilderJsonDocuments.pretty(plan.document)
@@ -300,6 +302,39 @@ final class WorldBuilderAdaptiveRecovery {
 			throw asFailure(failure, true,
 				"Recovery attempt failed; its exact starting state was restored.",
 				"Review the original recovery-required receipt and try again offline.");
+		}
+	}
+
+	private static void ensureFreeSpace(RecoveryPlan plan)
+		throws IOException, WorldBuilderContractException {
+		long targetBytes = 0L;
+		long backupBytes = 1_048_576L;
+		for (RecoveryAction action : plan.actions) {
+			targetBytes = safeAdd(targetBytes, action.after.size);
+			backupBytes = safeAdd(backupBytes, action.before.size);
+		}
+		FileStore targetStore = Files.getFileStore(plan.targetRoot);
+		FileStore projectStore = Files.getFileStore(plan.project.projectRoot);
+		if (targetStore.getUsableSpace() < targetBytes
+			|| projectStore.getUsableSpace() < backupBytes) throw problem(
+			WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,
+			"Target or project storage lacks space for recovery staging and backups.",
+			"Free space without deleting transaction evidence, then request a fresh recovery preview.");
+	}
+
+	private static long safeAdd(long first, long second)
+		throws WorldBuilderContractException {
+		try {
+			long value = Math.addExact(first, second);
+			if (value > WorldBuilderContractLimits.MAX_INVENTORY_TOTAL_BYTES) {
+				throw new ArithmeticException("bounded total");
+			}
+			return value;
+		} catch (ArithmeticException overflow) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
+				"free-space", false,
+				"Adaptive recovery byte total exceeds its supported bound.",
+				"Retain the project and use one bounded complete transaction.");
 		}
 	}
 

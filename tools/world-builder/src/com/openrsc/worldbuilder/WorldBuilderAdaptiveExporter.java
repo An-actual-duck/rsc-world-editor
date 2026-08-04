@@ -114,6 +114,7 @@ final class WorldBuilderAdaptiveExporter {
 		String fingerprint = string(manifest, "exportFingerprintSha256");
 		Path published = uniqueExportPath(exports, fingerprint);
 		Path stage = exports.resolve(".staging-" + UUID.randomUUID().toString()).normalize();
+		Path incomplete = stage;
 		requireContained(exports, stage, "export staging directory");
 		try {
 			Files.createDirectory(stage);
@@ -131,27 +132,30 @@ final class WorldBuilderAdaptiveExporter {
 			observe("before-publish", stage);
 			try {
 				Files.move(stage, published, StandardCopyOption.ATOMIC_MOVE);
+				incomplete = published;
 			} catch (AtomicMoveNotSupportedException unsupported) {
 				throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "exports",
 					"This filesystem cannot atomically publish an adaptive export.",
 					"Move the complete closed project to a filesystem with atomic directory moves.",
 					unsupported);
 			}
+			observe("after-publish", published);
 			validate(published, verified);
+			incomplete = null;
 			return new ExportResult(published, verified.projectId, verified.origin,
 				fingerprint, verified.working.fingerprintSha256,
 				verified.working.files.size());
 		} catch (WorldBuilderContractException failure) {
-			deleteTree(stage);
+			deleteTree(incomplete);
 			throw failure;
 		} catch (IOException failure) {
-			deleteTree(stage);
+			deleteTree(incomplete);
 			throw failure;
 		} catch (RuntimeException failure) {
-			deleteTree(stage);
+			deleteTree(incomplete);
 			throw failure;
 		} catch (Exception callbackFailure) {
-			deleteTree(stage);
+			deleteTree(incomplete);
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "exports",
 				"Adaptive export was interrupted before atomic publication.",
 				"Retry after resolving the injected or environmental failure.",
