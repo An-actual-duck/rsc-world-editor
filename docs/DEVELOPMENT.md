@@ -29,9 +29,11 @@ tests must keep generated credentials, settings, logs, PIDs, and
 
 ## Core-Framework dependency
 
-`core-framework.lock` is the sole runtime dependency pin. Treat it as a frozen
-external build input during ordinary development. It is not a signal to check
-Spoiled Milk status, branches, workers, releases, or newer commits.
+`core-framework.lock` is the sole runtime dependency pin. Treat its exact
+commit and durable provider ref as a frozen external build input during
+ordinary development. The provider ref exists only to keep that exact object
+fetchable; it is not a signal to check Spoiled Milk status, branches, workers,
+releases, or newer commits.
 
 A local checkout can be created at the ignored `.core-framework/` path when a
 build or explicitly assigned dependency audit requires it:
@@ -41,7 +43,7 @@ build or explicitly assigned dependency audit requires it:
 ```
 
 For an explicitly assigned dependency-update task, verify that it is the
-expected revision and that the bounded synchronization inputs match:
+expected revision and that its adaptive capability and protocol match:
 
 ```bash
 ./scripts/check-core-parity.sh .core-framework
@@ -53,19 +55,23 @@ build does not authorize updating the lock. Ordinary repository-owned tooling,
 packaging, test, and documentation fixes do not require source parity with the
 frozen dependency.
 
-Only when the user explicitly assigns a dependency-update task, incorporate
-the exact external commit they selected with:
+Only when the user explicitly assigns a dependency-update task, adopt the
+exact external commit and durable runtime provider ref they selected with:
 
 ```bash
-./scripts/sync-from-core-framework.sh /path/to/open-rsc-spoiled-milk
+./scripts/sync-from-core-framework.sh \
+  /path/to/clean-runtime-provider \
+  refs/heads/world-builder/runtime/name
+./scripts/checkout-core-framework.sh
+./scripts/check-core-parity.sh .core-framework
 ./scripts/test.sh
 git diff --check
 ```
 
-Review the synchronized diff before committing. The sync command refuses dirty
-source paths and updates the lock only after copying `tools/world-builder/`
-and `release/world-builder-v2/`. The frozen legacy
-`release/world-builder/` tree is never overwritten by synchronization.
+Review the dependency and protocol diff before committing. The adoption
+command refuses dirty providers, requires the exact commit at the named remote
+ref, and updates only `core-framework.lock` plus the v2 runtime protocol. It
+never copies World Builder-owned tooling, templates, or either release line.
 
 ## Change routing
 
@@ -74,6 +80,6 @@ and `release/world-builder-v2/`. The frozen legacy
 - If a feature needs client/server behavior not owned here, record it as an
   external compatibility dependency rather than assuming control of Spoiled
   Milk development.
-- Shared-source synchronization occurs only through an explicitly assigned,
-  exact-commit dependency update. It is never triggered by another project's
-  activity.
+- Runtime adoption occurs only through an explicitly assigned exact commit and
+  durable provider ref. It never copies shared source and is never triggered by
+  another project's activity.

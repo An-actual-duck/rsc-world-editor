@@ -108,19 +108,21 @@ Java 8 bytecode for compatibility with the bundled runtime contract.
 
 The frozen runtime dependency is declared in
 [`core-framework.lock`](core-framework.lock). To materialize that exact locked
-revision for a build or parity check:
+revision and verify its adaptive runtime contract:
 
 ```bash
 ./scripts/checkout-core-framework.sh
 ./scripts/check-core-parity.sh .core-framework
 ```
 
-The World Editor manager does not monitor Spoiled Milk branches, workers, or
-releases. Only when the user explicitly assigns an exact-commit dependency
-update should the bounded source snapshot and lock be refreshed with:
+The World Editor manager does not monitor or operate Spoiled Milk branches,
+workers, or releases. Only when the user explicitly assigns an exact runtime
+commit and durable provider ref should the dependency lock be updated with:
 
 ```bash
-./scripts/sync-from-core-framework.sh /path/to/open-rsc-spoiled-milk
+./scripts/sync-from-core-framework.sh \
+  /path/to/clean-runtime-provider \
+  refs/heads/world-builder/runtime/name
 ```
 
 Maintainer development uses one manager checkout and reusable neutral worker

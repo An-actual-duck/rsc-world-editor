@@ -4,13 +4,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-3 implemented and merged on published `main` at `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
-| Product/release readiness | NOT READY; native runtime Phase 4, content-neutral packaging/identity Phase 5, and generic export/import Phase 6 remain gated |
+| Status | Phases 0-3 are implemented in this repository; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
+| Product/release readiness | NOT READY; Phase 4 owner validation, content-neutral packaging/identity Phase 5, and generic export/import Phase 6 remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
 | Repository reviewed | Phase 3 published state `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
-| Pinned runtime reviewed read-only | `026aab5c028aa9ecf6e78d382a4871e6ed56c3f7` from `core-framework.lock` |
+| Pinned adaptive runtime | `3cd36570ca7df6c436714b5358904aa5953fd1ba` via immutable provider ref `refs/heads/world-builder/runtime/adaptive-v1` |
 
 Approval establishes this document as the implementation plan. It does not by
 itself authorize a dependency update, release-gate change, migration of user
@@ -1059,6 +1059,16 @@ published. Only a separately authorized World Editor dependency-update task
 may advance `core-framework.lock`; this repository never edits or manages the
 external project's checkout, branches, or workers, and never edits
 `.core-framework/` in place.
+
+Implementation record: the automated runtime portion is published and pinned
+at `3cd36570ca7df6c436714b5358904aa5953fd1ba`. It supplies the generic signed-
+layered loader/authoring capability, strict runtime binding, isolated project
+lock/readiness lifecycle, all four placement families, canonical void
+authoring, and verified copy-on-write package persistence. The standalone
+repository validates that exact provider ref, capability document, required
+runtime surfaces, and protocol without copying or managing provider source.
+Owner-run adopted-project and standalone-empty visual/edit/save/reopen testing
+remains required before the Phase 4 product gate is considered complete.
 
 ### Phase 5 — content-neutral packaging and update preservation
 

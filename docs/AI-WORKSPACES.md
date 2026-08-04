@@ -14,6 +14,8 @@ The standalone repository is managed independently from Spoiled Milk. Its
 manager and workers observe only this repository, its `origin` remote, and the
 `rsc-world-editor-ai-*` worktrees. `core-framework.lock` names a frozen runtime
 dependency; it is not an instruction to monitor Spoiled Milk or its workers.
+The collaboration scripts also reject invocation from any current directory
+outside this repository's registered manager/worker worktrees.
 
 Do not run collaboration scripts inside `.core-framework`, follow its nested
 `AGENTS.md`, or report activity from `/home/justin/Core-Framework`. A newer
@@ -117,18 +119,21 @@ Dependency synchronization is exceptional manager work, never a background
 responsibility. Perform it only when the user explicitly assigns that task in
 the World Editor project. When authorized, use this bounded sequence:
 
-1. Receive the exact external dependency commit selected for adoption; do not
-   choose it by watching another project's branches or workers.
-2. In this manager checkout, synchronize from that exact clean published
-   dependency commit.
-3. Review the bounded diff, update `core-framework.lock`, run
+1. Receive the exact external dependency commit and durable provider ref
+   selected for adoption; do not choose either by watching another project's
+   branches or workers.
+2. In this manager checkout, adopt that exact clean published runtime without
+   copying repository-owned source from the provider.
+3. Review the bounded lock/protocol diff, run
    `./scripts/check-core-parity.sh`, and run `./scripts/test.sh`.
-4. Publish this repository's tested `main`.
+4. Publish this repository's tested `main`. The provider ref is immutable
+   dependency provenance, not a worker branch for this manager to operate.
 
-Do not transplant an external topic branch into this repository or coordinate
-the other project's task lifecycle. The selected published commit is only a
-versioned build input; this repository retains its own history, backlog,
-workers, releases, and product identity.
+Do not transplant an external topic branch into this repository, copy its
+World Builder source paths, or coordinate the other project's task lifecycle.
+The selected published commit is only a versioned runtime input; this
+repository retains its own history, backlog, workers, releases, and product
+identity.
 
 ## Release boundary
 

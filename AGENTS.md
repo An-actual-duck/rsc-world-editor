@@ -47,6 +47,9 @@ git status --short --branch
   `.core-framework/scripts/ai-workspace.sh`, or follow
   `.core-framework/AGENTS.md`. Those belong to a different project and a
   different manager/worker team.
+- Collaboration scripts reject callers whose current directory is outside a
+  registered `rsc-world-editor` worktree. Do not bypass that boundary by
+  changing directories or overriding workflow paths.
 - Activity in Spoiled Milk—including a worker handoff, merge, release, or a
   newer upstream commit—does not create a World Editor task and must not be
   monitored automatically.

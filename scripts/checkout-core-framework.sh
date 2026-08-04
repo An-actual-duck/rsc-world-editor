@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/core-framework.lock"
 DESTINATION="${1:-$ROOT_DIR/.core-framework}"
+CORE_REF="${CORE_REF:-}"
 
 [[ "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || {
 	printf 'FAIL: core-framework.lock contains an invalid commit.\n' >&2
@@ -19,7 +20,19 @@ if [[ ! -d "$DESTINATION/.git" ]]; then
 	git clone "$CORE_REPOSITORY" "$DESTINATION"
 fi
 
-git -C "$DESTINATION" fetch origin "$CORE_COMMIT"
+if [[ -n "$CORE_REF" ]]; then
+	git -C "$DESTINATION" check-ref-format "$CORE_REF" >/dev/null 2>&1 || {
+		printf 'FAIL: core-framework.lock contains an invalid provider ref.\n' >&2
+		exit 1
+	}
+	git -C "$DESTINATION" fetch origin "$CORE_REF"
+	[[ "$(git -C "$DESTINATION" rev-parse 'FETCH_HEAD^{commit}')" == "$CORE_COMMIT" ]] || {
+		printf 'FAIL: Locked provider ref no longer resolves to CORE_COMMIT.\n' >&2
+		exit 1
+	}
+else
+	git -C "$DESTINATION" fetch origin "$CORE_COMMIT"
+fi
 [[ -z "$(git -C "$DESTINATION" status --porcelain --untracked-files=all)" ]] || {
 	printf 'FAIL: Core-Framework checkout is dirty: %s\n' "$DESTINATION" >&2
 	exit 1

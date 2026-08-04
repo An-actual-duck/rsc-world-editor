@@ -68,16 +68,20 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         self.assertNotIn("Spoiled Milk World Builder 2", legacy_packager)
         self.assertNotIn("rsc-world-editor-v2", legacy_updater)
 
-    def test_sync_contract_preserves_v1_and_tracks_v2(self) -> None:
+    def test_runtime_adoption_preserves_owned_source_and_v1(self) -> None:
         sync = (ROOT / "scripts" / "sync-from-core-framework.sh").read_text(
             encoding="utf-8"
         )
         parity = (ROOT / "scripts" / "check-core-parity.sh").read_text(
             encoding="utf-8"
         )
-        for script in (sync, parity):
-            self.assertIn("tools/world-builder", script)
-            self.assertIn("release/world-builder-v2", script)
+        self.assertNotIn("rsync", sync)
+        self.assertIn("No World Builder-owned source was copied", sync)
+        self.assertIn("release/world-builder-v2", sync)
+        self.assertNotIn('diff -qr "$ROOT_DIR/$relative"', parity)
+        self.assertIn("adaptive-runtime-capability-v1.json", parity)
+        self.assertIn("AdaptiveWorldBuilderRuntimeSession.java", parity)
+        self.assertIn("release/world-builder-v2", parity)
         self.assertNotIn(
             '"$CORE_ROOT/release/world-builder/" "$ROOT_DIR/release/world-builder/"',
             sync,

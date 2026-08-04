@@ -21,6 +21,10 @@ def main() -> None:
     )
     manager = (ROOT / "scripts/ai-manager.sh").read_text(encoding="utf-8")
     workspace = (ROOT / "scripts/ai-workspace.sh").read_text(encoding="utf-8")
+    checkout = (ROOT / "scripts/checkout-core-framework.sh").read_text(
+        encoding="utf-8"
+    )
+    dependency_lock = (ROOT / "core-framework.lock").read_text(encoding="utf-8")
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     v2_packager = (
         ROOT / "scripts/package-world-builder-v2-release.sh"
@@ -48,7 +52,7 @@ def main() -> None:
         "workspace documentation does not isolate the dependency checkout",
     )
     require(
-        "It is never triggered by another project's activity"
+        "is never triggered by another project's activity"
         in normalized_development,
         "development routing still allows implicit cross-project synchronization",
     )
@@ -66,6 +70,23 @@ def main() -> None:
         "check-core-parity.sh" not in ci_workflow,
         "routine CI still requires repository source parity",
     )
+    require(
+        "CORE_REF=refs/heads/world-builder/runtime/" in dependency_lock,
+        "runtime dependency is not retained through a durable provider ref",
+    )
+    require(
+        'fetch origin "$CORE_REF"' in checkout
+        and "FETCH_HEAD^{commit}" in checkout,
+        "dependency checkout does not verify its provider ref against CORE_COMMIT",
+    )
+    sync = (ROOT / "scripts/sync-from-core-framework.sh").read_text(
+        encoding="utf-8"
+    )
+    require(
+        "rsync" not in sync
+        and "No World Builder-owned source was copied" in sync,
+        "dependency adoption can still overwrite World Builder-owned source",
+    )
     for explicit_tool in (
         ROOT / "scripts/check-core-parity.sh",
         ROOT / "scripts/sync-from-core-framework.sh",
@@ -77,6 +98,11 @@ def main() -> None:
     require(
         "this worker belongs only to the RSC World Editor repository" in guide_source,
         "generated worker guides do not state the project boundary",
+    )
+    require(
+        "ai_require_invocation_from_managed_worktree" in guide_source
+        and "Refusing cross-project invocation" in guide_source,
+        "collaboration scripts do not enforce their worktree boundary",
     )
 
     for script_name, source in (

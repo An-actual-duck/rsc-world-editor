@@ -24,11 +24,12 @@ Repository-level readiness can still be audited:
 ```
 
 Source parity is not a World Builder 2 packaging prerequisite. This repository
-owns `tools/world-builder/` and `release/world-builder-v2/`, so tested fixes in
-those paths may be newer than the frozen runtime dependency. Keep
-`check-core-parity.sh` and `sync-from-core-framework.sh` for separately
-authorized exact-commit dependency-update tasks. The packager still requires
-the dependency checkout itself to be clean and at the exact commit named by
+owns `tools/world-builder/` and `release/world-builder-v2/`; those paths are
+never copied from the runtime provider. `check-core-parity.sh` now verifies the
+exact pinned commit/ref, adaptive capability, required runtime surfaces, and
+protocol compatibility. `sync-from-core-framework.sh` performs only an
+explicitly authorized lock/protocol adoption. The packager still requires the
+dependency checkout itself to be clean and at the exact commit named by
 `core-framework.lock`.
 
 `./scripts/ai-manager.sh release` applies the manager release check and then
