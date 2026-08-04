@@ -2,9 +2,13 @@
 
 ## Product boundary
 
-RSC World Editor is a local, isolated editing appliance. It uses the real game
-client, server, terrain format, definitions, collision rules, and authoritative
-world-editor protocol, but it never connects to or edits a public server.
+RSC World Editor is a local, isolated editing appliance. Adaptive World Builder
+2 is designed as a standalone, server-agnostic drop-in folder placed directly
+inside a compatible game/server root. It discovers that target's active map,
+definitions, and capabilities, then adopts or converts copies into a project
+owned by World Builder. It uses a compatible game client, server, terrain
+format, definitions, collision rules, and authoritative world-editor protocol,
+but it never connects to or edits a public server.
 
 The repository is divided into four layers:
 
@@ -14,8 +18,10 @@ The repository is divided into four layers:
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
 - The Core-Framework revision in `core-framework.lock` supplies a frozen
-  compiled client/server runtime and integrated editor implementation. It is a
-  build dependency, not part of this repository's manager/worker system.
+  compiled client/server runtime, integrated editor implementation, and one
+  supported adapter source. It is an external generic build/runtime dependency,
+  not this product's identity or target content and not part of this
+  repository's manager/worker system.
 
 ## Durable and replaceable state
 
@@ -75,28 +81,30 @@ than attempting an implicit conversion.
 
 The approved World Builder 2 architecture makes each editable project derive
 from the compatible target server selected at first launch, or from an explicit
-standalone empty origin. Production releases contain no world data. Supported
-packed maps are converted deterministically into isolated signed-layered
-projects; editing and saving remain inside World Builder until an administrator
-runs the explicit transactional import script. See [World Builder 2 Adaptive
-Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative contracts, phases,
-tests, and acceptance criteria.
+standalone empty origin. Production adaptive releases contain no terrain,
+world package, or static placements. Supported packed maps are converted
+deterministically into isolated signed-layered projects; editing and saving
+remain inside World Builder until an administrator runs the explicit
+transactional import script. Compatibility means a documented capability or
+repository-owned adapter, not arbitrary-server binary patching. See [World
+Builder 2 Adaptive Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative
+contracts, phases, tests, and acceptance criteria.
 
-The repository currently implements the Phase 0 contracts, Phase 1 read-only
-adapter discovery, Phase 2 conversion boundary, and the repository-owned
-portion of Phase 3. Phase 3 adds a UUID registry, atomic project creation and
-selection, immutable source snapshot v2, layered adoption, contained packed
-conversion, deterministic standalone empty generation, save/reopen,
-portability/detachment, project-only supervision, and immediate standalone
-import/undo refusal. The Linux and Windows v2 launchers now use adaptive
-parent-target discovery instead of a fixed config or packaged world.
+Phases 0-3 are implemented and merged on published `main` at
+`dac388a32aa41754a49341e3ddcc8cc196389ab4`. Phase 3 adds a UUID registry,
+atomic project creation and selection, immutable source snapshot v2, layered
+adoption, contained packed conversion, deterministic standalone empty
+generation, save/reopen, portability/detachment, project-only supervision, and
+immediate standalone import/undo refusal. The Linux and Windows v2 launchers
+now use adaptive parent-target discovery instead of a fixed config or packaged
+world.
 
 Native adaptive client/server launch deliberately returns
-`LOADER_INCOMPATIBLE` before process creation because the pinned dependency
+`LOADER_INCOMPATIBLE` before process creation because the exact locked runtime
 does not yet supply the separately approved Phase 4 generic layered loading
-and void-authoring capability. Generic export/import and content-neutral
-packaging are also later phases. Therefore the complete adaptive release gate
-is not open.
+and void-authoring capability. Phase 5 content-neutral packaging and inherited
+identity cleanup and Phase 6 generic export/import also remain gated. Therefore
+the complete adaptive release gate is not open.
 
 ## Planned custom materials
 
