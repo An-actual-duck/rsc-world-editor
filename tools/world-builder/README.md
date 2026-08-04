@@ -176,6 +176,10 @@ still be edited in isolation after the original target moves or drifts, but it
 is reported detached and cannot later be installed until the exact compatible
 target is supplied and verified.
 
+Application updates use the same command with `--validate-only`. That mode
+verifies the selected project and optional target evidence without refreshing
+attachment state or changing any project, registry, or active-pointer bytes.
+
 Commit a verified working-package fingerprint to project metadata with:
 
 ```bash

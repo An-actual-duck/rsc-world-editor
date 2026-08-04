@@ -852,6 +852,7 @@ if [[ -e "$PROJECT_REGISTRY" || -e "$ACTIVE_PROJECT" || -e "$PROJECTS" ]]; then
 	"$ROOT_DIR/runtime/bin/java" -jar \
 		"$ROOT_DIR/builder-runtime/launcher/world-builder-tools.jar" \
 		open-project --installation-root "$ROOT_DIR" --target-root "$ROOT_DIR/.." \
+		--validate-only \
 		>/dev/null \
 		|| fail "The selected adaptive project is incompatible with the updated runtime"
 fi

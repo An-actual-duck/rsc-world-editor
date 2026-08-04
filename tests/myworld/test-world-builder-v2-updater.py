@@ -795,6 +795,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "target-adaptive-v1",
             "project-registry.json",
             "active-project.json",
+            "--validate-only",
             "selected adaptive project is incompatible",
             "historical pre-adaptive World Builder 2",
             "Close World Builder 2 before updating",
@@ -806,6 +807,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         linux = UPDATER.read_text(encoding="utf-8")
         for snippet in (
             "target-adaptive-v1", "project-registry.json", "active-project.json",
+            "--validate-only",
             "selected adaptive project is incompatible",
             "historical pre-adaptive World Builder 2",
             "validate_application_paths",

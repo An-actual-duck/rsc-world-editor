@@ -546,6 +546,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 	ProjectResult openActive(Path requestedInstallRoot, Path requestedTargetRoot)
 		throws IOException, WorldBuilderContractException {
+		return openActive(requestedInstallRoot, requestedTargetRoot, true);
+	}
+
+	ProjectResult validateActive(Path requestedInstallRoot, Path requestedTargetRoot)
+		throws IOException, WorldBuilderContractException {
+		return openActive(requestedInstallRoot, requestedTargetRoot, false);
+	}
+
+	private ProjectResult openActive(Path requestedInstallRoot,
+		Path requestedTargetRoot, boolean updateAttachmentState)
+		throws IOException, WorldBuilderContractException {
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
 		Path projects = install.resolve(PROJECTS_DIRECTORY);
 		if (!Files.isDirectory(projects, LinkOption.NOFOLLOW_LINKS)
@@ -560,14 +571,16 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
-				return openActiveLocked(install, requestedTargetRoot);
+				return openActiveLocked(
+					install, requestedTargetRoot, updateAttachmentState);
 			} finally {
 				lock.release();
 			}
 		}
 	}
 
-	private ProjectResult openActiveLocked(Path install, Path requestedTargetRoot)
+	private ProjectResult openActiveLocked(Path install, Path requestedTargetRoot,
+		boolean updateAttachmentState)
 		throws IOException, WorldBuilderContractException {
 		RegistryState registry = loadRegistry(install, true);
 		ActiveState active = loadActive(install, registry, true);
@@ -603,9 +616,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				}
 			}
 			String wanted = attached ? "ready-attached" : "ready-detached";
-			if (!wanted.equals(verified.state)
+			if (updateAttachmentState && (!wanted.equals(verified.state)
 				|| attached && !attachedLocator.equals(
-					string(targetInfo, "locatorDisplay"))) {
+					string(targetInfo, "locatorDisplay")))) {
 				verified = updateState(
 					install, verified, wanted, attachedLocator);
 			}

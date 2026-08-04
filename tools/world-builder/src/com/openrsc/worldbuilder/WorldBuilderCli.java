@@ -231,11 +231,14 @@ public final class WorldBuilderCli {
 	private static int openProject(String[] args) {
 		Path installation = null;
 		Path target = null;
+		boolean validateOnly = false;
 		for (int index = 1; index < args.length; index++) {
 			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
 				installation = Paths.get(args[++index]);
 			} else if ("--target-root".equals(args[index]) && index + 1 < args.length) {
 				target = Paths.get(args[++index]);
+			} else if ("--validate-only".equals(args[index])) {
+				validateOnly = true;
 			} else {
 				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
 				return 2;
@@ -246,8 +249,12 @@ public final class WorldBuilderCli {
 			return 2;
 		}
 		try {
-			System.out.print(new WorldBuilderAdaptiveProjectLifecycle()
-				.openActive(installation, target).toJson());
+			WorldBuilderAdaptiveProjectLifecycle lifecycle =
+				new WorldBuilderAdaptiveProjectLifecycle();
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult opened = validateOnly
+				? lifecycle.validateActive(installation, target)
+				: lifecycle.openActive(installation, target);
+			System.out.print(opened.toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);
@@ -972,7 +979,7 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli select-project --installation-root <World Builder 2>"
 			+ " --project-id <uuid>"
 			+ "\n  WorldBuilderCli open-project --installation-root <World Builder 2>"
-			+ " [--target-root <server-root>]"
+			+ " [--target-root <server-root>] [--validate-only]"
 			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli run-adaptive-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"

@@ -210,9 +210,10 @@ public final class AdaptiveProjectSupervisorHarness {
             supervisor.runAdaptiveProject(project);
         } catch (WorldBuilderContractException expected) {
             unavailable = WorldBuilderErrorCodes.LOADER_INCOMPATIBLE.equals(expected.code())
-                && expected.getMessage().contains("generic layered");
+                && expected.getMessage().contains("owner-native validation");
         }
-        require(unavailable, "native adaptive runtime must fail closed before Phase 4");
+        require(unavailable,
+            "native adaptive runtime must fail closed pending owner validation");
 
         List<String> server = command(classes, "FakeServer", project, port);
         List<String> client = command(classes, "FakeClient", project, port);
@@ -634,6 +635,16 @@ public final class AdaptiveProjectSupervisorHarness {
                 tree_bytes(project / "source/layered-baseline/package"),
                 tree_bytes(project / "working/layered-world/package"),
             )
+            install_before_validation = tree_bytes(installation)
+            validated = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(0, validated.returncode, validated.stderr)
+            self.assertEqual("ready-attached", json.loads(validated.stdout)["state"])
+            self.assertEqual(install_before_validation, tree_bytes(installation))
             target_display = str(target.resolve()).encode()
             for path in project.rglob("*"):
                 if path.is_file() and path != project / "project.json":

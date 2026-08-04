@@ -702,10 +702,11 @@ try {
             $env:WORLD_BUILDER_V2_COMPATIBILITY_JAVA
         } else {
             Join-Path $RootDir "runtime/bin/java.exe"
-        }
-        & $CompatibilityJava -jar (Join-Path $RootDir "builder-runtime/launcher/world-builder-tools.jar") `
-            open-project --installation-root $RootDir --target-root (Split-Path -Parent $RootDir) |
-            Out-Null
+		}
+		& $CompatibilityJava -jar (Join-Path $RootDir "builder-runtime/launcher/world-builder-tools.jar") `
+			open-project --installation-root $RootDir --target-root (Split-Path -Parent $RootDir) `
+			--validate-only |
+			Out-Null
         if ($LASTEXITCODE -ne 0) {
             Fail-Update "the selected adaptive project is incompatible with the updated runtime"
         }
