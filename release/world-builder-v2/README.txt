@@ -99,10 +99,13 @@ server/client content-addressed destinations, configuration changes, backups,
 receipt, free-space requirement, and verification steps. Nothing is changed
 until you type IMPORT exactly.
 
-Confirmed Import writes verified backups and a durable pending receipt beneath
-the project before touching the target. It publishes verified server and
-client package content first, activates the selected configuration last, and
-then verifies every byte and both package selections. Before restarting,
+Confirmed Import file-forces its exact plan, created-directory authority,
+activation content, and every verified backup, then forces their directory
+entries before publishing and forcing the pending receipt. A filesystem/Java
+provider that cannot provide that ordering is refused before transaction
+artifacts or target mutation. Import publishes verified server and client
+package content first, activates the selected configuration last, and then
+verifies every byte and both package selections. Before restarting,
 distribute the exact reported client package/map identity to every player.
 
 Run "Undo Last Map Import" only while the target is offline. It previews the
@@ -112,6 +115,13 @@ before a new backup, receipt, or target mutation. Successful Undo restores the
 original configuration and target inventory exactly. Configuration is
 deactivated/restored before package removal; rollback restores packages before
 reactivation.
+
+Phase 6 supports one outstanding successful import per project. You may keep
+editing and saving the isolated project after Import A. Undo A uses its exact
+historical export and preserves the later working bytes. Before Import B, run
+exact Undo A, then export/preview/import the desired saved state. A second
+outstanding import is refused with this instruction rather than guessed or
+chained.
 
 A partial failure automatically rolls back and verifies the safe state. If the
 tool reports RECOVERY_REQUIRED, do not start the server or run another
@@ -154,7 +164,11 @@ REQUIREMENTS AND LIMITS
 - A supported target supplies truthful capability evidence or matches one
   exact repository-owned adapter. Similar-looking unknown forks are not guessed.
 - A compiled process-scan offline requirement currently requires a readable
-  Linux /proc process view and fails closed if that view is unavailable.
+  Linux /proc process view and fails closed if that view is unavailable. A
+  still-live userspace process requires both readable cmdline and cwd evidence.
+- Import, Undo, and Recovery require a filesystem/Java provider capable of
+  forcing transaction directory entries; unsupported providers fail before
+  target mutation.
 - The default local port is 43615. WORLD_BUILDER_PORT may select 1 through
   65534; WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
 - Server administrators remain responsible for distributing the exact

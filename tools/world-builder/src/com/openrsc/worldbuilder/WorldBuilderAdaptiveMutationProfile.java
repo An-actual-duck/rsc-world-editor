@@ -172,9 +172,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 			requiredSpace = safeAdd(requiredSpace, action.before.size);
 			requiredSpace = safeAdd(requiredSpace, action.after.size);
 		}
-		Map<String,Object> document = document(transactionId, project, export,
-			capability, configuration, expectedLineage, actions, changes, requiredSpace);
 		List<String> directoriesToCreate = plannedDirectories(target, actions);
+		Map<String,Object> document = document(transactionId, project, export,
+			capability, configuration, expectedLineage, actions, changes,
+			directoriesToCreate, requiredSpace);
 		return new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directoriesToCreate, document);
@@ -331,14 +332,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		String lineage = WorldBuilderAdaptiveExporter.string(
 			projectTarget, "targetFingerprintSha256");
-		Map<String,Object> generated = document(transactionId, project, export,
-			capability, configuration, lineage, actions, changes, requiredSpace);
-		List<String> directories = readCreatedDirectories(
-			project.projectRoot, transactionId, generated, actions);
-		Plan plan = new Plan(target, project, export, capability, configuration,
-			profile, serverPackage, clientPackage, configurationBytes,
-			actions, changes, directories, generated);
-
 		Path durablePlan = WorldBuilderPortablePath.resolveContained(
 			project.projectRoot, "backups/" + transactionId + "/mutation-plan.json",
 			OPERATION);
@@ -359,11 +352,25 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			storedObject, "planFingerprintSha256");
+		List<String> directories = planCreatedDirectories(storedObject, actions);
+		Map<String,Object> generated = document(transactionId, project, export,
+			capability, configuration, lineage, actions, changes, directories,
+			requiredSpace);
+		Plan plan = new Plan(target, project, export, capability, configuration,
+			profile, serverPackage, clientPackage, configurationBytes,
+			actions, changes, directories, generated);
 		if (!plan.canonicalSha256.equals(stored.canonicalSha256)) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 			"backups/" + transactionId + "/mutation-plan.json",
 			"Durable mutation plan does not match independently compiled project/export paths.",
 			"Keep the target offline and restore exact transaction evidence; do not force undo.");
+		List<String> evidenceDirectories = readCreatedDirectories(
+			project.projectRoot, transactionId, generated, actions);
+		if (!directories.equals(evidenceDirectories)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+			"backups/" + transactionId + "/created-directories.json",
+			"Created-directory evidence differs from the immutable mutation plan.",
+			"Restore the exact complete transaction evidence; do not force undo.");
 		requireBeforeBackups(plan);
 		return plan;
 	}
@@ -454,6 +461,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"backups/" + transactionId + "/created-directories.json",
 			"Durable created-directory evidence does not bind the exact plan.",
 			"Retain the complete exact transaction backup; do not force undo.");
+		List<String> expected = planCreatedDirectories(plan, actions);
 		List<String> result = new ArrayList<String>();
 		Set<String> collisions = new HashSet<String>();
 		for (Object raw : WorldBuilderAdaptiveExporter.array(
@@ -491,7 +499,53 @@ final class WorldBuilderAdaptiveMutationProfile {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "created-directories.json",
 			"Created-directory evidence is not canonical.",
 			"Restore the exact transaction backup.");
+		if (!result.equals(expected)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "created-directories.json",
+			"Created-directory evidence was added, removed, or reordered after planning.",
+			"Restore the exact transaction evidence bound by the mutation plan and receipt.");
 		return result;
+	}
+
+	private static List<String> planCreatedDirectories(Map<String,Object> plan,
+		List<Action> actions) throws WorldBuilderContractException {
+		List<String> result = new ArrayList<String>();
+		Set<String> collisions = new HashSet<String>();
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			plan.get("createdDirectories"), "createdDirectories")) {
+			if (!(raw instanceof String)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "createdDirectories",
+				"Mutation-plan created-directory authority contains a non-string path.",
+				"Restore the exact immutable mutation plan and receipt.");
+			String relative = WorldBuilderPortablePath.require((String)raw, OPERATION);
+			if (!collisions.add(WorldBuilderPortablePath.collisionKey(relative, OPERATION))) {
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative,
+					"Mutation-plan created-directory authority repeats a portable path.",
+					"Restore the exact immutable mutation plan and receipt.");
+			}
+			boolean ancestor = false;
+			for (Action action : actions) {
+				if (action.destinationRelativePath.startsWith(relative + "/")) {
+					ancestor = true;
+					break;
+				}
+			}
+			if (!ancestor) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, relative,
+				"Mutation-plan created-directory authority is not an action ancestor.",
+				"Restore exact transaction evidence; arbitrary target paths are never removable.");
+			result.add(relative);
+		}
+		List<String> sorted = new ArrayList<String>(result);
+		Collections.sort(sorted, new Comparator<String>() {
+			@Override public int compare(String left, String right) {
+				int depth = left.split("/").length - right.split("/").length;
+				return depth == 0 ? left.compareTo(right) : depth;
+			}
+		});
+		if (!result.equals(sorted)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "createdDirectories",
+			"Mutation-plan created-directory authority is not canonical.",
+			"Restore the exact immutable mutation plan and receipt.");
+		return Collections.unmodifiableList(result);
 	}
 
 	private static List<String> plannedDirectories(Path target, List<Action> actions)
@@ -533,10 +587,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderTargetCapability capability,
 		WorldBuilderAdaptiveConfiguration configuration,
 		String targetLineage, List<Action> actions,
-		List<ConfigurationChange> changes, long requiredSpace)
+		List<ConfigurationChange> changes, List<String> createdDirectories,
+		long requiredSpace)
 		throws WorldBuilderContractException {
 		return document(transactionId, project, export, capability, configuration,
-			targetLineage, actions, changes, requiredSpace, configuration.sha256);
+			targetLineage, actions, changes, createdDirectories, requiredSpace,
+			configuration.sha256);
 	}
 
 	private static Map<String,Object> document(String transactionId,
@@ -545,7 +601,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderTargetCapability capability,
 		WorldBuilderAdaptiveConfiguration configuration,
 		String targetLineage, List<Action> actions,
-		List<ConfigurationChange> changes, long requiredSpace,
+		List<ConfigurationChange> changes, List<String> createdDirectories,
+		long requiredSpace,
 		String selectedConfigurationSha256)
 		throws WorldBuilderContractException {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
@@ -579,6 +636,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			actionValues.add(actions.get(index).toJson(index));
 		}
 		value.put("actions", actionValues);
+		value.put("createdDirectories", new ArrayList<String>(createdDirectories));
 		List<Object> changeValues = new ArrayList<Object>();
 		for (int index = 0; index < changes.size(); index++) {
 			changeValues.add(changes.get(index).toJson(index, false));
@@ -649,7 +707,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Map<String,Object> generated = document(transactionId,
 			installed.project, installed.export, installed.capability,
 			installed.configuration, installed.targetLineage(), actions, changes,
-			requiredSpace, selectedInstalledHash);
+			Collections.<String>emptyList(), requiredSpace, selectedInstalledHash);
 		return new Plan(installed.targetRoot, installed.project, installed.export,
 			installed.capability, installed.configuration, installed.profileId,
 			installed.serverPackageRelativePath, installed.clientPackageRelativePath,
@@ -732,7 +790,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		Map<String,Object> generated = document(transactionId,
 			failed.project, failed.export, failed.capability, failed.configuration,
-			failed.targetLineage(), actions, changes, requiredSpace, selectedHash);
+			failed.targetLineage(), actions, changes,
+			Collections.<String>emptyList(), requiredSpace, selectedHash);
 		return new Plan(failed.targetRoot, failed.project, failed.export,
 			failed.capability, failed.configuration, failed.profileId,
 			failed.serverPackageRelativePath, failed.clientPackageRelativePath,
@@ -856,7 +915,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		requireAbsentDestination(target, fingerprintRoot(clientPackage));
 	}
 
-	private static String fingerprintRoot(String packagePath)
+	static String fingerprintRoot(String packagePath)
 		throws WorldBuilderContractException {
 		String suffix = "/package";
 		if (!packagePath.endsWith(suffix)) throw problem(
@@ -1151,6 +1210,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 			this.directoriesToCreate = Collections.unmodifiableList(
 				new ArrayList<String>(directoriesToCreate));
 			this.document = document;
+			if (!this.directoriesToCreate.equals(
+				planCreatedDirectories(document, actions))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "createdDirectories",
+				"In-memory directory authority differs from the immutable mutation plan.",
+				"Rebuild the transaction from exact validated evidence.");
 			this.canonicalSha256 = WorldBuilderAdaptiveContracts.validateParsed(
 				WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, document).canonicalSha256;
 		}

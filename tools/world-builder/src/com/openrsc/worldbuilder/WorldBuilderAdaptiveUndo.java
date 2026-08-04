@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -141,9 +140,15 @@ final class WorldBuilderAdaptiveUndo {
 						requestedTarget, installed, undo, authority, null);
 					if (!"UNDO".equals(confirmation)) throw problem(
 						WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation", false,
-						"Adaptive undo requires exact UNDO confirmation for this preview.",
-						"Review the exact changed paths and type UNDO, or cancel.");
+							"Adaptive undo requires exact UNDO confirmation for this preview.",
+							"Review the exact changed paths and type UNDO, or cancel.");
 					observe("undo-plan-confirmed", projectRoot);
+					changed = changedAfterPaths(installed);
+					if (!changed.isEmpty()) throw problem(
+						WorldBuilderErrorCodes.TARGET_DRIFT, changed.get(0), false,
+						"Installed-after inventory changed at the confirmation boundary: "
+							+ join(changed) + ".",
+						"Preserve the changed data and request a fresh undo preview; no artifacts were created.");
 					UndoResult result = applyLocked(installed, undo, authority, offline);
 					return new Preview(requestedProject, requestedTarget,
 						installed, undo, authority, result);
@@ -163,11 +168,14 @@ final class WorldBuilderAdaptiveUndo {
 		WorldBuilderAdaptiveOwnedFiles staged = new WorldBuilderAdaptiveOwnedFiles();
 		boolean mutation = false;
 		boolean receiptOwned = false;
+		WorldBuilderAdaptiveDurability.requireTransactionProviders(
+			project, undo.targetRoot, OPERATION);
 		try {
 			ensureFreeSpace(undo);
 			WorldBuilderAdaptiveReceipt.requireUnusedTransaction(
 				project, undo.transactionId());
 			prepareDurableUndo(undo, backupRoot);
+			WorldBuilderAdaptiveDurability.forceTreeDirectories(backupRoot);
 			WorldBuilderAdaptiveReceipt.State pending =
 				WorldBuilderAdaptiveReceipt.create(undo, "undo", "pending",
 					createdAt, false, offline.evidence, false, false,
@@ -190,7 +198,10 @@ final class WorldBuilderAdaptiveUndo {
 				verifyState(undo.targetRoot, action.destinationRelativePath, action.before);
 				observeContract("undo-before-" + pad(index), destination, mutation);
 				if (!action.after.present) {
+					verifyState(undo.targetRoot, action.destinationRelativePath,
+						action.before);
 					Files.delete(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 				} else {
 					Path temporary = destination.getParent().resolve("."
 						+ destination.getFileName() + ".undo-" + undo.transactionId());
@@ -198,9 +209,13 @@ final class WorldBuilderAdaptiveUndo {
 					writeReserved(temporary, action.generatedContent);
 					verifyFile(temporary, action.after);
 					staged.seal(temporary);
+					verifyState(undo.targetRoot, action.destinationRelativePath,
+						action.before);
 					moveAtomicReplacing(temporary, destination,
 						action.destinationRelativePath);
 					staged.forget(temporary);
+					forceFile(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 				}
 				mutation = true;
 				observeContract("undo-after-" + pad(index), destination, true);
@@ -393,7 +408,7 @@ final class WorldBuilderAdaptiveUndo {
 			"exports", false,
 			"The successful import's exact export is missing from this project.",
 			"Restore the complete matching export before undo.");
-		return WorldBuilderAdaptiveExporter.validate(matches.get(0), project);
+		return WorldBuilderAdaptiveExporter.validateHistorical(matches.get(0), project);
 	}
 
 	private static List<String> changedAfterPaths(
@@ -408,50 +423,58 @@ final class WorldBuilderAdaptiveUndo {
 				changed.add(action.destinationRelativePath);
 			}
 		}
-		collectUnexpectedPackageFiles(installed.targetRoot,
+		collectUnexpectedFingerprintEntries(installed.targetRoot,
 			installed.serverPackageRelativePath, expected, changed);
-		collectUnexpectedPackageFiles(installed.targetRoot,
+		collectUnexpectedFingerprintEntries(installed.targetRoot,
 			installed.clientPackageRelativePath, expected, changed);
 		Collections.sort(changed);
 		return changed;
 	}
 
-	private static void collectUnexpectedPackageFiles(Path target, String root,
+	private static void collectUnexpectedFingerprintEntries(Path target, String packagePath,
 		final Set<String> expected, final List<String> changed)
 		throws IOException, WorldBuilderContractException {
-		final Path packageRoot = WorldBuilderAdaptiveMutationProfile.safeDestination(
+		final String root = WorldBuilderAdaptiveMutationProfile.fingerprintRoot(packagePath);
+		final Path fingerprintRoot = WorldBuilderAdaptiveMutationProfile.safeDestination(
 			target, root);
 		final Set<String> expectedDirectories = new HashSet<String>();
 		for (String file : expected) {
 			if (!file.startsWith(root + "/")) continue;
 			String parent = file;
-			while (parent.lastIndexOf('/') > root.length()) {
+			while (parent.lastIndexOf('/') >= root.length()) {
 				parent = parent.substring(0, parent.lastIndexOf('/'));
 				expectedDirectories.add(parent);
+				if (parent.equals(root)) break;
 			}
 		}
-		if (!Files.isDirectory(packageRoot, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(packageRoot)) {
+		if (!Files.isDirectory(fingerprintRoot, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(fingerprintRoot)) {
 			if (!changed.contains(root)) changed.add(root);
 			return;
 		}
-		Files.walkFileTree(packageRoot, new SimpleFileVisitor<Path>() {
+		Files.walkFileTree(fingerprintRoot, new SimpleFileVisitor<Path>() {
 			@Override public FileVisitResult preVisitDirectory(Path dir,
 				BasicFileAttributes attrs) throws IOException {
-				if (Files.isSymbolicLink(dir)) throw new IOException(
-					"linked package directory: " + dir.getFileName());
-				if (!dir.equals(packageRoot)) {
-					String relative = target.relativize(dir).toString().replace('\\', '/');
-					if (!expectedDirectories.contains(relative)
-						&& !changed.contains(relative)) changed.add(relative);
+				String relative = target.relativize(dir).toString().replace('\\', '/');
+				if (!attrs.isDirectory() || Files.isSymbolicLink(dir)
+					|| !expectedDirectories.contains(relative)) {
+					if (!changed.contains(relative)) changed.add(relative);
 				}
 				return FileVisitResult.CONTINUE;
 			}
 			@Override public FileVisitResult visitFile(Path file,
 				BasicFileAttributes attrs) throws IOException {
 				String relative = target.relativize(file).toString().replace('\\', '/');
-				if (!attrs.isRegularFile() || Files.isSymbolicLink(file)
-					|| !expected.contains(relative)) changed.add(relative);
+				boolean unexpected = !attrs.isRegularFile() || Files.isSymbolicLink(file)
+					|| !expected.contains(relative);
+				if (!unexpected) {
+					try {
+						WorldBuilderAdaptiveExporter.rejectHardLink(file, relative);
+					} catch (WorldBuilderContractException unsafe) {
+						unexpected = true;
+					}
+				}
+				if (unexpected && !changed.contains(relative)) changed.add(relative);
 				return FileVisitResult.CONTINUE;
 			}
 		});
@@ -544,12 +567,21 @@ final class WorldBuilderAdaptiveUndo {
 				owned.reserve(temporary);
 				Files.copy(backup, temporary, StandardCopyOption.REPLACE_EXISTING);
 				forceFile(temporary);
-				verifyFile(temporary, action.before);
-				owned.seal(temporary);
-				observeContract("undo-rollback-before-" + pad(index), destination, true);
-				moveAtomicReplacing(temporary, destination,
-					action.destinationRelativePath);
-				owned.forget(temporary);
+					verifyFile(temporary, action.before);
+					owned.seal(temporary);
+					observeContract("undo-rollback-before-" + pad(index), destination, true);
+					verifyState(undo.targetRoot, action.destinationRelativePath,
+						action.after);
+					if (action.after.present) {
+						moveAtomicReplacing(temporary, destination,
+							action.destinationRelativePath);
+					} else {
+						WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, destination,
+							OPERATION, action.destinationRelativePath);
+					}
+					owned.forget(temporary);
+					forceFile(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 			} finally {
 				owned.cleanupOrThrow();
 			}
@@ -603,7 +635,10 @@ final class WorldBuilderAdaptiveUndo {
 		for (String relative : reverse) {
 			Path path = installed.targetRoot.resolve(relative).normalize();
 			if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
-				&& !Files.isSymbolicLink(path)) Files.delete(path);
+				&& !Files.isSymbolicLink(path)) {
+				Files.delete(path);
+				WorldBuilderAdaptiveDurability.forceDirectory(path.getParent());
+			}
 		}
 	}
 
@@ -615,6 +650,8 @@ final class WorldBuilderAdaptiveUndo {
 			cursor = cursor.resolve(segment.toString());
 			if (!Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
 				Files.createDirectory(cursor);
+				WorldBuilderAdaptiveDurability.forceDirectory(cursor);
+				WorldBuilderAdaptiveDurability.forceDirectory(cursor.getParent());
 			} else if (!Files.isDirectory(cursor, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(cursor)) throw problem(
 				WorldBuilderErrorCodes.UNSAFE_PATH,
@@ -707,9 +744,7 @@ final class WorldBuilderAdaptiveUndo {
 	}
 
 	private static void forceFile(Path path) throws IOException {
-		try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
-			channel.force(true);
-		}
+		WorldBuilderAdaptiveDurability.forceFile(path);
 	}
 
 	private void observe(String milestone, Path path) throws Exception {

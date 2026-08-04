@@ -31,8 +31,12 @@ runtime tests keep generated credentials, settings, logs, PIDs, and
 Phase 6 transaction fixtures create disposable descriptor-backed layered and
 packed targets. They verify deterministic complete export, preview
 non-mutation, exact server/client installation, standalone refusal, free-space
-and no-force preflight, changed-after refusal before artifacts, partial import
-and undo rollback, rollback-failure recovery, and byte-exact undo. Failure
+and no-force preflight, ordered file/directory persistence refusal, exact
+created-directory authority, complete fingerprint-container changed-after
+refusal at both boundaries, historical undo after a valid later save,
+explicit non-chainable successive imports, partial import and undo rollback,
+appeared-path preservation, rollback-failure recovery, per-process unreadable
+scan handling, lock identity replacement, and byte-exact undo. Failure
 observers are package-local test hooks; production commands cannot request an
 injected failure or bypass a check.
 

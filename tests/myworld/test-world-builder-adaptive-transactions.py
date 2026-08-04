@@ -88,7 +88,40 @@ public final class AdaptiveTransactionFailureHarness {
         final Path project = Paths.get(args[2]);
         final Path target = Paths.get(args[3]);
         try {
-            if ("unsupported-atomic-provider".equals(operation)) {
+            if ("project-lock-replacement".equals(operation)) {
+                WorldBuilderAdaptiveProjectLock.IdentityObserver observer =
+                    new WorldBuilderAdaptiveProjectLock.IdentityObserver() {
+                        @Override public void observe(String milestone, Path path)
+                            throws java.io.IOException {
+                            if (!"after-open".equals(milestone)) return;
+                            byte[] bytes = Files.readAllBytes(path);
+                            Files.delete(path);
+                            Files.write(path, bytes, StandardOpenOption.CREATE_NEW);
+                        }
+                    };
+                try (WorldBuilderAdaptiveProjectLock ignored =
+                    WorldBuilderAdaptiveProjectLock.acquire(
+                        project, "project-lock-replacement-test", observer)) {
+                    // Replacement must prevent acquisition.
+                }
+            } else if ("target-lock-replacement".equals(operation)) {
+                WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(
+                    WorldBuilderReadOnlyTarget.open(target));
+                WorldBuilderAdaptiveOfflineLease.IdentityObserver observer =
+                    new WorldBuilderAdaptiveOfflineLease.IdentityObserver() {
+                        @Override public void observe(String milestone, Path path)
+                            throws java.io.IOException {
+                            if (!"after-open".equals(milestone)) return;
+                            byte[] bytes = Files.readAllBytes(path);
+                            Files.delete(path);
+                            Files.write(path, bytes, StandardOpenOption.CREATE_NEW);
+                        }
+                    };
+                try (WorldBuilderAdaptiveOfflineLease ignored =
+                    WorldBuilderAdaptiveOfflineLease.acquire(target, capability, observer)) {
+                    // Replacement must prevent acquisition.
+                }
+            } else if ("unsupported-atomic-provider".equals(operation)) {
                 Path archive = project.resolve("unsupported-provider.zip");
                 java.util.Map<String,String> environment = new HashMap<String,String>();
                 environment.put("create", "true");
@@ -201,6 +234,12 @@ public final class AdaptiveTransactionFailureHarness {
                                     StandardOpenOption.CREATE_NEW);
                                 throw new Exception("injected stage replacement");
                             }
+                            if ("activation-final-drift".equals(failures)
+                                && "before-activation".equals(milestone)) {
+                                Files.delete(path);
+                                Files.write(path, new byte[] {4, 2, 4, 2},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -224,6 +263,31 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveUndo.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("sibling-after-confirm".equals(failures)
+                                && "undo-plan-confirmed".equals(milestone)) {
+                                for (WorldBuilderAdaptiveReceipt.State receipt :
+                                    WorldBuilderAdaptiveReceipt.readAll(project)) {
+                                    if (!"import".equals(receipt.transactionType())
+                                        || !"successful".equals(receipt.status())) continue;
+                                    for (Object raw : WorldBuilderAdaptiveExporter.array(
+                                        receipt.document.get("files"), "files")) {
+                                        java.util.Map<String,Object> file =
+                                            WorldBuilderAdaptiveExporter.object(raw, "file");
+                                        if (!WorldBuilderAdaptiveExporter.string(
+                                            file, "role").startsWith("server-package")) continue;
+                                        String relative = WorldBuilderAdaptiveExporter.string(
+                                            file, "relativePath");
+                                        int packageIndex = relative.indexOf("/package/");
+                                        Path marker = target.resolve(
+                                            relative.substring(0, packageIndex))
+                                            .resolve("after-confirm.bin");
+                                        Files.write(marker, new byte[] {9, 3},
+                                            StandardOpenOption.CREATE_NEW);
+                                        break;
+                                    }
+                                    break;
+                                }
+                            }
                             if ("assert-safe-order".equals(failures)) {
                                 boolean configuration = path.getFileName().toString()
                                     .equals("primary.json");
@@ -250,6 +314,22 @@ public final class AdaptiveTransactionFailureHarness {
                                     StandardOpenOption.CREATE_NEW);
                                 throw new Exception("injected rollback temp collision");
                             }
+                            if ("undo-final-replacement".equals(failures)
+                                && "undo-before-0001".equals(milestone)) {
+                                Files.delete(path);
+                                Files.write(path, new byte[] {3, 1, 4, 1},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
+                            if ("appeared-undo-rollback".equals(failures)
+                                && "undo-after-0001".equals(milestone)) {
+                                throw new Exception("start appeared-path rollback");
+                            }
+                            if ("appeared-undo-rollback".equals(failures)
+                                && "undo-rollback-before-0000".equals(milestone)
+                                && !Files.exists(path)) {
+                                Files.write(path, new byte[] {2, 7, 1, 8},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -270,6 +350,13 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveRecovery.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("appeared-recovery".equals(failures)
+                                && milestone.startsWith("recovery-before-action-")
+                                && !Files.exists(path)) {
+                                Files.createDirectories(path.getParent());
+                                Files.write(path, new byte[] {1, 6, 1, 8},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -280,6 +367,28 @@ public final class AdaptiveTransactionFailureHarness {
                 WorldBuilderAdaptiveRecovery.Preview preview =
                     recovery.preview(project, target);
                 recovery.apply(preview, "RECOVER");
+            } else if ("process-observation".equals(operation)) {
+                if ("partial-unreadable".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, false, null, false, null);
+                } else if ("exited".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", false, false, null, false, null);
+                } else if ("readable-command".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/unrelated\0--flag".getBytes("UTF-8"),
+                        true, Paths.get("/"));
+                } else if ("command-only".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/unrelated\0--flag".getBytes("UTF-8"), false, null);
+                } else if ("kernel-thread".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true, new byte[0], false, null);
+                } else {
+                    throw new IllegalArgumentException(failures);
+                }
             } else {
                 throw new IllegalArgumentException(operation);
             }
@@ -424,6 +533,7 @@ public final class AdaptiveTransactionFailureHarness {
     def assert_windows_safe_plan_paths(self, value: dict):
         invalid = set('<>:"|?*')
         paths = [value["backupRootRelativePath"], value["receiptRelativePath"]]
+        paths.extend(value.get("createdDirectories", []))
         for action in value["actions"]:
             paths.extend(
                 [
@@ -992,6 +1102,26 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(receipts_before, self.lifecycle.tree_bytes(project / "receipts"))
             self.assertEqual(backups_before, self.lifecycle.tree_bytes(project / "backups"))
 
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            unsupported_durability = self.run_cli_with_properties(
+                {"worldbuilder.adaptive.testDirectoryForceUnsupported": "true"},
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target, "--confirm", "IMPORT",
+                "--transaction-id", plan["transactionId"],
+                "--plan-sha256", plan["planFingerprintSha256"],
+            )
+            self.assertEqual(3, unsupported_durability.returncode,
+                             unsupported_durability.stderr)
+            self.assertIn("durably order", unsupported_durability.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(receipts_before, self.lifecycle.tree_bytes(project / "receipts"))
+            self.assertEqual(backups_before, self.lifecycle.tree_bytes(project / "backups"))
+
             for command, token in (("undo-adaptive", "UNDO"), ("recover-adaptive", "RECOVER")):
                 forced = self.run_cli(
                     command,
@@ -1553,6 +1683,20 @@ public final class AdaptiveTransactionFailureHarness {
             with zipfile.ZipFile(scratch / "unsupported-provider.zip") as archive:
                 self.assertIn("publish/source.bin", archive.namelist())
                 self.assertNotIn("publish/published.bin", archive.namelist())
+            partial = self.run_failure(
+                "process-observation", "partial-unreadable", scratch, scratch
+            )
+            self.assertEqual(3, partial.returncode, partial.stderr)
+            self.assertIn("could not be completely examined", partial.stderr)
+            command_only = self.run_failure(
+                "process-observation", "command-only", scratch, scratch
+            )
+            self.assertEqual(3, command_only.returncode, command_only.stderr)
+            for observation in ("exited", "readable-command", "kernel-thread"):
+                accepted = self.run_failure(
+                    "process-observation", observation, scratch, scratch
+                )
+                self.assertEqual(0, accepted.returncode, accepted.stderr)
 
         for name, command in (
             ("Import Map Changes.cmd", "import-active-adaptive"),
@@ -1604,6 +1748,215 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertIn("/proc", refused.stderr)
             self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
             self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+    def test_created_directory_authority_is_exact_and_action_bounded(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-directory-authority-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            preexisting_ancestor = target / "server/world-builder"
+            preexisting_arbitrary = target / "server/owner-empty"
+            preexisting_ancestor.mkdir()
+            preexisting_arbitrary.mkdir()
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            receipt = next(
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (project / "receipts").glob("*.json")
+                if json.loads(path.read_text(encoding="utf-8"))["transactionType"]
+                == "import"
+            )
+            transaction = receipt["transactionId"]
+            evidence_path = (
+                project / "backups" / transaction / "created-directories.json"
+            )
+            plan = json.loads(
+                (project / "backups" / transaction / "mutation-plan.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            original = json.loads(evidence_path.read_text(encoding="utf-8"))
+            self.assertEqual(plan["createdDirectories"], original["relativePaths"])
+            self.assertNotIn("server/world-builder", original["relativePaths"])
+
+            def canonical(paths):
+                return sorted(paths, key=lambda value: (len(value.split("/")), value))
+
+            attacks = {
+                "added-preexisting-ancestor": canonical(
+                    original["relativePaths"] + ["server/world-builder"]
+                ),
+                "added-arbitrary-target": canonical(
+                    original["relativePaths"] + ["server/owner-empty"]
+                ),
+                "removed": original["relativePaths"][:-1],
+                "reordered": list(reversed(original["relativePaths"])),
+            }
+            for name, paths in attacks.items():
+                with self.subTest(name=name):
+                    altered = dict(original)
+                    altered["relativePaths"] = paths
+                    self.lifecycle.write_json(evidence_path, altered)
+                    installed = self.lifecycle.tree_bytes(target, installation)
+                    artifacts = self.transaction_artifacts(project)
+                    refused = self.run_cli(
+                        "undo-adaptive", "--project", project,
+                        "--target-root", target,
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                    self.assertEqual(artifacts, self.transaction_artifacts(project))
+                    self.assertTrue(preexisting_ancestor.is_dir())
+                    self.assertTrue(preexisting_arbitrary.is_dir())
+                    self.lifecycle.write_json(evidence_path, original)
+
+            undone = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertTrue(preexisting_ancestor.is_dir())
+            self.assertTrue(preexisting_arbitrary.is_dir())
+
+    def test_fingerprint_container_siblings_block_undo_at_both_boundaries(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-fingerprint-container-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            configuration = json.loads(
+                (target / "server/world-builder-configs/primary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for side, package in (
+                ("server", configuration["serverMapRelativePath"]),
+                ("client", configuration["clientMapRelativePath"]),
+            ):
+                with self.subTest(side=side):
+                    marker = target / Path(package).parent / "untracked.bin"
+                    marker.write_bytes((side + "-owner-data").encode("utf-8"))
+                    installed = self.lifecycle.tree_bytes(target, installation)
+                    artifacts = self.transaction_artifacts(project)
+                    refused = self.run_cli(
+                        "undo-adaptive", "--project", project,
+                        "--target-root", target,
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                    self.assertEqual(artifacts, self.transaction_artifacts(project))
+                    marker.unlink()
+
+            artifacts = self.transaction_artifacts(project)
+            refused = self.run_failure(
+                "undo", "sibling-after-confirm", project, target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(artifacts, self.transaction_artifacts(project))
+            marker = next(target.rglob("after-confirm.bin"))
+            self.assertEqual(b"\x09\x03", marker.read_bytes())
+            marker.unlink()
+
+    def test_saved_working_edits_preserve_historical_undo_authority(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-historical-undo-") as temp:
+            target, installation, project, export_a = self.target_project(Path(temp))
+            target_before = self.lifecycle.tree_bytes(target, installation)
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_a, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            working_b = self.lifecycle.tree_bytes(project / "working")
+            exported_b = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported_b.returncode, exported_b.stderr)
+            export_b = Path(json.loads(exported_b.stdout)["exportDirectory"])
+
+            installed = self.lifecycle.tree_bytes(target, installation)
+            artifacts = self.transaction_artifacts(project)
+            second = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export_b,
+                "--target-root", target,
+            )
+            self.assertEqual(3, second.returncode, second.stderr)
+            self.assertIn("one outstanding successful import", second.stderr)
+            self.assertIn("Undo", second.stderr)
+            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+            undone = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(working_b, self.lifecycle.tree_bytes(project / "working"))
+
+    def test_final_boundary_drift_and_appeared_paths_are_preserved(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-activation-drift-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "import", "activation-final-drift", project, target, export
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertEqual(
+                b"\x04\x02\x04\x02",
+                (target / "server/world-builder-configs/primary.json").read_bytes(),
+            )
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-undo-final-drift-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            failed = self.run_failure("undo", "undo-final-replacement", project, target)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertTrue(any(
+                path.is_file() and path.read_bytes() == b"\x03\x01\x04\x01"
+                for path in target.rglob("*")
+            ))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-undo-appeared-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            failed = self.run_failure("undo", "appeared-undo-rollback", project, target)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertTrue(any(
+                path.is_file() and path.read_bytes() == b"\x02\x07\x01\x08"
+                for path in target.rglob("*")
+            ))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-recovery-appeared-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            failed_undo = self.run_failure(
+                "undo", "undo-after-0001,undo-rollback-before-0000",
+                project, target,
+            )
+            self.assertEqual(3, failed_undo.returncode, failed_undo.stderr)
+            failed_recovery = self.run_failure(
+                "recovery", "appeared-recovery", project, target
+            )
+            self.assertEqual(3, failed_recovery.returncode, failed_recovery.stderr)
+            self.assertTrue(any(
+                path.is_file() and path.read_bytes() == b"\x01\x06\x01\x08"
+                for path in target.rglob("*")
+            ))
 
     def test_same_store_capacity_is_aggregated_before_artifacts(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-combined-space-") as temp:
@@ -1889,6 +2242,22 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertEqual(uncertain, self.lifecycle.tree_bytes(target, installation))
             self.assertEqual(b"recovery-collision", (occupied / "marker").read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-lock-replacement-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            project_bytes = self.lifecycle.tree_bytes(project / "run")
+            replaced_project = self.run_failure(
+                "project-lock-replacement", "none", project, target
+            )
+            self.assertEqual(3, replaced_project.returncode, replaced_project.stderr)
+            self.assertEqual(project_bytes, self.lifecycle.tree_bytes(project / "run"))
+
+            target_bytes = self.lifecycle.tree_bytes(target, installation)
+            replaced_target = self.run_failure(
+                "target-lock-replacement", "none", project, target
+            )
+            self.assertEqual(3, replaced_target.returncode, replaced_target.stderr)
+            self.assertEqual(target_bytes, self.lifecycle.tree_bytes(target, installation))
 
     def test_manifest_and_hardlinked_authorities_are_independently_rejected(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-report-binding-") as temp:

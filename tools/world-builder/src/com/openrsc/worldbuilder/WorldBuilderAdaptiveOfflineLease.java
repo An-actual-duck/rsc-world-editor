@@ -8,13 +8,17 @@ import java.net.ServerSocket;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -35,6 +39,17 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 	private final ServerSocket portLease;
 	final List<Evidence> evidence;
 
+	interface IdentityObserver {
+		void observe(String milestone, Path path) throws IOException;
+	}
+
+	private static final IdentityObserver NO_OP_IDENTITY_OBSERVER =
+		new IdentityObserver() {
+			@Override public void observe(String milestone, Path path) {
+				// Production lease acquisition has no injected identity replacement.
+			}
+		};
+
 	private WorldBuilderAdaptiveOfflineLease(FileChannel targetLockChannel,
 		FileLock targetLock, ServerSocket portLease, List<Evidence> evidence) {
 		this.targetLockChannel = targetLockChannel;
@@ -46,15 +61,36 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 	static WorldBuilderAdaptiveOfflineLease acquire(Path target,
 		WorldBuilderTargetCapability capability)
 		throws IOException, WorldBuilderContractException {
+		return acquire(target, capability, NO_OP_IDENTITY_OBSERVER);
+	}
+
+	static WorldBuilderAdaptiveOfflineLease acquire(Path target,
+		WorldBuilderTargetCapability capability, IdentityObserver observer)
+		throws IOException, WorldBuilderContractException {
+		if (observer == null) observer = NO_OP_IDENTITY_OBSERVER;
 		Path descriptor = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
 			target, WorldBuilderTargetCapability.RELATIVE_PATH,
 			"target capability descriptor");
+		Object beforeIdentity = stableDescriptorIdentity(descriptor);
+		if (!capability.evidenceSha256.equals(WorldBuilderHashes.sha256(descriptor))) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+				WorldBuilderTargetCapability.RELATIVE_PATH,
+				"Target capability bytes changed before its offline lock was opened.",
+				"Stop target updates and request a fresh transaction preview.");
+		}
 		FileChannel channel = FileChannel.open(descriptor,
 			StandardOpenOption.READ, StandardOpenOption.WRITE,
 			LinkOption.NOFOLLOW_LINKS);
 		FileLock lock = null;
 		ServerSocket socket = null;
 		try {
+			observer.observe("after-open", descriptor);
+			Object openedIdentity = stableDescriptorIdentity(descriptor);
+			if (!beforeIdentity.equals(openedIdentity)) throw problem(
+				WorldBuilderErrorCodes.UNSAFE_PATH,
+				WorldBuilderTargetCapability.RELATIVE_PATH,
+				"Target capability lock identity changed while it was opened.",
+				"Restore one stable, real, single-link capability descriptor.");
 			try {
 				lock = channel.tryLock();
 			} catch (OverlappingFileLockException busy) {
@@ -64,6 +100,13 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 				WorldBuilderTargetCapability.RELATIVE_PATH,
 				"Another import, undo, update, or configuration operation holds the target.",
 				"Wait for it to finish and retry the preview.");
+			if (!openedIdentity.equals(stableDescriptorIdentity(descriptor))
+				|| !capability.evidenceSha256.equals(channelSha256(channel))) {
+				throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
+					WorldBuilderTargetCapability.RELATIVE_PATH,
+					"The locked capability channel is not the stable descriptor that was reviewed.",
+					"Stop concurrent target changes and request a fresh preview.");
+			}
 
 			List<Evidence> values = new ArrayList<Evidence>();
 			for (String kind : capability.offlineEvidence) {
@@ -111,6 +154,45 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 			closePartial(lock, channel, socket);
 			throw failure;
 		}
+	}
+
+	private static Object stableDescriptorIdentity(Path descriptor)
+		throws IOException, WorldBuilderContractException {
+		BasicFileAttributes attributes = Files.readAttributes(descriptor,
+			BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+		if (!attributes.isRegularFile() || attributes.isSymbolicLink()
+			|| attributes.fileKey() == null) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH,
+			WorldBuilderTargetCapability.RELATIVE_PATH,
+			"Capability descriptor has no stable regular-file identity.",
+			"Use a local filesystem exposing stable file identities.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(
+			descriptor, WorldBuilderTargetCapability.RELATIVE_PATH);
+		return attributes.fileKey();
+	}
+
+	private static String channelSha256(FileChannel channel) throws IOException {
+		long size = channel.size();
+		if (size < 0L || size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw new IOException("Capability descriptor exceeds its bounded size");
+		}
+		MessageDigest digest = WorldBuilderHashes.newDigest();
+		ByteBuffer buffer = ByteBuffer.allocate(8192);
+		channel.position(0L);
+		long readTotal = 0L;
+		while (true) {
+			int count = channel.read(buffer);
+			if (count < 0) break;
+			if (count == 0) continue;
+			readTotal += count;
+			buffer.flip();
+			digest.update(buffer);
+			buffer.clear();
+		}
+		if (readTotal != size || channel.size() != size) {
+			throw new IOException("Capability descriptor changed during channel reread");
+		}
+		return WorldBuilderHashes.hex(digest.digest());
 	}
 
 	private static void requirePidFilesAbsent(Path target)
@@ -167,36 +249,38 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 			for (Path process : processes) {
 				if (!process.getFileName().toString().matches("[0-9]+")) continue;
 				if (process.getFileName().toString().equals(ownPid)) continue;
+				String processId = process.getFileName().toString();
+				byte[] command = null;
+				boolean commandReadable = false;
 				try {
 					Path commandPath = process.resolve("cmdline");
-					if (Files.isRegularFile(commandPath, LinkOption.NOFOLLOW_LINKS)
-						&& Files.size(commandPath) <= 65_536L) {
-						String command = new String(Files.readAllBytes(commandPath),
-							StandardCharsets.UTF_8).replace('\0', ' ');
-						if (command.contains(target.toString())) throw problem(
-							WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
-							"A server process appears to be running from this target root.",
-							"Stop the target server completely and retry.");
+					if (!Files.isRegularFile(commandPath, LinkOption.NOFOLLOW_LINKS)
+						|| Files.size(commandPath) > 65_536L) {
+						throw new IOException("cmdline unavailable or oversized");
 					}
-					Path cwdLink = process.resolve("cwd");
-					if (Files.isSymbolicLink(cwdLink)) {
-						Path cwd = Files.readSymbolicLink(cwdLink);
-						if (!cwd.isAbsolute()) cwd = cwdLink.getParent().resolve(cwd).normalize();
-						Path normalized = cwd.toAbsolutePath().normalize();
-						if (normalized.equals(target) || normalized.startsWith(target)) {
-							throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED,
-								"target-root",
-								"A server process appears to be running from this target root.",
-								"Stop the target server completely and retry.");
-						}
-					}
-				} catch (WorldBuilderContractException active) {
-					throw active;
+					command = Files.readAllBytes(commandPath);
+					commandReadable = true;
 				} catch (IOException ignored) {
-					// Inaccessible unrelated process entries are not positive evidence.
+					// The cwd observation may still be sufficient for this live entry.
 				} catch (SecurityException ignored) {
-					// Inaccessible unrelated process entries are not positive evidence.
+					// The cwd observation may still be sufficient for this live entry.
 				}
+				Path cwd = null;
+				boolean cwdReadable = false;
+				try {
+					Path cwdLink = process.resolve("cwd");
+					cwd = Files.readSymbolicLink(cwdLink);
+					if (!cwd.isAbsolute()) cwd = cwdLink.getParent().resolve(cwd).normalize();
+					cwd = cwd.toAbsolutePath().normalize();
+					cwdReadable = true;
+				} catch (IOException ignored) {
+					// The command observation may still be sufficient for this live entry.
+				} catch (SecurityException ignored) {
+					// The command observation may still be sufficient for this live entry.
+				}
+				requireProcessObservationSafe(target, processId,
+					processStillLive(process), commandReadable, command,
+					cwdReadable, cwd);
 			}
 		} catch (WorldBuilderContractException active) {
 			throw active;
@@ -204,6 +288,47 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 			throw processViewUnavailable(unavailable);
 		} catch (SecurityException unavailable) {
 			throw processViewUnavailable(unavailable);
+		}
+	}
+
+	static void requireProcessObservationSafe(Path target, String processId,
+		boolean stillLive, boolean commandReadable, byte[] commandBytes,
+		boolean cwdReadable, Path cwd)
+		throws WorldBuilderContractException {
+		if (!stillLive) return;
+		if (cwdReadable && cwd != null
+			&& (cwd.equals(target) || cwd.startsWith(target))) {
+			throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
+				"A server process appears to be running from this target root.",
+				"Stop the target server completely and retry.");
+		}
+		if (commandReadable && commandBytes != null) {
+			if (commandBytes.length == 0) return; // Live kernel thread or exiting zombie.
+			String command = new String(commandBytes, StandardCharsets.UTF_8)
+				.replace('\0', ' ');
+			if (command.contains(target.toString())) throw problem(
+				WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
+				"A server process appears to be running from this target root.",
+				"Stop the target server completely and retry.");
+		}
+		if (!commandReadable || !cwdReadable) throw problem(
+			WorldBuilderErrorCodes.OFFLINE_REQUIRED, "process-scan",
+			"Live process " + processId
+				+ " could not be completely examined through both cmdline and cwd.",
+			"Run with a readable local /proc view or stop the unreadable process, then retry.");
+	}
+
+	private static boolean processStillLive(Path process) {
+		try {
+			BasicFileAttributes attributes = Files.readAttributes(process,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			return attributes.isDirectory();
+		} catch (NoSuchFileException exited) {
+			return false;
+		} catch (IOException unreadable) {
+			return true;
+		} catch (SecurityException unreadable) {
+			return true;
 		}
 	}
 

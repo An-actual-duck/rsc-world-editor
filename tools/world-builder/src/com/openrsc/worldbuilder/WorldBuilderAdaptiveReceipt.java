@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -240,10 +239,7 @@ final class WorldBuilderAdaptiveReceipt {
 			owned.reserve(temporary);
 			Files.write(temporary, bytes, StandardOpenOption.TRUNCATE_EXISTING,
 				StandardOpenOption.WRITE);
-			try (FileChannel channel = FileChannel.open(temporary,
-				StandardOpenOption.WRITE)) {
-				channel.force(true);
-			}
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
 			owned.seal(temporary);
 			if (replace) {
 				BasicFileAttributes current = Files.readAttributes(destination,
@@ -275,6 +271,8 @@ final class WorldBuilderAdaptiveReceipt {
 						unsupported);
 				}
 			}
+			WorldBuilderAdaptiveDurability.forceFile(destination);
+			WorldBuilderAdaptiveDurability.forceDirectory(receipts);
 			State written = read(destination);
 			if (!state.canonicalSha256.equals(written.canonicalSha256)) throw problem(
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",

@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -214,6 +213,8 @@ final class WorldBuilderAdaptiveRecovery {
 		List<String> removedDirectories = new ArrayList<String>();
 		List<OwnedDirectory> createdDirectories = new ArrayList<OwnedDirectory>();
 		WorldBuilderAdaptiveOwnedFiles staged = new WorldBuilderAdaptiveOwnedFiles();
+		WorldBuilderAdaptiveDurability.requireTransactionProviders(
+			project, plan.targetRoot, OPERATION);
 		try {
 			WorldBuilderAdaptiveReceipt.requireUnusedTransaction(
 				project, plan.transactionId);
@@ -224,6 +225,7 @@ final class WorldBuilderAdaptiveRecovery {
 					WorldBuilderJsonDocuments.pretty(plan.document)
 						.getBytes(StandardCharsets.UTF_8));
 				backupCurrent(plan, backupRoot);
+				WorldBuilderAdaptiveDurability.forceTreeDirectories(backupRoot);
 				WorldBuilderAdaptiveReceipt.writeNew(project,
 					receipt(plan, "pending", createdAt, false, false, false,
 						Collections.<WorldBuilderAdaptiveReceipt.Verification>emptyList()));
@@ -249,10 +251,24 @@ final class WorldBuilderAdaptiveRecovery {
 					forceFile(temporary);
 					verifyFile(temporary, action.after, action.relativePath);
 					staged.seal(temporary);
-					moveAtomicReplacing(temporary, destination, action.relativePath);
+					observeContract("recovery-before-action-" + pad(index),
+						destination, mutation);
+					verifyState(plan.targetRoot, action.relativePath, action.before);
+					if (action.before.present) {
+						moveAtomicReplacing(temporary, destination, action.relativePath);
+					} else {
+						WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, destination,
+							OPERATION, action.relativePath);
+					}
 					staged.forget(temporary);
+					forceFile(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 				} else {
+					observeContract("recovery-before-action-" + pad(index),
+						destination, mutation);
+					verifyState(plan.targetRoot, action.relativePath, action.before);
 					Files.delete(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 				}
 				mutation = true;
 				observe("recovery-action-applied-" + pad(index), destination);
@@ -478,6 +494,11 @@ final class WorldBuilderAdaptiveRecovery {
 				WorldBuilderAdaptiveExporter.string(
 					failedPlan.document, "planFingerprintSha256"))
 			: Collections.<String>emptyList();
+		if (!createdDirectories.equals(failedPlan.directoriesToCreate)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+			"backups/" + failed.transactionId() + "/created-directories.json", false,
+			"Created-directory recovery authority differs from the immutable mutation plan.",
+			"Restore the exact plan, receipt, and created-directory evidence; do not force recovery.");
 		Map<String,Object> document = planDocument(project, failed, capability,
 			target, transactionId, actions, changes, evidence, createdDirectories);
 		return new RecoveryPlan(project, failed, capability, target, transactionId,
@@ -764,6 +785,7 @@ final class WorldBuilderAdaptiveRecovery {
 				backupRoot, inside, OPERATION);
 			Files.createDirectories(destination.getParent());
 			Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+			forceFile(destination);
 			verifyFile(destination, action.before, action.relativePath);
 		}
 	}
@@ -808,11 +830,12 @@ final class WorldBuilderAdaptiveRecovery {
 		return values;
 	}
 
-	private static List<WorldBuilderAdaptiveReceipt.Verification> rollbackRecovery(
+	private List<WorldBuilderAdaptiveReceipt.Verification> rollbackRecovery(
 		RecoveryPlan plan) throws IOException, WorldBuilderContractException {
 		List<RecoveryAction> reverse = new ArrayList<RecoveryAction>(plan.actions);
 		Collections.reverse(reverse);
-		for (RecoveryAction action : reverse) {
+		for (int index = 0; index < reverse.size(); index++) {
+			RecoveryAction action = reverse.get(index);
 			Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
 				plan.targetRoot, action.relativePath);
 			if (action.before.present) {
@@ -831,14 +854,28 @@ final class WorldBuilderAdaptiveRecovery {
 					Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
 					forceFile(temporary);
 					owned.seal(temporary);
-					moveAtomicReplacing(temporary, destination, action.relativePath);
+					observeContract("recovery-rollback-before-" + pad(index),
+						destination, true);
+					verifyState(plan.targetRoot, action.relativePath, action.after);
+					if (action.after.present) {
+						moveAtomicReplacing(temporary, destination, action.relativePath);
+					} else {
+						WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, destination,
+							OPERATION, action.relativePath);
+					}
 					owned.forget(temporary);
+					forceFile(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 				} finally {
 					owned.cleanupOrThrow();
 				}
 			} else if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 				verifyState(plan.targetRoot, action.relativePath, action.after);
+				observeContract("recovery-rollback-before-" + pad(index),
+					destination, true);
+				verifyState(plan.targetRoot, action.relativePath, action.after);
 				Files.delete(destination);
+				WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 			}
 		}
 		List<WorldBuilderAdaptiveReceipt.Verification> values =
@@ -869,6 +906,7 @@ final class WorldBuilderAdaptiveRecovery {
 				"Import-created directory is no longer safely removable.",
 				"Keep the target offline and preserve changed content for owner review.");
 			Files.delete(path);
+			WorldBuilderAdaptiveDurability.forceDirectory(path.getParent());
 			removedDirectories.add(relative);
 			changed = true;
 		}
@@ -893,6 +931,8 @@ final class WorldBuilderAdaptiveRecovery {
 			}
 			ensureRealParents(plan.targetRoot, path.getParent());
 			Files.createDirectory(path);
+			WorldBuilderAdaptiveDurability.forceDirectory(path);
+			WorldBuilderAdaptiveDurability.forceDirectory(path.getParent());
 		}
 	}
 
@@ -970,6 +1010,8 @@ final class WorldBuilderAdaptiveRecovery {
 			current = current.resolve(segment.toString());
 			if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
 				Files.createDirectory(current);
+				WorldBuilderAdaptiveDurability.forceDirectory(current);
+				WorldBuilderAdaptiveDurability.forceDirectory(current.getParent());
 				if (owned != null) {
 					OwnedDirectory directory = new OwnedDirectory(
 						target.relativize(current).toString().replace('\\', '/'),
@@ -1011,6 +1053,7 @@ final class WorldBuilderAdaptiveRecovery {
 					"Recovery-created directory identity changed before deletion: "
 						+ directory.relative);
 				Files.delete(directory.path);
+				WorldBuilderAdaptiveDurability.forceDirectory(directory.path.getParent());
 			}
 		}
 	}
@@ -1105,9 +1148,7 @@ final class WorldBuilderAdaptiveRecovery {
 	}
 
 	private static void forceFile(Path path) throws IOException {
-		try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
-			channel.force(true);
-		}
+		WorldBuilderAdaptiveDurability.forceFile(path);
 	}
 
 	private static void writeReceiptIfPossible(RecoveryPlan plan, String status,

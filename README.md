@@ -103,6 +103,9 @@ The adaptive v2 product contract, once its remaining gates pass, is:
    target, or keep the target offline and use Recovery if an interrupted
    rollback is explicitly reported. Standalone empty projects have no target
    transaction path.
+7. Phase 6 keeps one outstanding successful import at a time. You may continue
+   editing and saving the isolated project, but Undo the outstanding import
+   before importing a later export; Undo preserves those later working bytes.
 
 ## Development
 

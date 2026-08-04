@@ -146,6 +146,19 @@ final class WorldBuilderAdaptiveExporter {
 	static VerifiedExport validate(Path requestedExport,
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
 		throws IOException, WorldBuilderContractException {
+		return validate(requestedExport, project, true);
+	}
+
+	static VerifiedExport validateHistorical(Path requestedExport,
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		throws IOException, WorldBuilderContractException {
+		return validate(requestedExport, project, false);
+	}
+
+	private static VerifiedExport validate(Path requestedExport,
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		boolean requireCurrentWorking)
+		throws IOException, WorldBuilderContractException {
 		Path export = requireDirectory(requestedExport, "", "adaptive export directory");
 		if (!export.startsWith(project.projectRoot.resolve("exports").toRealPath())) {
 			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "exports",
@@ -157,12 +170,11 @@ final class WorldBuilderAdaptiveExporter {
 		WorldBuilderAdaptiveContracts.validateParsed(
 			WorldBuilderAdaptiveContracts.Kind.ADAPTIVE_EXPORT, manifest);
 		requireFingerprint(manifest, "exportFingerprintSha256");
-		requireManifestLineage(manifest, project);
+		requireManifestLineage(manifest, project, requireCurrentWorking);
 
 		Path validationPath = requireFile(export, VALIDATION_FILE,
 			"adaptive package validation report");
 		Map<String,Object> report = readObject(validationPath, VALIDATION_FILE);
-		requireValidationReport(report, project);
 		String reportHash = canonicalHash(report);
 		List<?> reports = array(manifest.get("validationReports"), "validationReports");
 		if (reports.size() != 1) throw problem(
@@ -212,6 +224,7 @@ final class WorldBuilderAdaptiveExporter {
 				"Adaptive export package identity did not independently validate.",
 				"Use the exact complete export produced by World Builder.");
 		}
+		requireValidationReport(report, project, packageValue);
 		return new VerifiedExport(export, manifest, packageValue,
 			WorldBuilderAdaptiveContracts.validateParsed(
 				WorldBuilderAdaptiveContracts.Kind.ADAPTIVE_EXPORT, manifest).canonicalSha256);
@@ -309,7 +322,8 @@ final class WorldBuilderAdaptiveExporter {
 	}
 
 	private static void requireValidationReport(Map<String,Object> value,
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		WorldBuilderGenericLayeredPackage packageValue)
 		throws WorldBuilderContractException {
 		Set<String> expected = new HashSet<String>(Arrays.asList(
 			"schemaVersion", "manifestType", "projectId", "origin",
@@ -323,22 +337,21 @@ final class WorldBuilderAdaptiveExporter {
 				string(value, "manifestType"))
 			|| !project.projectId.equals(string(value, "projectId"))
 			|| !project.origin.equals(string(value, "origin"))
-			|| !project.working.fingerprintSha256.equals(
+			|| !packageValue.fingerprintSha256.equals(
 				string(value, "packageFingerprintSha256"))
-			|| !packageManifestHash(project.working,
-				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/")
+			|| !packageManifestHash(packageValue, PACKAGE_DIRECTORY + "/")
 					.equals(string(value, "packageManifestSha256"))
-			|| !project.working.packageId.equals(string(value, "packageId"))
-			|| !project.working.packageVersion.equals(string(value, "packageVersion"))
-			|| !project.working.worldSpace.equals(string(value, "worldSpace"))
-			|| integer(value, "fileCount") != project.working.files.size()
-			|| integer(value, "levelCount") != project.working.levelCount
-			|| integer(value, "terrainCount") != project.working.terrainCount
-			|| integer(value, "placementSetCount") != project.working.placementSetCount
-			|| integer(value, "boundaryCount") != project.working.boundaryCount
-			|| integer(value, "groundItemCount") != project.working.groundItemCount
-			|| integer(value, "npcCount") != project.working.npcCount
-			|| integer(value, "sceneryCount") != project.working.sceneryCount) {
+			|| !packageValue.packageId.equals(string(value, "packageId"))
+			|| !packageValue.packageVersion.equals(string(value, "packageVersion"))
+			|| !packageValue.worldSpace.equals(string(value, "worldSpace"))
+			|| integer(value, "fileCount") != packageValue.files.size()
+			|| integer(value, "levelCount") != packageValue.levelCount
+			|| integer(value, "terrainCount") != packageValue.terrainCount
+			|| integer(value, "placementSetCount") != packageValue.placementSetCount
+			|| integer(value, "boundaryCount") != packageValue.boundaryCount
+			|| integer(value, "groundItemCount") != packageValue.groundItemCount
+			|| integer(value, "npcCount") != packageValue.npcCount
+			|| integer(value, "sceneryCount") != packageValue.sceneryCount) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, VALIDATION_FILE,
 				"Adaptive package validation report is incomplete or inconsistent.",
 				"Use the exact report generated with this export.");
@@ -346,7 +359,8 @@ final class WorldBuilderAdaptiveExporter {
 	}
 
 	private static void requireManifestLineage(Map<String,Object> value,
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		boolean requireCurrentWorking)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> projectManifest = project.manifest;
 		Map<String,Object> fingerprints = object(
@@ -367,13 +381,13 @@ final class WorldBuilderAdaptiveExporter {
 				string(lineage, "conversionSha256"))
 			|| !definitionsRuntimeHash(fingerprints).equals(
 				string(lineage, "definitionsRuntimeSha256"))
-			|| !string(fingerprints, "workingSha256").equals(
-				string(lineage, "workingSha256"))
-			|| !project.working.fingerprintSha256.equals(
-				string(value, "packageFingerprintSha256"))
-			|| !packageManifestHash(project.working,
-				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/")
-				.equals(string(value, "packageManifestSha256"))) {
+			|| requireCurrentWorking && (!string(fingerprints, "workingSha256").equals(
+					string(lineage, "workingSha256"))
+				|| !project.working.fingerprintSha256.equals(
+					string(value, "packageFingerprintSha256"))
+				|| !packageManifestHash(project.working,
+					WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/")
+					.equals(string(value, "packageManifestSha256")))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, MANIFEST_FILE,
 				"Adaptive export no longer matches its project/source/working lineage.",
 				"Create a fresh export from the saved project.");

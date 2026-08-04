@@ -1128,8 +1128,16 @@ noninteractive `--confirm` shortcut: they retain one in-memory plan before
 reading literal, untrimmed `IMPORT`, `UNDO`, or `RECOVER` input.
 
 Phase 6 lock and durable-authority reads reject links, hard links, case aliases,
-and transaction-ID collisions. Import rechecks that the complete server and
-selected-client fingerprint roots remain absent under the offline lease. Undo
+identity replacement, and transaction-ID collisions. The opened project-lock
+channel is matched back to its stable path by pre/open/post identity and exact
+bounded bytes; the capability-lock channel is matched by stable identity and
+exact descriptor bytes. Import rechecks that the
+complete server and selected-client fingerprint roots remain absent under the
+offline lease. Undo scans each complete fingerprint container, including
+siblings of `package/`, before artifacts and again at the confirmation/write
+boundary. Its exact ordered created-directory list is plan-fingerprinted,
+receipt-bound, independently action-ancestor checked, and required to equal
+the separate evidence file. Undo
 deactivates configuration before package removal; rollback restores packages
 before activation. Same-filesystem capacity is the combined target, backup,
 staging, and receipt requirement. On native Unix providers, atomic new regular-
@@ -1138,7 +1146,22 @@ directories reserve a new destination identity before an atomic same-directory
 move. The reviewed native Windows provider uses its same-volume no-replace move.
 Unsupported filesystem providers fail closed.
 `process-scan` requires a readable Linux `/proc` view and refuses unsupported or
-unavailable process views without recording verified-clean evidence.
+unavailable process views without recording verified-clean evidence. A live
+userspace process requires both per-process command and cwd observations;
+process exits and empty kernel-thread command lines are distinguished.
+
+Plan, created-directory authority, activation content, copied backups, staged
+target files, receipts, and their containing directory entries are forced in
+dependency order. If the Java/filesystem provider cannot force a directory,
+apply refuses before creating transaction artifacts or changing the target.
+The pending receipt is never published before its plan and rollback authority
+have completed that ordering.
+
+Successive outstanding imports are not chained in Phase 6. A valid edit/save
+after import A remains safe project-local state, and Undo A uses its historical
+export without comparing it to current working bytes. Import B is refused with
+an explicit instruction to Undo A first; after Undo, the saved B bytes remain
+available for a fresh export/import.
 
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.

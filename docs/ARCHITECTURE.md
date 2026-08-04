@@ -70,28 +70,47 @@ Direct CLI apply must repeat that preview's exact transaction UUID and plan
 fingerprint as well as literal `IMPORT`; a confirmation supplied before an
 unseen plan is never accepted. The packaged active launcher instead keeps one
 preview in memory, displays it, and reads a literal untrimmed confirmation.
-Exact `IMPORT` writes a durable pending receipt and project-owned backups,
-publishes verified package content, activates configuration last, and verifies
+Exact `IMPORT` file-forces the immutable plan, exact created-directory
+authority, generated activation bytes, and every copied backup; directory
+entries are then forced from the deepest backup directory through its parent.
+Only after that ordering succeeds does it publish and directory-force the
+pending receipt. A provider that cannot force directories is refused before
+transaction artifacts or target mutation. Import then publishes verified
+package content, activates configuration last, and verifies
 both selected packages. Failures restore the exact before state or leave a
 blocking recovery receipt.
 
 Undo independently rebuilds the successful import plan from immutable project
-evidence, its exact export, compiled profile, durable plan, and receipt. It
+evidence, its exact historical export, compiled profile, durable plan, and
+receipt. Mutable working state may be saved and exported after the import; it
+is preserved byte-for-byte and is not substituted for that historical export.
+The exact canonical list of directories absent at preview is inside the plan
+fingerprint and receipt authority; its separate evidence file must match that
+list exactly and every entry must be an action ancestor. Undo
 refuses any changed or extra installed path before producing new artifacts;
 exact `UNDO` restores/deactivates the original configuration first and then
 removes only inactive recorded content-addressed files and directories. Undo
 rollback restores package content first and reactivates configuration last.
 Explicit `RECOVER` accepts only exact before/after transaction states and can
 remove only derivable transaction staging files whose bytes match the durable
-plan. Whole fingerprint containers must be absent before import; empty roots,
-extras, links, hard links, case aliases, and appeared destinations are
+plan. Whole fingerprint containers must be absent before import and are
+completely inventoried before Undo, including entries beside `package/`; empty
+roots, extras, links, hard links, case aliases, and appeared destinations are
 preserved and refused. Standalone origin is checked before target resolution
 for import, undo, and recovery. The historical workspace transaction continues
 to use its existing fixed-layout contracts.
 
 The compiled `process-scan` offline check is fail-closed. It currently requires
 a readable Linux `/proc` process view; a missing, unreadable, or unavailable
-view refuses mutation rather than recording clean evidence.
+view refuses mutation rather than recording clean evidence. A still-live
+userspace entry requires both readable command-line and working-directory
+observations; process exits and empty kernel-thread command lines are handled
+separately.
+
+Phase 6 deliberately permits only one outstanding successful import per
+project. To install a later saved/exported working state, run exact Undo for
+the outstanding import first, then preview and import the new export. Import
+refuses this condition before resolving or mutating the target.
 
 There is deliberately no force-import path.
 
