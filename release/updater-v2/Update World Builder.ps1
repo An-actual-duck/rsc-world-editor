@@ -8,12 +8,16 @@ $ErrorActionPreference = "Stop"
 )
 $RootDir = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
 $Workspace = Join-Path $RootDir "workspace"
+$Projects = Join-Path $RootDir "projects"
+$ProjectRegistry = Join-Path $RootDir "project-registry.json"
+$ActiveProject = Join-Path $RootDir "active-project.json"
 $UpdatesDir = Join-Path $RootDir "updates"
 $LockDir = Join-Path $RootDir ".world-builder-v2-update.lock"
 $Repository = "An-actual-duck/rsc-world-editor"
 $ProductId = "rsc-world-editor-v2"
-$PackageName = "Spoiled Milk World Builder 2"
+$PackageName = "World Builder 2"
 $ArtifactPrefix = "rsc-world-editor-v2"
+$WorldSourceIdentity = "target-adaptive-v1"
 $TagPrefix = "$ArtifactPrefix-"
 $ApiUrl = if ($env:WORLD_BUILDER_V2_RELEASE_API_URL) {
     $env:WORLD_BUILDER_V2_RELEASE_API_URL
@@ -117,7 +121,7 @@ function Read-ReleaseIdentity(
     $ExpectedProperties = @(
         "schemaVersion", "productId", "productGeneration", "displayName",
         "updateChannel", "releaseTag", "artifactPrefix",
-        "worldCoordinateModel", "automaticUpgradeFromProductIds",
+        "worldSourceIdentity", "automaticUpgradeFromProductIds",
         "legacyProductId", "legacyFinalTag", "legacyWorkspaceMigration",
         "version", "sourceCommit", "coreSourceCommit"
     )
@@ -134,7 +138,7 @@ function Read-ReleaseIdentity(
         $Identity.updateChannel -cne $ProductId -or
         $Identity.releaseTag -cne $ExpectedTag -or
         $Identity.artifactPrefix -cne $ArtifactPrefix -or
-        $Identity.worldCoordinateModel -cne "signed-layered-v1" -or
+        $Identity.worldSourceIdentity -cne $WorldSourceIdentity -or
         $UpgradeSources.Count -ne 1 -or
         $UpgradeSources[0] -cne $ProductId -or
         $Identity.legacyProductId -cne "rsc-world-editor-v1" -or
@@ -155,7 +159,7 @@ function Read-ReleaseIdentity(
         ('  "updateChannel": "{0}",' -f $ProductId),
         ('  "releaseTag": "{0}",' -f $ExpectedTag),
         ('  "artifactPrefix": "{0}",' -f $ArtifactPrefix),
-        '  "worldCoordinateModel": "signed-layered-v1",',
+        ('  "worldSourceIdentity": "{0}",' -f $WorldSourceIdentity),
         '  "automaticUpgradeFromProductIds": [',
         ('    "{0}"' -f $ProductId),
         '  ],',
@@ -207,9 +211,10 @@ function Test-SafeRelativePath([string]$Relative) {
 function Test-DurablePath([string]$Relative) {
     $Top = $Relative.Split('/')[0]
     return $Top -in @(
-        "workspace", "updates", "exports", "backups", "receipts", "logs",
-        "credentials", ".world-builder-v2-update.lock",
-        ".workspace.world-builder.lock"
+        "projects", "project-registry.json", "active-project.json", "workspace",
+        "updates", "exports", "backups", "receipts", "diagnostics", "logs",
+        "settings", "credentials", "recovery", ".world-builder-v2-update.lock",
+        ".workspace.world-builder.lock", ".project-registry.lock"
     )
 }
 
@@ -316,16 +321,81 @@ function Assert-RequiredManagedFiles(
         "Update World Builder.cmd", "Update World Builder.ps1",
         "Import Map Changes.sh", "Import Map Changes.cmd",
         "Undo Last Map Import.sh", "Undo Last Map Import.cmd",
+        "RUNTIME-ASSET-ALLOWLIST.txt",
         "builder-runtime/Client_Base/Open_RSC_Client.jar",
         "builder-runtime/server/core.jar",
         "builder-runtime/server/plugins.jar",
-        "builder-runtime/server/inc/sqlite/myworld_seed.db",
+        "builder-runtime/server/inc/sqlite/world_builder_seed.db",
+        "builder-runtime/server/world-builder.conf",
+        "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json",
         "builder-runtime/launcher/world-builder-tools.jar",
-        "builder-runtime/layered-world/package/manifest.json",
         $RuntimeJava
     )) {
         if (-not $Managed.Contains($Required)) {
             Fail-Update "package manifest omits required application file: $Required"
+        }
+    }
+}
+
+function Assert-ApplicationAllowlist(
+    [string]$PackageRoot,
+    [object[]]$Records
+) {
+    $Allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($Relative in @(
+        "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
+        "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
+        "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
+        "RUNTIME-ASSET-ALLOWLIST.txt", "SOURCE-COMMIT.txt", "Start World Builder.cmd",
+        "Start World Builder.sh", "Undo Last Map Import.cmd", "Undo Last Map Import.sh",
+        "Update World Builder.cmd", "Update World Builder.ps1", "Update World Builder.sh",
+        "VERSION.txt", "builder-runtime/Client_Base/Open_RSC_Client.jar",
+        "builder-runtime/server/core.jar", "builder-runtime/server/plugins.jar",
+        "builder-runtime/server/world-builder.conf",
+        "builder-runtime/launcher/world-builder-tools.jar"
+    )) {
+        [void]$Allowed.Add($Relative)
+    }
+    foreach ($Schema in @(
+        "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
+        "conversion-plan-v1.schema.json", "conversion-report-v1.schema.json",
+        "discovery-report-v2.schema.json", "export-manifest-v1.schema.json",
+        "export-manifest-v2.schema.json", "import-receipt-v1.schema.json",
+        "import-receipt-v3.schema.json", "project-manifest-v1.schema.json",
+        "project-manifest-v2.schema.json", "project-registry-v1.schema.json",
+        "source-snapshot-v2.schema.json", "target-capability-v1.schema.json",
+        "target-mutation-plan-v1.schema.json"
+    )) {
+        [void]$Allowed.Add("builder-runtime/launcher/schema/$Schema")
+    }
+    $RuntimeAllowlist = Join-Path $PackageRoot "RUNTIME-ASSET-ALLOWLIST.txt"
+    if (
+        -not (Test-Path -LiteralPath $RuntimeAllowlist -PathType Leaf) -or
+        ((Get-Item -LiteralPath $RuntimeAllowlist -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)
+    ) {
+        Fail-Update "runtime asset allowlist is missing or unsafe"
+    }
+    foreach ($Line in Get-Content -LiteralPath $RuntimeAllowlist) {
+        if ([string]::IsNullOrEmpty($Line) -or $Line.StartsWith("#", [StringComparison]::Ordinal)) {
+            continue
+        }
+        $Fields = $Line.Split("`t")
+        if (
+            $Fields.Count -ne 3 -or
+            -not (Test-SafeRelativePath $Fields[0]) -or
+            -not (Test-SafeRelativePath $Fields[1]) -or
+            [string]::IsNullOrWhiteSpace($Fields[2]) -or
+            -not $Allowed.Add("builder-runtime/$($Fields[1])")
+        ) {
+            Fail-Update "runtime asset allowlist is malformed or has duplicate destinations"
+        }
+    }
+    foreach ($Record in $Records) {
+        if (
+            -not $Allowed.Contains($Record.Relative) -and
+            -not $Record.Relative.StartsWith("runtime/", [StringComparison]::Ordinal)
+        ) {
+            Fail-Update "package manifest owns a path outside the content-neutral application allowlist: $($Record.Relative)"
         }
     }
 }

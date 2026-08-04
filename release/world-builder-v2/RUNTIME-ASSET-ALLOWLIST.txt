@@ -1,0 +1,63 @@
+# World Builder 2 content-neutral runtime asset allowlist v1
+#
+# Each non-comment line is: SOURCE<TAB>DESTINATION<TAB>ROLE
+# Paths are relative to the exact checkout named by core-framework.lock and to
+# builder-runtime/ in the release archive respectively.  The packager rejects
+# malformed, duplicate, linked, missing, or unlisted inputs.  World terrain,
+# placement data, layered packages, and generated state have no allowed role.
+Client_Base/Cache/audio/sounds.mem	Client_Base/Cache/audio/sounds.mem	runtime-audio
+Client_Base/Cache/config.txt	Client_Base/Cache/config.txt	client-template
+Client_Base/Cache/video/Authentic_Sprites.orsc	Client_Base/Cache/video/Authentic_Sprites.orsc	default-render-catalog
+Client_Base/Cache/video/Custom_Sprites.osar	Client_Base/Cache/video/Custom_Sprites.osar	default-render-catalog
+Client_Base/Cache/video/library.orsc	Client_Base/Cache/video/library.orsc	default-render-catalog
+Client_Base/Cache/video/models.orsc	Client_Base/Cache/video/models.orsc	default-render-catalog
+Client_Base/Cache/video/spritepacks/Menus.osar	Client_Base/Cache/video/spritepacks/Menus.osar	default-render-catalog
+server/lib/commons-codec-1.14.jar	server/lib/commons-codec-1.14.jar	runtime-library
+server/lib/commons-compress-1.18.jar	server/lib/commons-compress-1.18.jar	runtime-library
+server/lib/commons-lang-2.6.jar	server/lib/commons-lang-2.6.jar	runtime-library
+server/lib/commons-lang3-3.12.0.jar	server/lib/commons-lang3-3.12.0.jar	runtime-library
+server/lib/disruptor-3.3.11.jar	server/lib/disruptor-3.3.11.jar	runtime-library
+server/lib/emoji-java-5.1.1.jar	server/lib/emoji-java-5.1.1.jar	runtime-library
+server/lib/guava-30.1.1-jre.jar	server/lib/guava-30.1.1-jre.jar	runtime-library
+server/lib/guice-5.0.2-jar-with-dependencies.jar	server/lib/guice-5.0.2-jar-with-dependencies.jar	runtime-library
+server/lib/json-20190722.jar	server/lib/json-20190722.jar	runtime-library
+server/lib/log4j-api-2.17.0.jar	server/lib/log4j-api-2.17.0.jar	runtime-library
+server/lib/log4j-core-2.17.0.jar	server/lib/log4j-core-2.17.0.jar	runtime-library
+server/lib/log4j-iostreams-2.17.0.jar	server/lib/log4j-iostreams-2.17.0.jar	runtime-library
+server/lib/log4j-slf4j18-impl-2.17.0.jar	server/lib/log4j-slf4j18-impl-2.17.0.jar	runtime-library
+server/lib/netty-all-4.1.33.Final.jar	server/lib/netty-all-4.1.33.Final.jar	runtime-library
+server/lib/slf4j-nop-2.0.0-alpha5.jar	server/lib/slf4j-nop-2.0.0-alpha5.jar	runtime-library
+server/lib/sqlite-jdbc-3.34.0.jar	server/lib/sqlite-jdbc-3.34.0.jar	runtime-library
+server/lib/xpp3-1.1.4c.jar	server/lib/xpp3-1.1.4c.jar	runtime-library
+server/lib/xstream-1.4.18.jar	server/lib/xstream-1.4.18.jar	runtime-library
+server/alertwords.txt	server/alertwords.txt	runtime-configuration
+server/badwords.txt	server/badwords.txt	runtime-configuration
+server/goodwords.txt	server/goodwords.txt	runtime-configuration
+server/globalrules.txt	server/globalrules.txt	runtime-configuration
+server/conf/server/aliases.xml	server/conf/server/aliases.xml	runtime-configuration
+server/conf/server/badwordsJag.txt	server/conf/server/badwordsJag.txt	runtime-configuration
+server/conf/server/defs/DoorDef.xml	server/conf/server/defs/DoorDef.xml	default-definition-catalog
+server/conf/server/defs/GameObjectDef.xml	server/conf/server/defs/GameObjectDef.xml	default-definition-catalog
+server/conf/server/defs/ItemDefs.json	server/conf/server/defs/ItemDefs.json	default-definition-catalog
+server/conf/server/defs/NpcDefs.json	server/conf/server/defs/NpcDefs.json	default-definition-catalog
+server/conf/server/defs/PrayerDef.xml	server/conf/server/defs/PrayerDef.xml	default-definition-catalog
+server/conf/server/defs/SpellDef.xml	server/conf/server/defs/SpellDef.xml	default-definition-catalog
+server/conf/server/defs/SpellDefRetro.xml	server/conf/server/defs/SpellDefRetro.xml	default-definition-catalog
+server/conf/server/defs/TileDef.xml	server/conf/server/defs/TileDef.xml	default-definition-catalog
+server/conf/server/fonts/runescape_uf.ttf	server/conf/server/fonts/runescape_uf.ttf	default-render-catalog
+server/conf/server/languages/AuthenticMessages_en_UK.properties	server/conf/server/languages/AuthenticMessages_en_UK.properties	runtime-configuration
+server/conf/server/languages/AuthenticMessages_en_UK_female.properties	server/conf/server/languages/AuthenticMessages_en_UK_female.properties	runtime-configuration
+server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties	server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties	runtime-configuration
+server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties	server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties	runtime-configuration
+server/conf/server/languages/AuthenticMessages_en_UK_male.properties	server/conf/server/languages/AuthenticMessages_en_UK_male.properties	runtime-configuration
+server/conf/server/log4j2.xml	server/conf/server/log4j2.xml	runtime-configuration
+server/conf/server/log4j2b.xml	server/conf/server/log4j2b.xml	runtime-configuration
+server/conf/server/words.list	server/conf/server/words.list	runtime-configuration
+server/conf/server/wordsJag.txt	server/conf/server/wordsJag.txt	runtime-configuration
+server/conf/world-builder/adaptive-runtime-capability-v1.json	server/conf/world-builder/adaptive-runtime-capability-v1.json	runtime-capability
+server/database/sql_queries.xsd	server/database/sql_queries.xsd	runtime-database-contract
+server/database/sqlite/queries/bank_presets.xml	server/database/sqlite/queries/bank_presets.xml	runtime-database-contract
+server/database/sqlite/queries/item.xml	server/database/sqlite/queries/item.xml	runtime-database-contract
+server/database/sqlite/queries/patches.xml	server/database/sqlite/queries/patches.xml	runtime-database-contract
+server/database/sqlite/queries/player.xml	server/database/sqlite/queries/player.xml	runtime-database-contract
+server/inc/sqlite/myworld_seed.db	server/inc/sqlite/world_builder_seed.db	builder-database-seed

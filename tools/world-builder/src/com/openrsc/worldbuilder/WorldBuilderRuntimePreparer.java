@@ -109,7 +109,7 @@ public final class WorldBuilderRuntimePreparer {
 			Files.write(working.resolve("server/connections.conf"),
 				"db_type: sqlite\n".getBytes(StandardCharsets.UTF_8));
 
-			Path seed = requiredFile(release, "server/inc/sqlite/myworld_seed.db");
+			Path seed = requiredFile(release, "server/inc/sqlite/world_builder_seed.db");
 			copyFile(seed, stage.resolve(BUILDER_DATABASE));
 			Files.deleteIfExists(stage.resolve(BUILDER_CREDENTIAL));
 
@@ -204,9 +204,7 @@ public final class WorldBuilderRuntimePreparer {
 	private static LinkedHashMap<String, String> overrides(
 		int port, Path workspace, WorldBuilderLayeredPackage layered) {
 		LinkedHashMap<String, String> values = new LinkedHashMap<String, String>();
-		String productName = layered == null
-			? "Spoiled Milk World Builder"
-			: "Spoiled Milk World Builder 2";
+		String productName = "World Builder 2";
 		values.put("world_builder_mode", "true");
 		values.put("server_name", productName);
 		values.put("server_name_welcome", productName);

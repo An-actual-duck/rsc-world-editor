@@ -3,14 +3,18 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 WORKSPACE="$ROOT_DIR/workspace"
+PROJECTS="$ROOT_DIR/projects"
+PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
+ACTIVE_PROJECT="$ROOT_DIR/active-project.json"
 UPDATES_DIR="$ROOT_DIR/updates"
 LOCK_DIR="$ROOT_DIR/.world-builder-v2-update.lock"
 REPOSITORY="An-actual-duck/rsc-world-editor"
 API_URL="${WORLD_BUILDER_V2_RELEASE_API_URL:-https://api.github.com/repos/$REPOSITORY/releases?per_page=100}"
 DOWNLOAD_ROOT="${WORLD_BUILDER_V2_RELEASE_DOWNLOAD_URL:-https://github.com/$REPOSITORY/releases/download}"
 PRODUCT_ID="rsc-world-editor-v2"
-PACKAGE_NAME="Spoiled Milk World Builder 2"
+PACKAGE_NAME="World Builder 2"
 ARTIFACT_PREFIX="rsc-world-editor-v2"
+WORLD_SOURCE_IDENTITY="target-adaptive-v1"
 TAG_PREFIX="$ARTIFACT_PREFIX-"
 AUTOMATIC=false
 STAGE=""
@@ -300,7 +304,7 @@ write_expected_identity() {
   "updateChannel": "$PRODUCT_ID",
   "releaseTag": "$release_tag",
   "artifactPrefix": "$ARTIFACT_PREFIX",
-  "worldCoordinateModel": "signed-layered-v1",
+  "worldSourceIdentity": "$WORLD_SOURCE_IDENTITY",
   "automaticUpgradeFromProductIds": [
     "$PRODUCT_ID"
   ],
@@ -362,8 +366,10 @@ path_has_symlink_component() {
 is_durable_path() {
 	local top="${1%%/*}"
 	case "$top" in
-		workspace|updates|exports|backups|receipts|logs|credentials|\
-		.world-builder-v2-update.lock|.workspace.world-builder.lock)
+		projects|project-registry.json|active-project.json|workspace|updates|\
+		exports|backups|receipts|diagnostics|logs|settings|credentials|recovery|\
+		.world-builder-v2-update.lock|.workspace.world-builder.lock|\
+		.project-registry.lock)
 			return 0
 			;;
 	esac
@@ -415,16 +421,68 @@ require_manifest_paths() {
 		"Import Map Changes.cmd" \
 		"Undo Last Map Import.sh" \
 		"Undo Last Map Import.cmd" \
+		"RUNTIME-ASSET-ALLOWLIST.txt" \
 		"builder-runtime/Client_Base/Open_RSC_Client.jar" \
 		"builder-runtime/server/core.jar" \
 		"builder-runtime/server/plugins.jar" \
-		"builder-runtime/server/inc/sqlite/myworld_seed.db" \
+		"builder-runtime/server/inc/sqlite/world_builder_seed.db" \
+		"builder-runtime/server/world-builder.conf" \
+		"builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json" \
 		"builder-runtime/launcher/world-builder-tools.jar" \
-		"builder-runtime/layered-world/package/manifest.json" \
 		"runtime/bin/java"; do
 		manifest_contains "$manifest" "$required" \
 			|| fail "$label package manifest omits required application file: $required"
 	done
+}
+
+validate_application_paths() {
+	local root="$1" manifest="$2" line relative source destination role
+	local -A allowed=()
+	for relative in \
+		"ASSET-SOURCES.txt" "CORE-SOURCE-COMMIT.txt" \
+		"EDITOR-ICON-CREDITS.txt" "Import Map Changes.cmd" \
+		"Import Map Changes.sh" "LICENSE" "PLAYER-ASSET-SOURCES.txt" \
+		"README.txt" "RELEASE-IDENTITY.json" "RUNTIME-ASSET-ALLOWLIST.txt" \
+		"SOURCE-COMMIT.txt" "Start World Builder.cmd" "Start World Builder.sh" \
+		"Undo Last Map Import.cmd" "Undo Last Map Import.sh" \
+		"Update World Builder.cmd" "Update World Builder.ps1" \
+		"Update World Builder.sh" "VERSION.txt" \
+		"builder-runtime/Client_Base/Open_RSC_Client.jar" \
+		"builder-runtime/server/core.jar" "builder-runtime/server/plugins.jar" \
+		"builder-runtime/server/world-builder.conf" \
+		"builder-runtime/launcher/world-builder-tools.jar"; do
+		allowed["$relative"]=1
+	done
+	for relative in \
+		active-project-v1.schema.json \
+		adaptive-contract-definitions-v1.schema.json \
+		conversion-plan-v1.schema.json conversion-report-v1.schema.json \
+		discovery-report-v2.schema.json export-manifest-v1.schema.json \
+		export-manifest-v2.schema.json import-receipt-v1.schema.json \
+		import-receipt-v3.schema.json project-manifest-v1.schema.json \
+		project-manifest-v2.schema.json project-registry-v1.schema.json \
+		source-snapshot-v2.schema.json target-capability-v1.schema.json \
+		target-mutation-plan-v1.schema.json; do
+		allowed["builder-runtime/launcher/schema/$relative"]=1
+	done
+	[[ -f "$root/RUNTIME-ASSET-ALLOWLIST.txt" \
+		&& ! -L "$root/RUNTIME-ASSET-ALLOWLIST.txt" ]] || return 1
+	while IFS=$'\t' read -r source destination role \
+		|| [[ -n "$source$destination$role" ]]; do
+		[[ -n "$source" && "$source" != \#* ]] || continue
+		[[ -n "$destination" && -n "$role" && "$role" != *$'\t'* ]] || return 1
+		validate_relative_path "$source" || return 1
+		validate_relative_path "$destination" || return 1
+		relative="builder-runtime/$destination"
+		[[ -z "${allowed[$relative]+present}" ]] || return 1
+		allowed["$relative"]=1
+	done < "$root/RUNTIME-ASSET-ALLOWLIST.txt"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ "$line" =~ ^[0-9a-f]{64}[[:space:]][[:space:]]\./(.+)$ ]] || return 1
+		relative="${BASH_REMATCH[1]}"
+		[[ -n "${allowed[$relative]+present}" || "$relative" == runtime/* ]] \
+			|| return 1
+	done < "$manifest"
 }
 
 require_linux_executables() {
@@ -573,6 +631,11 @@ CURRENT_VERSION="$(tr -d '\r\n' < "$ROOT_DIR/VERSION.txt")"
 validate_version "$CURRENT_VERSION" \
 	|| fail "VERSION.txt does not contain a supported World Builder 2 version"
 CURRENT_RELEASE_TAG="$TAG_PREFIX${CURRENT_VERSION#v}"
+if [[ -f "$ROOT_DIR/RELEASE-IDENTITY.json" ]] \
+	&& grep -F '"worldCoordinateModel": "signed-layered-v1"' \
+		"$ROOT_DIR/RELEASE-IDENTITY.json" >/dev/null; then
+	fail "This is a historical pre-adaptive World Builder 2 installation. Automatic relabelling or workspace migration is unsupported; preserve the complete folder and install adaptive World Builder 2 separately."
+fi
 validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 	"$CURRENT_VERSION" "$CURRENT_RELEASE_TAG" \
 	|| fail "Installed release identity is missing, malformed, or not $PRODUCT_ID"
@@ -582,9 +645,21 @@ validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed World Builder 2 application manifest is missing or does not verify"
 require_manifest_paths "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "Installed"
+validate_application_paths "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" \
+	|| fail "Installed package manifest owns a path outside the content-neutral application allowlist"
 require_linux_executables "$ROOT_DIR" "Installed"
 
-for pid_file in "$WORKSPACE/run/server.pid" "$WORKSPACE/run/client.pid"; do
+if [[ -e "$WORKSPACE" && ! -e "$PROJECT_REGISTRY" ]]; then
+	fail "This is a historical pre-adaptive World Builder 2 installation. Its workspace was preserved, but it cannot be relabelled or migrated automatically. Keep the complete installation for matching-version recovery and install adaptive World Builder 2 in a separate folder."
+fi
+
+pid_files=("$WORKSPACE/run/server.pid" "$WORKSPACE/run/client.pid")
+if [[ -d "$PROJECTS" && ! -L "$PROJECTS" ]]; then
+	while IFS= read -r -d '' pid_file; do
+		pid_files+=("$pid_file")
+	done < <(find "$PROJECTS" -type f \( -path '*/run/server.pid' -o -path '*/run/client.pid' \) -print0)
+fi
+for pid_file in "${pid_files[@]}"; do
 	if [[ -f "$pid_file" ]]; then
 		pid="$(tr -d '\r\n' < "$pid_file")"
 		if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
@@ -683,6 +758,8 @@ NEW_MANIFEST="$PACKAGE_ROOT/PACKAGE-MANIFEST.sha256"
 verify_manifest_files "$PACKAGE_ROOT" "$NEW_MANIFEST" true \
 	|| fail "Downloaded package manifest, inventory, or file verification failed"
 require_manifest_paths "$NEW_MANIFEST" "Downloaded"
+validate_application_paths "$PACKAGE_ROOT" "$NEW_MANIFEST" \
+	|| fail "Downloaded package manifest owns a path outside the content-neutral application allowlist"
 require_linux_executables "$PACKAGE_ROOT" "Downloaded"
 [[ "$(tr -d '\r\n' < "$PACKAGE_ROOT/VERSION.txt")" == "$LATEST_VERSION" ]] \
 	|| fail "Downloaded package version does not match its release tag"
@@ -759,16 +836,29 @@ cp -a "$NEW_MANIFEST" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" \
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed update verification failed"
 require_manifest_paths "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "Installed update"
+validate_application_paths "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" \
+	|| fail "Installed update escaped the content-neutral application allowlist"
 require_linux_executables "$ROOT_DIR" "Installed update"
 validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 	"$LATEST_VERSION" "$LATEST_RELEASE_TAG" \
 	|| fail "Installed update identity verification failed"
 [[ "$(tr -d '\r\n' < "$ROOT_DIR/VERSION.txt")" == "$LATEST_VERSION" ]] \
 	|| fail "Installed update version verification failed"
+if [[ -e "$PROJECT_REGISTRY" || -e "$ACTIVE_PROJECT" || -e "$PROJECTS" ]]; then
+	[[ -f "$PROJECT_REGISTRY" && ! -L "$PROJECT_REGISTRY" \
+		&& -f "$ACTIVE_PROJECT" && ! -L "$ACTIVE_PROJECT" \
+		&& -d "$PROJECTS" && ! -L "$PROJECTS" ]] \
+		|| fail "Adaptive project state is incomplete or unsafe after the application update"
+	"$ROOT_DIR/runtime/bin/java" -jar \
+		"$ROOT_DIR/builder-runtime/launcher/world-builder-tools.jar" \
+		open-project --installation-root "$ROOT_DIR" --target-root "$ROOT_DIR/.." \
+		>/dev/null \
+		|| fail "The selected adaptive project is incompatible with the updated runtime"
+fi
 ROLLBACK_ARMED=false
 
 printf 'World Builder 2 updated successfully to %s.\n' "$LATEST_VERSION"
-if [[ -d "$WORKSPACE" ]]; then
-	printf 'Your existing v2 workspace, exports, backups, receipts, credentials, database, and logs were preserved.\n'
-	printf 'The existing project remains tied to the runtime snapshot with which it was created.\n'
+if [[ -d "$PROJECTS" || -d "$WORKSPACE" ]]; then
+	printf 'All adaptive projects, registries, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved.\n'
+	printf 'The selected project passed the compatibility checks available in this runtime.\n'
 fi
