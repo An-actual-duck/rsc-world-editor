@@ -376,6 +376,13 @@ final class WorldBuilderAdaptiveImporter {
 			"content/activation/selected-configuration.json", OPERATION);
 		Files.createDirectories(activation.getParent());
 		writeBytes(activation, plan.configurationBytes);
+		Map<String,Object> directories = new LinkedHashMap<String,Object>();
+		directories.put("schemaVersion", Long.valueOf(1L));
+		directories.put("manifestType", "world-builder-created-directories");
+		directories.put("transactionId", plan.transactionId());
+		directories.put("relativePaths", new ArrayList<String>(plan.directoriesToCreate));
+		writeBytes(backupRoot.resolve("created-directories.json"),
+			WorldBuilderJsonDocuments.pretty(directories).getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static void backupBeforeState(WorldBuilderAdaptiveMutationProfile.Plan plan,
