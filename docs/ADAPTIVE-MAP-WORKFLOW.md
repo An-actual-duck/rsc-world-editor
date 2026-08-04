@@ -86,10 +86,11 @@ preflight for the checkout role. It MUST also:
 2. preserve frozen v1 code, identity, workspace, release, and updater behavior;
 3. treat `.core-framework/` only as the clean detached checkout named by
    `core-framework.lock`;
-4. treat required client, server, loader, protocol, or in-game editor work as
-   an external runtime dependency; consume it only after a separately published
-   exact commit and separately authorized `core-framework.lock` update, without
-   taking over that project's manager, workers, or branches;
+4. put required client, server, loader, protocol, or in-game editor changes in
+   the separately managed owning runtime repository—currently Spoiled
+   Milk/Core-Framework—and publish them there; consume them only as an exact
+   dependency commit after a separately authorized `core-framework.lock`
+   update, without taking over that project's manager, workers, or branches;
 5. preserve source-snapshot verification, offline-target checks, exact preview
    and confirmation, drift detection, backups, receipts, post-write
    verification, partial-failure rollback, changed-after-import protection,
@@ -1042,7 +1043,8 @@ later release validation gates also remain mandatory.
 
 ### Phase 4 — required external runtime capability
 
-In a separately managed external runtime task:
+In the separately managed owning runtime repository, currently Spoiled
+Milk/Core-Framework:
 
 - publish the versioned capability/build/definition/protocol identities;
 - support generic validated packages rather than one fixed package;

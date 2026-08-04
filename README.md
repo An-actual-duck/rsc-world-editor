@@ -54,9 +54,12 @@ exports, backups, and logs are intentionally excluded from Git.
 
 End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
-Source checkouts are intended for development and release production. The
-currently supported packaged workflow is the frozen legacy v1 line; adaptive
-World Builder 2 remains in development.
+Source checkouts are intended for development and release production. Published
+history includes the frozen legacy v1 line and the historical pre-adaptive
+`rsc-world-editor-v2-0.1.0-alpha.1`. That alpha retains its accepted historical
+validation, but it does not implement or approve the new adaptive product
+contract. The adaptive workflow remains in development with its release gate
+closed.
 
 The legacy v1 packaged workflow is:
 
