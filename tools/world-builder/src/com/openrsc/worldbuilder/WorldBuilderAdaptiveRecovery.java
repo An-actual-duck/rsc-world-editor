@@ -209,19 +209,20 @@ final class WorldBuilderAdaptiveRecovery {
 			"backups/" + plan.transactionId, OPERATION);
 		String createdAt = WorldBuilderAdaptiveReceipt.now();
 		boolean mutation = false;
+		List<String> removedDirectories = new ArrayList<String>();
 		try {
-			ensureFreeSpace(plan);
-			Files.createDirectory(backupRoot);
-			writeBytes(backupRoot.resolve("recovery-plan.json"),
-				WorldBuilderJsonDocuments.pretty(plan.document)
-					.getBytes(StandardCharsets.UTF_8));
-			backupCurrent(plan, backupRoot);
 			if (!plan.actions.isEmpty()) {
+				ensureFreeSpace(plan);
+				Files.createDirectory(backupRoot);
+				writeBytes(backupRoot.resolve("recovery-plan.json"),
+					WorldBuilderJsonDocuments.pretty(plan.document)
+						.getBytes(StandardCharsets.UTF_8));
+				backupCurrent(plan, backupRoot);
 				WorldBuilderAdaptiveReceipt.write(project,
 					receipt(plan, "pending", createdAt, false, false, false,
 						Collections.<WorldBuilderAdaptiveReceipt.Verification>emptyList()));
+				observe("recovery-evidence-written", backupRoot);
 			}
-			observe("recovery-evidence-written", backupRoot);
 			verifyRecoverableStates(plan);
 			for (int index = 0; index < plan.actions.size(); index++) {
 				RecoveryAction action = plan.actions.get(index);
@@ -248,7 +249,7 @@ final class WorldBuilderAdaptiveRecovery {
 			if ("import".equals(plan.failed.transactionType())) {
 				observeContract("recovery-before-directory-cleanup",
 					plan.targetRoot, mutation);
-				mutation |= removeImportDirectories(plan);
+				mutation |= removeImportDirectories(plan, removedDirectories);
 				observeContract("recovery-after-directory-cleanup",
 					plan.targetRoot, mutation);
 			}
@@ -280,6 +281,7 @@ final class WorldBuilderAdaptiveRecovery {
 			try {
 				List<WorldBuilderAdaptiveReceipt.Verification> rollback =
 					rollbackRecovery(plan);
+				restoreRemovedDirectories(plan, removedDirectories);
 				if (!plan.actions.isEmpty()) WorldBuilderAdaptiveReceipt.write(project,
 					receipt(plan, "rolled-back", createdAt, true, false, true, rollback));
 			} catch (WorldBuilderContractException rollbackFailure) {
@@ -675,7 +677,8 @@ final class WorldBuilderAdaptiveRecovery {
 		return values;
 	}
 
-	private static boolean removeImportDirectories(RecoveryPlan plan)
+	private static boolean removeImportDirectories(RecoveryPlan plan,
+		List<String> removedDirectories)
 		throws IOException, WorldBuilderContractException {
 		boolean changed = false;
 		List<String> reverse = new ArrayList<String>(plan.createdDirectories);
@@ -690,9 +693,31 @@ final class WorldBuilderAdaptiveRecovery {
 				"Import-created directory is no longer safely removable.",
 				"Keep the target offline and preserve changed content for owner review.");
 			Files.delete(path);
+			removedDirectories.add(relative);
 			changed = true;
 		}
 		return changed;
+	}
+
+	private static void restoreRemovedDirectories(RecoveryPlan plan,
+		List<String> removedDirectories)
+		throws IOException, WorldBuilderContractException {
+		List<String> shallow = new ArrayList<String>(removedDirectories);
+		Collections.sort(shallow, shallowFirst());
+		for (String relative : shallow) {
+			Path path = WorldBuilderPortablePath.resolveContained(
+				plan.targetRoot, relative, OPERATION);
+			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+				if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(path)) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, true,
+					"Recovery rollback directory became unsafe.",
+					"Keep the target offline and preserve all transaction evidence.");
+				continue;
+			}
+			ensureRealParents(plan.targetRoot, path.getParent());
+			Files.createDirectory(path);
+		}
 	}
 
 	private static List<String> createdDirectories(Path project, String transactionId)

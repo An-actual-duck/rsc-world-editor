@@ -891,6 +891,92 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertNotIn("pending", statuses)
             self.assertNotIn("recovery-required", statuses)
 
+    def test_recovery_finalizes_file_complete_failure_without_orphan_artifacts(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-finalize-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.target_project(base)
+            before = self.lifecycle.tree_bytes(target, installation)
+            failed = self.run_failure(
+                "import",
+                "package-file-published-0000,rollback-after-0006",
+                project,
+                target,
+                export,
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            uncertain = self.lifecycle.tree_bytes(target, installation)
+            self.assertNotEqual(before, uncertain)
+            self.assertEqual(
+                {path: value for path, value in before.items() if value[0] == "file"},
+                {path: value for path, value in uncertain.items() if value[0] == "file"},
+            )
+            original_backups = sorted(path.name for path in (project / "backups").iterdir())
+            original_receipts = sorted(path.name for path in (project / "receipts").iterdir())
+            self.assertEqual(1, len(original_backups))
+            self.assertEqual(1, len(original_receipts))
+            original_receipt = project / "receipts" / original_receipts[0]
+            self.assertEqual(
+                "recovery-required",
+                json.loads(original_receipt.read_text(encoding="utf-8"))["status"],
+            )
+
+            project_id = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["projectId"]
+            interrupted_target = base / "interrupted-target"
+            shutil.copytree(target, interrupted_target)
+            interrupted_installation = interrupted_target / "World Builder 2"
+            interrupted_project = (
+                interrupted_installation / "projects" / project_id
+            )
+            interrupted = self.run_failure(
+                "recovery",
+                "recovery-after-directory-cleanup",
+                interrupted_project,
+                interrupted_target,
+            )
+            self.assertEqual(3, interrupted.returncode, interrupted.stderr)
+            self.assertEqual(
+                uncertain,
+                self.lifecycle.tree_bytes(
+                    interrupted_target, interrupted_installation
+                ),
+            )
+            self.assertEqual(
+                self.transaction_artifacts(project),
+                self.transaction_artifacts(interrupted_project),
+            )
+
+            preview = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertEqual([], json.loads(preview.stdout)["actions"])
+            recovered = self.run_cli(
+                "recover-adaptive",
+                "--project",
+                project,
+                "--target-root",
+                target,
+                "--confirm",
+                "RECOVER",
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(
+                original_backups,
+                sorted(path.name for path in (project / "backups").iterdir()),
+            )
+            self.assertEqual(
+                original_receipts,
+                sorted(path.name for path in (project / "receipts").iterdir()),
+            )
+            self.assertEqual(
+                "rolled-back",
+                json.loads(original_receipt.read_text(encoding="utf-8"))["status"],
+            )
+            self.assert_no_transaction_stage(target)
+
     def test_every_recovery_boundary_rolls_back_to_uncertain_start(self):
         milestones = (
             "recovery-plan-confirmed",
