@@ -1119,6 +1119,27 @@ covered with temporary layered and packed-origin fixtures. Linux and Windows
 packages expose Import, Recover, and Undo launchers. Standalone origin refuses
 all three target operations before target resolution or lock acquisition.
 
+Direct `import-adaptive`, `undo-adaptive`, and `recover-adaptive` use an exact
+two-call review protocol. Preview stdout is one plan JSON document. Apply must
+repeat `--confirm`, the emitted `--transaction-id`, and the emitted
+`--plan-sha256`; it independently recompiles that identity and emits one result
+JSON document only. The active packaged commands deliberately expose no
+noninteractive `--confirm` shortcut: they retain one in-memory plan before
+reading literal, untrimmed `IMPORT`, `UNDO`, or `RECOVER` input.
+
+Phase 6 lock and durable-authority reads reject links, hard links, case aliases,
+and transaction-ID collisions. Import rechecks that the complete server and
+selected-client fingerprint roots remain absent under the offline lease. Undo
+deactivates configuration before package removal; rollback restores packages
+before activation. Same-filesystem capacity is the combined target, backup,
+staging, and receipt requirement. On native Unix providers, atomic new regular-
+file publication uses a same-filesystem no-overwrite link insertion and export
+directories reserve a new destination identity before an atomic same-directory
+move. The reviewed native Windows provider uses its same-volume no-replace move.
+Unsupported filesystem providers fail closed.
+`process-scan` requires a readable Linux `/proc` view and refuses unsupported or
+unavailable process views without recording verified-clean evidence.
+
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.
 - Generalize offline evidence, configuration changes, receipts, backups,

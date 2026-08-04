@@ -2,8 +2,6 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.DirectoryStream;
@@ -52,8 +50,15 @@ final class WorldBuilderAdaptiveUndo {
 
 	Preview preview(Path requestedProject, Path requestedTarget)
 		throws IOException, WorldBuilderContractException {
+		return preview(requestedProject, requestedTarget, null);
+	}
+
+	Preview preview(Path requestedProject, Path requestedTarget,
+		String requestedTransactionId)
+		throws IOException, WorldBuilderContractException {
 		try {
-			return operate(requestedProject, requestedTarget, null, null);
+			return operate(requestedProject, requestedTarget, null, null,
+				requestedTransactionId);
 		} catch (IOException failure) {
 			throw failure;
 		} catch (WorldBuilderContractException failure) {
@@ -70,7 +75,7 @@ final class WorldBuilderAdaptiveUndo {
 		if (preview == null) throw new IllegalArgumentException("preview");
 		try {
 			Preview applied = operate(preview.requestedProject, preview.requestedTarget,
-				confirmation, preview);
+				confirmation, preview, null);
 			return applied.result;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -85,20 +90,13 @@ final class WorldBuilderAdaptiveUndo {
 	}
 
 	private Preview operate(Path requestedProject, Path requestedTarget,
-		String confirmation, Preview expected) throws Exception {
+		String confirmation, Preview expected, String requestedTransactionId)
+		throws Exception {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject initial =
 			verifyTargetBackedProjectBeforeTarget(requestedProject);
 		Path projectRoot = initial.projectRoot;
-		Path lockPath = WorldBuilderAdaptiveExporter.requireFile(
-			projectRoot, "run/world-builder.lock", "project transaction lock");
-		try (FileChannel channel = FileChannel.open(lockPath,
-			StandardOpenOption.READ, StandardOpenOption.WRITE)) {
-			FileLock lock = tryLock(channel);
-			if (lock == null) throw problem(
-				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "run/world-builder.lock", false,
-				"The project is running or another project operation is active.",
-				"Close World Builder and wait for the other operation.");
-			try {
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(projectRoot, OPERATION)) {
 				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
 						projectRoot, true);
@@ -118,8 +116,10 @@ final class WorldBuilderAdaptiveUndo {
 							project, export, target, authority.transactionId());
 					WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(
 						installed, authority);
-					String undoId = expected == null ? UUID.randomUUID().toString()
-						: expected.undoPlan.transactionId();
+					String undoId = expected != null
+						? expected.undoPlan.transactionId()
+						: requestedTransactionId == null
+							? UUID.randomUUID().toString() : requestedTransactionId;
 					WorldBuilderAdaptiveMutationProfile.Plan undo =
 						WorldBuilderAdaptiveMutationProfile.reverseForUndo(installed, undoId);
 					if (expected != null
@@ -148,9 +148,6 @@ final class WorldBuilderAdaptiveUndo {
 					return new Preview(requestedProject, requestedTarget,
 						installed, undo, authority, result);
 				}
-			} finally {
-				lock.release();
-			}
 		}
 	}
 
@@ -163,17 +160,21 @@ final class WorldBuilderAdaptiveUndo {
 		Path backupRoot = WorldBuilderPortablePath.resolveContained(project,
 			"backups/" + safeTransactionId(undo), OPERATION);
 		String createdAt = WorldBuilderAdaptiveReceipt.now();
-		List<Path> staged = new ArrayList<Path>();
+		WorldBuilderAdaptiveOwnedFiles staged = new WorldBuilderAdaptiveOwnedFiles();
 		boolean mutation = false;
+		boolean receiptOwned = false;
 		try {
 			ensureFreeSpace(undo);
+			WorldBuilderAdaptiveReceipt.requireUnusedTransaction(
+				project, undo.transactionId());
 			prepareDurableUndo(undo, backupRoot);
 			WorldBuilderAdaptiveReceipt.State pending =
 				WorldBuilderAdaptiveReceipt.create(undo, "undo", "pending",
 					createdAt, false, offline.evidence, false, false,
 					Collections.<WorldBuilderAdaptiveReceipt.Verification>emptyList(),
 					authority.transactionId(), "");
-			WorldBuilderAdaptiveReceipt.write(project, pending);
+			WorldBuilderAdaptiveReceipt.writeNew(project, pending);
+			receiptOwned = true;
 			observeContract("undo-pending-receipt", receiptPath(project,
 				undo.transactionId()), false);
 			if (!changedAfterPaths(installed).isEmpty()) throw problem(
@@ -182,7 +183,8 @@ final class WorldBuilderAdaptiveUndo {
 				"Request a fresh preview; no target file was changed.");
 
 			int index = 0;
-			for (WorldBuilderAdaptiveMutationProfile.Action action : undo.actions) {
+			for (WorldBuilderAdaptiveMutationProfile.Action action :
+				activationFirst(undo.actions)) {
 				Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
 					undo.targetRoot, action.destinationRelativePath);
 				verifyState(undo.targetRoot, action.destinationRelativePath, action.before);
@@ -192,12 +194,13 @@ final class WorldBuilderAdaptiveUndo {
 				} else {
 					Path temporary = destination.getParent().resolve("."
 						+ destination.getFileName() + ".undo-" + undo.transactionId());
-					staged.add(temporary);
-					writeBytes(temporary, action.generatedContent);
+					staged.reserve(temporary);
+					writeReserved(temporary, action.generatedContent);
 					verifyFile(temporary, action.after);
+					staged.seal(temporary);
 					moveAtomicReplacing(temporary, destination,
 						action.destinationRelativePath);
-					staged.remove(temporary);
+					staged.forget(temporary);
 				}
 				mutation = true;
 				observeContract("undo-after-" + pad(index), destination, true);
@@ -218,10 +221,10 @@ final class WorldBuilderAdaptiveUndo {
 			return new UndoResult(undo.transactionId(), authority.transactionId(),
 				"reverted", receiptPath(project, undo.transactionId()));
 		} catch (Throwable original) {
-			cleanupStaged(staged);
-			if (!mutation) {
+			IOException stagedCleanupFailure = staged.cleanup();
+			if (!mutation && stagedCleanupFailure == null) {
 				writeFailureReceipt(undo, authority, offline, createdAt,
-					"failed-no-change", false, false, original);
+					"failed-no-change", false, false, receiptOwned, original);
 				throw asContract(original, false,
 					"Adaptive undo stopped before changing target content.",
 					"Correct the reported problem and request a fresh undo preview.");
@@ -229,6 +232,11 @@ final class WorldBuilderAdaptiveUndo {
 			try {
 				List<WorldBuilderAdaptiveReceipt.Verification> rollback =
 					restoreInstalledState(undo);
+				if (stagedCleanupFailure != null) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, "target-stage", true,
+					"An invocation-owned undo staging file could not be removed.",
+					"Keep the target offline and run exact adaptive recovery.",
+					stagedCleanupFailure);
 				WorldBuilderAdaptiveReceipt.State rolledBack =
 					WorldBuilderAdaptiveReceipt.create(undo, "undo", "rolled-back",
 						createdAt, true, offline.evidence, false, true, rollback,
@@ -236,10 +244,11 @@ final class WorldBuilderAdaptiveUndo {
 				WorldBuilderAdaptiveReceipt.write(project, rolledBack);
 			} catch (Throwable rollbackFailure) {
 				writeFailureReceipt(undo, authority, offline, createdAt,
-					"recovery-required", true, false, rollbackFailure);
+					"recovery-required", true, false, receiptOwned, rollbackFailure);
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 					"receipts/" + safeTransactionId(undo) + ".json", true,
-					"Undo failed and automatic rollback could not prove the installed state.",
+					"Undo failed and automatic rollback could not prove the installed state. "
+						+ "Cause: " + bounded(rollbackFailure.getMessage()),
 					"Keep the target offline and run explicit adaptive recovery; do not force another transaction.",
 					rollbackFailure);
 			}
@@ -268,7 +277,10 @@ final class WorldBuilderAdaptiveUndo {
 			targetUsable = Math.min(targetUsable, override);
 			projectUsable = Math.min(projectUsable, override);
 		}
-		if (targetUsable < targetBytes || projectUsable < backupBytes) throw problem(
+		boolean insufficient = targetStore.equals(projectStore)
+			? Math.min(targetUsable, projectUsable) < safeAdd(targetBytes, backupBytes)
+			: targetUsable < targetBytes || projectUsable < backupBytes;
+		if (insufficient) throw problem(
 			WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,
 			"Target or project storage lacks space for undo staging and backups.",
 			"Free space without deleting project backups, then request a fresh preview.");
@@ -511,11 +523,10 @@ final class WorldBuilderAdaptiveUndo {
 	private List<WorldBuilderAdaptiveReceipt.Verification> restoreInstalledState(
 		WorldBuilderAdaptiveMutationProfile.Plan undo)
 		throws IOException, WorldBuilderContractException {
-		List<WorldBuilderAdaptiveMutationProfile.Action> reverse =
-			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>(undo.actions);
-		Collections.reverse(reverse);
-		for (int index = 0; index < reverse.size(); index++) {
-			WorldBuilderAdaptiveMutationProfile.Action action = reverse.get(index);
+		List<WorldBuilderAdaptiveMutationProfile.Action> restoreOrder =
+			activationLast(undo.actions);
+		for (int index = 0; index < restoreOrder.size(); index++) {
+			WorldBuilderAdaptiveMutationProfile.Action action = restoreOrder.get(index);
 			if (matchesState(undo.targetRoot,
 				action.destinationRelativePath, action.before)) continue;
 			verifyState(undo.targetRoot, action.destinationRelativePath, action.after);
@@ -527,16 +538,20 @@ final class WorldBuilderAdaptiveUndo {
 			verifyFile(backup, action.before);
 			Path temporary = destination.getParent().resolve("."
 				+ destination.getFileName() + ".undo-rollback-" + undo.transactionId());
+			WorldBuilderAdaptiveOwnedFiles owned =
+				new WorldBuilderAdaptiveOwnedFiles();
 			try {
-				Files.copy(backup, temporary);
+				owned.reserve(temporary);
+				Files.copy(backup, temporary, StandardCopyOption.REPLACE_EXISTING);
 				forceFile(temporary);
 				verifyFile(temporary, action.before);
+				owned.seal(temporary);
 				observeContract("undo-rollback-before-" + pad(index), destination, true);
 				moveAtomicReplacing(temporary, destination,
 					action.destinationRelativePath);
+				owned.forget(temporary);
 			} finally {
-				if (Files.isRegularFile(temporary, LinkOption.NOFOLLOW_LINKS)
-					&& !Files.isSymbolicLink(temporary)) Files.delete(temporary);
+				owned.cleanupOrThrow();
 			}
 		}
 		List<WorldBuilderAdaptiveReceipt.Verification> values =
@@ -548,6 +563,32 @@ final class WorldBuilderAdaptiveUndo {
 				"undo-rollback-" + pad(index), true, action.before.sha256));
 		}
 		return values;
+	}
+
+	private static List<WorldBuilderAdaptiveMutationProfile.Action> activationFirst(
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions) {
+		List<WorldBuilderAdaptiveMutationProfile.Action> ordered =
+			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (action.activation) ordered.add(action);
+		}
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (!action.activation) ordered.add(action);
+		}
+		return ordered;
+	}
+
+	private static List<WorldBuilderAdaptiveMutationProfile.Action> activationLast(
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions) {
+		List<WorldBuilderAdaptiveMutationProfile.Action> ordered =
+			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (!action.activation) ordered.add(action);
+		}
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (action.activation) ordered.add(action);
+		}
+		return ordered;
 	}
 
 	private static void cleanupImportedDirectories(
@@ -587,17 +628,22 @@ final class WorldBuilderAdaptiveUndo {
 		WorldBuilderAdaptiveMutationProfile.Plan undo,
 		WorldBuilderAdaptiveReceipt.State authority,
 		WorldBuilderAdaptiveOfflineLease offline, String createdAt,
-		String status, boolean mutation, boolean rollback, Throwable failure) {
+		String status, boolean mutation, boolean rollback, boolean receiptOwned,
+		Throwable failure) {
 		try {
 			List<WorldBuilderAdaptiveReceipt.Verification> values =
 				new ArrayList<WorldBuilderAdaptiveReceipt.Verification>();
 			if ("recovery-required".equals(status)) values.add(
 				new WorldBuilderAdaptiveReceipt.Verification(
 					"undo-recovery-required", false, bounded(failure.getMessage())));
-			WorldBuilderAdaptiveReceipt.write(undo.project.projectRoot,
-				WorldBuilderAdaptiveReceipt.create(undo, "undo", status, createdAt,
-					mutation, offline.evidence, false, rollback, values,
-					authority.transactionId(), ""));
+			WorldBuilderAdaptiveReceipt.State state = WorldBuilderAdaptiveReceipt.create(
+				undo, "undo", status, createdAt, mutation, offline.evidence, false,
+				rollback, values, authority.transactionId(), "");
+			if (receiptOwned) {
+				WorldBuilderAdaptiveReceipt.write(undo.project.projectRoot, state);
+			} else {
+				WorldBuilderAdaptiveReceipt.writeNew(undo.project.projectRoot, state);
+			}
 		} catch (Exception ignored) {
 			// Primary recovery-required failure remains authoritative.
 		}
@@ -608,8 +654,10 @@ final class WorldBuilderAdaptiveUndo {
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
 		if (!expected.present) return !Files.exists(path, LinkOption.NOFOLLOW_LINKS);
-		return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-			&& !Files.isSymbolicLink(path) && Files.size(path) == expected.size
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return false;
+		path = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+			target, relative, "installed-after authority");
+		return Files.size(path) == expected.size
 			&& expected.sha256.equals(WorldBuilderHashes.sha256(path));
 	}
 
@@ -631,6 +679,8 @@ final class WorldBuilderAdaptiveUndo {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, path.getFileName().toString(), false,
 			"Durable undo backup does not match its expected bytes.",
 			"Retain and restore the complete exact transaction backup.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(
+			path, path.getFileName().toString());
 	}
 
 	private static void moveAtomicReplacing(Path source, Path destination,
@@ -650,18 +700,15 @@ final class WorldBuilderAdaptiveUndo {
 		forceFile(path);
 	}
 
+	private static void writeReserved(Path path, byte[] bytes) throws IOException {
+		Files.write(path, bytes, StandardOpenOption.TRUNCATE_EXISTING,
+			StandardOpenOption.WRITE);
+		forceFile(path);
+	}
+
 	private static void forceFile(Path path) throws IOException {
 		try (FileChannel channel = FileChannel.open(path, StandardOpenOption.WRITE)) {
 			channel.force(true);
-		}
-	}
-
-	private static void cleanupStaged(List<Path> staged) {
-		for (Path path : staged) try {
-			if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-				&& !Files.isSymbolicLink(path)) Files.delete(path);
-		} catch (IOException ignored) {
-			// Subsequent verification decides whether recovery is required.
 		}
 	}
 
@@ -678,17 +725,10 @@ final class WorldBuilderAdaptiveUndo {
 		} catch (Exception failure) {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
 				path.getFileName().toString(), mutation,
-				"Injected or external failure interrupted adaptive undo.",
+				"Injected or external failure interrupted adaptive undo. Cause: "
+					+ bounded(failure.getMessage()),
 				mutation ? "Keep the target offline while rollback runs."
 					: "Request a fresh undo preview.", failure);
-		}
-	}
-
-	private static FileLock tryLock(FileChannel channel) throws IOException {
-		try {
-			return channel.tryLock();
-		} catch (OverlappingFileLockException busy) {
-			return null;
 		}
 	}
 
@@ -788,6 +828,15 @@ final class WorldBuilderAdaptiveUndo {
 
 		String toJson() {
 			return undoPlan.toJson();
+		}
+
+		String transactionId() throws WorldBuilderContractException {
+			return undoPlan.transactionId();
+		}
+
+		String planFingerprintSha256() throws WorldBuilderContractException {
+			return WorldBuilderAdaptiveExporter.string(
+				undoPlan.document, "planFingerprintSha256");
 		}
 
 		String humanSummary() {

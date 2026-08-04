@@ -2,6 +2,7 @@
 """Temporary-fixture coverage for adaptive export/import/recovery/undo."""
 
 import importlib.util
+import hashlib
 import json
 import os
 import shutil
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -56,7 +58,11 @@ package com.openrsc.worldbuilder;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
 import java.nio.file.StandardOpenOption;
+import java.net.URI;
+import java.util.HashMap;
 
 public final class AdaptiveTransactionFailureHarness {
     private static boolean selected(String specification, String milestone) {
@@ -66,17 +72,67 @@ public final class AdaptiveTransactionFailureHarness {
         return false;
     }
 
+    private static WorldBuilderAdaptiveReceipt.State pending(Path project)
+        throws Exception {
+        for (WorldBuilderAdaptiveReceipt.State receipt :
+            WorldBuilderAdaptiveReceipt.readAll(project)) {
+            if ("pending".equals(receipt.status())
+                || "recovery-required".equals(receipt.status())) return receipt;
+        }
+        throw new Exception("pending transaction receipt not found");
+    }
+
     public static void main(String[] args) throws Exception {
         final String operation = args[0];
         final String failures = args[1];
         final Path project = Paths.get(args[2]);
         final Path target = Paths.get(args[3]);
         try {
-            if ("export".equals(operation)) {
+            if ("unsupported-atomic-provider".equals(operation)) {
+                Path archive = project.resolve("unsupported-provider.zip");
+                java.util.Map<String,String> environment = new HashMap<String,String>();
+                environment.put("create", "true");
+                try (FileSystem zip = FileSystems.newFileSystem(
+                    URI.create("jar:" + archive.toUri()), environment)) {
+                    Path directory = zip.getPath("/publish");
+                    Files.createDirectory(directory);
+                    Path source = directory.resolve("source.bin");
+                    Files.write(source, new byte[] {3}, StandardOpenOption.CREATE_NEW);
+                    WorldBuilderAdaptiveAtomicFiles.moveNew(
+                        source, directory.resolve("published.bin"),
+                        "atomic-provider-test", "published.bin");
+                }
+            } else if ("export".equals(operation)) {
                 WorldBuilderAdaptiveExporter.Observer observer =
                     new WorldBuilderAdaptiveExporter.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("publish-destination-collision".equals(failures)
+                                && "before-publish".equals(milestone)) {
+                                java.util.Map<String,Object> manifest =
+                                    WorldBuilderJsonDocuments.readObject(
+                                        path.resolve("manifest.json"));
+                                String fingerprint = WorldBuilderAdaptiveExporter.string(
+                                    manifest, "exportFingerprintSha256");
+                                String prefix = "export-" + fingerprint.substring(0, 16)
+                                    + "-";
+                                for (int sequence = 1; sequence <= 999999; sequence++) {
+                                    Path collision = path.getParent().resolve(prefix
+                                        + String.format(java.util.Locale.ROOT,
+                                            "%06d", Integer.valueOf(sequence)));
+                                    if (!Files.exists(collision)) {
+                                        Files.createDirectory(collision);
+                                        Files.write(collision.resolve("external-marker"),
+                                            new byte[] {9}, StandardOpenOption.CREATE_NEW);
+                                        break;
+                                    }
+                                }
+                            }
+                            if ("injected-published-path".equals(failures)
+                                && "after-publish".equals(milestone)) {
+                                Files.write(path.resolve("external-marker"),
+                                    new byte[] {4, 4}, StandardOpenOption.CREATE_NEW);
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -101,6 +157,50 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveImporter.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("stage-collision".equals(failures)
+                                && "before-first-target-mutation".equals(milestone)) {
+                                WorldBuilderAdaptiveReceipt.State receipt = pending(project);
+                                for (Object raw : WorldBuilderAdaptiveExporter.array(
+                                    receipt.document.get("files"), "files")) {
+                                    java.util.Map<String,Object> file =
+                                        WorldBuilderAdaptiveExporter.object(raw, "file");
+                                    if (!WorldBuilderAdaptiveExporter.string(
+                                        file, "role").startsWith("server-package")) continue;
+                                    String relative = WorldBuilderAdaptiveExporter.string(
+                                        file, "relativePath");
+                                    Path destination = target.resolve(relative);
+                                    Files.createDirectories(destination.getParent());
+                                    Path collision = destination.getParent().resolve("."
+                                        + destination.getFileName() + ".stage-"
+                                        + receipt.transactionId());
+                                    Files.write(collision, new byte[] {7, 7},
+                                        StandardOpenOption.CREATE_NEW);
+                                    break;
+                                }
+                            }
+                            if ("publication-collision".equals(failures)
+                                && "package-file-staged-0000".equals(milestone)) {
+                                WorldBuilderAdaptiveReceipt.State receipt = pending(project);
+                                for (Object raw : WorldBuilderAdaptiveExporter.array(
+                                    receipt.document.get("files"), "files")) {
+                                    java.util.Map<String,Object> file =
+                                        WorldBuilderAdaptiveExporter.object(raw, "file");
+                                    if (!WorldBuilderAdaptiveExporter.string(
+                                        file, "role").startsWith("server-package")) continue;
+                                    Files.write(target.resolve(
+                                        WorldBuilderAdaptiveExporter.string(
+                                            file, "relativePath")),
+                                        new byte[] {5, 5}, StandardOpenOption.CREATE_NEW);
+                                    break;
+                                }
+                            }
+                            if ("replaced-owned-stage".equals(failures)
+                                && "package-file-staged-0000".equals(milestone)) {
+                                Files.delete(path);
+                                Files.write(path, new byte[] {8, 8},
+                                    StandardOpenOption.CREATE_NEW);
+                                throw new Exception("injected stage replacement");
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -124,6 +224,32 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveUndo.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("assert-safe-order".equals(failures)) {
+                                boolean configuration = path.getFileName().toString()
+                                    .equals("primary.json");
+                                if ("undo-before-0000".equals(milestone)
+                                    && !configuration) throw new Exception(
+                                        "order assertion: configuration was not first");
+                                if ("undo-rollback-before-0000".equals(milestone)
+                                    && configuration) throw new Exception(
+                                        "order assertion: package rollback was not first");
+                                if ("undo-rollback-before-0006".equals(milestone)
+                                    && !configuration) throw new Exception(
+                                        "order assertion: configuration rollback was not last");
+                                if ("undo-after-0001".equals(milestone)) {
+                                    throw new Exception("injected safe-order rollback");
+                                }
+                            }
+                            if ("undo-rollback-temp-collision".equals(failures)
+                                && "undo-after-0001".equals(milestone)) {
+                                WorldBuilderAdaptiveReceipt.State receipt = pending(project);
+                                Path collision = path.getParent().resolve("."
+                                    + path.getFileName() + ".undo-rollback-"
+                                    + receipt.transactionId());
+                                Files.write(collision, new byte[] {6, 6},
+                                    StandardOpenOption.CREATE_NEW);
+                                throw new Exception("injected rollback temp collision");
+                            }
                             if (selected(failures, milestone)) {
                                 throw new Exception("injected " + milestone);
                             }
@@ -199,6 +325,23 @@ public final class AdaptiveTransactionFailureHarness {
             capture_output=True,
         )
 
+    def run_reviewed_apply(self, command, confirmation, *args, preview=None):
+        if preview is None:
+            preview = self.run_cli(command, *args)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+        plan = json.loads(preview.stdout)
+        applied = self.run_cli(
+            command,
+            *args,
+            "--confirm",
+            confirmation,
+            "--transaction-id",
+            plan["transactionId"],
+            "--plan-sha256",
+            plan["planFingerprintSha256"],
+        )
+        return applied
+
     def run_cli_with_property(self, property_value, *args):
         return subprocess.run(
             [
@@ -211,6 +354,30 @@ public final class AdaptiveTransactionFailureHarness {
             ],
             cwd=ROOT,
             text=True,
+            capture_output=True,
+        )
+
+    def run_cli_with_properties(self, properties, *args):
+        return subprocess.run(
+            [
+                "java",
+                *[f"-D{key}={value}" for key, value in properties.items()],
+                "-cp",
+                str(self.classes),
+                MAIN_CLASS,
+                *map(str, args),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_cli_input(self, input_value, *args):
+        return subprocess.run(
+            ["java", "-cp", str(self.classes), MAIN_CLASS, *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            input=input_value,
             capture_output=True,
         )
 
@@ -234,6 +401,18 @@ public final class AdaptiveTransactionFailureHarness {
             self.lifecycle.tree_bytes(project / "backups"),
             self.lifecycle.tree_bytes(project / "receipts"),
         )
+
+    @staticmethod
+    def canonical_sha256(value):
+        canonical = json.dumps(
+            value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        return hashlib.sha256(canonical).hexdigest()
+
+    @classmethod
+    def bind_fingerprint(cls, value, field):
+        value[field] = "0" * 64
+        value[field] = cls.canonical_sha256(value)
 
     def assert_no_transaction_stage(self, target: Path):
         for path in target.rglob("*"):
@@ -266,7 +445,7 @@ public final class AdaptiveTransactionFailureHarness {
 
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
-        port_evidence=False,
+        port_evidence=False, offline_evidence=None,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -284,6 +463,8 @@ public final class AdaptiveTransactionFailureHarness {
                 "mutationProfileId": "",
                 "offlineEvidence": [],
             }
+        elif offline_evidence is not None:
+            capability["install"]["offlineEvidence"] = list(offline_evidence)
         elif not port_evidence:
             capability["install"]["offlineEvidence"] = ["pid-file"]
         self.lifecycle.write_json(capability_path, capability)
@@ -373,16 +554,16 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertEqual(0, preview.returncode, preview.stderr)
                 self.assert_windows_safe_plan_paths(json.loads(preview.stdout))
                 self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
-                applied = self.run_cli(
+                applied = self.run_reviewed_apply(
                     "import-adaptive",
+                    "IMPORT",
                     "--project",
                     project,
                     "--export",
                     export,
                     "--target-root",
                     target,
-                    "--confirm",
-                    "IMPORT",
+                    preview=preview,
                 )
                 self.assertEqual(0, applied.returncode, applied.stderr)
                 self.assertIn("administratorAction", applied.stdout)
@@ -394,14 +575,14 @@ public final class AdaptiveTransactionFailureHarness {
                 )
                 self.assertEqual(0, undo_preview.returncode, undo_preview.stderr)
                 self.assert_windows_safe_plan_paths(json.loads(undo_preview.stdout))
-                undone = self.run_cli(
+                undone = self.run_reviewed_apply(
                     "undo-adaptive",
+                    "UNDO",
                     "--project",
                     project,
                     "--target-root",
                     target,
-                    "--confirm",
-                    "UNDO",
+                    preview=undo_preview,
                 )
                 self.assertEqual(0, undone.returncode, undone.stderr)
                 self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
@@ -461,16 +642,15 @@ public final class AdaptiveTransactionFailureHarness {
     def test_changed_after_blocks_undo_before_artifacts(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-changed-after-") as temp:
             target, installation, project, export = self.target_project(Path(temp))
-            applied = self.run_cli(
+            applied = self.run_reviewed_apply(
                 "import-adaptive",
+                "IMPORT",
                 "--project",
                 project,
                 "--export",
                 export,
                 "--target-root",
                 target,
-                "--confirm",
-                "IMPORT",
             )
             self.assertEqual(0, applied.returncode, applied.stderr)
             receipts_before = sorted(path.name for path in (project / "receipts").iterdir())
@@ -490,7 +670,7 @@ public final class AdaptiveTransactionFailureHarness {
             target, installation, project, export = self.target_project(Path(temp))
             target_before = self.lifecycle.tree_bytes(target, installation)
             artifacts_before = self.transaction_artifacts(project)
-            refused = self.run_cli(
+            confirmation_preview = self.run_cli(
                 "import-adaptive",
                 "--project",
                 project,
@@ -498,8 +678,18 @@ public final class AdaptiveTransactionFailureHarness {
                 export,
                 "--target-root",
                 target,
-                "--confirm",
+            )
+            self.assertEqual(0, confirmation_preview.returncode, confirmation_preview.stderr)
+            refused = self.run_reviewed_apply(
+                "import-adaptive",
                 "import",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+                preview=confirmation_preview,
             )
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertIn("exact IMPORT", refused.stderr)
@@ -686,9 +876,9 @@ public final class AdaptiveTransactionFailureHarness {
 
         with tempfile.TemporaryDirectory(prefix="adaptive-undo-stale-preview-") as temp:
             target, installation, project, export = self.target_project(Path(temp))
-            applied = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target, "--confirm", "IMPORT"
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project, "--export", export,
+                "--target-root", target
             )
             self.assertEqual(0, applied.returncode, applied.stderr)
             installed_before = self.lifecycle.tree_bytes(target, installation)
@@ -744,7 +934,6 @@ public final class AdaptiveTransactionFailureHarness {
                             "backups-verified",
                             "pending-receipt-written",
                             "before-first-target-mutation",
-                            "package-file-staged-0000",
                         )
                         else "rolled-back"
                     )
@@ -829,9 +1018,9 @@ public final class AdaptiveTransactionFailureHarness {
                 prefix=f"adaptive-undo-{evidence}-tamper-"
             ) as temp:
                 target, installation, project, export = self.target_project(Path(temp))
-                applied = self.run_cli(
-                    "import-adaptive", "--project", project, "--export", export,
-                    "--target-root", target, "--confirm", "IMPORT"
+                applied = self.run_reviewed_apply(
+                    "import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target
                 )
                 self.assertEqual(0, applied.returncode, applied.stderr)
                 receipt_path = next((project / "receipts").glob("*.json"))
@@ -853,7 +1042,11 @@ public final class AdaptiveTransactionFailureHarness {
                     "undo-adaptive", "--project", project, "--target-root", target
                 )
                 self.assertEqual(3, refused.returncode, refused.stderr)
-                self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                self.assertEqual(
+                    installed,
+                    self.lifecycle.tree_bytes(target, installation),
+                    refused.stderr,
+                )
                 self.assertEqual(artifacts, self.transaction_artifacts(project))
 
     def test_recovery_restores_failed_import_rollback(self):
@@ -873,14 +1066,14 @@ public final class AdaptiveTransactionFailureHarness {
                 "recover-adaptive", "--project", project, "--target-root", target
             )
             self.assertEqual(0, preview.returncode, preview.stderr)
-            recovered = self.run_cli(
+            recovered = self.run_reviewed_apply(
                 "recover-adaptive",
+                "RECOVER",
                 "--project",
                 project,
                 "--target-root",
                 target,
-                "--confirm",
-                "RECOVER",
+                preview=preview,
             )
             self.assertEqual(0, recovered.returncode, recovered.stderr)
             self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
@@ -952,14 +1145,14 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, preview.returncode, preview.stderr)
             self.assertEqual([], json.loads(preview.stdout)["actions"])
-            recovered = self.run_cli(
+            recovered = self.run_reviewed_apply(
                 "recover-adaptive",
+                "RECOVER",
                 "--project",
                 project,
                 "--target-root",
                 target,
-                "--confirm",
-                "RECOVER",
+                preview=preview,
             )
             self.assertEqual(0, recovered.returncode, recovered.stderr)
             self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
@@ -1049,23 +1242,26 @@ public final class AdaptiveTransactionFailureHarness {
                 prefix="adaptive-undo-rollback-"
             ) as temp:
                 target, installation, project, export = self.target_project(Path(temp))
-                applied = self.run_cli(
+                applied = self.run_reviewed_apply(
                     "import-adaptive",
+                    "IMPORT",
                     "--project",
                     project,
                     "--export",
                     export,
                     "--target-root",
                     target,
-                    "--confirm",
-                    "IMPORT",
                 )
                 self.assertEqual(0, applied.returncode, applied.stderr)
                 installed = self.lifecycle.tree_bytes(target, installation)
                 source_before = self.lifecycle.tree_bytes(project / "source")
                 failed = self.run_failure("undo", milestone, project, target)
                 self.assertEqual(3, failed.returncode, failed.stderr)
-                self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                self.assertEqual(
+                    installed,
+                    self.lifecycle.tree_bytes(target, installation),
+                    failed.stderr,
+                )
                 self.assertEqual(source_before, self.lifecycle.tree_bytes(project / "source"))
                 statuses = sorted(
                     json.loads(path.read_text(encoding="utf-8"))["status"]
@@ -1085,16 +1281,15 @@ public final class AdaptiveTransactionFailureHarness {
     def test_recovery_restores_failed_undo_rollback(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-undo-recovery-") as temp:
             target, installation, project, export = self.target_project(Path(temp))
-            applied = self.run_cli(
+            applied = self.run_reviewed_apply(
                 "import-adaptive",
+                "IMPORT",
                 "--project",
                 project,
                 "--export",
                 export,
                 "--target-root",
                 target,
-                "--confirm",
-                "IMPORT",
             )
             self.assertEqual(0, applied.returncode, applied.stderr)
             installed = self.lifecycle.tree_bytes(target, installation)
@@ -1106,14 +1301,13 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(3, failed.returncode, failed.stderr)
             self.assertNotEqual(installed, self.lifecycle.tree_bytes(target, installation))
-            recovered = self.run_cli(
+            recovered = self.run_reviewed_apply(
                 "recover-adaptive",
+                "RECOVER",
                 "--project",
                 project,
                 "--target-root",
                 target,
-                "--confirm",
-                "RECOVER",
             )
             self.assertEqual(0, recovered.returncode, recovered.stderr)
             self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
@@ -1121,6 +1315,841 @@ public final class AdaptiveTransactionFailureHarness {
                 "undo-adaptive", "--project", project, "--target-root", target
             )
             self.assertEqual(0, preview.returncode, preview.stderr)
+
+    def test_reviewed_plan_binding_stdout_and_literal_active_confirmation(self):
+        invalid_inputs = ("import\n", " IMPORT\n", "IMPORT \n", "\n", "")
+        with tempfile.TemporaryDirectory(prefix="adaptive-reviewed-binding-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            target_before = self.lifecycle.tree_bytes(target, installation)
+            artifacts_before = self.transaction_artifacts(project)
+
+            for response in invalid_inputs:
+                refused = self.run_cli_input(
+                    response,
+                    "import-active-adaptive",
+                    "--installation-root",
+                    installation,
+                )
+                self.assertEqual(0, refused.returncode, refused.stderr)
+                self.assertEqual("", refused.stdout)
+                self.assertIn("cancelled", refused.stderr.lower())
+                self.assertEqual(
+                    target_before, self.lifecycle.tree_bytes(target, installation)
+                )
+                self.assertEqual(artifacts_before, self.transaction_artifacts(project))
+
+            preview = self.run_cli(
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            missing_binding = self.run_cli(
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+                "--confirm",
+                "IMPORT",
+            )
+            self.assertEqual(2, missing_binding.returncode, missing_binding.stderr)
+            mismatch = self.run_cli(
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+                "--confirm",
+                "IMPORT",
+                "--transaction-id",
+                plan["transactionId"],
+                "--plan-sha256",
+                "0" * 64,
+            )
+            self.assertEqual(3, mismatch.returncode, mismatch.stderr)
+            self.assertEqual("", mismatch.stdout)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(artifacts_before, self.transaction_artifacts(project))
+
+            applied = self.run_reviewed_apply(
+                "import-adaptive",
+                "IMPORT",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+                preview=preview,
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            result = json.loads(applied.stdout)
+            self.assertEqual(plan["transactionId"], result["transactionId"])
+            self.assertEqual("successful", result["status"])
+
+            installed = self.lifecycle.tree_bytes(target, installation)
+            installed_artifacts = self.transaction_artifacts(project)
+            undo_preview = self.run_cli(
+                "undo-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, undo_preview.returncode, undo_preview.stderr)
+            undo_plan = json.loads(undo_preview.stdout)
+            undo_missing = self.run_cli(
+                "undo-adaptive", "--project", project, "--target-root", target,
+                "--confirm", "UNDO"
+            )
+            self.assertEqual(2, undo_missing.returncode, undo_missing.stderr)
+            undo_mismatch = self.run_cli(
+                "undo-adaptive", "--project", project, "--target-root", target,
+                "--confirm", "UNDO", "--transaction-id", undo_plan["transactionId"],
+                "--plan-sha256", "0" * 64
+            )
+            self.assertEqual(3, undo_mismatch.returncode, undo_mismatch.stderr)
+            self.assertEqual("", undo_mismatch.stdout)
+            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(installed_artifacts, self.transaction_artifacts(project))
+            for response in ("undo\n", " UNDO\n", "UNDO \n", "\n", ""):
+                refused = self.run_cli_input(
+                    response, "undo-active-adaptive", "--installation-root", installation
+                )
+                self.assertEqual(0, refused.returncode, refused.stderr)
+                self.assertEqual("", refused.stdout)
+                self.assertIn("cancelled", refused.stderr.lower())
+                self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                self.assertEqual(installed_artifacts, self.transaction_artifacts(project))
+
+            failed = self.run_failure(
+                "undo", "undo-after-0000,undo-rollback-before-0006", project, target
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            uncertain = self.lifecycle.tree_bytes(target, installation)
+            recovery_artifacts = self.transaction_artifacts(project)
+            recovery_preview = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, recovery_preview.returncode, recovery_preview.stderr)
+            recovery_plan = json.loads(recovery_preview.stdout)
+            recovery_missing = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target,
+                "--confirm", "RECOVER"
+            )
+            self.assertEqual(2, recovery_missing.returncode, recovery_missing.stderr)
+            recovery_mismatch = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target,
+                "--confirm", "RECOVER",
+                "--transaction-id", recovery_plan["transactionId"],
+                "--plan-sha256", "0" * 64
+            )
+            self.assertEqual(3, recovery_mismatch.returncode, recovery_mismatch.stderr)
+            self.assertEqual("", recovery_mismatch.stdout)
+            self.assertEqual(uncertain, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(recovery_artifacts, self.transaction_artifacts(project))
+            for response in ("recover\n", " RECOVER\n", "RECOVER \n", "\n", ""):
+                refused = self.run_cli_input(
+                    response,
+                    "recover-active-adaptive",
+                    "--installation-root",
+                    installation,
+                )
+                self.assertEqual(0, refused.returncode, refused.stderr)
+                self.assertEqual("", refused.stdout)
+                self.assertIn("pending", refused.stderr.lower())
+                self.assertEqual(uncertain, self.lifecycle.tree_bytes(target, installation))
+                self.assertEqual(recovery_artifacts, self.transaction_artifacts(project))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-reviewed-stale-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            artifacts_before = self.transaction_artifacts(project)
+            evidence = target / "server/evidence/render-assets.bin"
+            evidence.write_bytes(evidence.read_bytes() + b"drift")
+            target_after_drift = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target, preview=preview
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual("", refused.stdout)
+            self.assertEqual(
+                target_after_drift, self.lifecycle.tree_bytes(target, installation)
+            )
+            self.assertEqual(artifacts_before, self.transaction_artifacts(project))
+
+    def test_phase6_parser_process_scan_and_windows_launcher_control_flow(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-parser-") as temp:
+            missing = Path(temp) / "missing"
+            duplicate_cases = (
+                (
+                    "import-adaptive", "--project", missing, "--project", missing,
+                    "--export", missing,
+                ),
+                (
+                    "undo-adaptive", "--project", missing, "--project", missing,
+                ),
+                (
+                    "recover-adaptive", "--project", missing, "--project", missing,
+                ),
+                (
+                    "import-adaptive", "--project", missing, "--export", missing,
+                    "--export", missing,
+                ),
+                (
+                    "undo-adaptive", "--project", missing, "--target-root", missing,
+                    "--target-root", missing,
+                ),
+                (
+                    "recover-adaptive", "--project", missing, "--confirm", "RECOVER",
+                    "--confirm", "RECOVER",
+                ),
+                (
+                    "import-adaptive", "--project", missing, "--export", missing,
+                    "--confirm", "IMPORT", "--transaction-id",
+                    "00000000-0000-0000-0000-000000000001", "--transaction-id",
+                    "00000000-0000-0000-0000-000000000001",
+                    "--plan-sha256", "0" * 64,
+                ),
+                (
+                    "undo-adaptive", "--project", missing, "--confirm", "UNDO",
+                    "--transaction-id", "00000000-0000-0000-0000-000000000001",
+                    "--plan-sha256", "0" * 64, "--plan-sha256", "0" * 64,
+                ),
+                (
+                    "import-active-adaptive", "--installation-root", missing,
+                    "--installation-root", missing,
+                ),
+                (
+                    "undo-active-adaptive", "--installation-root", missing,
+                    "--confirm", "UNDO",
+                ),
+                (
+                    "recover-active-adaptive", "--installation-root", missing,
+                    "--confirm", "RECOVER",
+                ),
+            )
+            for arguments in duplicate_cases:
+                with self.subTest(arguments=arguments):
+                    refused = self.run_cli(*arguments)
+                    self.assertEqual(2, refused.returncode, refused.stderr)
+
+            scratch = Path(temp)
+            unsupported = self.run_failure(
+                "unsupported-atomic-provider", "none", scratch, scratch
+            )
+            self.assertEqual(3, unsupported.returncode, unsupported.stderr)
+            with zipfile.ZipFile(scratch / "unsupported-provider.zip") as archive:
+                self.assertIn("publish/source.bin", archive.namelist())
+                self.assertNotIn("publish/published.bin", archive.namelist())
+
+        for name, command in (
+            ("Import Map Changes.cmd", "import-active-adaptive"),
+            ("Undo Last Map Import.cmd", "undo-active-adaptive"),
+            ("Recover Map Transaction.cmd", "recover-active-adaptive"),
+        ):
+            text = (ROOT / "release/world-builder-v2" / name).read_text(
+                encoding="utf-8"
+            )
+            invocation = next(line for line in text.splitlines() if command in line)
+            suffix = text[text.index(invocation) + len(invocation):]
+            self.assertRegex(
+                suffix,
+                r"(?s)^\s*if errorlevel 1 goto failed\s*exit /b 0",
+                name,
+            )
+
+        atomic_source = (
+            ROOT
+            / "tools/world-builder/src/com/openrsc/worldbuilder/WorldBuilderAdaptiveAtomicFiles.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn("sun.nio.fs.WindowsFileSystemProvider", atomic_source)
+        self.assertIn("Files.move(source, destination);", atomic_source)
+        self.assertIn("Files.createLink(destination, source);", atomic_source)
+        self.assertIn("StandardCopyOption.ATOMIC_MOVE", atomic_source)
+        cli_source = (
+            ROOT / "tools/world-builder/src/com/openrsc/worldbuilder/WorldBuilderCli.java"
+        ).read_text(encoding="utf-8")
+        self.assertIn('response == null ? "" : response.trim()', cli_source)
+        self.assertIn('expected.equals(response == null ? "" : response);', cli_source)
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-process-view-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), offline_evidence=["process-scan"]
+            )
+            before = self.lifecycle.tree_bytes(target, installation)
+            artifacts = self.transaction_artifacts(project)
+            refused = self.run_cli_with_properties(
+                {"worldbuilder.adaptive.testProcessViewUnavailable": "true"},
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("/proc", refused.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+    def test_same_store_capacity_is_aggregated_before_artifacts(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-combined-space-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            target_bytes = sum(action["after"]["size"] for action in plan["actions"])
+            project_bytes = (
+                sum(action["before"]["size"] for action in plan["actions"])
+                + 1_048_576
+            )
+            override = max(target_bytes, project_bytes)
+            self.assertLess(override, target_bytes + project_bytes)
+            before = self.lifecycle.tree_bytes(target, installation)
+            artifacts = self.transaction_artifacts(project)
+            refused = self.run_cli_with_properties(
+                {"worldbuilder.adaptive.testUsableBytes": str(override)},
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+                "--confirm",
+                "IMPORT",
+                "--transaction-id",
+                plan["transactionId"],
+                "--plan-sha256",
+                plan["planFingerprintSha256"],
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("space", refused.stderr.lower())
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target, preview=preview
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            undo_preview = self.run_cli(
+                "undo-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, undo_preview.returncode, undo_preview.stderr)
+            undo_plan = json.loads(undo_preview.stdout)
+            undo_target = sum(
+                action["after"]["size"] for action in undo_plan["actions"]
+            )
+            undo_project = (
+                sum(action["before"]["size"] for action in undo_plan["actions"])
+                + 1_048_576
+            )
+            undo_override = max(undo_target, undo_project)
+            installed = self.lifecycle.tree_bytes(target, installation)
+            undo_artifacts = self.transaction_artifacts(project)
+            undo_refused = self.run_cli_with_properties(
+                {"worldbuilder.adaptive.testUsableBytes": str(undo_override)},
+                "undo-adaptive",
+                "--project",
+                project,
+                "--target-root",
+                target,
+                "--confirm",
+                "UNDO",
+                "--transaction-id",
+                undo_plan["transactionId"],
+                "--plan-sha256",
+                undo_plan["planFingerprintSha256"],
+            )
+            self.assertEqual(3, undo_refused.returncode, undo_refused.stderr)
+            self.assertIn("space", undo_refused.stderr.lower())
+            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(undo_artifacts, self.transaction_artifacts(project))
+
+            interrupted = self.run_failure(
+                "undo", "undo-after-0000,undo-rollback-before-0006", project, target
+            )
+            self.assertEqual(3, interrupted.returncode, interrupted.stderr)
+            recovery_preview = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, recovery_preview.returncode, recovery_preview.stderr)
+            recovery_plan = json.loads(recovery_preview.stdout)
+            recovery_target = sum(
+                action["after"]["size"] for action in recovery_plan["actions"]
+            )
+            recovery_project = (
+                sum(action["before"]["size"] for action in recovery_plan["actions"])
+                + 1_048_576
+            )
+            recovery_override = max(recovery_target, recovery_project)
+            uncertain = self.lifecycle.tree_bytes(target, installation)
+            recovery_artifacts = self.transaction_artifacts(project)
+            recovery_refused = self.run_cli_with_properties(
+                {"worldbuilder.adaptive.testUsableBytes": str(recovery_override)},
+                "recover-adaptive",
+                "--project",
+                project,
+                "--target-root",
+                target,
+                "--confirm",
+                "RECOVER",
+                "--transaction-id",
+                recovery_plan["transactionId"],
+                "--plan-sha256",
+                recovery_plan["planFingerprintSha256"],
+            )
+            self.assertEqual(3, recovery_refused.returncode, recovery_refused.stderr)
+            self.assertIn("space", recovery_refused.stderr.lower())
+            self.assertEqual(uncertain, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(recovery_artifacts, self.transaction_artifacts(project))
+
+    def test_content_addressed_roots_are_wholly_absent_and_preserved(self):
+        cases = ("server-empty", "client-extra", "server-link", "client-case")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-root-{case}-"
+            ) as temp:
+                base = Path(temp)
+                target, installation, project, export = self.target_project(base)
+                preview = self.run_cli(
+                    "import-adaptive", "--project", project, "--export", export,
+                    "--target-root", target
+                )
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                plan = json.loads(preview.stdout)
+                role_prefix = "server-package" if case.startswith("server") else "client-package"
+                destination = next(
+                    action["destinationRelativePath"]
+                    for action in plan["actions"]
+                    if action["role"].startswith(role_prefix)
+                )
+                root_relative = destination.split("/package/", 1)[0]
+                root = target / root_relative
+                root.parent.mkdir(parents=True, exist_ok=True)
+                if case.endswith("empty"):
+                    root.mkdir()
+                elif case.endswith("extra"):
+                    root.mkdir()
+                    (root / "untracked.bin").write_bytes(b"preserve-extra")
+                elif case.endswith("link"):
+                    outside = base / "outside-package"
+                    outside.mkdir()
+                    (outside / "marker").write_bytes(b"outside")
+                    root.symlink_to(outside, target_is_directory=True)
+                else:
+                    alias = root.with_name(root.name.upper())
+                    self.assertNotEqual(root.name, alias.name)
+                    alias.mkdir()
+                    (alias / "marker").write_bytes(b"case-alias")
+                target_with_collision = self.lifecycle.tree_bytes(target, installation)
+                artifacts = self.transaction_artifacts(project)
+                refused = self.run_reviewed_apply(
+                    "import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target, preview=preview
+                )
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(
+                    target_with_collision,
+                    self.lifecycle.tree_bytes(target, installation),
+                )
+                self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+    def test_project_lock_and_transaction_identity_collisions_fail_closed(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-lock-missing-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            lock = project / "run/world-builder.lock"
+            lock.unlink()
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            self.assertTrue(lock.is_file())
+            self.assertFalse(lock.is_symlink())
+            self.assertEqual(1, lock.stat().st_nlink)
+
+        for kind in ("symlink", "hardlink", "case-alias"):
+            with self.subTest(lock=kind), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-lock-{kind}-"
+            ) as temp:
+                base = Path(temp)
+                target, installation, project, export = self.target_project(base)
+                lock = project / "run/world-builder.lock"
+                lock.unlink()
+                outside = base / "outside-lock"
+                outside.write_bytes(b"preserve-lock")
+                if kind == "symlink":
+                    lock.symlink_to(outside)
+                elif kind == "hardlink":
+                    os.link(outside, lock)
+                else:
+                    (project / "run/World-Builder.lock").write_bytes(b"alias")
+                before = self.lifecycle.tree_bytes(project / "run")
+                refused = self.run_cli("export-adaptive", "--project", project)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(before, self.lifecycle.tree_bytes(project / "run"))
+                self.assertEqual(b"preserve-lock", outside.read_bytes())
+
+        for collision in ("backup", "receipt"):
+            with self.subTest(collision=collision), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-id-{collision}-"
+            ) as temp:
+                target, installation, project, export = self.target_project(Path(temp))
+                preview = self.run_cli(
+                    "import-adaptive", "--project", project, "--export", export,
+                    "--target-root", target
+                )
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                plan = json.loads(preview.stdout)
+                if collision == "backup":
+                    occupied = project / "backups" / plan["transactionId"]
+                    occupied.mkdir()
+                    (occupied / "marker").write_bytes(b"existing-backup")
+                else:
+                    occupied = project / "receipts" / f'{plan["transactionId"]}.json'
+                    occupied.write_bytes(b"existing-receipt")
+                target_before = self.lifecycle.tree_bytes(target, installation)
+                occupied_before = (
+                    self.lifecycle.tree_bytes(occupied)
+                    if occupied.is_dir()
+                    else occupied.read_bytes()
+                )
+                refused = self.run_reviewed_apply(
+                    "import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target, preview=preview
+                )
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(
+                    target_before, self.lifecycle.tree_bytes(target, installation)
+                )
+                if occupied.is_dir():
+                    self.assertEqual(occupied_before, self.lifecycle.tree_bytes(occupied))
+                else:
+                    self.assertEqual(occupied_before, occupied.read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-id-undo-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            preview = self.run_cli(
+                "undo-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            occupied = project / "backups" / plan["transactionId"]
+            occupied.mkdir()
+            (occupied / "marker").write_bytes(b"undo-collision")
+            installed = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target, preview=preview
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(b"undo-collision", (occupied / "marker").read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-id-recovery-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "import", "package-file-published-0000,rollback-before-0006",
+                project, target, export
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            preview = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            occupied = project / "backups" / plan["transactionId"]
+            occupied.mkdir()
+            (occupied / "marker").write_bytes(b"recovery-collision")
+            uncertain = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_reviewed_apply(
+                "recover-adaptive", "RECOVER", "--project", project,
+                "--target-root", target, preview=preview
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(uncertain, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(b"recovery-collision", (occupied / "marker").read_bytes())
+
+    def test_manifest_and_hardlinked_authorities_are_independently_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-report-binding-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            report_path = export / "validation-report.json"
+            manifest_path = export / "manifest.json"
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            report["packageManifestSha256"] = "0" * 64
+            self.lifecycle.write_json(report_path, report)
+            manifest["validationReports"][0]["sha256"] = self.canonical_sha256(report)
+            self.bind_fingerprint(manifest, "exportFingerprintSha256")
+            self.lifecycle.write_json(manifest_path, manifest)
+            before = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("validation", refused.stderr.lower())
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-export-hardlink-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.target_project(base)
+            package_file = export / "package/manifest.json"
+            external = base / "linked-export-file"
+            os.link(package_file, external)
+            before = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(package_file.read_bytes(), external.read_bytes())
+
+        for authority in ("receipt", "plan", "directories", "backup", "installed"):
+            with self.subTest(authority=authority), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-hardlink-{authority}-"
+            ) as temp:
+                base = Path(temp)
+                target, installation, project, export = self.target_project(base)
+                applied = self.run_reviewed_apply(
+                    "import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target
+                )
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                transaction = json.loads(applied.stdout)["transactionId"]
+                if authority == "receipt":
+                    source = project / "receipts" / f"{transaction}.json"
+                elif authority == "plan":
+                    source = project / "backups" / transaction / "mutation-plan.json"
+                elif authority == "directories":
+                    source = (
+                        project / "backups" / transaction / "created-directories.json"
+                    )
+                elif authority == "backup":
+                    source = (
+                        project / "backups" / transaction / "before/server/"
+                        "world-builder-configs/primary.json"
+                    )
+                else:
+                    receipt = json.loads(
+                        (project / "receipts" / f"{transaction}.json").read_text()
+                    )
+                    source = target / next(
+                        item["relativePath"]
+                        for item in receipt["files"]
+                        if item["role"].startswith("server-package")
+                    )
+                external = base / f"linked-{authority}"
+                os.link(source, external)
+                installed = self.lifecycle.tree_bytes(target, installation)
+                artifacts = self.transaction_artifacts(project)
+                refused = self.run_cli(
+                    "undo-adaptive", "--project", project, "--target-root", target
+                )
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+                self.assertEqual(artifacts, self.transaction_artifacts(project))
+                self.assertEqual(source.read_bytes(), external.read_bytes())
+
+    def test_appeared_publication_and_staging_destinations_are_preserved(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-export-race-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "export", "publish-destination-collision", project, target
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            markers = list((project / "exports").glob("export-*/external-marker"))
+            self.assertEqual(1, len(markers), markers)
+            self.assertEqual(b"\x09", markers[0].read_bytes())
+            self.assertFalse(list((project / "exports").glob(".staging-*")))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-export-ownership-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "export", "injected-published-path", project, target
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            markers = list((project / "exports").glob("export-*/external-marker"))
+            self.assertEqual(1, len(markers), markers)
+            self.assertEqual(b"\x04\x04", markers[0].read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-stage-race-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "import", "stage-collision", project, target, export
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            stages = list(target.rglob("*.stage-*"))
+            self.assertEqual(1, len(stages), stages)
+            self.assertEqual(b"\x07\x07", stages[0].read_bytes())
+            statuses = [
+                json.loads(path.read_text(encoding="utf-8"))["status"]
+                for path in (project / "receipts").glob("*.json")
+            ]
+            self.assertEqual(["failed-no-change"], statuses)
+
+        for failure, expected_bytes in (
+            ("publication-collision", b"\x05\x05"),
+            ("replaced-owned-stage", b"\x08\x08"),
+        ):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-owned-stage-{failure}-"
+            ) as temp:
+                target, installation, project, export = self.target_project(Path(temp))
+                failed = self.run_failure("import", failure, project, target, export)
+                self.assertEqual(3, failed.returncode, failed.stderr)
+                preserved = [
+                    path
+                    for path in target.rglob("*")
+                    if path.is_file() and path.read_bytes() == expected_bytes
+                ]
+                self.assertEqual(1, len(preserved), preserved)
+                statuses = [
+                    json.loads(path.read_text(encoding="utf-8"))["status"]
+                    for path in (project / "receipts").glob("*.json")
+                ]
+                self.assertEqual(["recovery-required"], statuses)
+                recovery = self.run_cli(
+                    "recover-adaptive", "--project", project, "--target-root", target
+                )
+                self.assertEqual(3, recovery.returncode, recovery.stderr)
+                self.assertEqual(expected_bytes, preserved[0].read_bytes())
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-undo-temp-race-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            failed = self.run_failure(
+                "undo", "undo-rollback-temp-collision", project, target
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            collisions = list(target.rglob("*.undo-rollback-*"))
+            self.assertEqual(1, len(collisions), collisions)
+            self.assertEqual(b"\x06\x06", collisions[0].read_bytes())
+            recovery = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, recovery.returncode, recovery.stderr)
+            self.assertEqual(b"\x06\x06", collisions[0].read_bytes())
+
+    def test_undo_deactivates_first_and_rollback_reactivates_last(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-undo-order-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            applied = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            installed = self.lifecycle.tree_bytes(target, installation)
+            failed = self.run_failure("undo", "assert-safe-order", project, target)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("injected safe-order rollback", failed.stderr)
+            self.assertNotIn("order assertion", failed.stderr)
+            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
+            statuses = sorted(
+                json.loads(path.read_text(encoding="utf-8"))["status"]
+                for path in (project / "receipts").glob("*.json")
+            )
+            self.assertEqual(["rolled-back", "successful"], statuses)
+
+    def test_recovery_cleans_only_exact_derivable_transaction_stages(self):
+        for exact in (True, False):
+            with self.subTest(exact=exact), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-recovery-stage-{exact}-"
+            ) as temp:
+                target, installation, project, export = self.target_project(Path(temp))
+                before = self.lifecycle.tree_bytes(target, installation)
+                failed = self.run_failure(
+                    "import",
+                    "package-file-published-0000,rollback-before-0006",
+                    project,
+                    target,
+                    export,
+                )
+                self.assertEqual(3, failed.returncode, failed.stderr)
+                receipt_path = next((project / "receipts").glob("*.json"))
+                receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+                configuration = next(
+                    item for item in receipt["files"]
+                    if item["role"] == "activation-configuration"
+                )
+                destination = target / configuration["relativePath"]
+                stage = destination.parent / (
+                    f".{destination.name}.rollback-{receipt['transactionId']}"
+                )
+                backup = project / configuration["backupRelativePath"]
+                stage.write_bytes(backup.read_bytes() if exact else b"not-exact")
+                preview = self.run_cli(
+                    "recover-adaptive", "--project", project, "--target-root", target
+                )
+                if not exact:
+                    self.assertEqual(3, preview.returncode, preview.stderr)
+                    self.assertEqual(b"not-exact", stage.read_bytes())
+                    continue
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                recovery_plan = json.loads(preview.stdout)
+                self.assertTrue(
+                    any(
+                        action["destinationRelativePath"].endswith(
+                            f".rollback-{receipt['transactionId']}"
+                        )
+                        for action in recovery_plan["actions"]
+                    )
+                )
+                recovered = self.run_reviewed_apply(
+                    "recover-adaptive", "RECOVER", "--project", project,
+                    "--target-root", target, preview=preview
+                )
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                self.assertFalse(stage.exists())
+                self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-recovery-unknown-stage-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            failed = self.run_failure(
+                "import", "package-file-published-0000,rollback-before-0006",
+                project, target, export
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            receipt = json.loads(next((project / "receipts").glob("*.json")).read_text())
+            configuration = next(
+                item for item in receipt["files"]
+                if item["role"] == "activation-configuration"
+            )
+            destination = target / configuration["relativePath"]
+            unknown = destination.parent / (
+                f".{destination.name}.rollback-{receipt['transactionId']}-unknown"
+            )
+            unknown.write_bytes(b"preserve-unknown")
+            refused = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(b"preserve-unknown", unknown.read_bytes())
 
     def test_z_port_bind_offline_evidence_refuses_and_releases_cleanly(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-port-") as temp:

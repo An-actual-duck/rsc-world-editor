@@ -2,8 +2,6 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileStore;
@@ -12,6 +10,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -57,9 +56,16 @@ final class WorldBuilderAdaptiveImporter {
 	Preview preview(Path requestedProject,
 		Path requestedExport, Path requestedTarget)
 		throws IOException, WorldBuilderContractException {
+		return preview(requestedProject, requestedExport, requestedTarget, null);
+	}
+
+	Preview preview(Path requestedProject, Path requestedExport,
+		Path requestedTarget, String requestedTransactionId)
+		throws IOException, WorldBuilderContractException {
 		try {
 			ImportOutcome outcome = operate(
-				requestedProject, requestedExport, requestedTarget, null, null);
+				requestedProject, requestedExport, requestedTarget, null, null,
+				requestedTransactionId);
 			return new Preview(outcome.plan, requestedProject, requestedExport,
 				requestedTarget);
 		} catch (WorldBuilderContractException failure) {
@@ -70,28 +76,6 @@ final class WorldBuilderAdaptiveImporter {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "preview", false,
 				"Adaptive import preview was interrupted.",
 				"Retry after resolving the local interruption.", impossibleGateFailure);
-		}
-	}
-
-	ImportOutcome apply(Path requestedProject, Path requestedExport,
-		Path requestedTarget, final String confirmation)
-		throws IOException, WorldBuilderContractException {
-		try {
-			return operate(requestedProject, requestedExport, requestedTarget,
-				new ConfirmationGate() {
-					@Override public String confirm(
-						WorldBuilderAdaptiveMutationProfile.Plan plan) {
-						return confirmation;
-					}
-				}, null);
-		} catch (WorldBuilderContractException failure) {
-			throw failure;
-		} catch (IOException failure) {
-			throw failure;
-		} catch (Exception callbackFailure) {
-			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "confirmation", false,
-				"Adaptive import confirmation was interrupted.",
-				"Review a fresh preview and confirm again.", callbackFailure);
 		}
 	}
 
@@ -106,7 +90,7 @@ final class WorldBuilderAdaptiveImporter {
 						WorldBuilderAdaptiveMutationProfile.Plan plan) {
 						return confirmation;
 					}
-				}, preview);
+				}, preview, null);
 			return outcome.result;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -125,11 +109,12 @@ final class WorldBuilderAdaptiveImporter {
 		throws Exception {
 		if (confirmation == null) throw new IllegalArgumentException("confirmation");
 		return operate(requestedProject, requestedExport, requestedTarget,
-			confirmation, null);
+			confirmation, null, null);
 	}
 
 	private ImportOutcome operate(Path requestedProject, Path requestedExport,
-		Path requestedTarget, ConfirmationGate confirmation, Preview expectedPreview)
+		Path requestedTarget, ConfirmationGate confirmation, Preview expectedPreview,
+		String requestedTransactionId)
 		throws Exception {
 		/* Verify origin before resolving, opening, or locking any target path. */
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject initial =
@@ -156,17 +141,8 @@ final class WorldBuilderAdaptiveImporter {
 		}
 
 		Path project = initial.projectRoot;
-		Path run = WorldBuilderAdaptiveExporter.requireDirectory(
-			project, "run", "project run directory");
-		Path lockPath = run.resolve("world-builder.lock");
-		try (FileChannel channel = FileChannel.open(lockPath,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-			FileLock projectLock = tryLock(channel);
-			if (projectLock == null) throw problem(
-				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "run/world-builder.lock", false,
-				"The project is running or another project operation is active.",
-				"Close World Builder and wait for the other operation.");
-			try {
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
 				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 				requireSameProject(initial, verified);
@@ -188,9 +164,10 @@ final class WorldBuilderAdaptiveImporter {
 							"Target capability changed while its transaction lock was acquired.",
 							"Stop target updates and request a fresh import preview.");
 					}
-					String transactionId = expectedPreview == null
-						? UUID.randomUUID().toString()
-						: expectedPreview.plan.transactionId();
+					String transactionId = expectedPreview != null
+						? expectedPreview.plan.transactionId()
+						: requestedTransactionId == null
+							? UUID.randomUUID().toString() : requestedTransactionId;
 					WorldBuilderAdaptiveMutationProfile.Plan plan =
 						WorldBuilderAdaptiveMutationProfile.prepare(
 							verified, export, target, transactionId);
@@ -210,9 +187,6 @@ final class WorldBuilderAdaptiveImporter {
 					observe("plan-confirmed", project);
 					return new ImportOutcome(plan, applyLocked(plan, offline));
 				}
-			} finally {
-				projectLock.release();
-			}
 		}
 	}
 
@@ -225,10 +199,14 @@ final class WorldBuilderAdaptiveImporter {
 			"backups/" + plan.transactionId(), OPERATION);
 		String createdAt = WorldBuilderAdaptiveReceipt.now();
 		WorldBuilderAdaptiveReceipt.State receipt = null;
+		boolean receiptOwned = false;
 		boolean targetMutation = false;
-		List<Path> staged = new ArrayList<Path>();
+		WorldBuilderAdaptiveOwnedFiles staged = new WorldBuilderAdaptiveOwnedFiles();
+		List<OwnedDirectory> createdDirectories = new ArrayList<OwnedDirectory>();
 		try {
 			ensureFreeSpace(plan);
+			WorldBuilderAdaptiveReceipt.requireUnusedTransaction(
+				project, plan.transactionId());
 			Files.createDirectory(backupRoot);
 			writeTransactionEvidence(plan, backupRoot);
 			backupBeforeState(plan, backupRoot);
@@ -236,7 +214,8 @@ final class WorldBuilderAdaptiveImporter {
 			receipt = WorldBuilderAdaptiveReceipt.create(plan, "import", "pending",
 				createdAt, false, offline.evidence, false, false,
 				Collections.<WorldBuilderAdaptiveReceipt.Verification>emptyList(), "", "");
-			WorldBuilderAdaptiveReceipt.write(project, receipt);
+			WorldBuilderAdaptiveReceipt.writeNew(project, receipt);
+			receiptOwned = true;
 			observe("pending-receipt-written", receiptPath(project, plan.transactionId()));
 
 			/* Revalidate every immutable input after callbacks and before target writes. */
@@ -251,6 +230,8 @@ final class WorldBuilderAdaptiveImporter {
 				"Adaptive export changed after preview and before mutation.",
 				"Create and review a fresh complete export.");
 			verifyBeforeState(plan);
+			WorldBuilderAdaptiveMutationProfile.requireInstallRootsAbsent(plan);
+			verifyPlannedDirectoriesAbsent(plan);
 			observe("before-first-target-mutation", target);
 
 			int packageIndex = 0;
@@ -263,14 +244,15 @@ final class WorldBuilderAdaptiveImporter {
 					action.destinationRelativePath, targetMutation,
 					"A planned content-addressed destination appeared after preview.",
 					"Do not overwrite it; restore the exact preview state and retry.");
-				ensureParentDirectories(plan, destination.getParent());
+				ensureParentDirectories(plan, destination.getParent(), createdDirectories);
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".stage-" + plan.transactionId());
-				staged.add(temporary);
+				staged.reserve(temporary);
 				copyActionContent(plan, action, temporary);
+				staged.seal(temporary);
 				observe("package-file-staged-" + pad(packageIndex), temporary);
 				moveAtomicNew(temporary, destination, action.destinationRelativePath);
-				staged.remove(temporary);
+				staged.forget(temporary);
 				targetMutation = true;
 				observe("package-file-published-" + pad(packageIndex), destination);
 				packageIndex++;
@@ -284,14 +266,15 @@ final class WorldBuilderAdaptiveImporter {
 					"activation configuration");
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".stage-" + plan.transactionId());
-				staged.add(temporary);
-				writeBytes(temporary, action.generatedContent);
+				staged.reserve(temporary);
+				writeReserved(temporary, action.generatedContent);
 				verifyFile(temporary, action.after);
+				staged.seal(temporary);
 				observe("activation-staged", temporary);
 				observe("before-activation", destination);
 				moveAtomicReplacing(temporary, destination,
 					action.destinationRelativePath);
-				staged.remove(temporary);
+				staged.forget(temporary);
 				targetMutation = true;
 				observe("activation-published", destination);
 			}
@@ -308,11 +291,11 @@ final class WorldBuilderAdaptiveImporter {
 				plan.exportFingerprint(), plan.serverPackageRelativePath,
 				plan.clientPackageRelativePath, receiptPath(project, plan.transactionId()));
 		} catch (Throwable failure) {
-			cleanupStaged(staged);
-			if (!targetMutation) {
-				cleanupCreatedDirectories(plan);
+			IOException stagedCleanupFailure = staged.cleanup();
+			boolean changedTarget = targetMutation || !createdDirectories.isEmpty();
+			if (!changedTarget && stagedCleanupFailure == null) {
 				writeFailureReceiptIfPossible(plan, createdAt, offline, "failed-no-change",
-					false, false, failure);
+					false, false, receiptOwned, failure);
 				throw asContractFailure(failure, false,
 					"Adaptive import stopped before changing target content.",
 					"Correct the reported problem and request a fresh preview.");
@@ -320,7 +303,12 @@ final class WorldBuilderAdaptiveImporter {
 			try {
 				List<WorldBuilderAdaptiveReceipt.Verification> rollback =
 					rollback(plan);
-				cleanupCreatedDirectories(plan);
+				cleanupCreatedDirectories(createdDirectories);
+				if (stagedCleanupFailure != null) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, "target-stage", true,
+					"An invocation-owned target staging file could not be removed.",
+					"Keep the target offline and run exact adaptive recovery.",
+					stagedCleanupFailure);
 				WorldBuilderAdaptiveReceipt.State rolledBack =
 					WorldBuilderAdaptiveReceipt.create(plan, "import", "rolled-back",
 						createdAt, true, offline.evidence, false, true,
@@ -328,7 +316,7 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderAdaptiveReceipt.write(project, rolledBack);
 			} catch (WorldBuilderContractException rollbackFailure) {
 				writeFailureReceiptIfPossible(plan, createdAt, offline,
-					"recovery-required", true, false, rollbackFailure);
+					"recovery-required", true, false, receiptOwned, rollbackFailure);
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts/"
 					+ plan.transactionId() + ".json", true,
 					"Adaptive import and automatic rollback could not prove the target before state.",
@@ -336,7 +324,7 @@ final class WorldBuilderAdaptiveImporter {
 					rollbackFailure);
 			} catch (IOException rollbackFailure) {
 				writeFailureReceiptIfPossible(plan, createdAt, offline,
-					"recovery-required", true, false, rollbackFailure);
+					"recovery-required", true, false, receiptOwned, rollbackFailure);
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts/"
 					+ plan.transactionId() + ".json", true,
 					"Adaptive import and automatic rollback could not prove the target before state.",
@@ -376,13 +364,17 @@ final class WorldBuilderAdaptiveImporter {
 		long override = testUsableBytes();
 		long targetUsable = targetStore.getUsableSpace();
 		long projectUsable = projectStore.getUsableSpace();
+		long projectRequired = safeAdd(backupBytes, 1_048_576L);
 		/* The internal test bound may only make this check stricter. */
 		if (override >= 0L) {
 			targetUsable = Math.min(targetUsable, override);
 			projectUsable = Math.min(projectUsable, override);
 		}
-		if (targetUsable < targetBytes
-			|| projectUsable < backupBytes + 1_048_576L) {
+		boolean insufficient = targetStore.equals(projectStore)
+			? Math.min(targetUsable, projectUsable)
+				< safeAdd(targetBytes, projectRequired)
+			: targetUsable < targetBytes || projectUsable < projectRequired;
+		if (insufficient) {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,
 				"Target or project storage lacks space for content, backups, and receipts.",
 				"Free space without deleting project backups, then request a fresh preview.");
@@ -459,11 +451,11 @@ final class WorldBuilderAdaptiveImporter {
 		WorldBuilderAdaptiveMutationProfile.Action action, Path temporary)
 		throws IOException, WorldBuilderContractException {
 		if (action.generatedContent != null) {
-			writeBytes(temporary, action.generatedContent);
+			writeReserved(temporary, action.generatedContent);
 		} else {
 			Path source = WorldBuilderAdaptiveExporter.requireFile(
 				plan.export.root, action.contentRelativePath, "adaptive export content");
-			Files.copy(source, temporary);
+			Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
 			forceFile(temporary);
 		}
 		verifyFile(temporary, action.after);
@@ -546,12 +538,21 @@ final class WorldBuilderAdaptiveImporter {
 				verifyFile(backup, action.before);
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".rollback-" + plan.transactionId());
-				Files.copy(backup, temporary);
-				forceFile(temporary);
-				verifyFile(temporary, action.before);
-				observeRollback("rollback-before-" + pad(index), destination);
-				moveAtomicReplacing(temporary, destination,
-					action.destinationRelativePath);
+				WorldBuilderAdaptiveOwnedFiles owned =
+					new WorldBuilderAdaptiveOwnedFiles();
+				try {
+					owned.reserve(temporary);
+					Files.copy(backup, temporary, StandardCopyOption.REPLACE_EXISTING);
+					forceFile(temporary);
+					verifyFile(temporary, action.before);
+					owned.seal(temporary);
+					observeRollback("rollback-before-" + pad(index), destination);
+					moveAtomicReplacing(temporary, destination,
+						action.destinationRelativePath);
+					owned.forget(temporary);
+				} finally {
+					owned.cleanupOrThrow();
+				}
 			} else if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 				verifyState(plan.targetRoot, action.destinationRelativePath, action.after);
 				observeRollback("rollback-before-" + pad(index), destination);
@@ -576,8 +577,10 @@ final class WorldBuilderAdaptiveImporter {
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
 		if (!expected.present) return !Files.exists(path, LinkOption.NOFOLLOW_LINKS);
-		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(path) || Files.size(path) != expected.size) return false;
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return false;
+		path = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+			target, relative, "transaction state authority");
+		if (Files.size(path) != expected.size) return false;
 		return expected.sha256.equals(WorldBuilderHashes.sha256(path));
 	}
 
@@ -595,16 +598,42 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
+	private static void verifyPlannedDirectoriesAbsent(
+		WorldBuilderAdaptiveMutationProfile.Plan plan)
+		throws IOException, WorldBuilderContractException {
+		for (String relative : plan.directoriesToCreate) {
+			Path path = WorldBuilderPortablePath.resolveContained(
+				plan.targetRoot, relative, OPERATION);
+			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, relative, false,
+				"A directory planned absent appeared before the first target write.",
+				"Preserve the appeared path and request a fresh preview.");
+		}
+	}
+
 	private static void ensureParentDirectories(
-		WorldBuilderAdaptiveMutationProfile.Plan plan, Path parent)
+		WorldBuilderAdaptiveMutationProfile.Plan plan, Path parent,
+		List<OwnedDirectory> createdDirectories)
 		throws IOException, WorldBuilderContractException {
 		Path target = plan.targetRoot;
 		Path relative = target.relativize(parent.toAbsolutePath().normalize());
 		Path cursor = target;
 		for (Path segment : relative) {
 			cursor = cursor.resolve(segment.toString());
+			String relativeDirectory = target.relativize(cursor).toString()
+				.replace('\\', '/');
 			if (!Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
 				Files.createDirectory(cursor);
+				OwnedDirectory owned = new OwnedDirectory(relativeDirectory,
+					cursor.toAbsolutePath().normalize());
+				createdDirectories.add(owned);
+				owned.captureIdentity();
+			} else if (plan.directoriesToCreate.contains(relativeDirectory)
+				&& !containsOwnedDirectory(createdDirectories, relativeDirectory)) {
+				throw problem(WorldBuilderErrorCodes.TARGET_DRIFT,
+					relativeDirectory, false,
+					"A planned-absent directory appeared during staging.",
+					"Preserve the appeared directory and request a fresh preview.");
 			} else if (!Files.isDirectory(cursor, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(cursor)) {
 				throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
@@ -615,31 +644,72 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
-	private static void cleanupCreatedDirectories(
-		WorldBuilderAdaptiveMutationProfile.Plan plan) throws IOException {
-		List<String> reverse = new ArrayList<String>(plan.directoriesToCreate);
-		Collections.sort(reverse, new Comparator<String>() {
-			@Override public int compare(String left, String right) {
-				int depth = right.split("/").length - left.split("/").length;
-				return depth == 0 ? right.compareTo(left) : depth;
+	private static void cleanupCreatedDirectories(List<OwnedDirectory> owned)
+		throws IOException {
+		List<OwnedDirectory> reverse = new ArrayList<OwnedDirectory>(owned);
+		Collections.sort(reverse, new Comparator<OwnedDirectory>() {
+			@Override public int compare(OwnedDirectory left, OwnedDirectory right) {
+				int depth = right.relative.split("/").length
+					- left.relative.split("/").length;
+				return depth == 0 ? right.relative.compareTo(left.relative) : depth;
 			}
 		});
-		for (String relative : reverse) {
-			Path path = plan.targetRoot.resolve(relative).normalize();
-			if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
-				&& !Files.isSymbolicLink(path)) Files.delete(path);
+		for (OwnedDirectory directory : reverse) {
+			if (!Files.exists(directory.path, LinkOption.NOFOLLOW_LINKS)) continue;
+			BasicFileAttributes attributes = Files.readAttributes(directory.path,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!directory.matches(attributes)) throw new IOException(
+				"Invocation-owned directory identity changed: " + directory.relative);
+		}
+		for (OwnedDirectory directory : reverse) {
+			if (Files.exists(directory.path, LinkOption.NOFOLLOW_LINKS)) {
+				BasicFileAttributes attributes = Files.readAttributes(directory.path,
+					BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+				if (!directory.matches(attributes)) throw new IOException(
+					"Invocation-owned directory identity changed before deletion: "
+						+ directory.relative);
+				Files.delete(directory.path);
+			}
 		}
 	}
 
-	private static void cleanupStaged(List<Path> staged) {
-		for (Path path : staged) {
-			try {
-				if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-					&& !Files.isSymbolicLink(path)) Files.delete(path);
-			} catch (IOException ignored) {
-				// Rollback verification determines whether recovery is required.
-			}
+	private static boolean containsOwnedDirectory(List<OwnedDirectory> owned,
+		String relative) {
+		for (OwnedDirectory directory : owned) {
+			if (relative.equals(directory.relative)) return true;
 		}
+		return false;
+	}
+
+	private static final class OwnedDirectory {
+		final String relative;
+		final Path path;
+		Object fileKey;
+
+		OwnedDirectory(String relative, Path path) {
+			this.relative = relative;
+			this.path = path;
+		}
+
+		void captureIdentity() throws IOException {
+			BasicFileAttributes attributes = Files.readAttributes(path,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!attributes.isDirectory() || attributes.isSymbolicLink()) {
+				throw new IOException("Created target parent is not a real directory");
+			}
+			fileKey = attributes.fileKey();
+		}
+
+		boolean matches(BasicFileAttributes attributes) {
+			return attributes.isDirectory() && !attributes.isSymbolicLink()
+				&& fileKey != null && fileKey.equals(attributes.fileKey());
+		}
+	}
+
+	private static void writeReserved(Path path, byte[] bytes) throws IOException {
+		Files.write(path, bytes, StandardOpenOption.TRUNCATE_EXISTING,
+			StandardOpenOption.WRITE);
+		forceFile(path);
 	}
 
 	private static void verifyState(Path target, String relative,
@@ -671,13 +741,7 @@ final class WorldBuilderAdaptiveImporter {
 
 	private static void moveAtomicNew(Path source, Path destination, String relative)
 		throws IOException, WorldBuilderContractException {
-		try {
-			Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE);
-		} catch (AtomicMoveNotSupportedException unsupported) {
-			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, relative, false,
-				"Target filesystem cannot atomically publish package content.",
-				"Use a local filesystem with atomic same-directory moves.", unsupported);
-		}
+		WorldBuilderAdaptiveAtomicFiles.moveNew(source, destination, OPERATION, relative);
 	}
 
 	private static void moveAtomicReplacing(Path source, Path destination,
@@ -706,7 +770,8 @@ final class WorldBuilderAdaptiveImporter {
 	private static void writeFailureReceiptIfPossible(
 		WorldBuilderAdaptiveMutationProfile.Plan plan, String createdAt,
 		WorldBuilderAdaptiveOfflineLease offline, String status,
-		boolean mutationOccurred, boolean rollbackVerified, Throwable failure) {
+		boolean mutationOccurred, boolean rollbackVerified, boolean receiptOwned,
+		Throwable failure) {
 		try {
 			List<WorldBuilderAdaptiveReceipt.Verification> values =
 				new ArrayList<WorldBuilderAdaptiveReceipt.Verification>();
@@ -719,7 +784,11 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderAdaptiveReceipt.create(plan, "import", status, createdAt,
 					mutationOccurred, offline.evidence, false, rollbackVerified,
 					values, "", "");
-			WorldBuilderAdaptiveReceipt.write(plan.project.projectRoot, receipt);
+			if (receiptOwned) {
+				WorldBuilderAdaptiveReceipt.write(plan.project.projectRoot, receipt);
+			} else {
+				WorldBuilderAdaptiveReceipt.writeNew(plan.project.projectRoot, receipt);
+			}
 		} catch (Exception ignored) {
 			// The primary failure remains authoritative; missing durable recovery
 			// evidence is reported as RECOVERY_REQUIRED by the caller.
@@ -768,14 +837,6 @@ final class WorldBuilderAdaptiveImporter {
 
 	private void observe(String milestone, Path path) throws Exception {
 		observer.observe(milestone, path);
-	}
-
-	private static FileLock tryLock(FileChannel channel) throws IOException {
-		try {
-			return channel.tryLock();
-		} catch (OverlappingFileLockException busy) {
-			return null;
-		}
 	}
 
 	private static void requireSameProject(
@@ -839,6 +900,15 @@ final class WorldBuilderAdaptiveImporter {
 
 		String toJson() {
 			return plan.toJson();
+		}
+
+		String transactionId() throws WorldBuilderContractException {
+			return plan.transactionId();
+		}
+
+		String planFingerprintSha256() throws WorldBuilderContractException {
+			return WorldBuilderAdaptiveExporter.string(
+				plan.document, "planFingerprintSha256");
 		}
 	}
 

@@ -2,10 +2,7 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -23,6 +20,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -63,26 +61,9 @@ final class WorldBuilderAdaptiveExporter {
 	ExportResult export(Path requestedProject)
 		throws IOException, WorldBuilderContractException {
 		Path project = requireProjectRoot(requestedProject);
-		Path run = requireDirectory(project, "run", "project run directory");
-		Path lockPath = run.resolve("world-builder.lock");
-		if (Files.exists(lockPath, LinkOption.NOFOLLOW_LINKS)
-			&& (!Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)
-				|| Files.isSymbolicLink(lockPath))) {
-			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "run/world-builder.lock",
-				"Project lock path is not a regular contained file.",
-				"Restore the project run directory before exporting.");
-		}
-		try (FileChannel channel = FileChannel.open(lockPath,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-			FileLock lock = tryLock(channel);
-			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-				"run/world-builder.lock", "The project is running or already in use.",
-				"Close World Builder and wait for the other project operation.");
-			try {
-				return exportLocked(project);
-			} finally {
-				lock.release();
-			}
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			return exportLocked(project);
 		}
 	}
 
@@ -114,31 +95,30 @@ final class WorldBuilderAdaptiveExporter {
 		String fingerprint = string(manifest, "exportFingerprintSha256");
 		Path published = uniqueExportPath(exports, fingerprint);
 		Path stage = exports.resolve(".staging-" + UUID.randomUUID().toString()).normalize();
-		Path incomplete = stage;
+		Path incomplete = null;
+		OwnedTree owned = new OwnedTree();
 		requireContained(exports, stage, "export staging directory");
 		try {
 			Files.createDirectory(stage);
+			incomplete = stage;
+			owned.record(stage, stage);
 			observe("stage-created", stage);
-			copyPackage(verified, stage.resolve(PACKAGE_DIRECTORY));
+			copyPackage(verified, stage.resolve(PACKAGE_DIRECTORY), owned);
 			observe("package-copied", stage);
 			writeNew(stage.resolve(VALIDATION_FILE),
 				WorldBuilderJsonDocuments.pretty(validation).getBytes(StandardCharsets.UTF_8));
+			owned.record(stage, stage.resolve(VALIDATION_FILE));
 			writeNew(stage.resolve(MANIFEST_FILE),
 				WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8));
+			owned.record(stage, stage.resolve(MANIFEST_FILE));
 			validate(stage, verified);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject finalProject =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			requireSameProject(verified, finalProject);
 			observe("before-publish", stage);
-			try {
-				Files.move(stage, published, StandardCopyOption.ATOMIC_MOVE);
-				incomplete = published;
-			} catch (AtomicMoveNotSupportedException unsupported) {
-				throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "exports",
-					"This filesystem cannot atomically publish an adaptive export.",
-					"Move the complete closed project to a filesystem with atomic directory moves.",
-					unsupported);
-			}
+			WorldBuilderAdaptiveAtomicFiles.moveNew(
+				stage, published, OPERATION, "exports");
+			incomplete = published;
 			observe("after-publish", published);
 			validate(published, verified);
 			incomplete = null;
@@ -146,16 +126,16 @@ final class WorldBuilderAdaptiveExporter {
 				fingerprint, verified.working.fingerprintSha256,
 				verified.working.files.size());
 		} catch (WorldBuilderContractException failure) {
-			deleteTree(incomplete);
+			cleanupAfterFailure(owned, incomplete, failure);
 			throw failure;
 		} catch (IOException failure) {
-			deleteTree(incomplete);
+			cleanupAfterFailure(owned, incomplete, failure);
 			throw failure;
 		} catch (RuntimeException failure) {
-			deleteTree(incomplete);
+			cleanupAfterFailure(owned, incomplete, failure);
 			throw failure;
 		} catch (Exception callbackFailure) {
-			deleteTree(incomplete);
+			cleanupAfterFailure(owned, incomplete, callbackFailure);
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "exports",
 				"Adaptive export was interrupted before atomic publication.",
 				"Retry after resolving the injected or environmental failure.",
@@ -345,6 +325,9 @@ final class WorldBuilderAdaptiveExporter {
 			|| !project.origin.equals(string(value, "origin"))
 			|| !project.working.fingerprintSha256.equals(
 				string(value, "packageFingerprintSha256"))
+			|| !packageManifestHash(project.working,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/")
+					.equals(string(value, "packageManifestSha256"))
 			|| !project.working.packageId.equals(string(value, "packageId"))
 			|| !project.working.packageVersion.equals(string(value, "packageVersion"))
 			|| !project.working.worldSpace.equals(string(value, "worldSpace"))
@@ -398,9 +381,12 @@ final class WorldBuilderAdaptiveExporter {
 	}
 
 	private static void copyPackage(
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path destination)
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path destination,
+		OwnedTree owned)
 		throws IOException, WorldBuilderContractException {
 		Files.createDirectory(destination);
+		Path stage = destination.getParent();
+		owned.record(stage, destination);
 		String prefix = WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/";
 		for (WorldBuilderReadOnlyTarget.FileState file : project.working.files) {
 			if (!file.relativePath.startsWith(prefix)) throw problem(
@@ -413,14 +399,32 @@ final class WorldBuilderAdaptiveExporter {
 			Path target = WorldBuilderPortablePath.resolveContained(
 				destination, inside, OPERATION);
 			requireContained(destination, target, inside);
-			Files.createDirectories(target.getParent());
+			ensureOwnedDirectories(stage, destination, target.getParent(), owned);
 			Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES);
+			owned.record(stage, target);
 			if (Files.size(target) != file.size
 				|| !file.sha256.equals(WorldBuilderHashes.sha256(target))) {
 				throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
 					PACKAGE_DIRECTORY + "/" + inside,
 					"Staged export copy did not verify byte-for-byte.",
 					"Check storage health and retry export.");
+			}
+		}
+	}
+
+	private static void ensureOwnedDirectories(Path stage, Path packageRoot,
+		Path parent, OwnedTree owned) throws IOException {
+		Path relative = packageRoot.relativize(parent);
+		Path cursor = packageRoot;
+		for (Path segment : relative) {
+			cursor = cursor.resolve(segment.toString());
+			if (!Files.exists(cursor, LinkOption.NOFOLLOW_LINKS)) {
+				Files.createDirectory(cursor);
+				owned.record(stage, cursor);
+			} else if (!owned.matches(stage, cursor,
+				Files.readAttributes(cursor, BasicFileAttributes.class,
+					LinkOption.NOFOLLOW_LINKS))) {
+				throw new IOException("Export package parent identity changed");
 			}
 		}
 	}
@@ -533,7 +537,7 @@ final class WorldBuilderAdaptiveExporter {
 		return values;
 	}
 
-	private static void rejectHardLink(Path path, String relative)
+	static void rejectHardLink(Path path, String relative)
 		throws IOException, WorldBuilderContractException {
 		try {
 			Object links = Files.getAttribute(path, "unix:nlink", LinkOption.NOFOLLOW_LINKS);
@@ -668,37 +672,95 @@ final class WorldBuilderAdaptiveExporter {
 		return ((Boolean)raw).booleanValue();
 	}
 
-	private static FileLock tryLock(FileChannel channel) throws IOException {
-		try {
-			return channel.tryLock();
-		} catch (OverlappingFileLockException busy) {
-			return null;
-		}
-	}
-
 	private void observe(String milestone, Path stage) throws Exception {
 		observer.observe(milestone, stage);
 	}
 
-	private static void deleteTree(Path root) throws IOException {
-		if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return;
-		if (Files.isSymbolicLink(root)) throw new IOException("Refusing linked export cleanup");
-		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
-			@Override public FileVisitResult visitFile(Path file,
-				BasicFileAttributes attributes) throws IOException {
-				if (!attributes.isRegularFile() || Files.isSymbolicLink(file)) {
-					throw new IOException("Refusing unsafe export cleanup");
+	private static void cleanupAfterFailure(OwnedTree owned, Path root,
+		Throwable original) throws WorldBuilderContractException {
+		try {
+			owned.delete(root);
+		} catch (IOException cleanupFailure) {
+			cleanupFailure.addSuppressed(original);
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "exports",
+				"Failed export cleanup could not prove exclusive ownership of every path.",
+				"Preserve the incomplete export for owner review; do not delete unknown content.",
+				cleanupFailure);
+		}
+	}
+
+	private static final class OwnedTree {
+		private final Map<String,OwnedEntry> entries =
+			new LinkedHashMap<String,OwnedEntry>();
+
+		void record(Path root, Path path) throws IOException {
+			BasicFileAttributes attributes = Files.readAttributes(path,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			String relative = root.relativize(path).toString().replace('\\', '/');
+			entries.put(relative, new OwnedEntry(attributes.isDirectory(),
+				attributes.isRegularFile(), attributes.fileKey()));
+		}
+
+		boolean matches(Path root, Path path, BasicFileAttributes attributes) {
+			String relative = root.relativize(path).toString().replace('\\', '/');
+			OwnedEntry expected = entries.get(relative);
+			return expected != null
+				&& expected.directory == attributes.isDirectory()
+				&& expected.regularFile == attributes.isRegularFile()
+				&& expected.fileKey != null
+				&& Objects.equals(expected.fileKey, attributes.fileKey());
+		}
+
+		void delete(final Path root) throws IOException {
+			if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return;
+			Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+				@Override public FileVisitResult preVisitDirectory(Path directory,
+					BasicFileAttributes attributes) throws IOException {
+					if (!matches(root, directory, attributes)) throw new IOException(
+						"Refusing export cleanup after directory identity changed");
+					return FileVisitResult.CONTINUE;
 				}
-				Files.delete(file);
-				return FileVisitResult.CONTINUE;
-			}
-			@Override public FileVisitResult postVisitDirectory(Path directory,
-				IOException failure) throws IOException {
-				if (failure != null) throw failure;
-				Files.delete(directory);
-				return FileVisitResult.CONTINUE;
-			}
-		});
+				@Override public FileVisitResult visitFile(Path file,
+					BasicFileAttributes attributes) throws IOException {
+					if (!matches(root, file, attributes)) throw new IOException(
+						"Refusing export cleanup after file identity changed");
+					return FileVisitResult.CONTINUE;
+				}
+			});
+			Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+				@Override public FileVisitResult visitFile(Path file,
+					BasicFileAttributes attributes) throws IOException {
+					BasicFileAttributes current = Files.readAttributes(file,
+						BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+					if (!matches(root, file, current)) throw new IOException(
+						"Refusing export cleanup after file identity changed");
+					Files.delete(file);
+					return FileVisitResult.CONTINUE;
+				}
+				@Override public FileVisitResult postVisitDirectory(Path directory,
+					IOException failure) throws IOException {
+					if (failure != null) throw failure;
+					BasicFileAttributes current = Files.readAttributes(directory,
+						BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+					if (!matches(root, directory, current)) throw new IOException(
+						"Refusing export cleanup after directory identity changed");
+					Files.delete(directory);
+					return FileVisitResult.CONTINUE;
+				}
+			});
+		}
+	}
+
+	private static final class OwnedEntry {
+		final boolean directory;
+		final boolean regularFile;
+		final Object fileKey;
+
+		OwnedEntry(boolean directory, boolean regularFile, Object fileKey) {
+			this.directory = directory;
+			this.regularFile = regularFile;
+			this.fileKey = fileKey;
+		}
 	}
 
 	private static WorldBuilderContractException problem(

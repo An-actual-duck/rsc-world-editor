@@ -108,6 +108,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
 			+ packageFingerprint + "/package";
+		requireInstallRootsAbsent(target, serverPackage, clientPackage);
 		Map<String,Object> originalConfiguration = readOnly.readObject(configurationPath);
 		Map<String,Object> installedConfiguration = deepCopy(originalConfiguration);
 		installedConfiguration.put("representation", "layered");
@@ -341,6 +342,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Path durablePlan = WorldBuilderPortablePath.resolveContained(
 			project.projectRoot, "backups/" + transactionId + "/mutation-plan.json",
 			OPERATION);
+		WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+			"backups/" + transactionId + "/mutation-plan.json",
+			"durable adaptive mutation plan");
 		WorldBuilderAdaptiveContracts.Document stored =
 			WorldBuilderAdaptiveContracts.read(
 				WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, durablePlan);
@@ -424,12 +428,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderPortablePath.resolveContained(project,
 			"backups/" + transactionId + "/created-directories.json", OPERATION);
-		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(path)) throw problem(
-			WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+		WorldBuilderAdaptiveExporter.requireFile(project,
 			"backups/" + transactionId + "/created-directories.json",
-			"Durable created-directory evidence is missing or unsafe.",
-			"Retain the complete transaction backup before undo or recovery.");
+			"durable created-directory evidence");
 		Map<String,Object> value;
 		try {
 			value = WorldBuilderJsonDocuments.readObject(path);
@@ -744,6 +745,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Path durable = WorldBuilderPortablePath.resolveContained(
 			plan.project.projectRoot,
 			"backups/" + plan.transactionId() + "/mutation-plan.json", OPERATION);
+		WorldBuilderAdaptiveExporter.requireFile(plan.project.projectRoot,
+			"backups/" + plan.transactionId() + "/mutation-plan.json",
+			"durable adaptive mutation plan");
 		WorldBuilderAdaptiveContracts.Document stored =
 			WorldBuilderAdaptiveContracts.read(
 				WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, durable);
@@ -776,8 +780,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		throws IOException, WorldBuilderContractException {
 		Path path = safeDestination(target, relative);
 		if (!state.present) return !Files.exists(path, LinkOption.NOFOLLOW_LINKS);
-		return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-			&& !Files.isSymbolicLink(path) && Files.size(path) == state.size
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return false;
+		path = safeExistingFile(target, relative, "transaction state authority");
+		return Files.size(path) == state.size
 			&& state.sha256.equals(WorldBuilderHashes.sha256(path));
 	}
 
@@ -836,6 +841,29 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Content-addressed install destination already exists.",
 				"Do not overwrite it; undo the matching prior import or use a fresh export/target.");
 		}
+	}
+
+	static void requireInstallRootsAbsent(Plan plan)
+		throws IOException, WorldBuilderContractException {
+		requireInstallRootsAbsent(plan.targetRoot, plan.serverPackageRelativePath,
+			plan.clientPackageRelativePath);
+	}
+
+	private static void requireInstallRootsAbsent(Path target,
+		String serverPackage, String clientPackage)
+		throws IOException, WorldBuilderContractException {
+		requireAbsentDestination(target, fingerprintRoot(serverPackage));
+		requireAbsentDestination(target, fingerprintRoot(clientPackage));
+	}
+
+	private static String fingerprintRoot(String packagePath)
+		throws WorldBuilderContractException {
+		String suffix = "/package";
+		if (!packagePath.endsWith(suffix)) throw problem(
+			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, packagePath,
+			"Compiled content-addressed package path has an unexpected shape.",
+			"Use the exact supported adaptive install profile.");
+		return packagePath.substring(0, packagePath.length() - suffix.length());
 	}
 
 	static Path safeDestination(Path target, String relative)

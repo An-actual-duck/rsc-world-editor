@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.UUID;
 
 /** Initial read-only command-line boundary for World Builder project discovery. */
 public final class WorldBuilderCli {
@@ -356,16 +357,40 @@ public final class WorldBuilderCli {
 		Path export = null;
 		Path target = null;
 		String confirmation = null;
+		String expectedTransactionId = null;
+		String expectedPlanFingerprint = null;
+		boolean projectSeen = false;
+		boolean exportSeen = false;
+		boolean targetSeen = false;
+		boolean confirmationSeen = false;
+		boolean transactionSeen = false;
+		boolean fingerprintSeen = false;
 		for (int index = 1; index < args.length; index++) {
 			String argument = args[index];
-			if ("--project".equals(argument) && index + 1 < args.length) {
+			if ("--project".equals(argument) && index + 1 < args.length
+				&& !projectSeen) {
+				projectSeen = true;
 				project = Paths.get(args[++index]);
-			} else if ("--export".equals(argument) && index + 1 < args.length) {
+			} else if ("--export".equals(argument) && index + 1 < args.length
+				&& !exportSeen) {
+				exportSeen = true;
 				export = Paths.get(args[++index]);
-			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+			} else if ("--target-root".equals(argument) && index + 1 < args.length
+				&& !targetSeen) {
+				targetSeen = true;
 				target = Paths.get(args[++index]);
-			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+			} else if ("--confirm".equals(argument) && index + 1 < args.length
+				&& !confirmationSeen) {
+				confirmationSeen = true;
 				confirmation = args[++index];
+			} else if ("--transaction-id".equals(argument)
+				&& index + 1 < args.length && !transactionSeen) {
+				transactionSeen = true;
+				expectedTransactionId = args[++index];
+			} else if ("--plan-sha256".equals(argument)
+				&& index + 1 < args.length && !fingerprintSeen) {
+				fingerprintSeen = true;
+				expectedPlanFingerprint = args[++index];
 			} else {
 				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
 					+ argument);
@@ -375,16 +400,25 @@ public final class WorldBuilderCli {
 		if (project == null || export == null) {
 			System.err.println("ERROR: import-adaptive requires --project and --export. "
 				+ "--target-root is required only for a target-backed project; optional "
-				+ "--confirm IMPORT applies the exact preview.");
+				+ "reviewed-plan options apply an exact preview.");
 			return 2;
 		}
+		if (!validReviewedPlanArguments(confirmation, expectedTransactionId,
+			expectedPlanFingerprint, "IMPORT", "import-adaptive")) return 2;
 		try {
 			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
 			WorldBuilderAdaptiveImporter.Preview preview =
-				importer.preview(project, export, target);
+				confirmation == null
+					? importer.preview(project, export, target)
+					: importer.preview(project, export, target, expectedTransactionId);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) return 0;
+			if (confirmation == null) {
+				System.out.print(preview.toJson());
+				return 0;
+			}
+			if (!expectedPlanFingerprint.equals(preview.planFingerprintSha256())) {
+				return reviewedPlanMismatch("import-adaptive");
+			}
 			System.out.print(importer.apply(preview, confirmation).toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
@@ -396,23 +430,9 @@ public final class WorldBuilderCli {
 	}
 
 	private static int importActiveAdaptive(String[] args) {
-		Path installation = null;
-		String confirmation = null;
-		for (int index = 1; index < args.length; index++) {
-			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
-				installation = Paths.get(args[++index]);
-			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
-				confirmation = args[++index];
-			} else {
-				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
-					+ args[index]);
-				return 2;
-			}
-		}
-		if (installation == null) {
-			System.err.println("ERROR: import-active-adaptive requires --installation-root.");
-			return 2;
-		}
+		Path installation = singlePathOption(args, "--installation-root",
+			"import-active-adaptive");
+		if (installation == null) return 2;
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
@@ -430,16 +450,12 @@ public final class WorldBuilderCli {
 			WorldBuilderAdaptiveImporter.Preview preview = importer.preview(
 				project.projectRoot, exported.exportDirectory, target);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) {
-				if (!confirm("IMPORT", "Type IMPORT to install the exact preview, "
-					+ "or press Enter to cancel: ")) {
-					System.out.println("Import cancelled; no target file was changed.");
-					return 0;
-				}
-				confirmation = "IMPORT";
+			if (!confirmAdaptive("IMPORT", "Type IMPORT to install the exact preview, "
+				+ "or press Enter to cancel: ")) {
+				System.err.println("Import cancelled; no target file was changed.");
+				return 0;
 			}
-			System.out.print(importer.apply(preview, confirmation).toJson());
+			System.out.print(importer.apply(preview, "IMPORT").toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);
@@ -454,14 +470,35 @@ public final class WorldBuilderCli {
 		Path project = null;
 		Path target = null;
 		String confirmation = null;
+		String expectedTransactionId = null;
+		String expectedPlanFingerprint = null;
+		boolean projectSeen = false;
+		boolean targetSeen = false;
+		boolean confirmationSeen = false;
+		boolean transactionSeen = false;
+		boolean fingerprintSeen = false;
 		for (int index = 1; index < args.length; index++) {
 			String argument = args[index];
-			if ("--project".equals(argument) && index + 1 < args.length) {
+			if ("--project".equals(argument) && index + 1 < args.length
+				&& !projectSeen) {
+				projectSeen = true;
 				project = Paths.get(args[++index]);
-			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+			} else if ("--target-root".equals(argument) && index + 1 < args.length
+				&& !targetSeen) {
+				targetSeen = true;
 				target = Paths.get(args[++index]);
-			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+			} else if ("--confirm".equals(argument) && index + 1 < args.length
+				&& !confirmationSeen) {
+				confirmationSeen = true;
 				confirmation = args[++index];
+			} else if ("--transaction-id".equals(argument)
+				&& index + 1 < args.length && !transactionSeen) {
+				transactionSeen = true;
+				expectedTransactionId = args[++index];
+			} else if ("--plan-sha256".equals(argument)
+				&& index + 1 < args.length && !fingerprintSeen) {
+				fingerprintSeen = true;
+				expectedPlanFingerprint = args[++index];
 			} else {
 				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
 					+ argument);
@@ -471,15 +508,24 @@ public final class WorldBuilderCli {
 		if (project == null) {
 			System.err.println("ERROR: undo-adaptive requires --project. "
 				+ "--target-root is required only for a target-backed project; optional "
-				+ "--confirm UNDO applies the exact preview.");
+				+ "reviewed-plan options apply an exact preview.");
 			return 2;
 		}
+		if (!validReviewedPlanArguments(confirmation, expectedTransactionId,
+			expectedPlanFingerprint, "UNDO", "undo-adaptive")) return 2;
 		try {
 			WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
-			WorldBuilderAdaptiveUndo.Preview preview = undo.preview(project, target);
+			WorldBuilderAdaptiveUndo.Preview preview = confirmation == null
+				? undo.preview(project, target)
+				: undo.preview(project, target, expectedTransactionId);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) return 0;
+			if (confirmation == null) {
+				System.out.print(preview.toJson());
+				return 0;
+			}
+			if (!expectedPlanFingerprint.equals(preview.planFingerprintSha256())) {
+				return reviewedPlanMismatch("undo-adaptive");
+			}
 			System.out.print(undo.apply(preview, confirmation).toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
@@ -491,23 +537,9 @@ public final class WorldBuilderCli {
 	}
 
 	private static int undoActiveAdaptive(String[] args) {
-		Path installation = null;
-		String confirmation = null;
-		for (int index = 1; index < args.length; index++) {
-			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
-				installation = Paths.get(args[++index]);
-			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
-				confirmation = args[++index];
-			} else {
-				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
-					+ args[index]);
-				return 2;
-			}
-		}
-		if (installation == null) {
-			System.err.println("ERROR: undo-active-adaptive requires --installation-root.");
-			return 2;
-		}
+		Path installation = singlePathOption(args, "--installation-root",
+			"undo-active-adaptive");
+		if (installation == null) return 2;
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
@@ -522,16 +554,12 @@ public final class WorldBuilderCli {
 			WorldBuilderAdaptiveUndo.Preview preview =
 				undo.preview(project.projectRoot, target);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) {
-				if (!confirm("UNDO", "Type UNDO to restore the exact pre-import state, "
-					+ "or press Enter to cancel: ")) {
-					System.out.println("Undo cancelled; no target file was changed.");
-					return 0;
-				}
-				confirmation = "UNDO";
+			if (!confirmAdaptive("UNDO", "Type UNDO to restore the exact pre-import state, "
+				+ "or press Enter to cancel: ")) {
+				System.err.println("Undo cancelled; no target file was changed.");
+				return 0;
 			}
-			System.out.print(undo.apply(preview, confirmation).toJson());
+			System.out.print(undo.apply(preview, "UNDO").toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);
@@ -546,14 +574,35 @@ public final class WorldBuilderCli {
 		Path project = null;
 		Path target = null;
 		String confirmation = null;
+		String expectedTransactionId = null;
+		String expectedPlanFingerprint = null;
+		boolean projectSeen = false;
+		boolean targetSeen = false;
+		boolean confirmationSeen = false;
+		boolean transactionSeen = false;
+		boolean fingerprintSeen = false;
 		for (int index = 1; index < args.length; index++) {
 			String argument = args[index];
-			if ("--project".equals(argument) && index + 1 < args.length) {
+			if ("--project".equals(argument) && index + 1 < args.length
+				&& !projectSeen) {
+				projectSeen = true;
 				project = Paths.get(args[++index]);
-			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+			} else if ("--target-root".equals(argument) && index + 1 < args.length
+				&& !targetSeen) {
+				targetSeen = true;
 				target = Paths.get(args[++index]);
-			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+			} else if ("--confirm".equals(argument) && index + 1 < args.length
+				&& !confirmationSeen) {
+				confirmationSeen = true;
 				confirmation = args[++index];
+			} else if ("--transaction-id".equals(argument)
+				&& index + 1 < args.length && !transactionSeen) {
+				transactionSeen = true;
+				expectedTransactionId = args[++index];
+			} else if ("--plan-sha256".equals(argument)
+				&& index + 1 < args.length && !fingerprintSeen) {
+				fingerprintSeen = true;
+				expectedPlanFingerprint = args[++index];
 			} else {
 				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
 					+ argument);
@@ -563,16 +612,24 @@ public final class WorldBuilderCli {
 		if (project == null) {
 			System.err.println("ERROR: recover-adaptive requires --project. "
 				+ "--target-root is required only for a target-backed project; optional "
-				+ "--confirm RECOVER applies the exact preview.");
+				+ "reviewed-plan options apply an exact preview.");
 			return 2;
 		}
+		if (!validReviewedPlanArguments(confirmation, expectedTransactionId,
+			expectedPlanFingerprint, "RECOVER", "recover-adaptive")) return 2;
 		try {
 			WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
-			WorldBuilderAdaptiveRecovery.Preview preview =
-				recovery.preview(project, target);
+			WorldBuilderAdaptiveRecovery.Preview preview = confirmation == null
+				? recovery.preview(project, target)
+				: recovery.preview(project, target, expectedTransactionId);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) return 0;
+			if (confirmation == null) {
+				System.out.print(preview.toJson());
+				return 0;
+			}
+			if (!expectedPlanFingerprint.equals(preview.planFingerprintSha256())) {
+				return reviewedPlanMismatch("recover-adaptive");
+			}
 			System.out.print(recovery.apply(preview, confirmation).toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
@@ -585,24 +642,9 @@ public final class WorldBuilderCli {
 	}
 
 	private static int recoverActiveAdaptive(String[] args) {
-		Path installation = null;
-		String confirmation = null;
-		for (int index = 1; index < args.length; index++) {
-			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
-				installation = Paths.get(args[++index]);
-			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
-				confirmation = args[++index];
-			} else {
-				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
-					+ args[index]);
-				return 2;
-			}
-		}
-		if (installation == null) {
-			System.err.println(
-				"ERROR: recover-active-adaptive requires --installation-root.");
-			return 2;
-		}
+		Path installation = singlePathOption(args, "--installation-root",
+			"recover-active-adaptive");
+		if (installation == null) return 2;
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
@@ -617,17 +659,12 @@ public final class WorldBuilderCli {
 			WorldBuilderAdaptiveRecovery.Preview preview =
 				recovery.preview(project.projectRoot, target);
 			System.err.print(preview.humanSummary());
-			System.out.print(preview.toJson());
-			if (confirmation == null) {
-				if (!confirm("RECOVER", "Type RECOVER to restore the exact transaction "
-					+ "before state, or press Enter to leave recovery pending: ")) {
-					System.out.println(
-						"Recovery left pending; keep the target offline.");
-					return 0;
-				}
-				confirmation = "RECOVER";
+			if (!confirmAdaptive("RECOVER", "Type RECOVER to restore the exact transaction "
+				+ "before state, or press Enter to leave recovery pending: ")) {
+				System.err.println("Recovery left pending; keep the target offline.");
+				return 0;
 			}
-			System.out.print(recovery.apply(preview, confirmation).toJson());
+			System.out.print(recovery.apply(preview, "RECOVER").toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);
@@ -794,6 +831,47 @@ public final class WorldBuilderCli {
 			+ (refusal.relativePath().isEmpty() ? ""
 				: " Source: " + refusal.relativePath() + ".")
 			+ " Next step: " + refusal.nextStep());
+		return 3;
+	}
+
+	private static boolean validReviewedPlanArguments(String confirmation,
+		String transactionId, String planFingerprint, String expectedConfirmation,
+		String command) {
+		if (confirmation == null) {
+			if (transactionId != null || planFingerprint != null) {
+				System.err.println("ERROR: " + command
+					+ " accepts --transaction-id and --plan-sha256 only with --confirm "
+					+ expectedConfirmation + ".");
+				return false;
+			}
+			return true;
+		}
+		if (transactionId == null || planFingerprint == null) {
+			System.err.println("ERROR: " + command + " --confirm "
+				+ expectedConfirmation + " requires the exact --transaction-id and "
+				+ "--plan-sha256 emitted by the reviewed preview.");
+			return false;
+		}
+		try {
+			if (!UUID.fromString(transactionId).toString().equals(transactionId)) {
+				throw new IllegalArgumentException("non-canonical UUID");
+			}
+		} catch (IllegalArgumentException invalid) {
+			System.err.println("ERROR: --transaction-id must be one canonical lowercase UUID.");
+			return false;
+		}
+		if (!planFingerprint.matches("[0-9a-f]{64}")) {
+			System.err.println("ERROR: --plan-sha256 must be one lowercase SHA-256 value.");
+			return false;
+		}
+		return true;
+	}
+
+	private static int reviewedPlanMismatch(String command) {
+		System.err.println("ERROR [" + WorldBuilderErrorCodes.TARGET_DRIFT + "]: "
+			+ command + " refused because --plan-sha256 does not identify the exact "
+			+ "independently recompiled plan. Request and review a fresh preview; "
+			+ "no transaction artifact or target file was changed.");
 		return 3;
 	}
 
@@ -1115,6 +1193,15 @@ public final class WorldBuilderCli {
 		return expected.equals(response == null ? "" : response.trim());
 	}
 
+	private static boolean confirmAdaptive(String expected, String prompt)
+		throws Exception {
+		System.err.print(prompt);
+		System.err.flush();
+		String response = new BufferedReader(new InputStreamReader(
+			System.in, StandardCharsets.UTF_8.name())).readLine();
+		return expected.equals(response == null ? "" : response);
+	}
+
 	private static int export(String[] args) {
 		Path workspace = null; String builderVersion = null; String sourceCommit = null;
 		for (int index = 1; index < args.length; index++) {
@@ -1326,20 +1413,21 @@ public final class WorldBuilderCli {
 			+ " --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli import-adaptive --project <projects/uuid>"
 			+ " --export <export-directory> [--target-root <server-root>]"
-			+ " [--confirm IMPORT]"
+			+ " [--confirm IMPORT --transaction-id <preview-uuid>"
+			+ " --plan-sha256 <preview-sha256>]"
 			+ "\n  WorldBuilderCli undo-adaptive --project <projects/uuid>"
-			+ " [--target-root <server-root>] [--confirm UNDO]"
+			+ " [--target-root <server-root>] [--confirm UNDO"
+			+ " --transaction-id <preview-uuid> --plan-sha256 <preview-sha256>]"
 			+ "\n  WorldBuilderCli recover-adaptive --project <projects/uuid>"
-			+ " [--target-root <server-root>] [--confirm RECOVER]"
+			+ " [--target-root <server-root>] [--confirm RECOVER"
+			+ " --transaction-id <preview-uuid> --plan-sha256 <preview-sha256>]"
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
 			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
-			+ " [--confirm IMPORT]"
 			+ "\n  WorldBuilderCli undo-active-adaptive --installation-root <World Builder 2>"
-			+ " [--confirm UNDO]"
 			+ "\n  WorldBuilderCli recover-active-adaptive"
-			+ " --installation-root <World Builder 2> [--confirm RECOVER]"
+			+ " --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
 			+ " [--config server/myworld.conf]"
 			+ " [--expected-content-sha256 <sha256>]"

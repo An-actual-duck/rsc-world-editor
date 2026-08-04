@@ -254,9 +254,23 @@ java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
 The preview contains an actual transaction UUID, exact server/client
 content-addressed destinations, configuration changes, byte states, backup
 and receipt paths, free-space requirements, and post-write/rollback checks.
-Apply the same preview only with `--confirm IMPORT`. The packaged `Import Map
-Changes` launcher exports the active saved project, displays the preview, and
-asks for the same exact confirmation.
+Preview stdout is exactly one plan JSON document. Apply it with a second call
+that repeats the emitted `transactionId` and `planFingerprintSha256`:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --export '/path/to/project/exports/export-…' \
+  --target-root /path/to/server-root \
+  --confirm IMPORT \
+  --transaction-id '<preview transactionId>' \
+  --plan-sha256 '<preview planFingerprintSha256>'
+```
+
+The apply call independently recompiles that exact identity before creating
+transaction artifacts and emits exactly one result JSON document. The packaged
+`Import Map Changes` launcher accepts no command-line confirmation shortcut: it
+keeps one reviewed plan in memory and requires literal, untrimmed `IMPORT` input.
 
 Import reacquires the project and all target offline evidence, rediscovers the
 same adapter/capability/source lineage, rejects drift, writes verified project-
@@ -274,11 +288,14 @@ java -jar output/world-builder-tools/world-builder-tools.jar undo-adaptive \
   --target-root /path/to/server-root
 ```
 
-Use `--confirm UNDO` only after review, or use `Undo Last Map Import`. Undo
-requires the latest successful unreverted receipt, matching export and
-compiled plan, exact installed-after bytes, unchanged target lineage, valid
-backups, and fresh offline proof. Any changed or extra package path is listed
-and refused before a new backup or receipt is created.
+Apply the reviewed undo with `--confirm UNDO`, the preview `transactionId`, and
+its `planFingerprintSha256`, or use `Undo Last Map Import` for the in-memory
+interactive flow. Undo requires the latest successful unreverted receipt,
+matching export and compiled plan, exact installed-after bytes, unchanged target
+lineage, valid backups, and fresh offline proof. Any changed or extra package
+path is listed and refused before a new backup or receipt is created. It
+deactivates/restores configuration before removing package content; rollback
+restores package content before reactivation.
 
 Every partial import/undo failure rolls back in safe reverse order and verifies
 the complete expected state. If that proof cannot complete, new transactions
@@ -288,14 +305,18 @@ Map Transaction`, or preview/apply explicitly with:
 ```bash
 java -jar output/world-builder-tools/world-builder-tools.jar recover-adaptive \
   --project '/path/to/World Builder 2/projects/<uuid>' \
-  --target-root /path/to/server-root \
-  --confirm RECOVER
+  --target-root /path/to/server-root
 ```
 
-Recovery accepts only paths and states that match the independently rebuilt
-compiled transaction. There is no `--force` path. Standalone projects may
-export normally, but import, undo, and recovery return `NO_TARGET` before a
-target path is resolved, accessed, locked, backed up, or receipted.
+Apply that reviewed plan in a second call with `--confirm RECOVER`, its emitted
+`--transaction-id`, and its emitted `--plan-sha256`. Recovery accepts only paths
+and states that match the independently rebuilt compiled transaction, and it
+deletes only exact derivable staging content. There is no `--force` path.
+Standalone projects may export normally, but import, undo, and recovery return
+`NO_TARGET` before a target path is resolved, accessed, locked, backed up, or
+receipted. A compiled `process-scan` offline requirement currently needs a
+readable Linux `/proc` view and fails closed when that process view is absent or
+unavailable.
 
 ## Historical interfaces
 

@@ -669,7 +669,8 @@ public final class AdaptiveProjectSupervisorHarness {
             )
             self.assertEqual(0, import_preview.returncode, import_preview.stderr)
             self.assertIn("Import preview", import_preview.stderr)
-            self.assertIn("Import cancelled", import_preview.stdout)
+            self.assertEqual("", import_preview.stdout)
+            self.assertIn("Import cancelled", import_preview.stderr)
             self.assertEqual(target_before, tree_bytes(target, installation))
 
             undo_without_import = self.run_cli(

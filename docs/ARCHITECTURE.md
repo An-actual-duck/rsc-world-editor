@@ -66,6 +66,10 @@ all compiled offline evidence. Adapter code—not target JSON or a receipt—own
 the bounded content-addressed server/client destinations and selected-
 configuration path. Preview binds a real transaction UUID to exact before and
 after bytes, backups, receipt, free space, activation order, and verification.
+Direct CLI apply must repeat that preview's exact transaction UUID and plan
+fingerprint as well as literal `IMPORT`; a confirmation supplied before an
+unseen plan is never accepted. The packaged active launcher instead keeps one
+preview in memory, displays it, and reads a literal untrimmed confirmation.
 Exact `IMPORT` writes a durable pending receipt and project-owned backups,
 publishes verified package content, activates configuration last, and verifies
 both selected packages. Failures restore the exact before state or leave a
@@ -74,11 +78,20 @@ blocking recovery receipt.
 Undo independently rebuilds the successful import plan from immutable project
 evidence, its exact export, compiled profile, durable plan, and receipt. It
 refuses any changed or extra installed path before producing new artifacts;
-exact `UNDO` restores the original configuration and removes only recorded
-content-addressed files and directories. Explicit `RECOVER` accepts only exact
-before/after transaction states. Standalone origin is checked before target
-resolution for import, undo, and recovery. The historical workspace
-transaction continues to use its existing fixed-layout contracts.
+exact `UNDO` restores/deactivates the original configuration first and then
+removes only inactive recorded content-addressed files and directories. Undo
+rollback restores package content first and reactivates configuration last.
+Explicit `RECOVER` accepts only exact before/after transaction states and can
+remove only derivable transaction staging files whose bytes match the durable
+plan. Whole fingerprint containers must be absent before import; empty roots,
+extras, links, hard links, case aliases, and appeared destinations are
+preserved and refused. Standalone origin is checked before target resolution
+for import, undo, and recovery. The historical workspace transaction continues
+to use its existing fixed-layout contracts.
+
+The compiled `process-scan` offline check is fail-closed. It currently requires
+a readable Linux `/proc` process view; a missing, unreadable, or unavailable
+view refuses mutation rather than recording clean evidence.
 
 There is deliberately no force-import path.
 

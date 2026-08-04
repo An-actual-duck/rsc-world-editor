@@ -109,7 +109,9 @@ Run "Undo Last Map Import" only while the target is offline. It previews the
 latest successful unreverted import and requires UNDO exactly. Any installed
 file that changed after import, including an extra package path, blocks Undo
 before a new backup, receipt, or target mutation. Successful Undo restores the
-original configuration and target inventory exactly.
+original configuration and target inventory exactly. Configuration is
+deactivated/restored before package removal; rollback restores packages before
+reactivation.
 
 A partial failure automatically rolls back and verifies the safe state. If the
 tool reports RECOVERY_REQUIRED, do not start the server or run another
@@ -151,6 +153,8 @@ REQUIREMENTS AND LIMITS
 
 - A supported target supplies truthful capability evidence or matches one
   exact repository-owned adapter. Similar-looking unknown forks are not guessed.
+- A compiled process-scan offline requirement currently requires a readable
+  Linux /proc process view and fails closed if that view is unavailable.
 - The default local port is 43615. WORLD_BUILDER_PORT may select 1 through
   65534; WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
 - Server administrators remain responsible for distributing the exact

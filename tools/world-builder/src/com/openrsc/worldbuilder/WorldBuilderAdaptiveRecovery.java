@@ -2,16 +2,16 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
-import java.nio.channels.OverlappingFileLockException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.DirectoryStream;
 import java.nio.file.FileStore;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -51,8 +51,15 @@ final class WorldBuilderAdaptiveRecovery {
 
 	Preview preview(Path requestedProject, Path requestedTarget)
 		throws IOException, WorldBuilderContractException {
+		return preview(requestedProject, requestedTarget, null);
+	}
+
+	Preview preview(Path requestedProject, Path requestedTarget,
+		String requestedTransactionId)
+		throws IOException, WorldBuilderContractException {
 		try {
-			return operate(requestedProject, requestedTarget, null, null).preview;
+			return operate(requestedProject, requestedTarget, null, null,
+				requestedTransactionId).preview;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
 		} catch (IOException failure) {
@@ -69,7 +76,7 @@ final class WorldBuilderAdaptiveRecovery {
 		if (preview == null) throw new IllegalArgumentException("preview");
 		try {
 			return operate(preview.requestedProject, preview.requestedTarget,
-				confirmation, preview).result;
+				confirmation, preview, null).result;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
 		} catch (IOException failure) {
@@ -84,7 +91,8 @@ final class WorldBuilderAdaptiveRecovery {
 	}
 
 	private Outcome operate(Path requestedProject, Path requestedTarget,
-		String confirmation, Preview expected) throws Exception {
+		String confirmation, Preview expected, String requestedTransactionId)
+		throws Exception {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject initial =
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
 				requestedProject, true);
@@ -94,16 +102,8 @@ final class WorldBuilderAdaptiveRecovery {
 				+ " has no target; recovery stopped before target access.",
 			"Standalone projects cannot have target mutation recovery.");
 		Path project = initial.projectRoot;
-		Path run = WorldBuilderAdaptiveExporter.requireDirectory(
-			project, "run", "project run directory");
-		try (FileChannel channel = FileChannel.open(run.resolve("world-builder.lock"),
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-			FileLock projectLock = tryLock(channel);
-			if (projectLock == null) throw problem(
-				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "run/world-builder.lock", false,
-				"The project is running or another project operation is active.",
-				"Close World Builder and wait while the target remains offline.");
-			try {
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
 				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject projectState =
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 				if (!initial.projectId.equals(projectState.projectId)
@@ -121,11 +121,15 @@ final class WorldBuilderAdaptiveRecovery {
 				requireCapability(projectState, failed, capability);
 				try (WorldBuilderAdaptiveOfflineLease offline =
 					WorldBuilderAdaptiveOfflineLease.acquire(target, capability)) {
-					validateFailedTransaction(projectState, failed, target);
-					String transactionId = expected == null
-						? UUID.randomUUID().toString() : expected.plan.transactionId;
-					RecoveryPlan plan = buildPlan(projectState, failed, capability,
-						target, transactionId, offline.evidence);
+					WorldBuilderAdaptiveMutationProfile.Plan failedPlan =
+						validateFailedTransaction(projectState, failed, target);
+					String transactionId = expected != null
+						? expected.plan.transactionId
+						: requestedTransactionId == null
+							? UUID.randomUUID().toString() : requestedTransactionId;
+					RecoveryPlan plan = buildPlan(projectState, failed, failedPlan,
+						capability, target, transactionId, offline.evidence);
+					if (!plan.actions.isEmpty()) ensureFreeSpace(plan);
 					Preview preview = new Preview(plan, requestedProject, requestedTarget);
 					if (expected != null && !expected.plan.planFingerprintSha256.equals(
 						plan.planFingerprintSha256)) throw problem(
@@ -140,9 +144,6 @@ final class WorldBuilderAdaptiveRecovery {
 					observe("recovery-plan-confirmed", project);
 					return new Outcome(preview, applyLocked(plan));
 				}
-			} finally {
-				projectLock.release();
-			}
 		}
 	}
 
@@ -209,8 +210,13 @@ final class WorldBuilderAdaptiveRecovery {
 			"backups/" + plan.transactionId, OPERATION);
 		String createdAt = WorldBuilderAdaptiveReceipt.now();
 		boolean mutation = false;
+		boolean receiptOwned = false;
 		List<String> removedDirectories = new ArrayList<String>();
+		List<OwnedDirectory> createdDirectories = new ArrayList<OwnedDirectory>();
+		WorldBuilderAdaptiveOwnedFiles staged = new WorldBuilderAdaptiveOwnedFiles();
 		try {
+			WorldBuilderAdaptiveReceipt.requireUnusedTransaction(
+				project, plan.transactionId);
 			if (!plan.actions.isEmpty()) {
 				ensureFreeSpace(plan);
 				Files.createDirectory(backupRoot);
@@ -218,9 +224,10 @@ final class WorldBuilderAdaptiveRecovery {
 					WorldBuilderJsonDocuments.pretty(plan.document)
 						.getBytes(StandardCharsets.UTF_8));
 				backupCurrent(plan, backupRoot);
-				WorldBuilderAdaptiveReceipt.write(project,
+				WorldBuilderAdaptiveReceipt.writeNew(project,
 					receipt(plan, "pending", createdAt, false, false, false,
 						Collections.<WorldBuilderAdaptiveReceipt.Verification>emptyList()));
+				receiptOwned = true;
 				observe("recovery-evidence-written", backupRoot);
 			}
 			verifyRecoverableStates(plan);
@@ -230,16 +237,20 @@ final class WorldBuilderAdaptiveRecovery {
 				Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
 					plan.targetRoot, action.relativePath);
 				if (action.after.present) {
-					ensureRealParents(plan.targetRoot, destination.getParent());
+					ensureRealParents(plan.targetRoot, destination.getParent(),
+						createdDirectories);
 					Path source = WorldBuilderPortablePath.resolveContained(
 						project, action.restoreSourceRelativePath, OPERATION);
 					verifyFile(source, action.after, action.relativePath);
 					Path temporary = destination.getParent().resolve("."
 						+ destination.getFileName() + ".recover-" + plan.transactionId);
-					Files.copy(source, temporary);
+					staged.reserve(temporary);
+					Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
 					forceFile(temporary);
 					verifyFile(temporary, action.after, action.relativePath);
+					staged.seal(temporary);
 					moveAtomicReplacing(temporary, destination, action.relativePath);
+					staged.forget(temporary);
 				} else {
 					Files.delete(destination);
 				}
@@ -271,9 +282,11 @@ final class WorldBuilderAdaptiveRecovery {
 				plan.failed.transactionId(), plan.actions.isEmpty() ? null
 					: project.resolve("receipts").resolve(plan.transactionId + ".json"));
 		} catch (Throwable failure) {
-			if (!mutation) {
+			IOException stagedCleanupFailure = staged.cleanup();
+			boolean changedTarget = mutation || !createdDirectories.isEmpty();
+			if (!changedTarget && stagedCleanupFailure == null) {
 				writeReceiptIfPossible(plan, "failed-no-change", createdAt,
-					false, false, false, failure);
+					false, false, false, receiptOwned, failure);
 				throw asFailure(failure, false,
 					"Adaptive recovery stopped before changing target content.",
 					"Correct the evidence problem while keeping the target offline.");
@@ -282,11 +295,17 @@ final class WorldBuilderAdaptiveRecovery {
 				List<WorldBuilderAdaptiveReceipt.Verification> rollback =
 					rollbackRecovery(plan);
 				restoreRemovedDirectories(plan, removedDirectories);
+				cleanupCreatedDirectories(createdDirectories);
+				if (stagedCleanupFailure != null) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, "target-stage", true,
+					"An invocation-owned recovery staging file could not be removed.",
+					"Keep the target offline and preserve all transaction evidence.",
+					stagedCleanupFailure);
 				if (!plan.actions.isEmpty()) WorldBuilderAdaptiveReceipt.write(project,
 					receipt(plan, "rolled-back", createdAt, true, false, true, rollback));
 			} catch (WorldBuilderContractException rollbackFailure) {
 				writeReceiptIfPossible(plan, "recovery-required", createdAt,
-					true, false, false, rollbackFailure);
+					true, false, false, receiptOwned, rollbackFailure);
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 					"receipts/" + plan.transactionId + ".json", true,
 					"Recovery attempt also failed to restore its exact starting state.",
@@ -294,7 +313,7 @@ final class WorldBuilderAdaptiveRecovery {
 					rollbackFailure);
 			} catch (IOException rollbackFailure) {
 				writeReceiptIfPossible(plan, "recovery-required", createdAt,
-					true, false, false, rollbackFailure);
+					true, false, false, receiptOwned, rollbackFailure);
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 					"receipts/" + plan.transactionId + ".json", true,
 					"Recovery attempt also failed to restore its exact starting state.",
@@ -317,11 +336,36 @@ final class WorldBuilderAdaptiveRecovery {
 		}
 		FileStore targetStore = Files.getFileStore(plan.targetRoot);
 		FileStore projectStore = Files.getFileStore(plan.project.projectRoot);
-		if (targetStore.getUsableSpace() < targetBytes
-			|| projectStore.getUsableSpace() < backupBytes) throw problem(
+		long targetUsable = targetStore.getUsableSpace();
+		long projectUsable = projectStore.getUsableSpace();
+		long override = testUsableBytes();
+		if (override >= 0L) {
+			targetUsable = Math.min(targetUsable, override);
+			projectUsable = Math.min(projectUsable, override);
+		}
+		boolean insufficient = targetStore.equals(projectStore)
+			? Math.min(targetUsable, projectUsable) < safeAdd(targetBytes, backupBytes)
+			: targetUsable < targetBytes || projectUsable < backupBytes;
+		if (insufficient) throw problem(
 			WorldBuilderErrorCodes.MUTATION_FAILED, "free-space", false,
 			"Target or project storage lacks space for recovery staging and backups.",
 			"Free space without deleting transaction evidence, then request a fresh recovery preview.");
+	}
+
+	private static long testUsableBytes() throws WorldBuilderContractException {
+		String value = System.getProperty(
+			"worldbuilder.adaptive.testUsableBytes", "");
+		if (value.isEmpty()) return -1L;
+		try {
+			long parsed = Long.parseLong(value);
+			if (parsed < 0L) throw new NumberFormatException();
+			return parsed;
+		} catch (NumberFormatException invalid) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				"free-space", false,
+				"Internal adaptive free-space test override is invalid.",
+				"Remove the invalid internal test property.");
+		}
 	}
 
 	private static long safeAdd(long first, long second)
@@ -387,6 +431,7 @@ final class WorldBuilderAdaptiveRecovery {
 	private static RecoveryPlan buildPlan(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		WorldBuilderAdaptiveReceipt.State failed,
+		WorldBuilderAdaptiveMutationProfile.Plan failedPlan,
 		WorldBuilderTargetCapability capability, Path target, String transactionId,
 		List<WorldBuilderAdaptiveOfflineLease.Evidence> evidence)
 		throws IOException, WorldBuilderContractException {
@@ -424,17 +469,139 @@ final class WorldBuilderAdaptiveRecovery {
 				current, desired, restore, transactionBackup,
 				configPaths.contains(relative)));
 		}
+		addOwnedStageActions(failed, target, transactionId, actions);
 		Collections.sort(actions, actionOrder(failed.transactionType()));
 		List<ConfigurationChange> changes = recoveryConfigurationChanges(
 			failed, actions);
 		List<String> createdDirectories = "import".equals(failed.transactionType())
-			? createdDirectories(project.projectRoot, failed.transactionId())
+			? createdDirectories(project.projectRoot, failed.transactionId(),
+				WorldBuilderAdaptiveExporter.string(
+					failedPlan.document, "planFingerprintSha256"))
 			: Collections.<String>emptyList();
 		Map<String,Object> document = planDocument(project, failed, capability,
 			target, transactionId, actions, changes, evidence, createdDirectories);
 		return new RecoveryPlan(project, failed, capability, target, transactionId,
 			actions, changes, evidence, createdDirectories, document,
 			string(document, "planFingerprintSha256"));
+	}
+
+	private static void addOwnedStageActions(
+		WorldBuilderAdaptiveReceipt.State failed, Path target,
+		String recoveryTransactionId, List<RecoveryAction> actions)
+		throws IOException, WorldBuilderContractException {
+		String type = failed.transactionType();
+		if (!("import".equals(type) || "undo".equals(type))) return;
+		Set<String> derivable = new HashSet<String>();
+		for (Object raw : array(failed.document.get("files"), "files")) {
+			String relative = string(object(raw, "file"), "relativePath");
+			if ("import".equals(type)) {
+				derivable.add(stageRelative(relative,
+					".stage-" + failed.transactionId()));
+				derivable.add(stageRelative(relative,
+					".rollback-" + failed.transactionId()));
+			} else {
+				derivable.add(stageRelative(relative,
+					".undo-" + failed.transactionId()));
+				derivable.add(stageRelative(relative,
+					".undo-rollback-" + failed.transactionId()));
+			}
+		}
+		rejectUnknownStageSiblings(failed, target, derivable);
+		for (Object raw : array(failed.document.get("files"), "files")) {
+			Map<String,Object> file = object(raw, "file");
+			String relative = string(file, "relativePath");
+			WorldBuilderAdaptiveMutationProfile.FileState before =
+				fileState(file.get("before"), relative);
+			WorldBuilderAdaptiveMutationProfile.FileState after =
+				fileState(file.get("after"), relative);
+			if ("import".equals(type)) {
+				addOwnedStageAction(target, recoveryTransactionId, actions,
+					stageRelative(relative, ".stage-" + failed.transactionId()), after);
+				addOwnedStageAction(target, recoveryTransactionId, actions,
+					stageRelative(relative, ".rollback-" + failed.transactionId()), before);
+			} else {
+				addOwnedStageAction(target, recoveryTransactionId, actions,
+					stageRelative(relative, ".undo-" + failed.transactionId()), after);
+				addOwnedStageAction(target, recoveryTransactionId, actions,
+					stageRelative(relative,
+						".undo-rollback-" + failed.transactionId()), before);
+			}
+		}
+	}
+
+	private static void rejectUnknownStageSiblings(
+		WorldBuilderAdaptiveReceipt.State failed, Path target, Set<String> derivable)
+		throws IOException, WorldBuilderContractException {
+		Set<Path> scanned = new HashSet<Path>();
+		for (Object raw : array(failed.document.get("files"), "files")) {
+			String relative = string(object(raw, "file"), "relativePath");
+			Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
+				target, relative);
+			Path parent = destination.getParent();
+			if (parent == null || !scanned.add(parent)
+				|| !Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) continue;
+			if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(parent)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, false,
+				"Recovery action parent is linked or not a directory.",
+				"Preserve the target and transaction evidence for owner review.");
+			try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
+				for (Path entry : entries) {
+					String name = entry.getFileName().toString();
+					if (!looksLikeTransactionStage(name)) continue;
+					String stageRelative = target.relativize(entry.toAbsolutePath().normalize())
+						.toString().replace('\\', '/');
+					if (!derivable.contains(stageRelative)) throw problem(
+						WorldBuilderErrorCodes.RECOVERY_REQUIRED, stageRelative, false,
+						"Recovery found a non-derivable transaction staging path.",
+						"Preserve it and all transaction evidence for owner review; do not delete it.");
+				}
+			}
+		}
+	}
+
+	private static boolean looksLikeTransactionStage(String name) {
+		if (!name.startsWith(".")) return false;
+		return name.contains(".stage-") || name.contains(".rollback-")
+			|| name.contains(".undo-") || name.contains(".recover-")
+			|| name.contains(".recovery-rollback-");
+	}
+
+	private static void addOwnedStageAction(
+		Path target, String recoveryTransactionId, List<RecoveryAction> actions,
+		String relative, WorldBuilderAdaptiveMutationProfile.FileState expected)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!expected.present) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, false,
+			"A derivable transaction stage exists where no exact staged state is valid.",
+			"Preserve the stage and transaction evidence for owner review; do not delete it.");
+		Path file = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+			target, relative, "transaction-owned recovery stage");
+		if (Files.size(file) != expected.size
+			|| !expected.sha256.equals(WorldBuilderHashes.sha256(file))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, false,
+			"A derivable transaction stage does not have the exact compiled bytes.",
+			"Preserve the stage and transaction evidence for owner review; do not delete it.");
+		for (RecoveryAction action : actions) {
+			if (relative.equals(action.relativePath)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, false,
+				"Recovery stage path collides with another compiled action.",
+				"Preserve all evidence for owner review.");
+		}
+		String backup = "backups/" + recoveryTransactionId + "/before/" + relative;
+		actions.add(new RecoveryAction("cleanup-owned-stage", relative,
+			expected, WorldBuilderAdaptiveMutationProfile.FileState.absent(), "",
+			backup, false));
+	}
+
+	private static String stageRelative(String destination, String suffix)
+		throws WorldBuilderContractException {
+		int separator = destination.lastIndexOf('/');
+		String parent = separator < 0 ? "" : destination.substring(0, separator + 1);
+		String name = separator < 0 ? destination : destination.substring(separator + 1);
+		return WorldBuilderPortablePath.require(parent + "." + name + suffix, OPERATION);
 	}
 
 	private static Comparator<RecoveryAction> actionOrder(final String type) {
@@ -657,9 +824,18 @@ final class WorldBuilderAdaptiveRecovery {
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".recovery-rollback-"
 					+ plan.transactionId);
-				Files.copy(source, temporary);
-				forceFile(temporary);
-				moveAtomicReplacing(temporary, destination, action.relativePath);
+				WorldBuilderAdaptiveOwnedFiles owned =
+					new WorldBuilderAdaptiveOwnedFiles();
+				try {
+					owned.reserve(temporary);
+					Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+					forceFile(temporary);
+					owned.seal(temporary);
+					moveAtomicReplacing(temporary, destination, action.relativePath);
+					owned.forget(temporary);
+				} finally {
+					owned.cleanupOrThrow();
+				}
 			} else if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 				verifyState(plan.targetRoot, action.relativePath, action.after);
 				Files.delete(destination);
@@ -720,20 +896,27 @@ final class WorldBuilderAdaptiveRecovery {
 		}
 	}
 
-	private static List<String> createdDirectories(Path project, String transactionId)
+	private static List<String> createdDirectories(Path project, String transactionId,
+		String planFingerprint)
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderPortablePath.resolveContained(project,
 			"backups/" + transactionId + "/created-directories.json", OPERATION);
+		WorldBuilderAdaptiveExporter.requireFile(project,
+			"backups/" + transactionId + "/created-directories.json",
+			"durable created-directory evidence");
 		Map<String,Object> value = readObject(path, "created-directories.json");
 		Set<String> exact = new HashSet<String>(Arrays.asList("schemaVersion",
 			"manifestType", "transactionId", "planFingerprintSha256", "relativePaths"));
 		if (!value.keySet().equals(exact) || integer(value, "schemaVersion") != 1L
 			|| !"world-builder-created-directories".equals(
 				string(value, "manifestType"))
-			|| !transactionId.equals(string(value, "transactionId"))) throw problem(
+			|| !transactionId.equals(string(value, "transactionId"))
+			|| !planFingerprint.equals(string(value, "planFingerprintSha256"))) {
+			throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "created-directories.json", false,
-			"Import created-directory evidence is invalid.",
+			"Import created-directory evidence does not bind the exact durable plan.",
 			"Restore the exact transaction backup before recovery.");
+		}
 		List<String> result = new ArrayList<String>();
 		String previous = null;
 		for (Object raw : array(value.get("relativePaths"), "relativePaths")) {
@@ -775,18 +958,85 @@ final class WorldBuilderAdaptiveRecovery {
 
 	private static void ensureRealParents(Path target, Path parent)
 		throws IOException, WorldBuilderContractException {
+		ensureRealParents(target, parent, null);
+	}
+
+	private static void ensureRealParents(Path target, Path parent,
+		List<OwnedDirectory> owned)
+		throws IOException, WorldBuilderContractException {
 		Path relative = target.relativize(parent.toAbsolutePath().normalize());
 		Path current = target;
 		for (Path segment : relative) {
 			current = current.resolve(segment.toString());
 			if (!Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
 				Files.createDirectory(current);
+				if (owned != null) {
+					OwnedDirectory directory = new OwnedDirectory(
+						target.relativize(current).toString().replace('\\', '/'),
+						current.toAbsolutePath().normalize());
+					owned.add(directory);
+					directory.captureIdentity();
+				}
 			} else if (!Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(current)) throw problem(
 				WorldBuilderErrorCodes.UNSAFE_PATH,
 				target.relativize(current).toString().replace('\\', '/'), true,
 				"Recovery parent is linked or not a directory.",
 				"Keep the target offline and restore a real contained directory layout.");
+		}
+	}
+
+	private static void cleanupCreatedDirectories(List<OwnedDirectory> owned)
+		throws IOException {
+		List<OwnedDirectory> reverse = new ArrayList<OwnedDirectory>(owned);
+		Collections.sort(reverse, new Comparator<OwnedDirectory>() {
+			@Override public int compare(OwnedDirectory left, OwnedDirectory right) {
+				int depth = right.relative.split("/").length
+					- left.relative.split("/").length;
+				return depth == 0 ? right.relative.compareTo(left.relative) : depth;
+			}
+		});
+		for (OwnedDirectory directory : reverse) {
+			if (!Files.exists(directory.path, LinkOption.NOFOLLOW_LINKS)) continue;
+			BasicFileAttributes attributes = Files.readAttributes(directory.path,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!directory.matches(attributes)) throw new IOException(
+				"Recovery-created directory identity changed: " + directory.relative);
+		}
+		for (OwnedDirectory directory : reverse) {
+			if (Files.exists(directory.path, LinkOption.NOFOLLOW_LINKS)) {
+				BasicFileAttributes attributes = Files.readAttributes(directory.path,
+					BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+				if (!directory.matches(attributes)) throw new IOException(
+					"Recovery-created directory identity changed before deletion: "
+						+ directory.relative);
+				Files.delete(directory.path);
+			}
+		}
+	}
+
+	private static final class OwnedDirectory {
+		final String relative;
+		final Path path;
+		Object fileKey;
+
+		OwnedDirectory(String relative, Path path) {
+			this.relative = relative;
+			this.path = path;
+		}
+
+		void captureIdentity() throws IOException {
+			BasicFileAttributes attributes = Files.readAttributes(path,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!attributes.isDirectory() || attributes.isSymbolicLink()) {
+				throw new IOException("Created recovery parent is not a real directory");
+			}
+			fileKey = attributes.fileKey();
+		}
+
+		boolean matches(BasicFileAttributes attributes) {
+			return attributes.isDirectory() && !attributes.isSymbolicLink()
+				&& fileKey != null && fileKey.equals(attributes.fileKey());
 		}
 	}
 
@@ -834,6 +1084,7 @@ final class WorldBuilderAdaptiveRecovery {
 			WorldBuilderErrorCodes.TARGET_DRIFT, relative, false,
 			"Recovery backup/file bytes do not match their receipt state.",
 			"Restore exact transaction evidence; no force mode exists.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(path, relative);
 	}
 
 	private static void moveAtomicReplacing(Path source, Path destination,
@@ -861,7 +1112,7 @@ final class WorldBuilderAdaptiveRecovery {
 
 	private static void writeReceiptIfPossible(RecoveryPlan plan, String status,
 		String createdAt, boolean mutation, boolean afterVerified,
-		boolean rollbackVerified, Throwable failure) {
+		boolean rollbackVerified, boolean receiptOwned, Throwable failure) {
 		if (plan.actions.isEmpty()) return;
 		try {
 			List<WorldBuilderAdaptiveReceipt.Verification> values =
@@ -869,9 +1120,13 @@ final class WorldBuilderAdaptiveRecovery {
 			if ("recovery-required".equals(status)) values.add(
 				new WorldBuilderAdaptiveReceipt.Verification(
 					"recovery-required", false, bounded(failure.getMessage())));
-			WorldBuilderAdaptiveReceipt.write(plan.project.projectRoot,
-				receipt(plan, status, createdAt, mutation,
-					afterVerified, rollbackVerified, values));
+			WorldBuilderAdaptiveReceipt.State state = receipt(plan, status, createdAt,
+				mutation, afterVerified, rollbackVerified, values);
+			if (receiptOwned) {
+				WorldBuilderAdaptiveReceipt.write(plan.project.projectRoot, state);
+			} else {
+				WorldBuilderAdaptiveReceipt.writeNew(plan.project.projectRoot, state);
+			}
 		} catch (Exception ignored) {
 			// Primary recovery failure remains authoritative.
 		}
@@ -985,14 +1240,6 @@ final class WorldBuilderAdaptiveRecovery {
 		}
 	}
 
-	private static FileLock tryLock(FileChannel channel) throws IOException {
-		try {
-			return channel.tryLock();
-		} catch (OverlappingFileLockException busy) {
-			return null;
-		}
-	}
-
 	private static String pad(int value) {
 		return String.format(java.util.Locale.ROOT, "%04d", Integer.valueOf(value));
 	}
@@ -1033,6 +1280,14 @@ final class WorldBuilderAdaptiveRecovery {
 
 		String toJson() {
 			return WorldBuilderJsonDocuments.pretty(plan.document);
+		}
+
+		String transactionId() {
+			return plan.transactionId;
+		}
+
+		String planFingerprintSha256() {
+			return plan.planFingerprintSha256;
 		}
 	}
 

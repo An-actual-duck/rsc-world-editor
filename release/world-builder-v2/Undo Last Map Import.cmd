@@ -28,7 +28,8 @@ exit /b 0
 
 :adaptive_project
 "%JAVA_EXE%" -jar "%TOOLS_JAR%" undo-active-adaptive --installation-root "%ROOT_DIR%"
-goto failed
+if errorlevel 1 goto failed
+exit /b 0
 
 :missing_tools
 echo Map undo could not start: the packaged launcher is missing.

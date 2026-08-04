@@ -10,6 +10,7 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -18,6 +19,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 /** Strict durable import-receipt-v3 writer/reader for adaptive transactions. */
@@ -126,6 +128,8 @@ final class WorldBuilderAdaptiveReceipt {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
 			"Adaptive receipt path is missing, linked, or unsafe.",
 			"Restore the exact durable receipt before another transaction.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(
+			path, path.getFileName().toString());
 		Map<String,Object> value;
 		try {
 			value = WorldBuilderJsonDocuments.readObject(path);
@@ -172,7 +176,41 @@ final class WorldBuilderAdaptiveReceipt {
 		return values;
 	}
 
+	static void requireUnusedTransaction(Path project, String transactionId)
+		throws IOException, WorldBuilderContractException {
+		Path backups = WorldBuilderAdaptiveExporter.requireDirectory(
+			project, "backups", "project backups directory");
+		Path receipts = WorldBuilderAdaptiveExporter.requireDirectory(
+			project, "receipts", "project receipts directory");
+		requireAbsentPortableEntry(backups, transactionId, "backups");
+		requireAbsentPortableEntry(receipts, transactionId + ".json", "receipts");
+	}
+
+	private static void requireAbsentPortableEntry(Path parent, String wanted,
+		String relative) throws IOException, WorldBuilderContractException {
+		String key = wanted.toLowerCase(java.util.Locale.ROOT);
+		try (DirectoryStream<Path> stream = Files.newDirectoryStream(parent)) {
+			for (Path entry : stream) {
+				String name = entry.getFileName().toString();
+				if (key.equals(name.toLowerCase(java.util.Locale.ROOT))) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative + "/" + name,
+					"Transaction UUID already has durable state or a case-colliding identity.",
+					"Retain existing evidence and request a fresh preview transaction ID.");
+			}
+		}
+	}
+
+	static void writeNew(Path project, State state)
+		throws IOException, WorldBuilderContractException {
+		write(project, state, false);
+	}
+
 	static void write(Path project, State state)
+		throws IOException, WorldBuilderContractException {
+		write(project, state, true);
+	}
+
+	private static void write(Path project, State state, boolean replace)
 		throws IOException, WorldBuilderContractException {
 		Path receipts = WorldBuilderAdaptiveExporter.requireDirectory(
 			project, "receipts", "project receipts directory");
@@ -180,22 +218,62 @@ final class WorldBuilderAdaptiveReceipt {
 			receipts, state.transactionId() + ".json", OPERATION);
 		Path temporary = receipts.resolve("." + state.transactionId()
 			+ ".tmp-" + java.util.UUID.randomUUID().toString()).normalize();
+		Object replacedIdentity = null;
+		if (replace) {
+			State current = read(destination);
+			if (!state.transactionId().equals(current.transactionId())) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+				"Durable receipt update does not match its exact transaction authority.",
+				"Preserve the receipt and request owner review.");
+			BasicFileAttributes attributes = Files.readAttributes(destination,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			replacedIdentity = attributes.fileKey();
+			if (replacedIdentity == null) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+				"Filesystem does not expose a stable durable-receipt identity.",
+				"Move the complete project to a local filesystem exposing stable file keys.");
+		}
 		byte[] bytes = WorldBuilderJsonDocuments.pretty(state.document)
 			.getBytes(StandardCharsets.UTF_8);
-		Files.write(temporary, bytes, StandardOpenOption.CREATE_NEW,
-			StandardOpenOption.WRITE);
-		try (FileChannel channel = FileChannel.open(temporary, StandardOpenOption.WRITE)) {
-			channel.force(true);
-		}
+		WorldBuilderAdaptiveOwnedFiles owned = new WorldBuilderAdaptiveOwnedFiles();
 		try {
-			try {
-				Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
-					StandardCopyOption.REPLACE_EXISTING);
-			} catch (AtomicMoveNotSupportedException unsupported) {
-				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
-					"Filesystem cannot atomically publish durable adaptive receipts.",
-					"Move the complete closed project to an atomic local filesystem.",
-					unsupported);
+			owned.reserve(temporary);
+			Files.write(temporary, bytes, StandardOpenOption.TRUNCATE_EXISTING,
+				StandardOpenOption.WRITE);
+			try (FileChannel channel = FileChannel.open(temporary,
+				StandardOpenOption.WRITE)) {
+				channel.force(true);
+			}
+			owned.seal(temporary);
+			if (replace) {
+				BasicFileAttributes current = Files.readAttributes(destination,
+					BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+				if (!current.isRegularFile() || current.isSymbolicLink()
+					|| !Objects.equals(replacedIdentity, current.fileKey())) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+					"Durable receipt identity changed before its atomic update.",
+					"Preserve every receipt and request owner review.");
+				try {
+					Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+						StandardCopyOption.REPLACE_EXISTING);
+					owned.forget(temporary);
+				} catch (AtomicMoveNotSupportedException unsupported) {
+					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+						"Filesystem cannot atomically update durable adaptive receipts.",
+						"Move the complete closed project to an atomic local filesystem.",
+						unsupported);
+				}
+			} else {
+				try {
+					Files.createLink(destination, temporary);
+					Files.delete(temporary);
+					owned.forget(temporary);
+				} catch (UnsupportedOperationException unsupported) {
+					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+						"Filesystem cannot atomically publish a no-overwrite receipt.",
+						"Use a local filesystem supporting same-filesystem hard-link publication.",
+						unsupported);
+				}
 			}
 			State written = read(destination);
 			if (!state.canonicalSha256.equals(written.canonicalSha256)) throw problem(
@@ -203,7 +281,12 @@ final class WorldBuilderAdaptiveReceipt {
 				"Durable adaptive receipt did not verify after publication.",
 				"Stop transactions and inspect project storage health.");
 		} finally {
-			Files.deleteIfExists(temporary);
+			IOException cleanupFailure = owned.cleanup();
+			if (cleanupFailure != null) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipts",
+				"Invocation-owned receipt staging identity changed during cleanup.",
+				"Preserve all transaction evidence and request owner review.",
+				cleanupFailure);
 		}
 	}
 

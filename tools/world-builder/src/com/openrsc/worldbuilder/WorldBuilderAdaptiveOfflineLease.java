@@ -82,10 +82,7 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 						"exclusive compiled target port lease 0.0.0.0:"
 							+ COMPILED_TARGET_PORT, true));
 				} else if ("process-scan".equals(kind)) {
-					if (targetProcessAppearsActive(target)) throw problem(
-						WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
-						"A server process appears to be running from this target root.",
-						"Stop the target server completely and retry.");
+					requireNoTargetProcess(target);
 					values.add(new Evidence(kind,
 						"no matching target process found in the bounded local process view", true));
 				} else if ("configuration-lock".equals(kind)) {
@@ -154,9 +151,17 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 				+ COMPILED_TARGET_PORT + ", then retry.", unavailable);
 	}
 
-	private static boolean targetProcessAppearsActive(Path target) {
+	private static void requireNoTargetProcess(Path target)
+		throws WorldBuilderContractException {
+		if (Boolean.parseBoolean(System.getProperty(
+			"worldbuilder.adaptive.testProcessViewUnavailable", "false"))) {
+			throw processViewUnavailable(null);
+		}
 		Path proc = Paths.get("/proc");
-		if (!Files.isDirectory(proc, LinkOption.NOFOLLOW_LINKS)) return false;
+		if (!Files.isDirectory(proc, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(proc) || !Files.isReadable(proc)) {
+			throw processViewUnavailable(null);
+		}
 		String ownPid = currentPid();
 		try (DirectoryStream<Path> processes = Files.newDirectoryStream(proc)) {
 			for (Path process : processes) {
@@ -168,25 +173,51 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 						&& Files.size(commandPath) <= 65_536L) {
 						String command = new String(Files.readAllBytes(commandPath),
 							StandardCharsets.UTF_8).replace('\0', ' ');
-						if (command.contains(target.toString())) return true;
+						if (command.contains(target.toString())) throw problem(
+							WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
+							"A server process appears to be running from this target root.",
+							"Stop the target server completely and retry.");
 					}
 					Path cwdLink = process.resolve("cwd");
 					if (Files.isSymbolicLink(cwdLink)) {
 						Path cwd = Files.readSymbolicLink(cwdLink);
 						if (!cwd.isAbsolute()) cwd = cwdLink.getParent().resolve(cwd).normalize();
 						Path normalized = cwd.toAbsolutePath().normalize();
-						if (normalized.equals(target) || normalized.startsWith(target)) return true;
+						if (normalized.equals(target) || normalized.startsWith(target)) {
+							throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED,
+								"target-root",
+								"A server process appears to be running from this target root.",
+								"Stop the target server completely and retry.");
+						}
 					}
+				} catch (WorldBuilderContractException active) {
+					throw active;
 				} catch (IOException ignored) {
 					// Inaccessible unrelated process entries are not positive evidence.
 				} catch (SecurityException ignored) {
 					// Inaccessible unrelated process entries are not positive evidence.
 				}
 			}
-		} catch (IOException ignored) {
-			return false;
+		} catch (WorldBuilderContractException active) {
+			throw active;
+		} catch (IOException unavailable) {
+			throw processViewUnavailable(unavailable);
+		} catch (SecurityException unavailable) {
+			throw processViewUnavailable(unavailable);
 		}
-		return false;
+	}
+
+	private static WorldBuilderContractException processViewUnavailable(
+		Throwable cause) {
+		String message = "The required local /proc process view is unavailable or unreadable; "
+			+ "offline state cannot be verified on this platform.";
+		String next = "Run the transaction on a Linux host with a readable /proc process "
+			+ "view after stopping the target server.";
+		return cause == null
+			? problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "process-scan",
+				message, next)
+			: problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "process-scan",
+				message, next, cause);
 	}
 
 	private static String currentPid() {
