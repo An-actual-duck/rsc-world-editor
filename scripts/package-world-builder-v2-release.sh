@@ -606,11 +606,13 @@ def reject_structured_world(data, relative):
         if isinstance(item, dict):
             if item.get("packageType") == "layered-world":
                 raise SystemExit("Layered world package content is forbidden: " + relative)
-            if item.get("encoding") in {
+            encoding = item.get("encoding")
+            if isinstance(encoding, str) and encoding in {
                 "layered-world-placements-v3", "legacy-packed-orsc-v1"
             }:
                 raise SystemExit("Terrain or placement payload content is forbidden: " + relative)
-            if item.get("manifestType") in {
+            manifest_type = item.get("manifestType")
+            if isinstance(manifest_type, str) and manifest_type in {
                 "world-builder-project", "world-builder-project-registry",
                 "world-builder-active-project", "world-builder-import-receipt",
             }:

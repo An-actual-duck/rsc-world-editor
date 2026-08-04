@@ -480,7 +480,14 @@ if (-not (Test-BuilderVersion $CurrentVersion)) {
     Fail-Update "VERSION.txt does not contain a supported World Builder 2 version"
 }
 $CurrentTag = "$TagPrefix$($CurrentVersion.Substring(1))"
-$InstalledIdentity = Read-ReleaseIdentity (Join-Path $RootDir "RELEASE-IDENTITY.json") $CurrentVersion $CurrentTag
+$InstalledIdentityPath = Join-Path $RootDir "RELEASE-IDENTITY.json"
+if (
+    (Test-Path -LiteralPath $InstalledIdentityPath -PathType Leaf) -and
+    ([IO.File]::ReadAllText($InstalledIdentityPath).Contains('"worldCoordinateModel": "signed-layered-v1"'))
+) {
+    Fail-Update "this is a historical pre-adaptive World Builder 2 installation. Automatic relabelling or workspace migration is unsupported; preserve the complete folder and install adaptive World Builder 2 separately"
+}
+$InstalledIdentity = Read-ReleaseIdentity $InstalledIdentityPath $CurrentVersion $CurrentTag
 if (
     (Get-Content -LiteralPath (Join-Path $RootDir "SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.sourceCommit -or
     (Get-Content -LiteralPath (Join-Path $RootDir "CORE-SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.coreSourceCommit
@@ -490,11 +497,26 @@ if (
 $InstalledManifestPath = Join-Path $RootDir "PACKAGE-MANIFEST.sha256"
 $InstalledRecords = @(Read-PackageManifest $RootDir $InstalledManifestPath)
 Assert-RequiredManagedFiles $InstalledRecords "runtime/bin/java.exe"
+Assert-ApplicationAllowlist $RootDir $InstalledRecords
 
+if ((Test-Path -LiteralPath $Workspace) -and -not (Test-Path -LiteralPath $ProjectRegistry)) {
+    Fail-Update "this is a historical pre-adaptive World Builder 2 installation. Its workspace was preserved, but it cannot be relabelled or migrated automatically. Keep the complete installation for matching-version recovery and install adaptive World Builder 2 in a separate folder"
+}
+
+$PidPaths = [Collections.Generic.List[string]]::new()
 foreach ($PidPath in @(
     (Join-Path $Workspace "run/server.pid"),
     (Join-Path $Workspace "run/client.pid")
 )) {
+    $PidPaths.Add($PidPath)
+}
+$ProjectsItem = Get-Item -LiteralPath $Projects -Force -ErrorAction SilentlyContinue
+if ($ProjectsItem -and $ProjectsItem.PSIsContainer -and -not ($ProjectsItem.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+    Get-ChildItem -LiteralPath $Projects -Filter "*.pid" -File -Recurse -Force |
+        Where-Object { $_.FullName -match '[\\/]run[\\/](?:server|client)\.pid$' } |
+        ForEach-Object { $PidPaths.Add($_.FullName) }
+}
+foreach ($PidPath in $PidPaths) {
     if (Test-Path -LiteralPath $PidPath -PathType Leaf) {
         $PidText = (Get-Content -LiteralPath $PidPath -Raw).Trim()
         if ($PidText -match '^\d+$' -and (Get-Process -Id ([int]$PidText) -ErrorAction SilentlyContinue)) {
@@ -588,6 +610,7 @@ try {
     $DownloadedRecords = @(Read-PackageManifest $PackageRoot $DownloadedManifestPath)
     Assert-ExactPackageInventory $PackageRoot $DownloadedRecords
     Assert-RequiredManagedFiles $DownloadedRecords "runtime/bin/java.exe"
+    Assert-ApplicationAllowlist $PackageRoot $DownloadedRecords
 
     if ((Get-Content -LiteralPath (Join-Path $PackageRoot "VERSION.txt") -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "downloaded package version does not match its release tag"
@@ -652,16 +675,47 @@ try {
     Copy-Item -LiteralPath $DownloadedManifestPath -Destination (Join-Path $RootDir "PACKAGE-MANIFEST.sha256") -Force
     $VerifiedRecords = @(Read-PackageManifest $RootDir (Join-Path $RootDir "PACKAGE-MANIFEST.sha256"))
     Assert-RequiredManagedFiles $VerifiedRecords "runtime/bin/java.exe"
+    Assert-ApplicationAllowlist $RootDir $VerifiedRecords
     $VerifiedIdentity = Read-ReleaseIdentity (Join-Path $RootDir "RELEASE-IDENTITY.json") $LatestVersion $LatestTag
     if ((Get-Content -LiteralPath $VersionPath -Raw).Trim() -cne $LatestVersion) {
         Fail-Update "installed update version verification failed"
     }
+    if (
+        (Test-Path -LiteralPath $ProjectRegistry) -or
+        (Test-Path -LiteralPath $ActiveProject) -or
+        (Test-Path -LiteralPath $Projects)
+    ) {
+        $RegistryItem = Get-Item -LiteralPath $ProjectRegistry -Force -ErrorAction SilentlyContinue
+        $ActiveItem = Get-Item -LiteralPath $ActiveProject -Force -ErrorAction SilentlyContinue
+        $ProjectsItem = Get-Item -LiteralPath $Projects -Force -ErrorAction SilentlyContinue
+        if (
+            -not $RegistryItem -or $RegistryItem.PSIsContainer -or
+            ($RegistryItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not $ActiveItem -or $ActiveItem.PSIsContainer -or
+            ($ActiveItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not $ProjectsItem -or -not $ProjectsItem.PSIsContainer -or
+            ($ProjectsItem.Attributes -band [IO.FileAttributes]::ReparsePoint)
+        ) {
+            Fail-Update "adaptive project state is incomplete or unsafe after the application update"
+        }
+        $CompatibilityJava = if ($env:WORLD_BUILDER_V2_COMPATIBILITY_JAVA) {
+            $env:WORLD_BUILDER_V2_COMPATIBILITY_JAVA
+        } else {
+            Join-Path $RootDir "runtime/bin/java.exe"
+        }
+        & $CompatibilityJava -jar (Join-Path $RootDir "builder-runtime/launcher/world-builder-tools.jar") `
+            open-project --installation-root $RootDir --target-root (Split-Path -Parent $RootDir) |
+            Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Fail-Update "the selected adaptive project is incompatible with the updated runtime"
+        }
+    }
     $RollbackArmed = $false
 
     Write-Host "World Builder 2 updated successfully to $LatestVersion."
-    if (Test-Path -LiteralPath $Workspace -PathType Container) {
-        Write-Host "Your existing v2 workspace, exports, backups, receipts, credentials, database, and logs were preserved."
-        Write-Host "The existing project remains tied to the runtime snapshot with which it was created."
+    if ((Test-Path -LiteralPath $Projects -PathType Container) -or (Test-Path -LiteralPath $Workspace -PathType Container)) {
+        Write-Host "All adaptive projects, registries, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved."
+        Write-Host "The selected project passed the compatibility checks available in this runtime."
     }
 } catch {
     $OriginalFailure = $_
