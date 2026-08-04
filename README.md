@@ -1,16 +1,20 @@
 # RSC World Editor
 
-RSC World Editor is the standalone distribution of Spoiled Milk's in-game
-world-building tools. It launches an isolated local server and client, logs in
-as the protected `Builder` account, and provides terrain, wall, scenery, and
-NPC editing without changing the attached private server until the user
-explicitly imports an export.
+RSC World Editor is the home of two deliberately separated product
+generations. The adaptive World Builder 2 contract is a standalone,
+server-agnostic drop-in editor: put its complete folder directly inside a
+compatible RSC game/server root, launch it, and it discovers that installation's
+active map and definitions. It copies, adopts, or converts those inputs into an
+isolated project; editing and saving stay inside World Builder until the user
+explicitly runs the transactional import command.
 
-The downloadable application is published from this repository. The gameplay
-runtime is compiled from a pinned revision of
+The downloadable application is published from this repository. Its in-game
+editing runtime is compiled from a pinned revision of
 [Spoiled Milk](https://github.com/An-actual-duck/open-rsc-spoiled-milk), so
 client and server bug fixes are incorporated deliberately instead of being
-copied into a second game fork.
+copied into a second game fork. That pinned Core-Framework checkout is an
+external generic build/runtime dependency and one supported adapter source; it
+is not World Builder 2's product identity, target world, or bundled map.
 
 ## Product generations
 
@@ -19,14 +23,17 @@ standalone release is `v1.1.0`. Its source package assets remain under
 `release/world-builder/` for provenance and reproducibility.
 
 Current development is **World Builder 2**, a distinct signed-layered product
-with product/update identity `rsc-world-editor-v2`, install folder
-`Spoiled Milk World Builder 2`, and package assets under
-`release/world-builder-v2/`. V1 never automatically upgrades to v2, and v2
-never opens or silently migrates a v1 workspace. The first public v2 alpha was
-accepted after real-archive validation recorded in
+with product/update identity `rsc-world-editor-v2` and package assets under
+`release/world-builder-v2/`. The checked-in pre-adaptive assets still use the
+inherited install-folder name `Spoiled Milk World Builder 2`; removing that
+target-specific packaging identity is pending Phase 5 and is not the adaptive
+product contract. V1 never automatically upgrades to v2, and v2 never opens or
+silently migrates a v1 workspace. The first public v2 alpha was accepted after
+real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel.
+v1 channel. That historical alpha does not make the adaptive v2 design release
+ready; its new release gate remains closed.
 
 ## Repository status
 
@@ -45,9 +52,14 @@ exports, backups, and logs are intentionally excluded from Git.
 
 ## End users
 
-End users should download a platform archive from this repository's
+End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
-Source checkouts are intended for development and release production.
+Source checkouts are intended for development and release production. Published
+history includes the frozen legacy v1 line and the historical pre-adaptive
+`rsc-world-editor-v2-0.1.0-alpha.1`. That alpha retains its accepted historical
+validation, but it does not implement or approve the new adaptive product
+contract. The adaptive workflow remains in development with its release gate
+closed.
 
 The legacy v1 packaged workflow is:
 
@@ -69,6 +81,20 @@ The complete legacy instructions are maintained in
 [`release/world-builder/README.txt`](release/world-builder/README.txt).
 World Builder 2's in-progress instructions are kept separately in
 [`release/world-builder-v2/README.txt`](release/world-builder-v2/README.txt).
+
+The adaptive v2 product contract, once its remaining gates pass, is:
+
+1. Put the complete `World Builder 2` folder directly inside a compatible
+   game/server root and launch it.
+2. Let World Builder discover the target's active map, definitions, and
+   compatibility evidence; unsupported or ambiguous layouts fail with a
+   report instead of being guessed.
+3. Adopt compatible layered data or convert a supported packed map into an
+   isolated project. A production adaptive archive supplies no map, world, or
+   static placements of its own.
+4. Edit, save, close, and reopen only the project copy under World Builder.
+5. Change the target only by running the explicit previewed, backed-up,
+   verified import transaction. Standalone empty projects have no import path.
 
 ## Development
 
@@ -115,14 +141,16 @@ full contracts.
 
 The approved foundation for target-derived maps, content-neutral releases,
 isolated projects, and packed-to-layered conversion is documented in [World
-Builder 2 Adaptive Map Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md). Its contracts,
-strictly read-only adaptive discovery, standalone deterministic packed
-converter, and repository-owned adaptive project lifecycle are implemented.
-The lifecycle can atomically create, select, move, validate, save, and reopen
-target-layered, converted-packed, and standalone-empty projects without target
-writes. Native client/server authoring still fails closed until the separately
-owned Phase 4 generic-loader capability is published and pinned; content-neutral
-packaging and adaptive export/import remain later phase gates.
+Builder 2 Adaptive Map Workflow](docs/ADAPTIVE-MAP-WORKFLOW.md). Phases 0-3,
+including strictly read-only adaptive discovery, deterministic packed
+conversion, and the adaptive project lifecycle, are merged on published `main`
+at `dac388a32aa41754a49341e3ddcc8cc196389ab4`. The lifecycle can atomically
+create, select, move, validate, save, and reopen target-layered,
+converted-packed, and standalone-empty projects without target writes. Native
+client/server authoring still fails closed pending the external Phase 4 generic
+runtime capability. Phase 5 content-neutral packaging and identity cleanup and
+Phase 6 generic export/import are also required before adaptive release
+readiness.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

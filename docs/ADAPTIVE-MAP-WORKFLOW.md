@@ -4,12 +4,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved architecture and implementation plan; Phases 0-2 implemented; repository-owned Phase 3 implementation ready for manager review |
-| Product/release readiness | NOT READY; native runtime remains blocked on Phase 4 and generic export/import remains Phase 6 |
+| Status | Approved architecture and implementation plan; Phases 0-3 implemented and merged on published `main` at `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
+| Product/release readiness | NOT READY; native runtime Phase 4, content-neutral packaging/identity Phase 5, and generic export/import Phase 6 remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
-| Repository reviewed | `db4d83efeb17c74415997f729b3c8faa3e686407` |
+| Repository reviewed | Phase 3 published state `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
 | Pinned runtime reviewed read-only | `026aab5c028aa9ecf6e78d382a4871e6ed56c3f7` from `core-framework.lock` |
 
 Approval establishes this document as the implementation plan. It does not by
@@ -23,10 +23,12 @@ meaning of a contract that has already shipped.
 
 ## Product promise
 
-World Builder must make RSC world creation approachable:
+Adaptive World Builder 2 is a standalone, server-agnostic application, not a
+Spoiled Milk map distribution or a universal binary patcher. World Builder
+must make compatible RSC world creation approachable:
 
-1. Put the complete `World Builder 2` folder inside a server root and launch
-   it.
+1. Put the complete `World Builder 2` folder directly inside a compatible game
+   or server root and launch it.
 2. World Builder finds that server's active map and definitions. It never
    substitutes a world bundled with World Builder.
 3. If the map already uses the signed-layered format, World Builder copies it
@@ -71,8 +73,9 @@ server binary safely.
 - Server administrators distribute the matching client/map update to players.
 - Ease of use is the primary UX goal; strict validation remains fail-closed
   under the simple workflow.
-- Spoiled Milk is one supported adapter/runtime source, not the product's
-  identity, default world, or permanent content assumption.
+- The pinned Core-Framework/Spoiled Milk revision is an external generic
+  build/runtime dependency and one supported adapter source, not the product's
+  identity, default world, target content, or permanent content assumption.
 
 ## AI implementation guardrails
 
@@ -83,9 +86,11 @@ preflight for the checkout role. It MUST also:
 2. preserve frozen v1 code, identity, workspace, release, and updater behavior;
 3. treat `.core-framework/` only as the clean detached checkout named by
    `core-framework.lock`;
-4. put required client, server, loader, protocol, or in-game editor work in
-   Spoiled Milk first, then advance the lock only in a separately authorized
-   dependency-update task;
+4. put required client, server, loader, protocol, or in-game editor changes in
+   the separately managed owning runtime repository—currently Spoiled
+   Milk/Core-Framework—and publish them there; consume them only as an exact
+   dependency commit after a separately authorized `core-framework.lock`
+   update, without taking over that project's manager, workers, or branches;
 5. preserve source-snapshot verification, offline-target checks, exact preview
    and confirmation, drift detection, backups, receipts, post-write
    verification, partial-failure rollback, changed-after-import protection,
@@ -94,12 +99,15 @@ preflight for the checkout role. It MUST also:
 7. never merge, release, tag, publish, deploy, or open a release gate as an
    incidental implementation step.
 
-## Current-state discrepancy audit
+## Approval-baseline discrepancy audit
 
-The findings below were verified in this repository and, only where needed to
-understand interfaces, the exact pinned dependency.
+The findings below record the planning baseline verified when this architecture
+was approved, before Phases 1-3 landed. They are retained to explain the
+required direction and MUST NOT be read as the current implementation status;
+the phase-status sections below govern that. Dependency interfaces were
+reviewed only from the exact pinned checkout.
 
-| Area | Current evidence | Required direction |
+| Area | Approval-baseline evidence | Required direction |
 | --- | --- | --- |
 | Installation root | `release/world-builder-v2/Start World Builder.sh` uses the launcher's parent as `TARGET_ROOT`; the Windows launcher uses `%~dp0..`. Import and undo do the same. | Keep this behavior. The complete World Builder folder belongs immediately inside the server root. |
 | Configuration | `WorldBuilderDiscovery.DEFAULT_CONFIG` and both v2 launchers select `server/myworld.conf`. | Discover the active configuration through a versioned adapter/capability; show a simple chooser only when more than one candidate is valid. |
@@ -988,15 +996,16 @@ approximation case fails visibly.
 
 ### Phase 3 — layered project lifecycle and empty mode
 
-Implementation status: the repository-owned lifecycle and launcher boundary
-are implemented. UUID projects adopt layered targets, invoke Phase 2 conversion
-inside project staging for packed targets, or generate `empty-world-v1`.
-Registry/active metadata publishes atomically; source and baseline state are
-verified immutable; working packages save/reopen independently; portable
-copies detach and can reattach only to exact discovery lineage; and standalone
-import/undo stops with `NO_TARGET` before target access. Linux and Windows
-launchers auto-discover the parent, preserve historical `workspace/`, and use
-the active project instead of a fixed config/package.
+Implementation status: complete in this repository and merged on published
+`main` at `dac388a32aa41754a49341e3ddcc8cc196389ab4`. UUID projects adopt layered
+targets, invoke Phase 2 conversion inside project staging for packed targets,
+or generate `empty-world-v1`. Registry/active metadata publishes atomically;
+source and baseline state are verified immutable; working packages save/reopen
+independently; portable copies detach and can reattach only to exact discovery
+lineage; and standalone import/undo stops with `NO_TARGET` before target
+access. Linux and Windows launchers auto-discover the parent, preserve
+historical `workspace/`, and use the active project instead of a fixed
+config/package.
 
 The native runtime part of this phase is intentionally fail-closed. The
 project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
@@ -1006,13 +1015,11 @@ processes until the separately owned Phase 4 generic-loader and void-authoring
 capability is published and pinned. Generic export is Phase 6 work.
 
 Repository implementation readiness and product readiness are separate gates.
-A repository-owned Phase 3 branch MAY be handed off as READY for manager review
-when the lifecycle, launch boundary, isolation, fail-closed runtime refusal, and
-temporary-fixture tests below pass. Such a handoff MUST NOT be described as
-native-runtime, product, package, or release readiness, and merging it MUST NOT
-open any release gate. This split allows reviewed repository infrastructure to
-land without pretending that separately owned runtime or later import/export
-work exists.
+The Phase 3 repository gate is satisfied by the published merge above, but that
+merge is not native-runtime, product, package, or release readiness and did not
+open a release gate. This split allows reviewed repository infrastructure to
+land without pretending that the external runtime or later packaging and
+import/export work exists.
 
 - Add UUID registry/selection/creation and source snapshot v2.
 - Refactor runtime preparation/supervision for adopted, converted, and empty
@@ -1022,21 +1029,22 @@ work exists.
 - Update Linux/Windows launchers and test atomic project creation, multiple
   projects, portability, drift, save/reopen, and generated-state confinement.
 
-Repository handoff gate: all three origins create, select, save, and reopen
-isolated working projects; project-only supervision proves locking, process
-lifecycle, and generated-state confinement; the native path refuses before
-process creation; targets and pre-existing projects remain byte-identical
-through success and injected failure; and standalone import/undo fail before
-target access.
+Repository gate (satisfied at the Phase 3 merge): all three origins create,
+select, save, and reopen isolated working projects; project-only supervision
+proves locking, process lifecycle, and generated-state confinement; the native
+path refuses before process creation; targets and pre-existing projects remain
+byte-identical through success and injected failure; and standalone
+import/undo fail before target access.
 
 Product/release gate, which remains closed: all three origins launch and edit
 with the real compatible runtime, then save, reopen, and export in isolation.
 This requires Phase 4 and Phase 6. Phase 5 content-neutral packaging and all
 later release validation gates also remain mandatory.
 
-### Phase 4 — required runtime capability upstream
+### Phase 4 — required external runtime capability
 
-In a separately assigned Spoiled Milk task:
+In the separately managed owning runtime repository, currently Spoiled
+Milk/Core-Framework:
 
 - publish the versioned capability/build/definition/protocol identities;
 - support generic validated packages rather than one fixed package;
@@ -1046,14 +1054,17 @@ In a separately assigned Spoiled Milk task:
 - expose effective static composition when files alone cannot prove it; and
 - provide bounded loader activation/configuration and offline contracts.
 
-Gate: upstream tests and owner validation pass and the exact commit is
-published. Only a separately authorized manager task may advance
-`core-framework.lock`; this repository never edits `.core-framework/`.
+Gate: external runtime tests and owner validation pass and the exact commit is
+published. Only a separately authorized World Editor dependency-update task
+may advance `core-framework.lock`; this repository never edits or manages the
+external project's checkout, branches, or workers, and never edits
+`.core-framework/` in place.
 
 ### Phase 5 — content-neutral packaging and update preservation
 
 - Replace broad copies with runtime/default-catalog allowlists.
-- Remove bundled package generator/input and change v2 world-source identity.
+- Remove bundled package generator/input and all inherited target-specific v2
+  packaging/product naming; change the v2 world-source identity.
 - Preserve all adaptive and historical durable paths in both updaters.
 - Add adversarial renamed-world/archive/managed-path tests.
 
