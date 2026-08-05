@@ -10,7 +10,7 @@
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
 | Repository reviewed | Phase 3 published state `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
-| Pinned adaptive runtime | `3cd36570ca7df6c436714b5358904aa5953fd1ba` via immutable provider ref `refs/heads/world-builder/runtime/adaptive-v1` |
+| Pinned adaptive runtime | `2cf2174017a75a571e66592d09e09d510068e89b` via immutable provider ref `refs/heads/world-builder/runtime/adaptive-v1` |
 
 Approval establishes this document as the implementation plan. It does not by
 itself authorize a dependency update, release-gate change, migration of user
@@ -1068,7 +1068,7 @@ external project's checkout, branches, or workers, and never edits
 `.core-framework/` in place.
 
 Implementation record: the automated runtime portion is published and pinned
-at `3cd36570ca7df6c436714b5358904aa5953fd1ba`. It supplies the generic signed-
+at `2cf2174017a75a571e66592d09e09d510068e89b`. It supplies the generic signed-
 layered loader/authoring capability, strict runtime binding, isolated project
 lock/readiness lifecycle, all four placement families, canonical void
 authoring, and verified copy-on-write package persistence. The standalone
