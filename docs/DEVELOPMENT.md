@@ -50,6 +50,21 @@ before and after. Linux and PowerShell implement the same contract; native
 PowerShell execution is run when `WORLD_BUILDER_PWSH` is available, with static
 contract coverage always required.
 
+The Phase 7 focused release-candidate boundary is:
+
+```bash
+./scripts/test-world-builder-v2-candidate.sh
+```
+
+It groups the adaptive contracts/discovery/origins, packed conversion,
+project lifecycle, Phase 6 transactions, content-neutral release, updater,
+product-generation, independence, and external-candidate-inspector fixtures.
+It reports rather than hides an unavailable native PowerShell run. Final real
+archives are inspected separately from outside both source trees with
+`scripts/inspect-world-builder-v2-candidate.py`; see
+[Releasing](RELEASING.md) and the pending
+[adaptive validation worksheet](releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
+
 ## Core-Framework dependency
 
 `core-framework.lock` is the sole runtime dependency pin. Treat its exact

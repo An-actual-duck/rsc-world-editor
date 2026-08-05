@@ -168,7 +168,10 @@ export, compiled server/client mutation plans, offline preview/import, durable
 backups and receipts, verified rollback/recovery, changed-after refusal, and
 exact undo for adopted and converted projects. Phase 4 owner-native validation
 and the Phase 7 release-validation record still block adaptive release
-readiness; the release gate remains closed.
+readiness; the release gate remains closed. Phase 7's repeatable automated and
+owner-report fields are prepared in the explicitly pending
+[v0.2.0-alpha.1 adaptive validation worksheet](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md);
+the worksheet is not release acceptance.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

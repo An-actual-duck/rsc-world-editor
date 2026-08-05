@@ -10,7 +10,9 @@ world-source identity `target-adaptive-v1`, and package assets under
 `release/world-builder-v2/`. The historical pre-adaptive alpha validation in
 [`world-builder-v2-v0.1.0-alpha.1-validation.md`](releases/world-builder-v2-v0.1.0-alpha.1-validation.md)
 remains unchanged historical evidence; it does not approve the adaptive
-package design.
+package design. The new
+[`v0.2.0-alpha.1 adaptive validation worksheet`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md)
+is explicitly pending and is not release authorization.
 
 ## Release gate
 
@@ -145,6 +147,35 @@ Before adding a new adaptive `RELEASE-READY` record:
 7. Record the exact source commits, commands, artifact hashes, compatibility
    matrix, owner report, remaining limitations, and accepted candidate commit
    in a new adaptive validation record.
+
+The repeatable focused boundary is:
+
+```bash
+./scripts/test-world-builder-v2-candidate.sh
+./scripts/test.sh
+```
+
+After building, copy both archives and `SHA256SUMS.txt` to a review directory
+outside the World Editor and pinned runtime trees. From clean published manager
+`main`, bind those real artifacts to both exact clean source commits and emit
+the independent evidence document with:
+
+```bash
+./scripts/inspect-world-builder-v2-candidate.py \
+  --source-root /path/to/clean-published-rsc-world-editor \
+  --core-framework /path/to/clean-exact-locked-runtime \
+  --version v0.2.0-alpha.1 \
+  --linux-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip \
+  --windows-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip \
+  --checksums /outside-sources/SHA256SUMS.txt \
+  > /outside-sources/candidate-archive-inspection.json
+```
+
+The inspector never packages, extracts, publishes, or changes either source
+tree. Fixture archives from the focused suite are regression evidence, not
+substitutes for this real-artifact inspection. Fill the pending worksheet only
+with results from one exact candidate; unavailable native PowerShell execution
+or owner checks stay visibly pending or unavailable.
 
 Publishing a World Editor release does not authorize changing, deploying, or
 restarting any public game server.

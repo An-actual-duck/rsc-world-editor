@@ -1187,6 +1187,12 @@ target.
 - Add a new adaptive release validation record without changing historical
   evidence.
 
+Phase 7 preparation now uses the explicitly pending
+[`v0.2.0-alpha.1 adaptive validation worksheet`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md),
+the focused candidate suite, and an external-archive inspector. The worksheet
+does not accept a candidate or open `RELEASE-READY`; exact real-artifact and
+owner-native evidence must replace every pending field first.
+
 Gate: every acceptance criterion has evidence. Release-gate opening, tag,
 publication, and deployment remain separate manager decisions.
 
