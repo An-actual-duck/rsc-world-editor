@@ -664,13 +664,21 @@ public final class AdaptiveProjectSupervisorHarness {
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertEqual(target_before, tree_bytes(target, installation))
 
-            for command in ("import-active-adaptive", "undo-active-adaptive"):
-                refused_active = self.run_cli(
-                    command, "--installation-root", installation
-                )
-                self.assertEqual(3, refused_active.returncode)
-                self.assertIn("reserved for Phase 6", refused_active.stderr)
-                self.assertEqual(target_before, tree_bytes(target, installation))
+            import_preview = self.run_cli(
+                "import-active-adaptive", "--installation-root", installation
+            )
+            self.assertEqual(0, import_preview.returncode, import_preview.stderr)
+            self.assertIn("Import preview", import_preview.stderr)
+            self.assertEqual("", import_preview.stdout)
+            self.assertIn("Import cancelled", import_preview.stderr)
+            self.assertEqual(target_before, tree_bytes(target, installation))
+
+            undo_without_import = self.run_cli(
+                "undo-active-adaptive", "--installation-root", installation
+            )
+            self.assertEqual(3, undo_without_import.returncode)
+            self.assertIn("no successful unreverted", undo_without_import.stderr.lower())
+            self.assertEqual(target_before, tree_bytes(target, installation))
 
             portable = base / "portable-copy"
             shutil.copytree(installation, portable)

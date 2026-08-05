@@ -654,7 +654,7 @@ final class WorldBuilderAdaptiveContracts {
 		exact(root, op, "schemaVersion", "manifestType", "transactionId", "projectId",
 			"exportFingerprintSha256", "adapterId", "capabilityId", "mutationProfileId",
 			"targetLineageSha256", "selectedConfiguration", "requirements",
-			"actions", "configurationChanges", "backupRootRelativePath",
+			"actions", "createdDirectories", "configurationChanges", "backupRootRelativePath",
 			"receiptRelativePath", "postWriteVerifications", "rollbackVerifications",
 			"planFingerprintSha256");
 		String transactionId = uuid(root, "transactionId", op, false);
@@ -677,6 +677,7 @@ final class WorldBuilderAdaptiveContracts {
 		}
 		MutationSummary mutations = validateMutationActions(
 			root.get("actions"), op, transactionId);
+		validateCreatedDirectories(root.get("createdDirectories"), mutations, op);
 		if (freeSpace < mutations.requiredBytes) {
 			invalid(op, "Mutation free-space requirement omits planned content or backups.");
 		}
@@ -701,6 +702,40 @@ final class WorldBuilderAdaptiveContracts {
 		validateVerificationCoverage(mutations.beforeExpectations, rollback,
 			op, "Rollback verification");
 		hash(root, "planFingerprintSha256", op);
+	}
+
+	private static void validateCreatedDirectories(Object raw,
+		MutationSummary mutations, String op) throws WorldBuilderContractException {
+		List<?> values = array(raw, op, "createdDirectories", 0,
+			WorldBuilderContractLimits.MAX_MUTATIONS);
+		Set<String> seen = new HashSet<String>();
+		String previous = null;
+		for (Object rawValue : values) {
+			String path = WorldBuilderBoundedInventory.string(
+				rawValue, op, "createdDirectories");
+			path = WorldBuilderPortablePath.require(path, op);
+			String collision = WorldBuilderPortablePath.collisionKey(path, op);
+			if (!seen.add(collision)) {
+				invalid(op, "Created-directory authority repeats a portable path.");
+			}
+			boolean ancestor = false;
+			for (String destination : mutations.destinationPaths) {
+				if (destination.startsWith(path + "/")) {
+					ancestor = true;
+					break;
+				}
+			}
+			if (!ancestor) {
+				invalid(op, "Created-directory authority is not an action ancestor.");
+			}
+			if (previous != null) {
+				int depth = path.split("/").length - previous.split("/").length;
+				if (depth < 0 || depth == 0 && previous.compareTo(path) >= 0) {
+					invalid(op, "Created-directory authority is not canonically ordered.");
+				}
+			}
+			previous = path;
+		}
 	}
 
 	private static void validateReceipt(Map<String,Object> root)
@@ -988,6 +1023,7 @@ final class WorldBuilderAdaptiveContracts {
 		Map<String,String> beforeExpectations = new LinkedHashMap<String,String>();
 		Map<String,String> afterExpectations = new LinkedHashMap<String,String>();
 		Set<String> activationPaths = new HashSet<String>();
+		Set<String> destinationPaths = new HashSet<String>();
 		boolean activationStarted = false;
 		long requiredBytes = 0L;
 		for (int index = 0; index < actions.size(); index++) {
@@ -1000,6 +1036,7 @@ final class WorldBuilderAdaptiveContracts {
 			String role = identifier(action, "role", op);
 			if (!roles.add(role)) invalid(op, "Mutation plan repeats a logical role.");
 			String destination = relative(action, "destinationRelativePath", op);
+			destinationPaths.add(destination);
 			String destinationKey = WorldBuilderPortablePath.collisionKey(destination, op);
 			if (!destinations.add(destinationKey)) {
 				throw new WorldBuilderContractException(
@@ -1039,7 +1076,7 @@ final class WorldBuilderAdaptiveContracts {
 			beforeExpectations.put(destinationKey, before.expectation());
 			afterExpectations.put(destinationKey, after.expectation());
 		}
-		return new MutationSummary(destinations, activationPaths,
+		return new MutationSummary(destinations, destinationPaths, activationPaths,
 			beforeExpectations, afterExpectations, requiredBytes);
 	}
 
@@ -1660,15 +1697,18 @@ final class WorldBuilderAdaptiveContracts {
 
 	private static final class MutationSummary {
 		final Set<String> relativePaths;
+		final Set<String> destinationPaths;
 		final Set<String> activationPaths;
 		final Map<String,String> beforeExpectations;
 		final Map<String,String> afterExpectations;
 		final long requiredBytes;
 
-		MutationSummary(Set<String> relativePaths, Set<String> activationPaths,
+		MutationSummary(Set<String> relativePaths, Set<String> destinationPaths,
+			Set<String> activationPaths,
 			Map<String,String> beforeExpectations, Map<String,String> afterExpectations,
 			long requiredBytes) {
 			this.relativePaths = relativePaths;
+			this.destinationPaths = destinationPaths;
 			this.activationPaths = activationPaths;
 			this.beforeExpectations = beforeExpectations;
 			this.afterExpectations = afterExpectations;

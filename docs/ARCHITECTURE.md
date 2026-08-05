@@ -14,7 +14,7 @@ The repository is divided into four layers:
 
 - `tools/world-builder/` contains Java tooling for target discovery,
   conversion, UUID project lifecycle, process supervision, export, import,
-  and rollback.
+  rollback, recovery, and undo.
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
@@ -57,9 +57,60 @@ baseline beside a mutable working layered package. Creation adopts compatible
 layered input, invokes deterministic packed conversion on the isolated copy,
 or generates the standalone structural void. Saving validates only the
 project-local working package and updates its fingerprint; it does not read or
-write a target. Generic adaptive export/import remains a later transaction
-phase. The historical workspace transaction continues to use its existing
-validated export, offline import, backup, receipt, and undo contracts.
+write a target. Adaptive export locks and revalidates that project, copies its
+complete working package, independently validates the stage, and atomically
+publishes a unique deterministic result without target access.
+
+Target mutation begins only after a fresh capability/source-lineage check and
+all compiled offline evidence. Adapter code—not target JSON or a receipt—owns
+the bounded content-addressed server/client destinations and selected-
+configuration path. Preview binds a real transaction UUID to exact before and
+after bytes, backups, receipt, free space, activation order, and verification.
+Direct CLI apply must repeat that preview's exact transaction UUID and plan
+fingerprint as well as literal `IMPORT`; a confirmation supplied before an
+unseen plan is never accepted. The packaged active launcher instead keeps one
+preview in memory, displays it, and reads a literal untrimmed confirmation.
+Exact `IMPORT` file-forces the immutable plan, exact created-directory
+authority, generated activation bytes, and every copied backup; directory
+entries are then forced from the deepest backup directory through its parent.
+Only after that ordering succeeds does it publish and directory-force the
+pending receipt. A provider that cannot force directories is refused before
+transaction artifacts or target mutation. Import then publishes verified
+package content, activates configuration last, and verifies
+both selected packages. Failures restore the exact before state or leave a
+blocking recovery receipt.
+
+Undo independently rebuilds the successful import plan from immutable project
+evidence, its exact historical export, compiled profile, durable plan, and
+receipt. Mutable working state may be saved and exported after the import; it
+is preserved byte-for-byte and is not substituted for that historical export.
+The exact canonical list of directories absent at preview is inside the plan
+fingerprint and receipt authority; its separate evidence file must match that
+list exactly and every entry must be an action ancestor. Undo
+refuses any changed or extra installed path before producing new artifacts;
+exact `UNDO` restores/deactivates the original configuration first and then
+removes only inactive recorded content-addressed files and directories. Undo
+rollback restores package content first and reactivates configuration last.
+Explicit `RECOVER` accepts only exact before/after transaction states and can
+remove only derivable transaction staging files whose bytes match the durable
+plan. Whole fingerprint containers must be absent before import and are
+completely inventoried before Undo, including entries beside `package/`; empty
+roots, extras, links, hard links, case aliases, and appeared destinations are
+preserved and refused. Standalone origin is checked before target resolution
+for import, undo, and recovery. The historical workspace transaction continues
+to use its existing fixed-layout contracts.
+
+The compiled `process-scan` offline check is fail-closed. It currently requires
+a readable Linux `/proc` process view; a missing, unreadable, or unavailable
+view refuses mutation rather than recording clean evidence. A still-live
+userspace entry requires both readable command-line and working-directory
+observations; process exits and empty kernel-thread command lines are handled
+separately.
+
+Phase 6 deliberately permits only one outstanding successful import per
+project. To install a later saved/exported working state, run exact Undo for
+the outstanding import first, then preview and import the new export. Import
+refuses this condition before resolving or mutating the target.
 
 There is deliberately no force-import path.
 
@@ -109,8 +160,12 @@ layered-loader, authoring, placement, isolation, and copy-on-write capability.
 Owner-run adopted-project and standalone-empty visual/edit/save/reopen
 validation remains pending. Phase 5 supplies the generic identity, exact
 runtime/default-catalog allowlist, no-world archive validation, and durable
-Linux/Windows updater boundary. Phase 6 generic export/import and the owner
-validation still keep the adaptive release gate closed.
+Linux/Windows updater boundary. Phase 6 supplies complete adaptive export,
+compiled mutation profiles, exact preview/import, durable receipt/backup
+authority, reverse rollback, explicit recovery, changed-after refusal, and
+exact undo for layered and packed-origin projects. Owner-native Phase 4
+validation and Phase 7 release validation still keep the adaptive release gate
+closed.
 
 ## Planned custom materials
 

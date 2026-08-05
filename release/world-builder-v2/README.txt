@@ -15,11 +15,13 @@ CURRENT STATUS
 
 Adaptive discovery, packed conversion, layered adoption, standalone empty
 creation, UUID project lifecycle, content-neutral packaging, and durable update
-preservation are implemented. The generic Phase 4 client/server capability is
-published and pinned, but owner-run native visual/edit/save/reopen validation
-has not yet accepted the release-launch path. Generic export/import/undo is
-Phase 6. A new public adaptive archive must not be published until those gates
-and a new candidate acceptance record are complete.
+preservation are implemented. Phase 6 complete export, compiled target import,
+verified rollback/recovery, changed-after refusal, and exact undo are also
+implemented. The generic Phase 4 client/server capability is published and
+pinned, but owner-run native visual/edit/save/reopen validation has not yet
+accepted the release-launch path. A new public adaptive archive must not be
+published until that validation and a new candidate acceptance record are
+complete.
 
 INSTALLATION
 ------------
@@ -80,18 +82,56 @@ AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or
 judged by the release process.
 
-SAVE, IMPORT, AND UNDO
-----------------------
+SAVE, IMPORT, RECOVERY, AND UNDO
+--------------------------------
 
 Project save validates the complete working layered package and atomically
 updates its fingerprint. It never reads or writes the target. Source corruption,
 unsaved manifest drift, linked runtime state, or concurrent project operations
 fail closed.
 
-Generic adaptive export/import/undo is Phase 6 and is not implemented here.
-Standalone Import and Undo return NO_TARGET before target access. Target-backed
-adaptive mutation remains unavailable until the bounded adapter-driven Phase 6
-transaction is complete. There is no force option and no binary patcher.
+Close World Builder and stop the private target server completely before
+installing. Run "Import Map Changes.sh" on Linux or "Import Map Changes.cmd"
+on Windows. It exports the active saved project, revalidates the immutable
+source and exact target capability, acquires every advertised offline signal,
+and displays a JSON/plain-language preview with an actual transaction ID,
+server/client content-addressed destinations, configuration changes, backups,
+receipt, free-space requirement, and verification steps. Nothing is changed
+until you type IMPORT exactly.
+
+Confirmed Import file-forces its exact plan, created-directory authority,
+activation content, and every verified backup, then forces their directory
+entries before publishing and forcing the pending receipt. A filesystem/Java
+provider that cannot provide that ordering is refused before transaction
+artifacts or target mutation. Import publishes verified server and client
+package content first, activates the selected configuration last, and then
+verifies every byte and both package selections. Before restarting,
+distribute the exact reported client package/map identity to every player.
+
+Run "Undo Last Map Import" only while the target is offline. It previews the
+latest successful unreverted import and requires UNDO exactly. Any installed
+file that changed after import, including an extra package path, blocks Undo
+before a new backup, receipt, or target mutation. Successful Undo restores the
+original configuration and target inventory exactly. Configuration is
+deactivated/restored before package removal; rollback restores packages before
+reactivation.
+
+Phase 6 supports one outstanding successful import per project. You may keep
+editing and saving the isolated project after Import A. Undo A uses its exact
+historical export and preserves the later working bytes. Before Import B, run
+exact Undo A, then export/preview/import the desired saved state. A second
+outstanding import is refused with this instruction rather than guessed or
+chained.
+
+A partial failure automatically rolls back and verifies the safe state. If the
+tool reports RECOVERY_REQUIRED, do not start the server or run another
+transaction. Keep the complete project/backups/receipts and run "Recover Map
+Transaction"; review its exact plan and type RECOVER. Recovery accepts only
+paths that still match the compiled transaction's exact before or after state.
+
+There is no force option and no binary patcher. Standalone projects can save
+and export, but Import, Undo, and Recovery return NO_TARGET before resolving,
+accessing, or locking any target path.
 
 HISTORICAL V2 ALPHA
 -------------------
@@ -123,13 +163,20 @@ REQUIREMENTS AND LIMITS
 
 - A supported target supplies truthful capability evidence or matches one
   exact repository-owned adapter. Similar-looking unknown forks are not guessed.
+- A compiled process-scan offline requirement currently requires a readable
+  Linux /proc process view and fails closed if that view is unavailable. A
+  still-live userspace process requires both readable cmdline and cwd evidence.
+- Import, Undo, and Recovery require a filesystem/Java provider capable of
+  forcing transaction directory entries; unsupported providers fail before
+  target mutation.
 - The default local port is 43615. WORLD_BUILDER_PORT may select 1 through
   65534; WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
-- Server administrators remain responsible for distributing the matching
-  compatible client/map update after Phase 6 import is available.
+- Server administrators remain responsible for distributing the exact
+  compatible client/map identity reported by each successful Import.
 - World Editor v1 remains frozen with separate identity, update channel,
   install folder, workspace, and artifacts.
-- Release readiness still requires Phase 4 owner validation, Phase 6, complete
-  automated tests, archive inspection, and an exact accepted candidate record.
+- Release readiness still requires Phase 4 owner validation, complete Phase 7
+  automated/native candidate validation, archive inspection, and an exact
+  accepted candidate record.
 
 Release source commit: @SOURCE_COMMIT@

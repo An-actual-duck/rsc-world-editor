@@ -326,6 +326,8 @@ for required_path in \
 	"$PACKAGE_ASSETS/world-builder-runtime.conf" \
 	"$PACKAGE_ASSETS/Import Map Changes.sh" \
 	"$PACKAGE_ASSETS/Import Map Changes.cmd" \
+	"$PACKAGE_ASSETS/Recover Map Transaction.sh" \
+	"$PACKAGE_ASSETS/Recover Map Transaction.cmd" \
 	"$PACKAGE_ASSETS/Undo Last Map Import.sh" \
 	"$PACKAGE_ASSETS/Undo Last Map Import.cmd" \
 	"$UPDATE_ASSETS/Start World Builder.sh" \
@@ -500,11 +502,14 @@ stage_builder() {
 	cp "$UPDATE_ASSETS/Update World Builder.ps1" "$destination/Update World Builder.ps1"
 	cp "$PACKAGE_ASSETS/Import Map Changes.sh" "$destination/Import Map Changes.sh"
 	cp "$PACKAGE_ASSETS/Import Map Changes.cmd" "$destination/Import Map Changes.cmd"
+	cp "$PACKAGE_ASSETS/Recover Map Transaction.sh" "$destination/Recover Map Transaction.sh"
+	cp "$PACKAGE_ASSETS/Recover Map Transaction.cmd" "$destination/Recover Map Transaction.cmd"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.sh" "$destination/Undo Last Map Import.sh"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.cmd" "$destination/Undo Last Map Import.cmd"
 	chmod +x "$destination/Start World Builder.sh" \
 		"$destination/Update World Builder.sh" \
 		"$destination/Import Map Changes.sh" \
+		"$destination/Recover Map Transaction.sh" \
 		"$destination/Undo Last Map Import.sh"
 	sed "s/@VERSION@/$VERSION/g; s/@SOURCE_COMMIT@/$SOURCE_COMMIT/g" \
 		"$PACKAGE_ASSETS/README.txt" > "$destination/README.txt"
@@ -557,7 +562,8 @@ reserved = {
 top_files = {
     "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
     "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
-    "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
+    "PLAYER-ASSET-SOURCES.txt", "README.txt", "Recover Map Transaction.cmd",
+    "Recover Map Transaction.sh", "RELEASE-IDENTITY.json",
     "RUNTIME-ASSET-ALLOWLIST.txt", "SOURCE-COMMIT.txt", "Start World Builder.cmd",
     "Start World Builder.sh", "Undo Last Map Import.cmd", "Undo Last Map Import.sh",
     "Update World Builder.cmd", "Update World Builder.ps1", "Update World Builder.sh",

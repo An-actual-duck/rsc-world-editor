@@ -4,8 +4,8 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phases 0-3 and repository-owned Phase 5 are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
-| Product/release readiness | NOT READY; Phase 4 owner validation and generic export/import Phase 6 remain gated |
+| Status | Phases 0-3, repository-owned Phase 5, and Phase 6 transactions are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
+| Product/release readiness | NOT READY; Phase 4 owner validation and the Phase 7 candidate-validation record remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
@@ -905,8 +905,10 @@ Dedicated `test-world-builder-adaptive-contracts.py`,
 publication and rollback, all three origins, source/baseline protection,
 portable detach/reattach, multiple selection, save/reopen, standalone
 no-target refusal, project-only supervision, generated-state confinement, and
-unsafe mutable paths. Generic adaptive export/import remains a later dedicated
-suite.
+unsafe mutable paths. `test-world-builder-adaptive-transactions.py` now covers
+complete export, layered and packed-origin preview/import/undo, standalone
+isolation, free-space/no-force/changed-after refusal, partial rollback, and
+explicit recovery after injected rollback failure.
 
 ## Existing implementation-file impact
 
@@ -1015,7 +1017,8 @@ project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
 confinement are tested with temporary runtime processes for all three origins,
 but `run-adaptive-project` remains fail-closed before starting real processes
 until owner-native validation accepts the already published and pinned Phase 4
-generic-loader/authoring capability. Generic export is Phase 6 work.
+generic-loader/authoring capability. Phase 6 export and target transactions are
+implemented independently of that visual-validation gate.
 
 Repository implementation readiness and product readiness are separate gates.
 The Phase 3 repository gate is satisfied by the published merge above, but that
@@ -1041,9 +1044,9 @@ import/undo fail before target access.
 
 Product/release gate, which remains closed: all three origins launch and edit
 with the real compatible runtime, then save, reopen, and export in isolation.
-This requires Phase 4 owner validation and Phase 6. Phase 5 content-neutral
-packaging is implemented; its release tests and all later candidate validation
-gates remain mandatory.
+This requires Phase 4 owner validation and the Phase 7 candidate record. Phase
+5 content-neutral packaging and Phase 6 transactions are implemented; their
+release tests and all later candidate-validation gates remain mandatory.
 
 ### Phase 4 — required external runtime capability
 
@@ -1102,6 +1105,64 @@ is preserved and refused with side-by-side installation guidance. The adaptive
 
 ### Phase 6 — generic export, install, recovery, and undo
 
+Implementation status: complete in this repository. Export locks and verifies
+one UUID project, publishes a unique complete deterministic layered export,
+and never accesses a target. Target-backed preview uses real transaction IDs
+and independently compiled `generic-layered-install-v1` or
+`spoiled-milk-layered-install-v1` destinations. Apply reacquires immutable
+project/export/source lineage and all declared offline evidence, creates
+verified project-owned backups and a durable receipt, stages content-addressed
+server/client packages, activates configuration last, and verifies both
+selections. Reverse rollback, explicit `RECOVER`, successful-receipt-authorized
+`UNDO`, extra/changed-path refusal, and exact original-lineage verification are
+covered with temporary layered and packed-origin fixtures. Linux and Windows
+packages expose Import, Recover, and Undo launchers. Standalone origin refuses
+all three target operations before target resolution or lock acquisition.
+
+Direct `import-adaptive`, `undo-adaptive`, and `recover-adaptive` use an exact
+two-call review protocol. Preview stdout is one plan JSON document. Apply must
+repeat `--confirm`, the emitted `--transaction-id`, and the emitted
+`--plan-sha256`; it independently recompiles that identity and emits one result
+JSON document only. The active packaged commands deliberately expose no
+noninteractive `--confirm` shortcut: they retain one in-memory plan before
+reading literal, untrimmed `IMPORT`, `UNDO`, or `RECOVER` input.
+
+Phase 6 lock and durable-authority reads reject links, hard links, case aliases,
+identity replacement, and transaction-ID collisions. The opened project-lock
+channel is matched back to its stable path by pre/open/post identity and exact
+bounded bytes; the capability-lock channel is matched by stable identity and
+exact descriptor bytes. Import rechecks that the
+complete server and selected-client fingerprint roots remain absent under the
+offline lease. Undo scans each complete fingerprint container, including
+siblings of `package/`, before artifacts and again at the confirmation/write
+boundary. Its exact ordered created-directory list is plan-fingerprinted,
+receipt-bound, independently action-ancestor checked, and required to equal
+the separate evidence file. Undo
+deactivates configuration before package removal; rollback restores packages
+before activation. Same-filesystem capacity is the combined target, backup,
+staging, and receipt requirement. On native Unix providers, atomic new regular-
+file publication uses a same-filesystem no-overwrite link insertion and export
+directories reserve a new destination identity before an atomic same-directory
+move. The reviewed native Windows provider uses its same-volume no-replace move.
+Unsupported filesystem providers fail closed.
+`process-scan` requires a readable Linux `/proc` view and refuses unsupported or
+unavailable process views without recording verified-clean evidence. A live
+userspace process requires both per-process command and cwd observations;
+process exits and empty kernel-thread command lines are distinguished.
+
+Plan, created-directory authority, activation content, copied backups, staged
+target files, receipts, and their containing directory entries are forced in
+dependency order. If the Java/filesystem provider cannot force a directory,
+apply refuses before creating transaction artifacts or changing the target.
+The pending receipt is never published before its plan and rollback authority
+have completed that ordering.
+
+Successive outstanding imports are not chained in Phase 6. A valid edit/save
+after import A remains safe project-local state, and Undo A uses its historical
+export without comparing it to current working bytes. Import B is refused with
+an explicit instruction to Undo A first; after Undo, the saved B bytes remain
+available for a fresh export/import.
+
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.
 - Generalize offline evidence, configuration changes, receipts, backups,
@@ -1110,7 +1171,8 @@ is preserved and refused with side-by-side installation guidance. The adaptive
 
 Gate: adopted and converted target projects preview/apply/verify/rollback/undo
 exactly; missing loader, target drift, changed-after, source corruption, and
-force attempts fail closed; standalone import/undo never touches a target.
+force attempts fail closed; standalone import/undo/recovery never touches a
+target.
 
 ### Phase 7 — UX, documentation, and release validation
 

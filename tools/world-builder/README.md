@@ -17,11 +17,12 @@ Builder 2 and `rsc-world-editor-v2`.
 
 Adaptive discovery, lossless packed conversion, UUID projects, isolated
 working copies, save/reopen, a generic pinned runtime capability, content-
-neutral packaging, and durable application updates are implemented. Native
+neutral packaging, deterministic export, bounded target import, verified
+rollback/recovery, exact undo, and durable application updates are implemented. Native
 adaptive launch remains intentionally fail-closed with `LOADER_INCOMPATIBLE`
 until the owner records target-backed and standalone visual/edit/save/reopen
-validation. Generic adaptive export, target install, recovery, and undo are
-Phase 6 work and are not exposed as a working mutation path yet.
+validation. That owner-run gate and final release validation remain separate
+from the implemented Phase 6 transaction path.
 
 Build the standalone tools with:
 
@@ -228,24 +229,94 @@ back only the application layer.
 
 ## Adaptive export, install, and recovery boundary
 
-The repository contains strict adaptive schema contracts for complete layered
-exports (`export-manifest-v2`), compiled target mutation plans
-(`target-mutation-plan-v1`), and transactional receipts
-(`import-receipt-v3`). Phase 6 must connect those contracts to project-relative
-export, exact target preview/install, backup, verification, rollback,
-changed-after-import refusal, recovery, and undo.
+Export is project-local and never reads or writes the target:
 
-Until that phase is implemented:
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar export-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>'
+```
 
-- there is no supported adaptive export/install command;
-- `import-active-adaptive` and `undo-active-adaptive` fail closed;
-- standalone import/undo returns `NO_TARGET` before resolving a target; and
-- no updater or launch command writes to a target.
+It locks and revalidates the project, copies the complete working layered
+package into a unique `exports/export-<fingerprint>-<sequence>/` directory,
+binds all source/conversion/definition/runtime identities, independently
+validates every byte, and publishes atomically. Re-exporting unchanged state
+uses a new directory but retains the deterministic export fingerprint.
 
-There is no force path. Future apply and undo operations must retain exact
-confirmation, offline proof, immutable source validation, compiled adapter
-destinations, backups, receipts, verification, rollback, and target-drift
-protection.
+An explicit import without confirmation is preview-only:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --export '/path/to/project/exports/export-…' \
+  --target-root /path/to/server-root
+```
+
+The preview contains an actual transaction UUID, exact server/client
+content-addressed destinations, configuration changes, byte states, backup
+and receipt paths, free-space requirements, and post-write/rollback checks.
+Preview stdout is exactly one plan JSON document. Apply it with a second call
+that repeats the emitted `transactionId` and `planFingerprintSha256`:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --export '/path/to/project/exports/export-…' \
+  --target-root /path/to/server-root \
+  --confirm IMPORT \
+  --transaction-id '<preview transactionId>' \
+  --plan-sha256 '<preview planFingerprintSha256>'
+```
+
+The apply call independently recompiles that exact identity before creating
+transaction artifacts and emits exactly one result JSON document. The packaged
+`Import Map Changes` launcher accepts no command-line confirmation shortcut: it
+keeps one reviewed plan in memory and requires literal, untrimmed `IMPORT` input.
+
+Import reacquires the project and all target offline evidence, rediscovers the
+same adapter/capability/source lineage, rejects drift, writes verified project-
+owned backups and a durable pending `import-receipt-v3`, stages and verifies
+server/client package files on the target filesystem, and activates the
+configuration last. It then verifies every byte, both selected packages, and
+the configuration semantics. The result names the exact client package an
+administrator must distribute before restart.
+
+Undo is also preview-first:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar undo-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --target-root /path/to/server-root
+```
+
+Apply the reviewed undo with `--confirm UNDO`, the preview `transactionId`, and
+its `planFingerprintSha256`, or use `Undo Last Map Import` for the in-memory
+interactive flow. Undo requires the latest successful unreverted receipt,
+matching export and compiled plan, exact installed-after bytes, unchanged target
+lineage, valid backups, and fresh offline proof. Any changed or extra package
+path is listed and refused before a new backup or receipt is created. It
+deactivates/restores configuration before removing package content; rollback
+restores package content before reactivation.
+
+Every partial import/undo failure rolls back in safe reverse order and verifies
+the complete expected state. If that proof cannot complete, new transactions
+are blocked by `recovery-required`. Keep the target offline and use `Recover
+Map Transaction`, or preview/apply explicitly with:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar recover-adaptive \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --target-root /path/to/server-root
+```
+
+Apply that reviewed plan in a second call with `--confirm RECOVER`, its emitted
+`--transaction-id`, and its emitted `--plan-sha256`. Recovery accepts only paths
+and states that match the independently rebuilt compiled transaction, and it
+deletes only exact derivable staging content. There is no `--force` path.
+Standalone projects may export normally, but import, undo, and recovery return
+`NO_TARGET` before a target path is resolved, accessed, locked, backed up, or
+receipted. A compiled `process-scan` offline requirement currently needs a
+readable Linux `/proc` view and fails closed when that process view is absent or
+unavailable.
 
 ## Historical interfaces
 

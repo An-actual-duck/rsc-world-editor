@@ -39,10 +39,11 @@ ready; its new release gate remains closed.
 
 This repository contains:
 
-- the standalone project discovery, launch, export, import, and rollback tools;
+- the standalone project discovery, launch, export, import, rollback, recovery,
+  and exact undo tools;
 - separate checksum-verified v1 and v2 update channels, with v2 preserving all
   adaptive projects and historical creator state;
-- Linux and Windows launch/import/undo packaging assets;
+- Linux and Windows launch/import/recovery/undo packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
 - release tooling tied to an explicit Core-Framework source revision; and
@@ -96,7 +97,15 @@ The adaptive v2 product contract, once its remaining gates pass, is:
    static placements of its own.
 4. Edit, save, close, and reopen only the project copy under World Builder.
 5. Change the target only by running the explicit previewed, backed-up,
-   verified import transaction. Standalone empty projects have no import path.
+   verified import transaction. Distribute the reported matching client
+   package before restart.
+6. Use the exact previewed Undo transaction to restore an unchanged imported
+   target, or keep the target offline and use Recovery if an interrupted
+   rollback is explicitly reported. Standalone empty projects have no target
+   transaction path.
+7. Phase 6 keeps one outstanding successful import at a time. You may continue
+   editing and saving the isolated project, but Undo the outstanding import
+   before importing a later export; Undo preserves those later working bytes.
 
 ## Development
 
@@ -154,8 +163,12 @@ converted-packed, and standalone-empty projects without target writes. The
 generic Phase 4 runtime capability is now pinned; owner-run native visual,
 edit/save, and reopen validation remains pending. Phase 5 implements the
 content-neutral package identity, exact no-world runtime allowlist, and durable
-Linux/Windows update boundary. Phase 6 generic export/import and the remaining
-owner validation still block adaptive release readiness.
+Linux/Windows update boundary. Phase 6 implements deterministic complete
+export, compiled server/client mutation plans, offline preview/import, durable
+backups and receipts, verified rollback/recovery, changed-after refusal, and
+exact undo for adopted and converted projects. Phase 4 owner-native validation
+and the Phase 7 release-validation record still block adaptive release
+readiness; the release gate remains closed.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

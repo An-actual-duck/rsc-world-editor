@@ -143,9 +143,9 @@ the client texture catalog, and the new material capability.
 - The native signed-layered package schema has a strict inventory for terrain
   and placements. Arbitrary PNG files MUST NOT be inserted into that package.
 - The current adaptive schemas describe complete layered export, compiled
-  target mutation, and transactional receipts; Phase 6 must finish that
-  material-free implementation before materials extend it through a new
-  versioned companion bundle.
+  target mutation, and transactional receipts. The material-free adaptive
+  transaction implementation is complete; materials must extend it through a
+  new versioned companion bundle rather than changing those shipped meanings.
 - A World Builder release archive MUST NOT contain any user's inbox, normalized
   images, material manifest, export, backup, or receipt.
 

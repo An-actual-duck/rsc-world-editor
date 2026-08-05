@@ -419,6 +419,8 @@ require_manifest_paths() {
 		"Update World Builder.ps1" \
 		"Import Map Changes.sh" \
 		"Import Map Changes.cmd" \
+		"Recover Map Transaction.sh" \
+		"Recover Map Transaction.cmd" \
 		"Undo Last Map Import.sh" \
 		"Undo Last Map Import.cmd" \
 		"RUNTIME-ASSET-ALLOWLIST.txt" \
@@ -442,7 +444,9 @@ validate_application_paths() {
 		"ASSET-SOURCES.txt" "CORE-SOURCE-COMMIT.txt" \
 		"EDITOR-ICON-CREDITS.txt" "Import Map Changes.cmd" \
 		"Import Map Changes.sh" "LICENSE" "PLAYER-ASSET-SOURCES.txt" \
-		"README.txt" "RELEASE-IDENTITY.json" "RUNTIME-ASSET-ALLOWLIST.txt" \
+		"README.txt" "Recover Map Transaction.cmd" \
+		"Recover Map Transaction.sh" "RELEASE-IDENTITY.json" \
+		"RUNTIME-ASSET-ALLOWLIST.txt" \
 		"SOURCE-COMMIT.txt" "Start World Builder.cmd" "Start World Builder.sh" \
 		"Undo Last Map Import.cmd" "Undo Last Map Import.sh" \
 		"Update World Builder.cmd" "Update World Builder.ps1" \
@@ -491,6 +495,7 @@ require_linux_executables() {
 		"Start World Builder.sh" \
 		"Update World Builder.sh" \
 		"Import Map Changes.sh" \
+		"Recover Map Transaction.sh" \
 		"Undo Last Map Import.sh" \
 		"runtime/bin/java"; do
 		[[ -x "$root/$required" ]] \

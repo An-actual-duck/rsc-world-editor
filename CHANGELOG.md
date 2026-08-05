@@ -12,6 +12,15 @@ from the Spoiled Milk repository before this dedicated repository was created.
   creation/selection, compatible layered adoption, and standalone empty mode.
 - Pinned the generic adaptive loader/authoring runtime capability while keeping
   owner-native visual/edit/save/reopen validation as a release prerequisite.
+- Added deterministic complete adaptive exports and compiled content-addressed
+  server/client import plans with transaction-ID/plan-fingerprint-bound review,
+  fail-closed offline evidence, collision-safe backups/receipts, configuration-
+  last activation, and distribution identity.
+- Added reverse verified rollback, explicit interrupted-transaction recovery,
+  changed-after refusal, and successful-receipt-authorized exact undo for
+  layered and converted packed origins. Undo deactivates configuration before
+  package removal and restores packages before rollback reactivation.
+  Standalone target operations stop with `NO_TARGET` before target resolution.
 - Replaced the bundled-world package input and broad runtime copies with an
   explicit content-neutral runtime/default-catalog allowlist. Production
   validation now rejects terrain, placements, layered packages, creator state,
@@ -33,9 +42,9 @@ from the Spoiled Milk repository before this dedicated repository was created.
   Linux/Windows LWJGL native inputs, and exclusion of generated IP-ban state.
 - Made the v2-only updater discover prereleases from the published release
   list while ignoring drafts, v1, malformed tags, and downgrades.
-- Kept public adaptive release publication disabled pending Phase 6, final
-  real-archive cross-platform validation, and owner acceptance; the frozen
-  v1.1.0 assets and release channel remain unchanged.
+- Kept public adaptive release publication disabled pending owner-native and
+  final Phase 7 real-archive cross-platform validation and acceptance; the
+  frozen v1.1.0 assets and release channel remain unchanged.
 
 ## v1.1.0 - 2026-07-17
 

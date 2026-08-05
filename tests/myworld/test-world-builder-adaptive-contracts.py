@@ -576,6 +576,7 @@ def mutation_plan() -> dict:
                 "activation": True,
             }
         ],
+        "createdDirectories": [],
         "configurationChanges": [
             {
                 "sequence": 0,
@@ -1350,6 +1351,29 @@ class AdaptiveContractTests(unittest.TestCase):
         config_not_activation["actions"][1]["activation"] = False
         self.assert_refused(
             "mutation-plan", config_not_activation, "CONTRACT_VALUE_INVALID"
+        )
+
+        created = mutation_plan()
+        created["createdDirectories"] = [
+            "server/maps",
+            "server/maps/packages",
+            "server/maps/packages/example",
+        ]
+        self.assertEqual(0, self.validate("mutation-plan", created).returncode)
+
+        arbitrary = mutation_plan()
+        arbitrary["createdDirectories"] = ["owner/empty"]
+        self.assert_refused(
+            "mutation-plan", arbitrary, "CONTRACT_VALUE_INVALID"
+        )
+
+        reordered = mutation_plan()
+        reordered["createdDirectories"] = [
+            "server/maps/packages",
+            "server/maps",
+        ]
+        self.assert_refused(
+            "mutation-plan", reordered, "CONTRACT_VALUE_INVALID"
         )
 
     def test_receipt_backup_offline_and_success_evidence_are_exact(self):
