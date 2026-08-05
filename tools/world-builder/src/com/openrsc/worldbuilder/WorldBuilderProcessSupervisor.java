@@ -21,6 +21,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -41,26 +42,11 @@ public final class WorldBuilderProcessSupervisor {
 			workspace, port, null, null, DEFAULT_READY_TIMEOUT_MILLIS);
 	}
 
-	/**
-	 * Keeps native adaptive launch fail-closed until owner validation accepts the
-	 * already-pinned Phase 4 runtime. Validation happens first so corrupt projects
-	 * never get reported as a release-validation gate.
-	 */
 	public int runAdaptiveProject(Path requestedProject)
-		throws IOException, WorldBuilderContractException, InterruptedException {
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
-			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
-				requestedProject, true);
-		throw new WorldBuilderContractException(
-			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-			"adaptive-project-supervision",
-			"working/runtime/runtime.json",
-			false,
-			"The pinned Builder runtime advertises the generic Phase 4 capability, but "
-				+ "owner-native validation has not yet accepted adaptive project "
-				+ project.projectId + " for release launch.",
-			"Complete and record owner-run adopted and standalone visual/edit/save/reopen "
-				+ "validation before opening the native release-launch gate.");
+		throws IOException, WorldBuilderContractException,
+			WorldBuilderDiscoveryException, InterruptedException {
+		return superviseAdaptive(requestedProject, null, null,
+			DEFAULT_READY_TIMEOUT_MILLIS, true);
 	}
 
 	int superviseAdaptiveWithCommands(Path requestedProject,
@@ -71,6 +57,15 @@ public final class WorldBuilderProcessSupervisor {
 			throw new IllegalArgumentException(
 				"Adaptive server and client test commands must both be supplied.");
 		}
+		return superviseAdaptive(requestedProject, serverCommand, clientCommand,
+			readyTimeoutMillis, false);
+	}
+
+	private int superviseAdaptive(Path requestedProject,
+		List<String> suppliedServerCommand, List<String> suppliedClientCommand,
+		long readyTimeoutMillis, boolean productionCommands)
+		throws IOException, WorldBuilderContractException,
+			WorldBuilderDiscoveryException, InterruptedException {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
 				requestedProject, true);
@@ -101,8 +96,16 @@ public final class WorldBuilderProcessSupervisor {
 					"Close the other Builder process and retry this exact project.");
 			}
 			try {
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+				verified = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+					project, true);
 				requireAdaptiveMutableLayout(project);
+				List<String> serverCommand = suppliedServerCommand;
+				List<String> clientCommand = suppliedClientCommand;
+				if (productionCommands) {
+					AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
+					serverCommand = launch.serverCommand();
+					clientCommand = launch.clientCommand();
+				}
 				int exit = superviseLocked(ProcessLayout.adaptive(project), port,
 					serverCommand, clientCommand, readyTimeoutMillis);
 				if (exit == 0) {
@@ -115,6 +118,28 @@ public final class WorldBuilderProcessSupervisor {
 				lock.release();
 			}
 		}
+	}
+
+	static List<String> defaultAdaptiveServerCommand(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+				requestedProject, true);
+		int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(
+			verified.projectRoot);
+		requireAdaptiveMutableLayout(verified.projectRoot);
+		return AdaptiveLaunch.create(verified, port).serverCommand();
+	}
+
+	static List<String> defaultAdaptiveClientCommand(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+				requestedProject, true);
+		int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(
+			verified.projectRoot);
+		requireAdaptiveMutableLayout(verified.projectRoot);
+		return AdaptiveLaunch.create(verified, port).clientCommand();
 	}
 
 	private static void requireAdaptiveMutableLayout(final Path project)
@@ -635,9 +660,222 @@ public final class WorldBuilderProcessSupervisor {
 		static ProcessLayout adaptive(Path project) {
 			Path runtime = project.resolve("working/runtime");
 			return new ProcessLayout(runtime.resolve("server"), runtime.resolve("client"),
-				runtime.resolve("server/run/world-builder"),
+				project.resolve("run/world-builder"),
 				runtime.resolve("server/inc/sqlite/world-builder.credential"),
 				project.resolve("logs"), project.resolve("run"));
+		}
+	}
+
+	private static final class AdaptiveLaunch {
+		final Path project;
+		final Path server;
+		final Path client;
+		final Path credential;
+		final Path control;
+		final Path packageRoot;
+		final Path binding;
+		final String projectId;
+		final String displayName;
+		final String sourceFingerprint;
+		final String sourceCapability;
+		final String origin;
+		final String definitionId;
+		final String definitionSha256;
+		final Path serverDefinitionEvidence;
+		final Path clientDefinitionEvidence;
+		final String assetSha256;
+		final Path serverAssetEvidence;
+		final Path clientAssetEvidence;
+		final String manifestSha256;
+		final String workingInventorySha256;
+		final String baselineInventorySha256;
+		final int initialLevel;
+		final int initialX;
+		final int initialY;
+		final int port;
+
+		private AdaptiveLaunch(
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified,
+			WorldBuilderAdaptiveRuntimePreparer.RuntimeEvidence evidence,
+			String displayName, String sourceFingerprint, String sourceCapability,
+			String manifestSha256, String workingInventorySha256,
+			String baselineInventorySha256, int port) {
+			this.project = verified.projectRoot;
+			this.server = project.resolve("working/runtime/server");
+			this.client = project.resolve("working/runtime/client");
+			this.credential = server.resolve("inc/sqlite/world-builder.credential");
+			this.control = project.resolve("run/world-builder");
+			this.packageRoot = project.resolve(
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY);
+			this.binding = control.resolve("runtime-binding.properties");
+			this.projectId = verified.projectId;
+			this.displayName = displayName;
+			this.sourceFingerprint = sourceFingerprint;
+			this.sourceCapability = sourceCapability;
+			this.origin = verified.origin;
+			this.definitionId = verified.definitions.catalogId;
+			this.definitionSha256 = evidence.definitionSha256;
+			this.serverDefinitionEvidence = evidence.serverDefinitionEvidence;
+			this.clientDefinitionEvidence = evidence.clientDefinitionEvidence;
+			this.assetSha256 = evidence.assetSha256;
+			this.serverAssetEvidence = evidence.serverAssetEvidence;
+			this.clientAssetEvidence = evidence.clientAssetEvidence;
+			this.manifestSha256 = manifestSha256;
+			this.workingInventorySha256 = workingInventorySha256;
+			this.baselineInventorySha256 = baselineInventorySha256;
+			this.initialLevel = verified.working.initialLevel;
+			this.initialX = verified.working.initialX;
+			this.initialY = verified.working.initialY;
+			this.port = port;
+		}
+
+		static AdaptiveLaunch create(
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified, int port)
+			throws IOException, WorldBuilderContractException {
+			if (!"global".equals(verified.working.worldSpace)) {
+				throw incompatible(
+					WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY,
+					"Adaptive runtime requires the package world space global.",
+					"Convert or adopt a generic signed-layered package using global world space.");
+			}
+			if (verified.working.initialX < 0 || verified.working.initialX > 32767
+				|| verified.working.initialY < 0 || verified.working.initialY > 32767) {
+				throw incompatible("working/runtime/runtime.json",
+					"Adaptive initial coordinates are outside the client carrier range.",
+					"Select package terrain addressable at coordinates 0..32767.");
+			}
+			Map<String,Object> fingerprints = map(
+				verified.manifest.get("fingerprints"), "fingerprints");
+			Map<String,Object> target = map(
+				verified.manifest.get("target"), "target");
+			String runtimeSha256 = text(fingerprints, "runtimeSha256");
+			WorldBuilderAdaptiveRuntimePreparer.RuntimeEvidence evidence =
+				WorldBuilderAdaptiveRuntimePreparer.verify(verified.projectRoot,
+					runtimeSha256, verified.snapshot, verified.origin, port);
+			String manifest = packageManifestSha256(verified.working);
+			String workingInventory = inventorySha256(verified.working,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY);
+			String baselineInventory = inventorySha256(verified.baseline,
+				WorldBuilderAdaptiveProjectLifecycle.BASELINE_DIRECTORY);
+			return new AdaptiveLaunch(verified, evidence,
+				text(verified.manifest, "displayName"),
+				text(fingerprints, "sourceSha256"), text(target, "capabilityId"),
+				manifest, workingInventory, baselineInventory, port);
+		}
+
+		List<String> serverCommand() {
+			String classpath = String.join(System.getProperty("path.separator"),
+				"lib/*", "core.jar", "plugins.jar");
+			return Arrays.asList(
+				javaExecutable(),
+				"-Xms256m", "-Xmx1536m",
+				property("openrsc.worldBuilderCredentialFile", credential),
+				property("openrsc.worldBuilderControlDirectory", control),
+				property("openrsc.worldBuilderWorkspaceRoot", project),
+				property("openrsc.worldBuilderPort", Integer.toString(port)),
+				property("openrsc.worldBuilderProjectId", projectId),
+				property("openrsc.worldBuilderSourceCapabilityId", sourceCapability),
+				property("openrsc.worldBuilderAdaptiveMode", "true"),
+				property("openrsc.worldBuilderProjectOrigin", origin),
+				property("openrsc.worldBuilderDefinitionId", definitionId),
+				property("openrsc.worldBuilderDefinitionSha256", definitionSha256),
+				property("openrsc.worldBuilderDefinitionEvidencePath",
+					serverDefinitionEvidence),
+				property("openrsc.worldBuilderAssetId",
+					WorldBuilderAdaptiveRuntimePreparer.ASSET_ID),
+				property("openrsc.worldBuilderAssetSha256", assetSha256),
+				property("openrsc.worldBuilderAssetEvidencePath", serverAssetEvidence),
+				property("openrsc.worldBuilderSourceBaselineInventorySha256",
+					baselineInventorySha256),
+				property("openrsc.worldBuilderInitialWorldSpace", "global"),
+				property("openrsc.worldBuilderInitialLevel", Integer.toString(initialLevel)),
+				property("openrsc.worldBuilderInitialX", Integer.toString(initialX)),
+				property("openrsc.worldBuilderInitialY", Integer.toString(initialY)),
+				property("openrsc.layeredNativeTerrainPackagePath", packageRoot),
+				property("openrsc.layeredNativeTerrainManifestSha256", manifestSha256),
+				property("openrsc.layeredNativeTerrainInventorySha256",
+					workingInventorySha256),
+				property("openrsc.layeredNativeWorldRuntimeProfile",
+					"adaptive-world-builder"),
+				"-cp", classpath, "com.openrsc.server.Server", "world-builder.conf");
+		}
+
+		List<String> clientCommand() {
+			return Arrays.asList(
+				javaExecutable(),
+				"-Xms512m", "-Xmx2g",
+				"-Dsun.java2d.opengl=false",
+				"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
+				"-Dspoiledmilk.openglVsync=true",
+				property("openrsc.worldBuilderMode", "true"),
+				property("openrsc.worldBuilderAdaptiveMode", "true"),
+				property("openrsc.worldBuilderHost", "127.0.0.1"),
+				property("openrsc.worldBuilderPort", Integer.toString(port)),
+				property("openrsc.worldBuilderCredentialFile", credential),
+				property("openrsc.worldBuilderWorkspaceRoot", project),
+				property("openrsc.worldBuilderProjectName", displayName),
+				property("openrsc.worldBuilderProjectId", projectId),
+				property("openrsc.worldBuilderSourceCapabilityId", sourceCapability),
+				property("openrsc.worldBuilderSourceRevision", sourceFingerprint),
+				property("openrsc.worldBuilderRuntimeBindingFile", binding),
+				property("openrsc.worldBuilderDefinitionEvidenceFile",
+					clientDefinitionEvidence),
+				property("openrsc.worldBuilderAssetEvidenceFile", clientAssetEvidence),
+				"-jar", "Open_RSC_Client.jar");
+		}
+
+		private static String property(String name, Path value) {
+			return property(name, value.toString());
+		}
+
+		private static String property(String name, String value) {
+			return "-D" + name + "=" + value;
+		}
+
+		private static String packageManifestSha256(
+			WorldBuilderGenericLayeredPackage worldPackage)
+			throws WorldBuilderContractException {
+			for (WorldBuilderReadOnlyTarget.FileState file : worldPackage.files) {
+				if (file.relativePath.endsWith("/manifest.json")) return file.sha256;
+			}
+			throw incompatible("working/layered-world/package/manifest.json",
+				"Adaptive working package manifest evidence is missing.",
+				"Restore the complete verified working package.");
+		}
+
+		private static String inventorySha256(
+			WorldBuilderGenericLayeredPackage worldPackage, String relativeRoot) {
+			StringBuilder canonical = new StringBuilder();
+			for (WorldBuilderReadOnlyTarget.FileState file : worldPackage.files) {
+				String relative = file.relativePath.substring(relativeRoot.length() + 1);
+				canonical.append(relative).append('\0').append(file.size).append('\0')
+					.append(file.sha256).append('\n');
+			}
+			return WorldBuilderHashes.sha256(
+				canonical.toString().getBytes(StandardCharsets.UTF_8));
+		}
+
+		@SuppressWarnings("unchecked")
+		private static Map<String,Object> map(Object value, String field)
+			throws WorldBuilderContractException {
+			if (value instanceof Map) return (Map<String,Object>)value;
+			throw incompatible("project.json", "Project field is invalid: " + field + ".",
+				"Restore the canonical project manifest.");
+		}
+
+		private static String text(Map<String,Object> value, String field)
+			throws WorldBuilderContractException {
+			Object raw = value.get(field);
+			if (raw instanceof String) return (String)raw;
+			throw incompatible("project.json", "Project field is invalid: " + field + ".",
+				"Restore the canonical project manifest.");
+		}
+
+		private static WorldBuilderContractException incompatible(
+			String path, String message, String nextStep) {
+			return new WorldBuilderContractException(
+				WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+				"adaptive-project-supervision", path, false, message, nextStep);
 		}
 	}
 }

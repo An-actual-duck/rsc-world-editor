@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -191,6 +192,10 @@ public final class AdaptiveProjectSupervisorHarness {
         if (!condition) throw new AssertionError(message);
     }
 
+    private static boolean contains(List<String> command, String value) {
+        return command.contains(value);
+    }
+
     private static List<String> command(String classes, String nested,
         Path project, int port) {
         return Arrays.asList(
@@ -205,15 +210,42 @@ public final class AdaptiveProjectSupervisorHarness {
         String classes = args[1];
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
-        boolean unavailable = false;
-        try {
-            supervisor.runAdaptiveProject(project);
-        } catch (WorldBuilderContractException expected) {
-            unavailable = WorldBuilderErrorCodes.LOADER_INCOMPATIBLE.equals(expected.code())
-                && expected.getMessage().contains("owner-native validation");
+        String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
+            StandardCharsets.UTF_8);
+        if (manifest.contains("\"origin\": \"standalone-empty\"")
+            && !(args.length > 2 && "unsafe".equals(args[2]))) {
+            List<String> productionServer =
+                WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
+            List<String> productionClient =
+                WorldBuilderProcessSupervisor.defaultAdaptiveClientCommand(project);
+            require(contains(productionServer,
+                "-Dopenrsc.worldBuilderWorkspaceRoot=" + project), "server project root");
+            require(contains(productionServer,
+                "-Dopenrsc.worldBuilderProjectOrigin=standalone-empty"), "server origin");
+            require(contains(productionServer,
+                "-Dopenrsc.worldBuilderAdaptiveMode=true"), "server adaptive mode");
+            require(contains(productionServer,
+                "-Dopenrsc.layeredNativeWorldRuntimeProfile=adaptive-world-builder"),
+                "server runtime profile");
+            require(contains(productionServer,
+                "-Dopenrsc.layeredNativeTerrainPackagePath="
+                    + project.resolve("working/layered-world/package")), "server package");
+            require(contains(productionServer,
+                "-Dopenrsc.worldBuilderControlDirectory="
+                    + project.resolve("run/world-builder")), "server control");
+            require(contains(productionClient,
+                "-Dopenrsc.worldBuilderRuntimeBindingFile="
+                    + project.resolve("run/world-builder/runtime-binding.properties")),
+                "client binding");
+            require(contains(productionClient,
+                "-Dopenrsc.worldBuilderDefinitionEvidenceFile="
+                    + project.resolve("working/runtime/client/evidence/adaptive-definitions.json")),
+                "client definitions");
+            require(contains(productionClient,
+                "-Dopenrsc.worldBuilderAssetEvidenceFile="
+                    + project.resolve("working/runtime/client/evidence/adaptive-assets.sha256")),
+                "client assets");
         }
-        require(unavailable,
-            "native adaptive runtime must fail closed pending owner validation");
 
         List<String> server = command(classes, "FakeServer", project, port);
         List<String> client = command(classes, "FakeClient", project, port);
@@ -257,7 +289,7 @@ public final class AdaptiveProjectSupervisorHarness {
         require(!Files.exists(project.resolve("run/server.pid")), "server PID cleanup");
         require(!Files.exists(project.resolve("run/client.pid")), "client PID cleanup");
         require(!Files.exists(project.resolve(
-            "working/runtime/server/run/world-builder/ready")), "ready cleanup");
+            "run/world-builder/ready")), "ready cleanup");
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             "bounded run receipt");
         System.out.println("adaptive-supervision-ok");
@@ -268,7 +300,7 @@ public final class AdaptiveProjectSupervisorHarness {
             Path project = Paths.get(args[0]);
             int port = Integer.parseInt(args[1]);
             Path server = project.resolve("working/runtime/server");
-            Path control = server.resolve("run/world-builder");
+            Path control = project.resolve("run/world-builder");
             Path credential = server.resolve("inc/sqlite/world-builder.credential");
             Files.createDirectories(control);
             Files.createDirectories(credential.getParent());
@@ -344,6 +376,171 @@ public final class AdaptiveProjectSupervisorHarness {
         launcher = runtime / "launcher/world-builder-tools.jar"
         launcher.parent.mkdir(parents=True)
         launcher.write_bytes(b"content-neutral-fixture-tools\n")
+        server = runtime / "server"
+        client = runtime / "Client_Base"
+        (server / "inc/sqlite").mkdir(parents=True)
+        (server / "conf/world-builder").mkdir(parents=True)
+        client.mkdir(parents=True)
+        (server / "world-builder.conf").write_text(
+            "server_name: Fixture World Builder\n",
+            encoding="utf-8",
+        )
+        (server / "inc/sqlite/world_builder_seed.db").write_bytes(
+            b"fixture-project-local-database-seed\n"
+        )
+        capability = {
+            "schemaVersion": 1,
+            "manifestType": "adaptive-world-builder-runtime-capability",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "profileId": "adaptive-world-builder",
+            "serverBuildId": "core-framework-adaptive-builder-server-v1",
+            "clientBuildId": "core-framework-adaptive-builder-client-v1",
+            "loaderId": "generic-signed-layered-loader-v1",
+            "authoringId": "generic-signed-layered-authoring-v1",
+            "definitionContractId": "world-builder-definition-catalog-binding-v1",
+            "assetContractId": "world-builder-client-asset-binding-v1",
+            "protocolId": "world-builder-native-layered-protocol-v1",
+            "effectiveCompositionId": "world-builder-effective-static-composition-v1",
+            "mapFormatId": "signed-layered-v1",
+            "packageSchemaId": "layered-world-package-v1",
+            "coordinateModel": "signed-layered-v1",
+            "encodingVersions": [1, 3],
+            "authoring": {
+                "editExistingLevels": True,
+                "createLevels": True,
+                "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+            },
+            "activation": {
+                "worldBuilderMode": True,
+                "adaptiveMode": True,
+                "runtimeProfile": "adaptive-world-builder",
+                "builderOnly": True,
+                "loopbackOnly": True,
+            },
+            "canonicalVoidTile": [0, 1, 8, 0, 0, 0, 0, 0, 0, 0],
+        }
+        write_json(
+            server / "conf/world-builder/adaptive-runtime-capability-v1.json",
+            capability,
+        )
+        for jar in (
+            server / "core.jar",
+            server / "plugins.jar",
+            client / "Open_RSC_Client.jar",
+        ):
+            with zipfile.ZipFile(jar, "w") as archive:
+                entry = zipfile.ZipInfo(
+                    "META-INF/MANIFEST.MF", (2024, 1, 2, 3, 4, 6)
+                )
+                archive.writestr(entry, "Manifest-Version: 1.0\n\n")
+        return runtime
+
+    @classmethod
+    def make_executable_runtime(cls, root: Path) -> Path:
+        runtime = cls.make_runtime(root)
+        source = Path(cls.compile_temp.name) / "fake-native-runtime"
+        classes = source / "classes"
+        classes.mkdir(parents=True, exist_ok=True)
+        server_source = source / "src/com/openrsc/server/Server.java"
+        client_source = source / "src/fixture/FakeAdaptiveClient.java"
+        server_source.parent.mkdir(parents=True, exist_ok=True)
+        client_source.parent.mkdir(parents=True, exist_ok=True)
+        server_source.write_text(
+            r'''
+package com.openrsc.server;
+
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public final class Server {
+    public static void main(String[] args) throws Exception {
+        Path project = Paths.get(System.getProperty("openrsc.worldBuilderWorkspaceRoot"));
+        Path control = Paths.get(System.getProperty("openrsc.worldBuilderControlDirectory"));
+        Path credential = Paths.get(System.getProperty("openrsc.worldBuilderCredentialFile"));
+        int port = Integer.parseInt(System.getProperty("openrsc.worldBuilderPort"));
+        Files.createDirectories(control);
+        Files.createDirectories(credential.getParent());
+        Files.write(credential, "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
+        Files.write(project.resolve("working/runtime/server/ipbans.txt"), new byte[0]);
+        try (ServerSocket listener = new ServerSocket(
+                port, 1, InetAddress.getByName("127.0.0.1"))) {
+            listener.setSoTimeout(100);
+            Files.write(control.resolve("ready"), "ready\n".getBytes(StandardCharsets.US_ASCII));
+            while (!Files.exists(control.resolve("shutdown.request"))) {
+                try (Socket ignored = listener.accept()) {
+                    // The supervisor readiness probe connects and closes.
+                } catch (java.net.SocketTimeoutException expected) {
+                    // Poll the project-local shutdown request again.
+                }
+            }
+        }
+    }
+}
+'''.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        client_source.write_text(
+            r'''
+package fixture;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public final class FakeAdaptiveClient {
+    public static void main(String[] args) throws Exception {
+        Path project = Paths.get(System.getProperty("openrsc.worldBuilderWorkspaceRoot"));
+        Files.write(project.resolve("working/runtime/client/clientSettings.conf"),
+            "generated=true\n".getBytes(StandardCharsets.UTF_8));
+        Thread.sleep(250L);
+    }
+}
+'''.strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-d", str(classes),
+                str(server_source), str(client_source),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            [
+                "jar", "cf", str(runtime / "server/core.jar"),
+                "-C", str(classes), "com/openrsc/server/Server.class",
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        manifest = source / "client-manifest.mf"
+        manifest.write_text(
+            "Manifest-Version: 1.0\nMain-Class: fixture.FakeAdaptiveClient\n\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "jar", "cfm", str(runtime / "Client_Base/Open_RSC_Client.jar"),
+                str(manifest), "-C", str(classes), "fixture/FakeAdaptiveClient.class",
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         return runtime
 
     def discover(self, target: Path, destination: Path) -> dict:
@@ -491,7 +688,7 @@ public final class AdaptiveProjectSupervisorHarness {
             base = Path(temp)
             installation = base / "World Builder 2"
             installation.mkdir()
-            runtime = self.make_runtime(installation)
+            runtime = self.make_executable_runtime(installation)
             target = base / "ordinary-parent"
             target.mkdir()
             report = base / "standalone-report.json"
@@ -567,9 +764,11 @@ public final class AdaptiveProjectSupervisorHarness {
                 self.assertIn("NO_TARGET", refused_active.stderr)
                 self.assertEqual(before_target, tree_bytes(target))
             native = self.run_cli("run-adaptive-project", "--project", project)
-            self.assertEqual(3, native.returncode)
-            self.assertIn("LOADER_INCOMPATIBLE", native.stderr)
-            self.assertFalse((project / "working/runtime/server/ipbans.txt").exists())
+            self.assertEqual(0, native.returncode, native.stderr)
+            self.assertTrue((project / "working/runtime/server/ipbans.txt").is_file())
+            self.assertTrue(
+                (project / "working/runtime/client/clientSettings.conf").is_file()
+            )
             supervised = self.run_supervision(project)
             self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
             self.assertEqual("adaptive-supervision-ok\n", supervised.stdout)
@@ -917,7 +1116,7 @@ public final class AdaptiveProjectSupervisorHarness {
             base = Path(temp)
             installation = base / "World Builder 2"
             installation.mkdir()
-            runtime = self.make_runtime(installation)
+            runtime = self.make_executable_runtime(installation)
             target = base / "ordinary-parent"
             target.mkdir()
             target_before = tree_bytes(target)
@@ -946,8 +1145,7 @@ public final class AdaptiveProjectSupervisorHarness {
             self.assertEqual(target_before, tree_bytes(target))
 
             first = self.run_cli(*arguments, "--confirm", "CREATE")
-            self.assertEqual(3, first.returncode)
-            self.assertIn("LOADER_INCOMPATIBLE", first.stderr)
+            self.assertEqual(0, first.returncode, first.stderr)
             listing = self.run_cli(
                 "list-projects", "--installation-root", installation
             )
@@ -959,8 +1157,7 @@ public final class AdaptiveProjectSupervisorHarness {
             self.assertEqual(target_before, tree_bytes(target))
 
             reopened = self.run_cli(*arguments)
-            self.assertEqual(3, reopened.returncode)
-            self.assertIn("LOADER_INCOMPATIBLE", reopened.stderr)
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
             listing = self.run_cli(
                 "list-projects", "--installation-root", installation
             )
@@ -991,7 +1188,8 @@ public final class AdaptiveProjectSupervisorHarness {
             (external / "preserve.txt").write_text("preserve\n", encoding="utf-8")
             external_before = tree_bytes(external)
             server = project / "working/runtime/server"
-            server.rmdir()
+            preserved_server = base / "preserved-project-server"
+            shutil.move(server, preserved_server)
             server.symlink_to(external, target_is_directory=True)
             linked = self.run_supervision(project, "unsafe")
             self.assertEqual(0, linked.returncode, linked.stdout + linked.stderr)
@@ -1001,7 +1199,7 @@ public final class AdaptiveProjectSupervisorHarness {
             self.assertFalse((project / "run/world-builder.lock").exists())
 
             server.unlink()
-            server.mkdir()
+            shutil.move(preserved_server, server)
             shared = external / "shared.log"
             shared.write_text("shared\n", encoding="utf-8")
             os.link(shared, project / "logs/shared.log")
