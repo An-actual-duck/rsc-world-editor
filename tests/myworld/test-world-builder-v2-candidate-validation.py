@@ -19,6 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 INSPECTOR = ROOT / "scripts/inspect-world-builder-v2-candidate.py"
+FOCUSED_SUITE = ROOT / "scripts/test-world-builder-v2-candidate.sh"
 PENDING_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
@@ -458,6 +459,13 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertIn("AC-17", text)
         self.assertNotIn("Accepted on", text)
         self.assertFalse((ROOT / "release/world-builder-v2/RELEASE-READY").exists())
+
+    def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
+        text = FOCUSED_SUITE.read_text(encoding="utf-8")
+        self.assertIn('python3 "$ROOT_DIR/$relative" -v </dev/null', text)
+        self.assertIn("test-world-builder-supervision.py", text)
+        self.assertIn("test-world-builder-adaptive-transactions.py", text)
+        self.assertIn("test-world-builder-v2-updater.py", text)
 
     def test_candidate_inputs_inside_either_source_tree_are_refused(self) -> None:
         inside = self.fixture.source / LINUX_NAME

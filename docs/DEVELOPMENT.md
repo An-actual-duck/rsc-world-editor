@@ -59,9 +59,10 @@ The Phase 7 focused release-candidate boundary is:
 It groups the adaptive contracts/discovery/origins, packed conversion,
 project lifecycle, Phase 6 transactions, content-neutral release, updater,
 product-generation, independence, and external-candidate-inspector fixtures.
-It reports rather than hides an unavailable native PowerShell run. Final real
-archives are inspected separately from outside both source trees with
-`scripts/inspect-world-builder-v2-candidate.py`; see
+It closes test stdin so preview-cancellation fixtures cannot become interactive
+confirmation prompts, and reports rather than hides an unavailable native
+PowerShell run. Final real archives are inspected separately from outside both
+source trees with `scripts/inspect-world-builder-v2-candidate.py`; see
 [Releasing](RELEASING.md) and the pending
 [adaptive validation worksheet](releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
 

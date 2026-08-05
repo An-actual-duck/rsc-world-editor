@@ -27,7 +27,9 @@ tests=(
 
 for relative in "${tests[@]}"; do
 	printf 'Candidate validation suite: %s\n' "$relative"
-	python3 "$ROOT_DIR/$relative" -v
+	# Automated preview/cancel fixtures intentionally consume EOF.  Never let a
+	# terminal turn the focused suite into an interactive import confirmation.
+	python3 "$ROOT_DIR/$relative" -v </dev/null
 done
 
 if [[ -z "${WORLD_BUILDER_PWSH:-}" ]] \
