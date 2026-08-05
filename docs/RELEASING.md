@@ -36,6 +36,30 @@ provider commit and never manages the provider's branches or workers. An
 explicit dependency-update task uses `check-core-parity.sh` to verify the
 published ref, capability document, runtime surfaces, and protocol.
 
+## Restricted pre-gate candidate command
+
+Before `RELEASE-READY` exists, the manager can build the real archives needed
+for owner and archive validation with the guarded candidate route:
+
+```bash
+./scripts/ai-manager.sh candidate \
+  --version v0.2.0-alpha.1 \
+  --core-framework /path/to/clean-pinned-core-framework \
+  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
+  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
+  --assets-cleared
+```
+
+This route requires clean published manager `main`, the exact clean lock,
+reviewed dual-platform JREs, the real server/client/tools and LWJGL builds, all
+provenance and no-world checks, and an absent release marker. It refuses
+`--skip-build`, writes only under
+`output/candidates/world-builder-v2/<version>/`, and never creates or opens the
+gate, tags, uploads, publishes, or deploys. These hashes are restricted
+pre-gate validation hashes. After a later accepted validation record and gate
+commit, production artifacts are rebuilt from that new published commit and
+receive their own hashes; pre-gate archives are never promoted in place.
+
 ## Production command
 
 Prepare the exact pinned LWJGL inputs and then run from clean, already-published
@@ -128,7 +152,8 @@ Before adding a new adaptive `RELEASE-READY` record:
 
 1. Run `git diff --check`, focused release/updater/product suites, and the full
    repository suite using the exact clean pinned dependency.
-2. Inspect both archives and manifests from outside either source tree. Confirm
+2. Build restricted real pre-gate archives with `ai-manager.sh candidate`, then
+   inspect both archives and manifests from outside either source tree. Confirm
    the only root is `World Builder 2/` and search content as well as names for
    world or creator payloads.
 3. Exercise target-layered adoption, packed conversion, and standalone empty
@@ -155,7 +180,8 @@ The repeatable focused boundary is:
 ./scripts/test.sh
 ```
 
-After building, copy both archives and `SHA256SUMS.txt` to a review directory
+After the guarded pre-gate build, copy both archives and `SHA256SUMS.txt` from
+`output/candidates/world-builder-v2/<version>/` to a review directory
 outside the World Editor and pinned runtime trees. From clean published manager
 `main`, bind those real artifacts to both exact clean source commits and emit
 the independent evidence document with:
@@ -164,6 +190,8 @@ the independent evidence document with:
 ./scripts/inspect-world-builder-v2-candidate.py \
   --source-root /path/to/clean-published-rsc-world-editor \
   --core-framework /path/to/clean-exact-locked-runtime \
+  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
+  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --version v0.2.0-alpha.1 \
   --linux-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip \
   --windows-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip \
@@ -172,7 +200,10 @@ the independent evidence document with:
 ```
 
 The inspector never packages, extracts, publishes, or changes either source
-tree. Its JSON status is `automated-archive-inspection-passed` while
+tree. It binds the complete dereferenced file/directory inventory, every file
+digest, and relevant executable/special mode state to the exact reviewed JRE
+trees, and it requires exact mode `0755` on every Linux production shell
+launcher. Its JSON status is `automated-archive-inspection-passed` while
 `releaseReady` and `releaseGateChanged` remain `false`; archive success cannot
 stand in for pending owner and manager evidence. Fixture archives from the
 focused suite are regression evidence, not substitutes for this real-artifact

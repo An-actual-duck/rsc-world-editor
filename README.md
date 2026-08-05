@@ -171,7 +171,10 @@ and the Phase 7 release-validation record still block adaptive release
 readiness; the release gate remains closed. Phase 7's repeatable automated and
 owner-report fields are prepared in the explicitly pending
 [v0.2.0-alpha.1 adaptive validation worksheet](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md);
-the worksheet is not release acceptance.
+the worksheet is not release acceptance. A guarded manager candidate command
+can make real, isolated pre-gate archives for that validation without opening
+the marker or producing promotable release artifacts; production archives are
+rebuilt only after a later accepted gate commit.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

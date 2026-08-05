@@ -62,7 +62,13 @@ product-generation, independence, and external-candidate-inspector fixtures.
 It closes test stdin so preview-cancellation fixtures cannot become interactive
 confirmation prompts, and reports rather than hides an unavailable native
 PowerShell run. Final real archives are inspected separately from outside both
-source trees with `scripts/inspect-world-builder-v2-candidate.py`; see
+source trees with `scripts/inspect-world-builder-v2-candidate.py`. The manager
+creates those real restricted artifacts before the gate with
+`./scripts/ai-manager.sh candidate`; that route performs a real build, refuses
+the fixture-only skip path and an open gate, and writes only to
+`output/candidates/`. Inspection also requires the exact reviewed Linux and
+Windows JRE trees and binds their complete dereferenced inventories, bytes, and
+relevant modes; see
 [Releasing](RELEASING.md) and the pending
 [adaptive validation worksheet](releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
 

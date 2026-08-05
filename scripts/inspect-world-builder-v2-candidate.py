@@ -47,6 +47,10 @@ MAX_NESTED_ARCHIVE_ENTRIES = 100_000
 MAX_NESTED_EXPANDED_BYTES = 512 * 1024 * 1024
 MAX_NESTED_ENTRY_BYTES = 256 * 1024 * 1024
 MAX_STRUCTURED_DOCUMENT_BYTES = 32 * 1024 * 1024
+MAX_RUNTIME_ENTRIES = 100_000
+MAX_RUNTIME_EXPANDED_BYTES = 1024 * 1024 * 1024
+MAX_RUNTIME_ENTRY_BYTES = 256 * 1024 * 1024
+RELEVANT_RUNTIME_MODE_MASK = 0o777
 
 EXPECTED_RUNTIME_CAPABILITY = {
     "schemaVersion": 1,
@@ -85,6 +89,9 @@ TOP_LEVEL_FILES = {
     "Update World Builder.ps1",
     "Update World Builder.sh",
     "VERSION.txt",
+}
+LINUX_EXECUTABLE_LAUNCHERS = {
+    relative for relative in TOP_LEVEL_FILES if relative.endswith(".sh")
 }
 FIXED_BUILDER_RUNTIME_FILES = {
     "builder-runtime/Client_Base/Open_RSC_Client.jar",
@@ -317,6 +324,201 @@ def require_external_unchanged(
         fail(f"Candidate input changed after inspection: {path.name}")
 
 
+def external_runtime_directory(
+    path: Path, source_root: Path, core_root: Path, platform: str
+) -> Path:
+    try:
+        metadata = path.stat(follow_symlinks=False)
+        resolved = path.resolve(strict=True)
+    except OSError as error:
+        fail(f"Reviewed {platform} JRE input is unavailable: {path}: {error}")
+    if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
+        fail(f"Reviewed {platform} JRE input must be a real directory: {path}")
+    if is_within(resolved, source_root) or is_within(resolved, core_root):
+        fail(
+            f"Reviewed {platform} JRE input must be outside both source trees: "
+            f"{resolved}"
+        )
+    return resolved
+
+
+def relevant_runtime_mode(mode: int) -> int:
+    return stat.S_IMODE(mode) & RELEVANT_RUNTIME_MODE_MASK
+
+
+def runtime_inventory_digest(inventory: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        inventory, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    return digest(encoded)
+
+
+def inventory_runtime_tree(root: Path, platform: str) -> dict[str, Any]:
+    """Inventory exactly what the packager's dereferencing copy must contain."""
+
+    try:
+        root_before = root.stat(follow_symlinks=False)
+    except OSError as error:
+        fail(f"Unable to inspect reviewed {platform} JRE input: {error}")
+    if root.is_symlink() or not stat.S_ISDIR(root_before.st_mode):
+        fail(f"Reviewed {platform} JRE input must remain a real directory: {root}")
+    if stat.S_IMODE(root_before.st_mode) & 0o7000:
+        fail(f"Reviewed {platform} JRE root has forbidden special permission bits")
+
+    files: dict[str, dict[str, int | str]] = {}
+    # `runtime/` is the package-owned wrapper normalized by the packager; every
+    # descendant mode comes from the reviewed dereferenced JRE tree.
+    directories: dict[str, int] = {"runtime": 0o755}
+    folded_paths: dict[str, str] = {"runtime": "runtime"}
+    exact_paths = {"runtime"}
+    entry_count = 1
+    expanded_bytes = 0
+
+    def record_path(relative: str) -> None:
+        nonlocal entry_count
+        display = f"runtime/{relative}" if relative else "runtime"
+        validate_zip_name(f"{PACKAGE_ROOT}/{display}")
+        folded = display.casefold()
+        previous = folded_paths.get(folded)
+        if previous is not None and previous != display:
+            fail(
+                "Reviewed JRE contains case-colliding dereferenced paths: "
+                f"{previous!r} and {display!r}"
+            )
+        if display not in exact_paths:
+            entry_count += 1
+            if entry_count > MAX_RUNTIME_ENTRIES:
+                fail(f"Reviewed {platform} JRE exceeds the entry-count limit")
+            exact_paths.add(display)
+        folded_paths[folded] = display
+
+    def stable_link_state(path: Path) -> tuple[tuple[int, ...], str] | None:
+        metadata = path.stat(follow_symlinks=False)
+        if not stat.S_ISLNK(metadata.st_mode):
+            return None
+        try:
+            target_text = os.readlink(path)
+        except OSError as error:
+            fail(f"Unable to read reviewed {platform} JRE link {path}: {error}")
+        return file_identity(metadata), target_text
+
+    def require_link_unchanged(
+        path: Path, expected: tuple[tuple[int, ...], str] | None
+    ) -> None:
+        actual = stable_link_state(path)
+        if actual != expected:
+            fail(f"Reviewed {platform} JRE link changed during inspection: {path}")
+
+    def visit(source_path: Path, relative: str, ancestors: frozenset[tuple[int, int]]) -> None:
+        nonlocal expanded_bytes
+        record_path(relative)
+        link_state = stable_link_state(source_path)
+        try:
+            resolved = source_path.resolve(strict=True)
+            resolved.relative_to(root)
+            target_before = resolved.stat(follow_symlinks=False)
+        except (FileNotFoundError, OSError, RuntimeError, ValueError) as error:
+            fail(
+                f"Reviewed {platform} JRE contains a broken or external link at "
+                f"runtime/{relative}: {error}"
+            )
+        permissions = stat.S_IMODE(target_before.st_mode)
+        if permissions & 0o7000:
+            fail(
+                f"Reviewed {platform} JRE has forbidden special permission bits at "
+                f"runtime/{relative}"
+            )
+        archive_relative = f"runtime/{relative}"
+        if stat.S_ISDIR(target_before.st_mode):
+            identity = (target_before.st_dev, target_before.st_ino)
+            if identity in ancestors:
+                fail(
+                    f"Reviewed {platform} JRE contains a dereferenced directory cycle at "
+                    f"{archive_relative}"
+                )
+            directories[archive_relative] = relevant_runtime_mode(target_before.st_mode)
+            try:
+                with os.scandir(resolved) as scan:
+                    names = sorted(entry.name for entry in scan)
+            except OSError as error:
+                fail(f"Unable to enumerate reviewed {platform} JRE: {error}")
+            for name in names:
+                child_relative = f"{relative}/{name}" if relative else name
+                visit(resolved / name, child_relative, ancestors | {identity})
+            try:
+                target_after = resolved.stat(follow_symlinks=False)
+            except OSError as error:
+                fail(f"Reviewed {platform} JRE directory changed during inspection: {error}")
+            if file_identity(target_after) != file_identity(target_before):
+                fail(
+                    f"Reviewed {platform} JRE directory changed during inspection: "
+                    f"{archive_relative}"
+                )
+            require_link_unchanged(source_path, link_state)
+            return
+        if not stat.S_ISREG(target_before.st_mode):
+            fail(
+                f"Reviewed {platform} JRE contains a special filesystem entry: "
+                f"{archive_relative}"
+            )
+        if getattr(target_before, "st_nlink", 1) != 1:
+            fail(
+                f"Reviewed {platform} JRE file has filesystem aliases: "
+                f"{archive_relative}"
+            )
+        if target_before.st_size > MAX_RUNTIME_ENTRY_BYTES:
+            fail(f"Reviewed {platform} JRE file exceeds the per-file limit")
+        try:
+            with resolved.open("rb") as source:
+                opened_before = os.fstat(source.fileno())
+                data = source.read(MAX_RUNTIME_ENTRY_BYTES + 1)
+                opened_after = os.fstat(source.fileno())
+            visible_after = resolved.stat(follow_symlinks=False)
+        except OSError as error:
+            fail(f"Unable to read reviewed {platform} JRE file: {error}")
+        if len(data) > MAX_RUNTIME_ENTRY_BYTES:
+            fail(f"Reviewed {platform} JRE file exceeds the per-file limit")
+        expected_identity = file_identity(target_before)
+        if not (
+            file_identity(opened_before)
+            == file_identity(opened_after)
+            == file_identity(visible_after)
+            == expected_identity
+        ):
+            fail(
+                f"Reviewed {platform} JRE file changed during inspection: "
+                f"{archive_relative}"
+            )
+        require_link_unchanged(source_path, link_state)
+        expanded_bytes += len(data)
+        if expanded_bytes > MAX_RUNTIME_EXPANDED_BYTES:
+            fail(f"Reviewed {platform} JRE exceeds the expanded-byte limit")
+        files[archive_relative] = {
+            "byteSize": len(data),
+            "relevantMode": relevant_runtime_mode(target_before.st_mode),
+            "sha256": digest(data),
+        }
+
+    try:
+        with os.scandir(root) as scan:
+            root_names = sorted(entry.name for entry in scan)
+    except OSError as error:
+        fail(f"Unable to enumerate reviewed {platform} JRE root: {error}")
+    root_identity = (root_before.st_dev, root_before.st_ino)
+    for name in root_names:
+        visit(root / name, name, frozenset({root_identity}))
+    try:
+        root_after = root.stat(follow_symlinks=False)
+    except OSError as error:
+        fail(f"Reviewed {platform} JRE root changed during inspection: {error}")
+    if file_identity(root_after) != file_identity(root_before):
+        fail(f"Reviewed {platform} JRE root changed during inspection")
+    return {
+        "directories": dict(sorted(directories.items())),
+        "files": dict(sorted(files.items())),
+    }
+
+
 def parse_checksums(data: bytes) -> dict[str, str]:
     try:
         lines = data.decode("utf-8").splitlines()
@@ -373,11 +575,17 @@ def reject_structured_world(data: bytes, display: str) -> None:
     while pending:
         item = pending.pop()
         if isinstance(item, dict):
-            if item.get("packageType") == "layered-world":
+            package_type = item.get("packageType")
+            encoding = item.get("encoding")
+            manifest_type = item.get("manifestType")
+            if package_type == "layered-world":
                 fail(f"Layered world package content is forbidden: {display}")
-            if item.get("encoding") in STRUCTURED_WORLD_ENCODINGS:
+            if isinstance(encoding, str) and encoding in STRUCTURED_WORLD_ENCODINGS:
                 fail(f"Terrain or placement payload content is forbidden: {display}")
-            if item.get("manifestType") in STRUCTURED_MANIFEST_TYPES:
+            if (
+                isinstance(manifest_type, str)
+                and manifest_type in STRUCTURED_MANIFEST_TYPES
+            ):
                 fail(f"Creator or transaction state is forbidden: {display}")
             pending.extend(item.values())
         elif isinstance(item, list):
@@ -612,30 +820,36 @@ def validate_runtime_configuration(data: bytes, display: str) -> None:
         fail(f"Builder runtime protocol is invalid: {display}")
 
 
-def validate_application_path(relative: str, allowed_runtime: set[str]) -> None:
+def validate_application_path(
+    relative: str, allowed_runtime: set[str], packaged_jre_files: set[str]
+) -> None:
     parts = PurePosixPath(relative).parts
     if parts and parts[0].casefold() in FORBIDDEN_ROOT_COMPONENTS:
         fail(f"Candidate contains durable creator state: {relative}")
     folded = relative.casefold()
     if any(fragment in folded for fragment in FORBIDDEN_PATH_FRAGMENTS):
         fail(f"Candidate contains a forbidden world or operational path: {relative}")
-    if relative in TOP_LEVEL_FILES or relative in allowed_runtime:
-        return
-    if relative.startswith("runtime/"):
+    if (
+        relative in TOP_LEVEL_FILES
+        or relative in allowed_runtime
+        or relative in packaged_jre_files
+    ):
         return
     fail(f"Candidate file is outside the exact application allowlist: {relative}")
 
 
-def validate_application_directory(relative: str, allowed_runtime: set[str]) -> None:
+def validate_application_directory(
+    relative: str, allowed_runtime: set[str], packaged_jre_directories: set[str]
+) -> None:
     parts = PurePosixPath(relative).parts
     if parts and parts[0].casefold() in FORBIDDEN_ROOT_COMPONENTS:
         fail(f"Candidate contains a durable creator-state directory: {relative}")
     folded = relative.casefold().rstrip("/") + "/"
     if any(fragment in folded for fragment in FORBIDDEN_PATH_FRAGMENTS):
         fail(f"Candidate contains a forbidden world or operational directory: {relative}")
-    if relative == "runtime" or relative.startswith("runtime/"):
+    if relative in packaged_jre_directories:
         return
-    possible_files = TOP_LEVEL_FILES | allowed_runtime
+    possible_files = TOP_LEVEL_FILES | allowed_runtime | packaged_jre_directories
     prefix = relative.rstrip("/") + "/"
     if any(candidate.startswith(prefix) for candidate in possible_files):
         return
@@ -875,6 +1089,7 @@ def validate_archive(
     allowed_runtime: set[str],
     forbidden_hashes: dict[str, tuple[str, str]],
     copied_files: dict[str, bytes],
+    jre_inventory: dict[str, Any],
 ) -> dict[str, Any]:
     try:
         archive = zipfile.ZipFile(io.BytesIO(archive_data))
@@ -882,7 +1097,10 @@ def validate_archive(
         fail(f"Candidate is not a valid ZIP archive ({path.name}): {error}")
     files: dict[str, bytes] = {}
     modes: dict[str, int] = {}
+    directory_modes: dict[str, int] = {}
     seen: dict[str, str] = {}
+    packaged_jre_files = set(jre_inventory["files"])
+    packaged_jre_directories = set(jre_inventory["directories"])
     with archive:
         infos = archive.infolist()
         validate_zip_limits(
@@ -909,16 +1127,21 @@ def validate_archive(
             expected_kinds = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
             if kind not in expected_kinds:
                 fail(f"Candidate contains a link or special entry: {info.filename}")
+            if stat.S_IMODE(mode) & 0o7000:
+                fail(f"Candidate contains forbidden special permission bits: {info.filename}")
             if info.flag_bits & 0x1:
                 fail(f"Candidate contains an encrypted entry: {info.filename}")
             relative = PurePosixPath(*parts[1:]).as_posix()
             if info.is_dir():
                 if relative != ".":
-                    validate_application_directory(relative, allowed_runtime)
+                    validate_application_directory(
+                        relative, allowed_runtime, packaged_jre_directories
+                    )
+                    directory_modes[relative] = mode
                 continue
             if not relative:
                 fail(f"Candidate contains a file at the package root entry: {path.name}")
-            validate_application_path(relative, allowed_runtime)
+            validate_application_path(relative, allowed_runtime, packaged_jre_files)
             data = archive.read(info)
             files[relative] = data
             modes[relative] = mode
@@ -931,12 +1154,51 @@ def validate_archive(
                 )
             reject_structured_world(data, f"{path.name}!{relative}")
 
-    required = TOP_LEVEL_FILES | allowed_runtime | REQUIRED_BUILDER_RUNTIME_FILES
+    required = (
+        TOP_LEVEL_FILES
+        | allowed_runtime
+        | REQUIRED_BUILDER_RUNTIME_FILES
+        | packaged_jre_files
+    )
     missing = sorted(required - files.keys())
     if missing:
         fail(f"Candidate is missing required files ({path.name}): {', '.join(missing)}")
     if files["RUNTIME-ASSET-ALLOWLIST.txt"] != allowlist_bytes:
         fail(f"Candidate runtime allowlist differs from source: {path.name}")
+    actual_jre_files = {relative for relative in files if relative.startswith("runtime/")}
+    actual_jre_directories = {
+        relative
+        for relative in directory_modes
+        if relative == "runtime" or relative.startswith("runtime/")
+    }
+    if actual_jre_files != packaged_jre_files:
+        fail(
+            f"Candidate JRE file inventory differs from the reviewed {platform} input: "
+            f"{path.name}"
+        )
+    if actual_jre_directories != packaged_jre_directories:
+        fail(
+            f"Candidate JRE directory inventory differs from the reviewed {platform} input: "
+            f"{path.name}"
+        )
+    for relative, expected in jre_inventory["files"].items():
+        if (
+            len(files[relative]) != expected["byteSize"]
+            or digest(files[relative]) != expected["sha256"]
+            or relevant_runtime_mode(modes[relative]) != expected["relevantMode"]
+        ):
+            fail(
+                f"Candidate JRE bytes or relevant mode differ from the reviewed "
+                f"{platform} input ({path.name}): {relative}"
+            )
+    for relative, expected_mode in jre_inventory["directories"].items():
+        actual_mode = relevant_runtime_mode(directory_modes[relative])
+        if actual_mode != expected_mode:
+            fail(
+                f"Candidate JRE directory mode differs from the reviewed {platform} "
+                f"input ({path.name}): {relative}; expected {expected_mode:04o}, "
+                f"found {actual_mode:04o}"
+            )
     manifest = parse_manifest(files[MANIFEST_NAME], path.name)
     actual = set(files) - {MANIFEST_NAME}
     if set(manifest) != actual:
@@ -974,8 +1236,15 @@ def validate_archive(
     runtime_java = "runtime/bin/java.exe" if platform == "windows" else "runtime/bin/java"
     if runtime_java not in files:
         fail(f"{platform} candidate is missing its bundled Java executable: {path.name}")
-    if platform == "linux" and not (modes[runtime_java] & 0o111):
-        fail(f"Linux bundled Java is not executable: {path.name}")
+    if platform == "linux":
+        for launcher in sorted(LINUX_EXECUTABLE_LAUNCHERS):
+            if stat.S_IMODE(modes[launcher]) != 0o755:
+                fail(
+                    f"Linux production launcher must have exact mode 0755 "
+                    f"({path.name}): {launcher}"
+                )
+        if stat.S_IMODE(modes[runtime_java]) & 0o111 != 0o111:
+            fail(f"Linux bundled Java is not executable for all users: {path.name}")
 
     client_entries = validate_nested_archive(
         files["builder-runtime/Client_Base/Open_RSC_Client.jar"],
@@ -1034,6 +1303,9 @@ def validate_archive(
         "expandedByteSize": sum(info.file_size for info in infos),
         "manifestSha256": digest(files[MANIFEST_NAME]),
         "manifestedFileCount": len(manifest),
+        "reviewedJreInventorySha256": runtime_inventory_digest(jre_inventory),
+        "reviewedJreFileCount": len(jre_inventory["files"]),
+        "reviewedJreDirectoryCount": len(jre_inventory["directories"]),
     }
 
 
@@ -1043,6 +1315,8 @@ def parse_arguments(arguments: Iterable[str]) -> argparse.Namespace:
     )
     parser.add_argument("--source-root", required=True, type=Path)
     parser.add_argument("--core-framework", required=True, type=Path)
+    parser.add_argument("--linux-jre", required=True, type=Path)
+    parser.add_argument("--windows-jre", required=True, type=Path)
     parser.add_argument("--version", required=True)
     parser.add_argument("--linux-archive", required=True, type=Path)
     parser.add_argument("--windows-archive", required=True, type=Path)
@@ -1061,6 +1335,21 @@ def main(arguments: Iterable[str]) -> int:
     source_commit = validate_source_checkout(source_root)
     core_commit = read_locked_core_commit(source_root)
     validate_core_checkout(core_root, core_commit)
+
+    linux_jre = external_runtime_directory(
+        options.linux_jre, source_root, core_root, "Linux"
+    )
+    windows_jre = external_runtime_directory(
+        options.windows_jre, source_root, core_root, "Windows"
+    )
+    if (
+        linux_jre == windows_jre
+        or is_within(linux_jre, windows_jre)
+        or is_within(windows_jre, linux_jre)
+    ):
+        fail("Reviewed Linux and Windows JRE inputs must be separate trees")
+    linux_jre_inventory = inventory_runtime_tree(linux_jre, "Linux")
+    windows_jre_inventory = inventory_runtime_tree(windows_jre, "Windows")
 
     linux = external_regular_file(options.linux_archive, source_root, core_root)
     windows = external_regular_file(options.windows_archive, source_root, core_root)
@@ -1114,6 +1403,7 @@ def main(arguments: Iterable[str]) -> int:
             allowed_runtime,
             forbidden_hashes,
             copied_files,
+            linux_jre_inventory,
         ),
         validate_archive(
             windows,
@@ -1126,8 +1416,13 @@ def main(arguments: Iterable[str]) -> int:
             allowed_runtime,
             forbidden_hashes,
             copied_files,
+            windows_jre_inventory,
         ),
     ]
+    if inventory_runtime_tree(linux_jre, "Linux") != linux_jre_inventory:
+        fail("Reviewed Linux JRE input changed during candidate inspection")
+    if inventory_runtime_tree(windows_jre, "Windows") != windows_jre_inventory:
+        fail("Reviewed Windows JRE input changed during candidate inspection")
     reloaded_allowlist = parse_runtime_allowlist(source_root)
     if reloaded_allowlist[:3] != (
         allowlist_bytes,
@@ -1174,6 +1469,8 @@ def main(arguments: Iterable[str]) -> int:
             "content-neutral-world-and-creator-scan",
             "empty-builder-database-seed",
             "dual-platform-jre17-metadata",
+            "exact-reviewed-dual-platform-jre-inventory-bytes-and-modes",
+            "linux-production-launcher-modes",
             "production-runtime-marker-and-capabilities",
         ],
         "pendingEvidence": [
@@ -1204,6 +1501,10 @@ def main(arguments: Iterable[str]) -> int:
     )
     if final_copies != copied_files:
         fail("Exact source inputs changed after candidate inspection")
+    if inventory_runtime_tree(linux_jre, "Linux") != linux_jre_inventory:
+        fail("Reviewed Linux JRE input changed after candidate inspection")
+    if inventory_runtime_tree(windows_jre, "Windows") != windows_jre_inventory:
+        fail("Reviewed Windows JRE input changed after candidate inspection")
     if validate_source_checkout(source_root) != source_commit:
         fail("World Editor source commit changed after candidate inspection")
     validate_core_checkout(core_root, core_commit)

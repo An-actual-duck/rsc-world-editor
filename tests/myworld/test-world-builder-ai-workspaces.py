@@ -376,6 +376,41 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
             capture.read_text(encoding="utf-8").splitlines(),
         )
 
+    def test_manager_candidate_requires_closed_gate_and_restricted_mode(self) -> None:
+        f = self.fixture
+        capture = f.base / "release-args.txt"
+        blocked = f.run(
+            "ai-manager.sh",
+            "candidate",
+            "--version",
+            "v0.2.0-alpha.1",
+            "--assets-cleared",
+            check=False,
+        )
+        self.assertNotEqual(0, blocked.returncode)
+        self.assertIn("cannot be built after", blocked.stderr)
+        self.assertFalse(capture.exists())
+
+        f.git("rm", "release/world-builder-v2/RELEASE-READY")
+        f.git("commit", "-m", "Close adaptive release gate")
+        f.git("push", "origin", "main")
+        f.run(
+            "ai-manager.sh",
+            "candidate",
+            "--version",
+            "v0.2.0-alpha.1",
+            "--assets-cleared",
+        )
+        self.assertEqual(
+            [
+                "--candidate-build",
+                "--version",
+                "v0.2.0-alpha.1",
+                "--assets-cleared",
+            ],
+            capture.read_text(encoding="utf-8").splitlines(),
+        )
+
     def test_manager_collects_exact_external_handoff_without_merging(self) -> None:
         f = self.fixture
         f.run("ai-workspace.sh", "create", "ai-1")

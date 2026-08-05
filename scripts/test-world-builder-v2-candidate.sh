@@ -20,6 +20,7 @@ tests=(
 	tests/myworld/test-world-builder-supervision.py
 	tests/myworld/test-world-builder-adaptive-transactions.py
 	tests/myworld/test-world-builder-v2-release.py
+	tests/myworld/test-world-builder-ai-workspaces.py
 	tests/myworld/test-world-builder-v2-updater.py
 	tests/myworld/test-world-builder-product-generations.py
 	tests/myworld/test-world-builder-project-independence.py

@@ -12,6 +12,7 @@ LINUX_JRE=""
 WINDOWS_JRE=""
 ASSETS_CLEARED=false
 SKIP_BUILD=false
+CANDIDATE_BUILD=false
 SOURCE_COMMIT=""
 
 PRODUCT_ID="rsc-world-editor-v2"
@@ -46,6 +47,8 @@ Usage:
 Options:
   --assets-cleared   Attest that every packaged asset has confirmed
                      redistribution terms.
+  --candidate-build  Build restricted pre-gate validation candidates without
+                     opening the release gate or producing release artifacts.
   --skip-build       Use existing fixture jars. This is restricted to World
                      Builder 2 packaging tests.
 EOF
@@ -81,6 +84,10 @@ while (($#)); do
 			SKIP_BUILD=true
 			shift
 			;;
+		--candidate-build)
+			CANDIDATE_BUILD=true
+			shift
+			;;
 		-h|--help)
 			usage
 			exit 0
@@ -103,6 +110,9 @@ CORE_ROOT="$(cd "$CORE_ROOT" 2>/dev/null && pwd -P)" \
 if [[ "$SKIP_BUILD" == true \
 	&& "${WORLD_BUILDER_V2_RELEASE_TEST_MODE:-}" != 1 ]]; then
 	fail "--skip-build is restricted to World Builder 2 packaging tests"
+fi
+if [[ "$SKIP_BUILD" == true && "$CANDIDATE_BUILD" == true ]]; then
+	fail "--candidate-build requires a real build and cannot be combined with --skip-build"
 fi
 
 for command_name in cp diff find git grep jar python3 sed sha256sum unzip xargs zip; do
@@ -289,7 +299,11 @@ validate_runtime "Windows" "$WINDOWS_JRE" "bin/java.exe" "Windows"
 PACKAGE_ASSETS="$ROOT_DIR/release/world-builder-v2"
 UPDATE_ASSETS="$ROOT_DIR/release/updater-v2"
 ICON_CREDITS="$CORE_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
-if [[ "$SKIP_BUILD" != true && ! -f "$PACKAGE_ASSETS/RELEASE-READY" ]]; then
+if [[ "$CANDIDATE_BUILD" == true ]]; then
+	[[ ! -e "$PACKAGE_ASSETS/RELEASE-READY" \
+		&& ! -L "$PACKAGE_ASSETS/RELEASE-READY" ]] \
+		|| fail "Pre-gate candidate packaging is forbidden after the World Builder 2 release gate is opened"
+elif [[ "$SKIP_BUILD" != true && ! -f "$PACKAGE_ASSETS/RELEASE-READY" ]]; then
 	fail "World Builder 2 public packaging remains locked until final cross-platform release validation is accepted"
 fi
 [[ -f "$ICON_CREDITS" ]] || fail "World editor icon credits are missing"
@@ -429,7 +443,11 @@ runtime_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-
 	&& "$server_protocol" == "$runtime_protocol" ]] \
 	|| fail "Client, server, and Builder runtime protocol versions disagree"
 
-OUTPUT_ROOT="$ROOT_DIR/output/releases/world-builder-v2"
+if [[ "$CANDIDATE_BUILD" == true ]]; then
+	OUTPUT_ROOT="$ROOT_DIR/output/candidates/world-builder-v2"
+else
+	OUTPUT_ROOT="$ROOT_DIR/output/releases/world-builder-v2"
+fi
 OUTPUT_DIR="$OUTPUT_ROOT/$VERSION"
 STAGING_DIR="$OUTPUT_DIR/staging"
 LINUX_STAGE="$STAGING_DIR/linux/$PACKAGE_NAME"
@@ -506,7 +524,7 @@ stage_builder() {
 	cp "$PACKAGE_ASSETS/Recover Map Transaction.cmd" "$destination/Recover Map Transaction.cmd"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.sh" "$destination/Undo Last Map Import.sh"
 	cp "$PACKAGE_ASSETS/Undo Last Map Import.cmd" "$destination/Undo Last Map Import.cmd"
-	chmod +x "$destination/Start World Builder.sh" \
+	chmod 0755 "$destination/Start World Builder.sh" \
 		"$destination/Update World Builder.sh" \
 		"$destination/Import Map Changes.sh" \
 		"$destination/Recover Map Transaction.sh" \
@@ -531,9 +549,11 @@ stage_builder() {
 stage_builder "$LINUX_STAGE"
 stage_builder "$WINDOWS_STAGE"
 mkdir -p "$LINUX_STAGE/runtime"
-cp -RL "$LINUX_JRE"/. "$LINUX_STAGE/runtime/"
+cp -RL --preserve=mode "$LINUX_JRE"/. "$LINUX_STAGE/runtime/"
+chmod 0755 "$LINUX_STAGE/runtime"
 mkdir -p "$WINDOWS_STAGE/runtime"
-cp -RL "$WINDOWS_JRE"/. "$WINDOWS_STAGE/runtime/"
+cp -RL --preserve=mode "$WINDOWS_JRE"/. "$WINDOWS_STAGE/runtime/"
+chmod 0755 "$WINDOWS_STAGE/runtime"
 
 validate_stage() {
 	local stage="$1"
@@ -775,7 +795,11 @@ unzip -tq "$WINDOWS_ARCHIVE" >/dev/null \
 
 rm -rf -- "$STAGING_DIR"
 
-printf 'Created World Builder 2 release artifacts:\n'
+if [[ "$CANDIDATE_BUILD" == true ]]; then
+	printf 'Created restricted World Builder 2 pre-gate candidate artifacts (not release artifacts):\n'
+else
+	printf 'Created World Builder 2 release artifacts:\n'
+fi
 printf '  %s\n' "$LINUX_ARCHIVE"
 printf '  %s\n' "$WINDOWS_ARCHIVE"
 printf '  %s\n' "$OUTPUT_DIR/SHA256SUMS.txt"

@@ -186,6 +186,10 @@ class CandidateFixture:
         self.source = base / "source"
         self.core = base / "core"
         self.artifacts = base / "external-candidates"
+        self.jres = {
+            "linux": base / "reviewed-linux-jre",
+            "windows": base / "reviewed-windows-jre",
+        }
         self.source.mkdir()
         self.core.mkdir()
         self.artifacts.mkdir()
@@ -278,6 +282,31 @@ class CandidateFixture:
             self.source_commit,
         )
 
+        for platform, runtime in self.jres.items():
+            release = (
+                'JAVA_VERSION="17.0.20"\n'
+                f'OS_NAME="{"Windows" if platform == "windows" else "Linux"}"\n'
+                'OS_ARCH="x86_64"\n'
+            ).encode()
+            runtime_files = {
+                "release": release,
+                "LICENSE": b"runtime redistribution terms\n",
+                "lib/runtime-payload.dat": b"reviewed runtime payload\n",
+            }
+            java = "bin/java.exe" if platform == "windows" else "bin/java"
+            runtime_files[java] = b"bundled java\n"
+            for relative, data in runtime_files.items():
+                path = runtime / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+                path.chmod(0o644)
+            (runtime / java).chmod(0o644 if platform == "windows" else 0o755)
+            for directory in (runtime, *(path for path in runtime.rglob("*") if path.is_dir())):
+                directory.chmod(0o755)
+            (runtime / "lib/runtime-payload-link.dat").symlink_to(
+                "runtime-payload.dat"
+            )
+
         self.archives = {
             "linux": self.artifacts / LINUX_NAME,
             "windows": self.artifacts / WINDOWS_NAME,
@@ -311,6 +340,14 @@ class CandidateFixture:
 
     def package_files(self, platform: str) -> dict[str, tuple[bytes, int]]:
         files = {relative: (b"fixture\n", 0o644) for relative in TOP_FILES}
+        for launcher in (
+            "Import Map Changes.sh",
+            "Recover Map Transaction.sh",
+            "Start World Builder.sh",
+            "Undo Last Map Import.sh",
+            "Update World Builder.sh",
+        ):
+            files[launcher] = (b"fixture\n", 0o755)
         files.update(
             {
                 "VERSION.txt": ((VERSION + "\n").encode(), 0o644),
@@ -368,6 +405,14 @@ class CandidateFixture:
                     0o644,
                 ),
                 "runtime/LICENSE": (b"runtime redistribution terms\n", 0o644),
+                "runtime/lib/runtime-payload.dat": (
+                    b"reviewed runtime payload\n",
+                    0o644,
+                ),
+                "runtime/lib/runtime-payload-link.dat": (
+                    b"reviewed runtime payload\n",
+                    0o644,
+                ),
             }
         )
         java = "runtime/bin/java.exe" if platform == "windows" else "runtime/bin/java"
@@ -386,6 +431,16 @@ class CandidateFixture:
         with zipfile.ZipFile(
             self.archives[platform], "w", zipfile.ZIP_DEFLATED
         ) as archive:
+            directories = {PACKAGE_ROOT}
+            for relative in files:
+                parts = Path(relative).parts[:-1]
+                for index in range(1, len(parts) + 1):
+                    directories.add(f"{PACKAGE_ROOT}/" + "/".join(parts[:index]))
+            for directory in sorted(directories):
+                info = zipfile.ZipInfo(directory + "/")
+                info.create_system = 3
+                info.external_attr = (stat.S_IFDIR | 0o755) << 16
+                archive.writestr(info, b"")
             for relative, (data, mode) in sorted(files.items()):
                 info = zipfile.ZipInfo(f"{PACKAGE_ROOT}/{relative}")
                 info.create_system = 3
@@ -411,6 +466,8 @@ class CandidateFixture:
         values: dict[str, Path | str] = {
             "source-root": self.source,
             "core-framework": self.core,
+            "linux-jre": self.jres["linux"],
+            "windows-jre": self.jres["windows"],
             "version": VERSION,
             "linux-archive": self.archives["linux"],
             "windows-archive": self.archives["windows"],
@@ -448,12 +505,23 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             {artifact["fileName"] for artifact in evidence["artifacts"]},
         )
         self.assertIn("content-neutral-world-and-creator-scan", evidence["assertions"])
+        self.assertIn(
+            "exact-reviewed-dual-platform-jre-inventory-bytes-and-modes",
+            evidence["assertions"],
+        )
+        self.assertIn("linux-production-launcher-modes", evidence["assertions"])
+        for artifact in evidence["artifacts"]:
+            self.assertRegex(artifact["reviewedJreInventorySha256"], r"^[0-9a-f]{64}$")
+            self.assertGreater(artifact["reviewedJreFileCount"], 3)
         self.assertIn("owner-software-and-opengl-visual-review", evidence["pendingEvidence"])
 
     def test_pending_worksheet_cannot_be_mistaken_for_release_acceptance(self) -> None:
         text = PENDING_RECORD.read_text(encoding="utf-8")
         self.assertIn("PENDING — NOT RELEASE READY", text)
-        self.assertIn("this file does not authorize packaging", text)
+        self.assertIn("does not authorize production\npackaging", text)
+        self.assertIn("output/candidates/world-builder-v2", text)
+        self.assertIn("complete top-level `World Builder 2/` directory", text)
+        self.assertIn("Production archives\nmust be rebuilt", text)
         self.assertIn("report text, not screenshots", text)
         self.assertIn("releaseReady: false", text)
         self.assertIn("AC-17", text)
@@ -465,6 +533,7 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertIn('python3 "$ROOT_DIR/$relative" -v </dev/null', text)
         self.assertIn("test-world-builder-supervision.py", text)
         self.assertIn("test-world-builder-adaptive-transactions.py", text)
+        self.assertIn("test-world-builder-ai-workspaces.py", text)
         self.assertIn("test-world-builder-v2-updater.py", text)
 
     def test_candidate_inputs_inside_either_source_tree_are_refused(self) -> None:
@@ -513,6 +582,78 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         result = self.fixture.run()
         self.assertNotEqual(0, result.returncode)
         self.assertIn("differs from its exact locked source", result.stderr)
+
+    def test_unreviewed_extra_runtime_payload_is_refused_with_refreshed_hashes(
+        self,
+    ) -> None:
+        self.fixture.files["linux"]["runtime/bin/unreviewed-native-payload"] = (
+            b"unreviewed executable payload\n",
+            0o755,
+        )
+        self.fixture.write_archive("linux")
+        self.fixture.write_checksums()
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("outside the exact application allowlist", result.stderr)
+
+    def test_changed_or_missing_reviewed_jre_file_is_refused_with_refreshed_hashes(
+        self,
+    ) -> None:
+        self.fixture.files["linux"]["runtime/lib/runtime-payload.dat"] = (
+            b"different runtime payload\n",
+            0o644,
+        )
+        self.fixture.write_archive("linux")
+        self.fixture.write_checksums()
+        changed = self.fixture.run()
+        self.assertNotEqual(0, changed.returncode)
+        self.assertIn("JRE bytes or relevant mode differ", changed.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-missing-jre-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            del fixture.files["windows"]["runtime/lib/runtime-payload-link.dat"]
+            fixture.write_archive("windows")
+            fixture.write_checksums()
+            missing = fixture.run()
+            self.assertNotEqual(0, missing.returncode)
+            self.assertIn("missing required files", missing.stderr)
+
+    def test_linux_launcher_and_runtime_modes_are_exact_and_nonprivileged(self) -> None:
+        self.fixture.files["linux"]["Start World Builder.sh"] = (
+            b"fixture\n",
+            0o644,
+        )
+        self.fixture.write_archive("linux")
+        self.fixture.write_checksums()
+        nonexecutable = self.fixture.run()
+        self.assertNotEqual(0, nonexecutable.returncode)
+        self.assertIn("exact mode 0755", nonexecutable.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-setuid-launcher-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            fixture.files["linux"]["Start World Builder.sh"] = (
+                b"fixture\n",
+                0o4755,
+            )
+            fixture.write_archive("linux")
+            fixture.write_checksums()
+            privileged = fixture.run()
+            self.assertNotEqual(0, privileged.returncode)
+            self.assertIn("special permission bits", privileged.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-jre-mode-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            fixture.files["linux"]["runtime/lib/runtime-payload.dat"] = (
+                b"reviewed runtime payload\n",
+                0o755,
+            )
+            fixture.write_archive("linux")
+            fixture.write_checksums()
+            changed_mode = fixture.run()
+            self.assertNotEqual(0, changed_mode.returncode)
+            self.assertIn("JRE bytes or relevant mode differ", changed_mode.stderr)
 
     def test_hard_linked_candidate_input_is_refused(self) -> None:
         alias = self.fixture.artifacts / "linux-candidate-alias.zip"

@@ -1,20 +1,22 @@
 # World Builder 2 v0.2.0-alpha.1 adaptive validation — PENDING
 
 This is the Phase 7 candidate worksheet, not an accepted validation record.
-No candidate has been accepted, and this file does not authorize packaging,
-tagging, publication, deployment, or creation of
+No candidate has been accepted, and this file does not authorize production
+packaging, tagging, publication, deployment, or creation of
 `release/world-builder-v2/RELEASE-READY`. The historical v0.1.0-alpha.1 record
 is unchanged and does not approve this adaptive design.
 
 ## Gate state
 
 - Status: **PENDING — NOT RELEASE READY**
-- Candidate World Editor commit: **PENDING clean published `main`**
+- Restricted pre-gate candidate World Editor commit: **PENDING clean published `main`**
 - Locked runtime commit:
   `3cd36570ca7df6c436714b5358904aa5953fd1ba`
-- Linux archive SHA-256: **PENDING**
-- Windows archive SHA-256: **PENDING**
-- `SHA256SUMS.txt` SHA-256: **PENDING**
+- Restricted pre-gate Linux candidate SHA-256: **PENDING**
+- Restricted pre-gate Windows candidate SHA-256: **PENDING**
+- Restricted pre-gate `SHA256SUMS.txt` SHA-256: **PENDING**
+- Reviewed Linux JRE inventory SHA-256: **PENDING**
+- Reviewed Windows JRE inventory SHA-256: **PENDING**
 - Owner-native report: **PENDING**
 - Accepted limitations: **NONE ACCEPTED**
 - Release decision and accepting manager/owner: **PENDING**
@@ -55,9 +57,21 @@ git diff --check
 ./scripts/test-world-builder-v2-candidate.sh
 ./scripts/test.sh
 
+./scripts/ai-manager.sh candidate \
+  --version v0.2.0-alpha.1 \
+  --core-framework /path/to/clean-exact-locked-runtime \
+  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
+  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
+  --assets-cleared
+
+# Copy the three files from output/candidates/world-builder-v2/v0.2.0-alpha.1/
+# to /outside-sources/ before inspection.
+
 ./scripts/inspect-world-builder-v2-candidate.py \
   --source-root /path/to/clean-published-rsc-world-editor \
   --core-framework /path/to/clean-exact-locked-runtime \
+  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
+  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --version v0.2.0-alpha.1 \
   --linux-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip \
   --windows-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip \
@@ -65,12 +79,18 @@ git diff --check
   > /outside-sources/candidate-archive-inspection.json
 ```
 
-The inspector fails unless the source is clean published `main`, the runtime
-is clean at the exact lock, and all three artifact inputs are outside both
-source trees. Its JSON binds the two outer hashes and manifests to both source
-commits and repeats safe-root, no-link, case/path, exhaustive-manifest,
-application-allowlist, copied-source, renamed world/creator content, empty
-database seed, runtime identity, JRE metadata, and production-marker checks.
+The candidate route fails unless the gate marker is absent and every real
+production build, provenance, runtime, no-world, and archive check passes. It
+cannot use the fixture-only `--skip-build` path and writes only restricted
+pre-gate artifacts. The inspector fails unless the source is clean published
+`main`, the runtime is clean at the exact lock, the reviewed JRE trees remain
+stable, and all three artifact inputs are outside both source trees. Its JSON
+binds the two outer hashes and manifests to both source commits and the complete
+dereferenced JRE file/directory inventories, bytes, and relevant modes. It also
+repeats safe-root, no-link/special-mode, case/path, exhaustive-manifest,
+application-allowlist, exact Linux launcher mode, copied-source, renamed
+world/creator content, empty database seed, runtime identity, JRE metadata, and
+production-marker checks.
 Even on success it reports `releaseReady: false`, `releaseGateChanged: false`,
 and the still-pending owner/manager evidence; it cannot authorize a release.
 
@@ -81,6 +101,7 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 | Whitespace | `git diff --check` | PENDING | PENDING |
 | Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PENDING | PENDING |
 | Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
+| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PENDING | PENDING |
 | External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PENDING | PENDING |
 | Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PENDING | PENDING |
 | PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PENDING or UNAVAILABLE | PENDING or N/A |
@@ -89,16 +110,20 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 
 Fixture archives prove rejection and transaction behavior; only the external
 inspection row may be used as evidence for the final candidate archive hashes.
+The accepted values remain pre-gate validation hashes. Production archives
+must be rebuilt after a later accepted-record/gate commit on newly published
+`main`; record those production hashes separately and never promote these
+pre-gate files in place.
 
 ## Archive and package results
 
 Copy these values exactly from the passing inspection JSON and independently
 retain the outer `SHA256SUMS.txt`.
 
-| Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Manifested files | Result |
-| --- | --- | --- | --- | --- | --- |
-| Linux x64 | PENDING | PENDING | PENDING | PENDING | PENDING |
-| Windows x64 | PENDING | PENDING | PENDING | PENDING | PENDING |
+| Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Manifested files | Result |
+| --- | --- | --- | --- | --- | --- | --- |
+| Linux x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+| Windows x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
 
 Required review statements, all currently **PENDING**:
 
@@ -111,7 +136,10 @@ Required review statements, all currently **PENDING**:
 - the Builder database seed contains no terrain/placement, player/account,
   log, security, generated-operational, or unknown non-static rows; and
 - the packaged launch/import/recovery/undo/update scripts and copied runtime
-  assets equal their exact clean source inputs.
+  assets equal their exact clean source inputs; and
+- the complete packaged JRE inventories/bytes/relevant modes equal the reviewed
+  JRE trees, with every Linux production shell launcher at mode `0755` and no
+  special/setuid bits.
 
 ## Compatibility matrix
 
@@ -138,10 +166,18 @@ Use disposable copies and report each numbered item as PASS or FAIL with a
 short observation. Do not use a live/public server, and do not send
 screenshots for AI judgment.
 
+For every target byte comparison below, inventory all server-owned content
+while excluding the complete top-level `World Builder 2/` directory and
+everything beneath it. Do not exclude individual files inside that directory
+or any other target content. The installation/project directory is expected to
+change as projects, receipts, backups, and recovery state are created; the
+server-owned comparison scope must not change between before and after.
+
 ### A. Target-backed projects
 
 1. Put the complete candidate folder directly inside one disposable compatible
-   layered target. Record a byte inventory of the target, launch natively, and
+   layered target. Record the server-owned target inventory using the exclusion
+   above, launch natively, and
    confirm discovery names that target's active map rather than release-owned
    content. Create the adopted project.
 2. Repeat first creation with one disposable supported packed target. Confirm
@@ -151,15 +187,15 @@ screenshots for AI judgment.
    Check terrain/floors, levels, collision, boundaries, scenery, NPCs, and
    ground items. Make a small unmistakable terrain and placement edit, save,
    close, reopen, and confirm the edit remains in the isolated project.
-4. Confirm both original target inventories remain byte-identical after
+4. Confirm both server-owned target inventories remain byte-identical after
    discovery, creation, editing, saving, closing, and reopening.
 5. With the selected disposable target fully offline, run Import preview.
    Confirm the exact server/client destinations, activation, backup, receipt,
    and player-distribution identity are understandable. Type `IMPORT`, verify
    success, and test the imported result only on that disposable target.
 6. Stop the disposable target again, run Undo preview, type `UNDO`, and confirm
-   the pre-import target inventory is restored exactly. If a deliberately
-   interrupted disposable transaction reports `RECOVERY_REQUIRED`, preserve
+   the pre-import server-owned target inventory is restored exactly. If a
+   deliberately interrupted disposable transaction reports `RECOVERY_REQUIRED`, preserve
    its artifacts, run Recovery, and report the verified result.
 
 ### B. Standalone empty project
@@ -184,7 +220,7 @@ Packed conversion A1-A6: PASS/FAIL + notes
 Standalone B1-B3: PASS/FAIL + notes
 Software/OpenGL and save/reopen: PASS/FAIL + notes
 Import/Undo/Recovery: PASS/FAIL + notes
-Target byte comparisons: PASS/FAIL + method
+Server-owned target byte comparisons (complete `World Builder 2/` excluded): PASS/FAIL + method
 Accepted limitations: none / exact text
 Release acceptance: NOT YET / ACCEPT THIS EXACT CANDIDATE
 ```
@@ -204,7 +240,7 @@ row below needs exact evidence and no unresolved failure.
 | AC-06 selected working project is the only edited world | Automated fixture; owner report | PENDING |
 | AC-07 canonical standalone structural void | Automated fixture; owner report | PENDING |
 | AC-08 standalone save/export and target-operation refusal | Automated fixture; owner report | PENDING |
-| AC-09 immutable source, isolated save/reopen, unchanged target | Automated fixture; byte inventory; owner report | PENDING |
+| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated fixture; scoped byte inventory; owner report | PENDING |
 | AC-10 multiple/portable/detached projects | Focused suite; owner report | PENDING |
 | AC-11 deterministic complete export and lineage | Phase 6 suite | PENDING |
 | AC-12 exact server/client import capability and distribution identity | Phase 6 suite; owner report | PENDING |
