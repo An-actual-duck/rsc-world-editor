@@ -486,6 +486,32 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertNotEqual(0, wrong.returncode)
             self.assertIn("Locked runtime source mismatch", wrong.stderr)
 
+    def test_wrong_exact_runtime_capability_is_refused(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="candidate-capability-") as temp:
+            fixture = CandidateFixture(
+                Path(temp), capability=b'{"capability":"generic"}\n'
+            )
+            result = fixture.run()
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("capability identity mismatch", result.stderr)
+
+    def test_rebuilt_or_foreign_runtime_binary_is_refused(self) -> None:
+        self.fixture.files["linux"][
+            "builder-runtime/Client_Base/Open_RSC_Client.jar"
+        ] = (jar_bytes(CLIENT_ENTRIES + ("fixture/Unexpected.class",)), 0o644)
+        self.fixture.write_archive("linux")
+        self.fixture.write_checksums()
+        result = self.fixture.run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("differs from its exact locked source", result.stderr)
+
+    def test_hard_linked_candidate_input_is_refused(self) -> None:
+        alias = self.fixture.artifacts / "linux-candidate-alias.zip"
+        os.link(self.fixture.archives["linux"], alias)
+        result = self.fixture.run(**{"linux-archive": alias})
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("filesystem aliases", result.stderr)
+
     def test_inner_manifest_mismatch_is_refused_after_outer_checksum_passes(self) -> None:
         self.fixture.files["linux"]["VERSION.txt"] = (b"tampered after manifest\n", 0o644)
         self.fixture.write_archive("linux", refresh_manifest=False)
@@ -515,6 +541,32 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             linked = fixture.run()
             self.assertNotEqual(0, linked.returncode)
             self.assertIn("link or special entry", linked.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-durable-dir-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            fixture.add_raw_entry(
+                "linux",
+                f"{PACKAGE_ROOT}/projects/",
+                b"",
+                stat.S_IFDIR | 0o755,
+            )
+            fixture.write_checksums()
+            durable = fixture.run()
+            self.assertNotEqual(0, durable.returncode)
+            self.assertIn("creator-state directory", durable.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-case-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            fixture.add_raw_entry(
+                "linux",
+                f"{PACKAGE_ROOT}/readme.TXT",
+                b"case collision",
+                stat.S_IFREG | 0o644,
+            )
+            fixture.write_checksums()
+            collision = fixture.run()
+            self.assertNotEqual(0, collision.returncode)
+            self.assertIn("case-colliding candidate paths", collision.stderr)
 
     def test_renamed_structured_world_and_creator_content_is_refused(self) -> None:
         for payload, expected in (

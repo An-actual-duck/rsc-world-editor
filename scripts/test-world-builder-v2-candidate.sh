@@ -17,6 +17,7 @@ tests=(
 	tests/myworld/test-world-builder-packed-conversion.py
 	tests/myworld/test-world-builder-runtime-preparation.py
 	tests/myworld/test-world-builder-adaptive-project-lifecycle.py
+	tests/myworld/test-world-builder-supervision.py
 	tests/myworld/test-world-builder-adaptive-transactions.py
 	tests/myworld/test-world-builder-v2-release.py
 	tests/myworld/test-world-builder-v2-updater.py

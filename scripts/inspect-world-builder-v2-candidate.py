@@ -191,6 +191,16 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def file_identity(metadata: os.stat_result) -> tuple[int, ...]:
+    return (
+        metadata.st_dev,
+        metadata.st_ino,
+        metadata.st_size,
+        metadata.st_mtime_ns,
+        metadata.st_ctime_ns,
+    )
+
+
 def run_git(root: Path, *arguments: str) -> str:
     result = subprocess.run(
         ["git", "-C", str(root), *arguments],
@@ -291,27 +301,9 @@ def read_stable_external(path: Path, maximum_bytes: int) -> tuple[bytes, tuple[i
         fail(f"Unable to read stable candidate input {path}: {error}")
     if len(data) > maximum_bytes:
         fail(f"Candidate input exceeds its inspection limit: {path.name}")
-    identity_before = (
-        before.st_dev,
-        before.st_ino,
-        before.st_size,
-        before.st_mtime_ns,
-        before.st_ctime_ns,
-    )
-    identity_after = (
-        after.st_dev,
-        after.st_ino,
-        after.st_size,
-        after.st_mtime_ns,
-        after.st_ctime_ns,
-    )
-    identity_visible = (
-        visible.st_dev,
-        visible.st_ino,
-        visible.st_size,
-        visible.st_mtime_ns,
-        visible.st_ctime_ns,
-    )
+    identity_before = file_identity(before)
+    identity_after = file_identity(after)
+    identity_visible = file_identity(visible)
     if identity_before != identity_after or identity_after != identity_visible:
         fail(f"Candidate input changed or was replaced during inspection: {path.name}")
     return data, identity_visible
@@ -457,14 +449,28 @@ def parse_runtime_allowlist(
     return contents, allowed, runtime_sources, schemas
 
 
-def read_expected_file(path: Path, label: str) -> bytes:
-    if path.is_symlink() or not path.is_file():
-        fail(f"Exact candidate source input is missing or linked ({label}): {path}")
+def read_expected_file(path: Path, label: str, root: Path) -> bytes:
     try:
-        return path.read_bytes()
+        resolved = path.resolve(strict=True)
+        metadata = path.stat(follow_symlinks=False)
+    except OSError as error:
+        fail(f"Unable to inspect exact candidate source input ({label}): {error}")
+    if (
+        path.is_symlink()
+        or not stat.S_ISREG(metadata.st_mode)
+        or resolved != path.absolute()
+        or not is_within(resolved, root)
+        or getattr(metadata, "st_nlink", 1) != 1
+        or metadata.st_size > MAX_ARCHIVE_ENTRY_BYTES
+    ):
+        fail(f"Exact candidate source input is missing, linked, or unsafe ({label})")
+    try:
+        data = path.read_bytes()
     except OSError as error:
         fail(f"Unable to read exact candidate source input ({label}): {error}")
-    raise AssertionError("unreachable")
+    if file_identity(path.stat(follow_symlinks=False)) != file_identity(metadata):
+        fail(f"Exact candidate source input changed while read ({label})")
+    return data
 
 
 def copied_file_expectations(
@@ -496,46 +502,56 @@ def copied_file_expectations(
     }
     expected = {
         archive_relative: read_expected_file(
-            source_root / source_relative, archive_relative
+            source_root / source_relative, archive_relative, source_root
         )
         for archive_relative, source_relative in source_files.items()
     }
     expected["RUNTIME-ASSET-ALLOWLIST.txt"] = read_expected_file(
         source_root / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt",
         "RUNTIME-ASSET-ALLOWLIST.txt",
+        source_root,
     )
     expected["builder-runtime/Client_Base/Open_RSC_Client.jar"] = read_expected_file(
-        core_root / "Client_Base/Open_RSC_Client.jar", "production client jar"
+        core_root / "Client_Base/Open_RSC_Client.jar", "production client jar", core_root
     )
     expected["builder-runtime/server/core.jar"] = read_expected_file(
-        core_root / "server/core.jar", "production server jar"
+        core_root / "server/core.jar", "production server jar", core_root
     )
     expected["builder-runtime/server/plugins.jar"] = read_expected_file(
-        core_root / "server/plugins.jar", "production plugins jar"
+        core_root / "server/plugins.jar", "production plugins jar", core_root
     )
     expected["builder-runtime/launcher/world-builder-tools.jar"] = read_expected_file(
         source_root / "output/world-builder-tools/world-builder-tools.jar",
         "production standalone tools jar",
+        source_root,
     )
     for archive_relative, source_relative in runtime_sources.items():
         expected[archive_relative] = read_expected_file(
-            core_root / source_relative, archive_relative
+            core_root / source_relative, archive_relative, core_root
         )
     for archive_relative, source_path in schemas.items():
-        expected[archive_relative] = read_expected_file(source_path, archive_relative)
+        expected[archive_relative] = read_expected_file(
+            source_path, archive_relative, source_root
+        )
     expected["PLAYER-ASSET-SOURCES.txt"] = read_expected_file(
-        core_root / "release/player/ASSET-SOURCES.txt", "PLAYER-ASSET-SOURCES.txt"
+        core_root / "release/player/ASSET-SOURCES.txt",
+        "PLAYER-ASSET-SOURCES.txt",
+        core_root,
     )
     expected["EDITOR-ICON-CREDITS.txt"] = read_expected_file(
         core_root / "dev/myworld/assets/ui/world-editor/CREDITS.md",
         "EDITOR-ICON-CREDITS.txt",
+        core_root,
     )
     package_readme = read_expected_file(
-        source_root / "release/world-builder-v2/README.txt", "README.txt template"
+        source_root / "release/world-builder-v2/README.txt",
+        "README.txt template",
+        source_root,
     ).decode("utf-8")
     updater_readme = read_expected_file(
         source_root / "release/updater-v2/README-AUTO-UPDATE.txt",
         "README updater appendix",
+        source_root,
     ).decode("utf-8")
     expected["README.txt"] = (
         package_readme.replace("@VERSION@", version).replace(
@@ -610,6 +626,22 @@ def validate_application_path(relative: str, allowed_runtime: set[str]) -> None:
     fail(f"Candidate file is outside the exact application allowlist: {relative}")
 
 
+def validate_application_directory(relative: str, allowed_runtime: set[str]) -> None:
+    parts = PurePosixPath(relative).parts
+    if parts and parts[0].casefold() in FORBIDDEN_ROOT_COMPONENTS:
+        fail(f"Candidate contains a durable creator-state directory: {relative}")
+    folded = relative.casefold().rstrip("/") + "/"
+    if any(fragment in folded for fragment in FORBIDDEN_PATH_FRAGMENTS):
+        fail(f"Candidate contains a forbidden world or operational directory: {relative}")
+    if relative == "runtime" or relative.startswith("runtime/"):
+        return
+    possible_files = TOP_LEVEL_FILES | allowed_runtime
+    prefix = relative.rstrip("/") + "/"
+    if any(candidate.startswith(prefix) for candidate in possible_files):
+        return
+    fail(f"Candidate directory is outside the exact application allowlist: {relative}")
+
+
 def validate_zip_limits(
     infos: list[zipfile.ZipInfo],
     display: str,
@@ -640,10 +672,13 @@ def validate_nested_archive(
     data: bytes,
     display: str,
     forbidden_hashes: dict[str, tuple[str, str]],
+    require_archive: bool = False,
 ) -> set[str]:
     try:
         nested = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile:
+        if require_archive:
+            fail(f"Nested JAR/ZIP input is not a valid archive: {display}")
         return set()
     names: set[str] = set()
     seen: dict[str, str] = {}
@@ -679,7 +714,8 @@ def validate_nested_archive(
             names.add(name)
             mode = info.external_attr >> 16
             kind = stat.S_IFMT(mode)
-            if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
+            expected_kinds = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
+            if kind not in expected_kinds:
                 fail(f"Link or special nested archive entry is forbidden: {display}!{name}")
             if info.flag_bits & 0x1:
                 fail(f"Encrypted nested archive entry is forbidden: {display}!{name}")
@@ -870,13 +906,16 @@ def validate_archive(
             seen[folded] = info.filename
             mode = info.external_attr >> 16
             kind = stat.S_IFMT(mode)
-            if kind not in (0, stat.S_IFREG, stat.S_IFDIR):
+            expected_kinds = (0, stat.S_IFDIR) if info.is_dir() else (0, stat.S_IFREG)
+            if kind not in expected_kinds:
                 fail(f"Candidate contains a link or special entry: {info.filename}")
             if info.flag_bits & 0x1:
                 fail(f"Candidate contains an encrypted entry: {info.filename}")
-            if info.is_dir():
-                continue
             relative = PurePosixPath(*parts[1:]).as_posix()
+            if info.is_dir():
+                if relative != ".":
+                    validate_application_directory(relative, allowed_runtime)
+                continue
             if not relative:
                 fail(f"Candidate contains a file at the package root entry: {path.name}")
             validate_application_path(relative, allowed_runtime)
@@ -942,6 +981,7 @@ def validate_archive(
         files["builder-runtime/Client_Base/Open_RSC_Client.jar"],
         f"{path.name}!builder-runtime/Client_Base/Open_RSC_Client.jar",
         forbidden_hashes,
+        True,
     )
     if not REQUIRED_CLIENT_ENTRIES.issubset(client_entries):
         fail(f"Production client is missing its marker/classes/natives: {path.name}")
@@ -954,6 +994,7 @@ def validate_archive(
         files["builder-runtime/server/core.jar"],
         f"{path.name}!builder-runtime/server/core.jar",
         forbidden_hashes,
+        True,
     )
     if not REQUIRED_SERVER_ENTRIES.issubset(server_entries):
         fail(f"Server runtime is missing required World Builder classes: {path.name}")
@@ -961,6 +1002,7 @@ def validate_archive(
         files["builder-runtime/launcher/world-builder-tools.jar"],
         f"{path.name}!builder-runtime/launcher/world-builder-tools.jar",
         forbidden_hashes,
+        True,
     )
     if not REQUIRED_TOOL_ENTRIES.issubset(tool_entries):
         fail(f"Tool runtime is missing required adaptive classes: {path.name}")
@@ -971,7 +1013,9 @@ def validate_archive(
             "builder-runtime/server/core.jar",
             "builder-runtime/launcher/world-builder-tools.jar",
         }:
-            validate_nested_archive(data, f"{path.name}!{relative}", forbidden_hashes)
+            validate_nested_archive(
+                data, f"{path.name}!{relative}", forbidden_hashes, True
+            )
 
     validate_seed(
         files["builder-runtime/server/inc/sqlite/world_builder_seed.db"], path.name
@@ -986,6 +1030,8 @@ def validate_archive(
         "platform": platform,
         "fileName": path.name,
         "sha256": digest(archive_data),
+        "archiveByteSize": len(archive_data),
+        "expandedByteSize": sum(info.file_size for info in infos),
         "manifestSha256": digest(files[MANIFEST_NAME]),
         "manifestedFileCount": len(manifest),
     }
@@ -1115,6 +1161,7 @@ def main(arguments: Iterable[str]) -> int:
         "coreSourceCommit": core_commit,
         "checksumsFile": checksums.name,
         "checksumsSha256": digest(checksum_data),
+        "inspectorSha256": digest(Path(__file__).resolve().read_bytes()),
         "artifacts": artifacts,
         "assertions": [
             "clean-published-source",
