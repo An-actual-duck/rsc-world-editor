@@ -62,15 +62,18 @@ final class WorldBuilderAdaptiveProjectLock implements AutoCloseable {
 
 		FileChannel channel = null;
 		try {
+			observer.observe("before-open", path);
 			channel = existed
 				? FileChannel.open(path, StandardOpenOption.READ,
 					StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS)
 				: FileChannel.open(path, StandardOpenOption.CREATE_NEW,
 					StandardOpenOption.READ, StandardOpenOption.WRITE,
 					LinkOption.NOFOLLOW_LINKS);
-			observer.observe("after-open", path);
 			Object openedIdentity = stableIdentity(path, operation);
-			if (beforeIdentity != null && !beforeIdentity.equals(openedIdentity)) {
+			observer.observe("after-open", path);
+			Object persistentIdentity = stableIdentity(path, operation);
+			if ((beforeIdentity != null && !beforeIdentity.equals(openedIdentity))
+				|| !openedIdentity.equals(persistentIdentity)) {
 				throw problem(operation, WorldBuilderErrorCodes.UNSAFE_PATH,
 					"Project transaction lock identity changed while it was opened.",
 					"Restore one stable, real, single-link project lock and retry.");
@@ -89,12 +92,8 @@ final class WorldBuilderAdaptiveProjectLock implements AutoCloseable {
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 				"The project is running or another project operation is active.",
 				"Close World Builder and wait for the other project operation.");
-			if (!openedIdentity.equals(stableIdentity(path, operation))) {
-				lock.release();
-				throw problem(operation, WorldBuilderErrorCodes.UNSAFE_PATH,
-					"Project transaction lock identity changed during acquisition.",
-					"Restore one stable, real, single-link project lock and retry.");
-			}
+			observer.observe("after-lock", path);
+			bindLockedChannelToPath(channel, path, openedIdentity, operation);
 			return new WorldBuilderAdaptiveProjectLock(channel, lock);
 		} catch (IOException failure) {
 			if (channel != null) channel.close();
@@ -106,6 +105,30 @@ final class WorldBuilderAdaptiveProjectLock implements AutoCloseable {
 			if (channel != null) channel.close();
 			throw failure;
 		}
+	}
+
+	private static void bindLockedChannelToPath(FileChannel channel, Path path,
+		Object identity, String operation)
+		throws IOException, WorldBuilderContractException {
+		bindChannelToPath(channel, path, identity, operation);
+		FileLock probe = null;
+		boolean overlapsOpenedChannel = false;
+		try (FileChannel pathChannel = FileChannel.open(path,
+			StandardOpenOption.READ, StandardOpenOption.WRITE,
+			LinkOption.NOFOLLOW_LINKS)) {
+			try {
+				probe = pathChannel.tryLock();
+			} catch (OverlappingFileLockException expected) {
+				overlapsOpenedChannel = true;
+			}
+			if (probe != null) probe.release();
+		}
+		if (!overlapsOpenedChannel) {
+			throw problem(operation, WorldBuilderErrorCodes.UNSAFE_PATH,
+				"The locked project channel is not the persistent project lock path.",
+				"Stop concurrent path replacement and restore one stable project lock.");
+		}
+		bindChannelToPath(channel, path, identity, operation);
 	}
 
 	private static Object stableIdentity(Path path, String operation)

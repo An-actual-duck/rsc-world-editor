@@ -104,6 +104,28 @@ public final class AdaptiveTransactionFailureHarness {
                         project, "project-lock-replacement-test", observer)) {
                     // Replacement must prevent acquisition.
                 }
+            } else if ("project-lock-aba-replacement".equals(operation)) {
+                final Path held = project.resolve("run/.world-builder.lock.aba");
+                WorldBuilderAdaptiveProjectLock.IdentityObserver observer =
+                    new WorldBuilderAdaptiveProjectLock.IdentityObserver() {
+                        @Override public void observe(String milestone, Path path)
+                            throws java.io.IOException {
+                            if ("before-open".equals(milestone)) {
+                                byte[] bytes = Files.readAllBytes(path);
+                                Files.move(path, held);
+                                Files.write(path, bytes, StandardOpenOption.CREATE_NEW);
+                            } else if ("after-open".equals(milestone)
+                                && Files.exists(held)) {
+                                Files.delete(path);
+                                Files.move(held, path);
+                            }
+                        }
+                    };
+                try (WorldBuilderAdaptiveProjectLock ignored =
+                    WorldBuilderAdaptiveProjectLock.acquire(
+                        project, "project-lock-aba-test", observer)) {
+                    // Opening the transient identity must prevent acquisition.
+                }
             } else if ("target-lock-replacement".equals(operation)) {
                 WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(
                     WorldBuilderReadOnlyTarget.open(target));
@@ -2258,6 +2280,34 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(3, replaced_target.returncode, replaced_target.stderr)
             self.assertEqual(target_bytes, self.lifecycle.tree_bytes(target, installation))
+
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-lock-absent-replacement-"
+        ) as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            lock = project / "run/world-builder.lock"
+            lock.unlink()
+            target_bytes = self.lifecycle.tree_bytes(target, installation)
+            artifacts = self.transaction_artifacts(project)
+            replaced_absent = self.run_failure(
+                "project-lock-replacement", "none", project, target
+            )
+            self.assertEqual(3, replaced_absent.returncode, replaced_absent.stderr)
+            self.assertIn("UNSAFE_PATH", replaced_absent.stderr)
+            self.assertTrue(lock.is_file())
+            self.assertEqual(b"", lock.read_bytes())
+            self.assertEqual(target_bytes, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(artifacts, self.transaction_artifacts(project))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-lock-aba-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            project_bytes = self.lifecycle.tree_bytes(project / "run")
+            replaced_aba = self.run_failure(
+                "project-lock-aba-replacement", "none", project, target
+            )
+            self.assertEqual(3, replaced_aba.returncode, replaced_aba.stderr)
+            self.assertIn("UNSAFE_PATH", replaced_aba.stderr)
+            self.assertEqual(project_bytes, self.lifecycle.tree_bytes(project / "run"))
 
     def test_manifest_and_hardlinked_authorities_are_independently_rejected(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-report-binding-") as temp:
