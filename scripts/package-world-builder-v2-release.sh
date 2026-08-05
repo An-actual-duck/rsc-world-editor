@@ -5,6 +5,7 @@ SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${ROOT_DIR:-$SCRIPT_ROOT}"
 # shellcheck disable=SC1091
 source "$ROOT_DIR/core-framework.lock"
+ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
 
 VERSION=""
 CORE_ROOT=""
@@ -113,6 +114,10 @@ if [[ "$SKIP_BUILD" == true \
 fi
 if [[ "$SKIP_BUILD" == true && "$CANDIDATE_BUILD" == true ]]; then
 	fail "--candidate-build requires a real build and cannot be combined with --skip-build"
+fi
+if [[ "$CANDIDATE_BUILD" == true \
+	&& "${WORLD_BUILDER_V2_MANAGER_CANDIDATE:-}" != 1 ]]; then
+	fail "--candidate-build is internal; use ./scripts/ai-manager.sh candidate"
 fi
 
 for command_name in cp diff find git grep jar python3 sed sha256sum unzip xargs zip; do
@@ -459,8 +464,29 @@ WINDOWS_ARCHIVE="$OUTPUT_DIR/$ARTIFACT_PREFIX-$VERSION_NUMBER-windows-x64.zip"
 
 [[ "$OUTPUT_DIR" == "$OUTPUT_ROOT/"* && "$OUTPUT_DIR" != "$OUTPUT_ROOT" ]] \
 	|| fail "Refusing unsafe release output path: $OUTPUT_DIR"
+
+require_unlinked_output_path() {
+	local current="$ROOT_DIR" relative component
+	relative="${OUTPUT_DIR#"$ROOT_DIR"/}"
+	[[ "$relative" != "$OUTPUT_DIR" && -n "$relative" ]] \
+		|| fail "Refusing candidate/release output outside the repository"
+	while IFS= read -r component; do
+		[[ -n "$component" && "$component" != . && "$component" != .. ]] \
+			|| fail "Refusing unsafe candidate/release output component"
+		current="$current/$component"
+		[[ ! -L "$current" ]] \
+			|| fail "Candidate/release output path contains a symbolic link: $current"
+		[[ ! -e "$current" || -d "$current" ]] \
+			|| fail "Candidate/release output path is not a directory: $current"
+	done < <(printf '%s\n' "$relative" | tr '/' '\n')
+}
+
+require_unlinked_output_path
 rm -rf -- "$OUTPUT_DIR"
 mkdir -p "$LINUX_STAGE" "$WINDOWS_STAGE" "$OUTPUT_DIR"
+require_unlinked_output_path
+[[ "$(cd "$OUTPUT_DIR" && pwd -P)" == "$OUTPUT_DIR" ]] \
+	|| fail "Candidate/release output resolved outside its repository path"
 
 write_release_identity() {
 	local destination="$1"

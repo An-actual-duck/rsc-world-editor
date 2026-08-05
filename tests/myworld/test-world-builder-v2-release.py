@@ -349,6 +349,7 @@ def run_packager(
     *,
     skip_build: bool = True,
     candidate_build: bool = False,
+    manager_candidate_authorized: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     environment["ROOT_DIR"] = str(standalone)
@@ -370,6 +371,8 @@ def run_packager(
         arguments.append("--skip-build")
     if candidate_build:
         arguments.append("--candidate-build")
+        if manager_candidate_authorized:
+            environment["WORLD_BUILDER_V2_MANAGER_CANDIDATE"] = "1"
     return subprocess.run(
         arguments,
         cwd=SOURCE_ROOT,
@@ -395,6 +398,16 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 Path(temp), production_build=True, release_ready=False
             )
             standalone = fixture[0]
+            candidate_sibling = (
+                standalone
+                / "output/candidates/world-builder-v2/v9.9.9/keep.txt"
+            )
+            release_sibling = (
+                standalone
+                / "output/releases/world-builder-v2/v9.9.9/keep.txt"
+            )
+            write(candidate_sibling, "preserve candidate sibling\n")
+            write(release_sibling, "preserve release sibling\n")
 
             candidate = run_packager(
                 *fixture, skip_build=False, candidate_build=True
@@ -418,6 +431,14 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
             self.assertFalse(
                 (standalone / "release/world-builder-v2/RELEASE-READY").exists()
+            )
+            self.assertEqual(
+                "preserve candidate sibling\n",
+                candidate_sibling.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "preserve release sibling\n",
+                release_sibling.read_text(encoding="utf-8"),
             )
 
             external = Path(temp) / "external-review"
@@ -467,6 +488,19 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
     def test_pre_gate_candidate_mode_refuses_fixture_builds_open_gate_and_bad_inputs(
         self,
     ) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-direct-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            direct = run_packager(
+                *fixture,
+                skip_build=False,
+                candidate_build=True,
+                manager_candidate_authorized=False,
+            )
+            self.assertNotEqual(0, direct.returncode)
+            self.assertIn("use ./scripts/ai-manager.sh candidate", direct.stderr)
+
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-skip-") as temp:
             fixture = make_fixture(Path(temp), release_ready=False)
             skipped = run_packager(*fixture, candidate_build=True)
@@ -505,6 +539,27 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
             self.assertNotEqual(0, dirty.returncode)
             self.assertIn("release checkout must be clean", dirty.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-output-link-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            outside = Path(temp) / "outside-candidate-output"
+            outside.mkdir()
+            sentinel = outside / "preserve.txt"
+            write(sentinel, "outside output must remain unchanged\n")
+            candidate_parent = fixture[0] / "output/candidates"
+            candidate_parent.parent.mkdir(parents=True, exist_ok=True)
+            candidate_parent.symlink_to(outside, target_is_directory=True)
+            linked_output = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+            self.assertNotEqual(0, linked_output.returncode)
+            self.assertIn("output path contains a symbolic link", linked_output.stderr)
+            self.assertEqual(
+                "outside output must remain unchanged\n",
+                sentinel.read_text(encoding="utf-8"),
+            )
 
     def test_production_build_marks_and_verifies_the_client(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-production-") as temp:

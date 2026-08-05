@@ -303,7 +303,8 @@ manager_candidate() {
     && ! -L "$ROOT_DIR/release/world-builder-v2/RELEASE-READY" ]] \
     || ai_fail "Pre-gate candidates cannot be built after the World Builder 2 release gate is opened."
   manager_release_check
-  "$ROOT_DIR/scripts/package-world-builder-v2-release.sh" --candidate-build "$@"
+  WORLD_BUILDER_V2_MANAGER_CANDIDATE=1 \
+    "$ROOT_DIR/scripts/package-world-builder-v2-release.sh" --candidate-build "$@"
 }
 
 # Resolve a path back to its registered neutral slot without changing ROOT_DIR.

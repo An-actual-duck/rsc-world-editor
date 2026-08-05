@@ -547,6 +547,18 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             or "outside both source trees" in result.stderr
         )
 
+    def test_reviewed_jres_and_artifacts_must_be_mutually_separate(self) -> None:
+        ancestor = self.fixture.base
+        overlapping = self.fixture.run(**{"linux-jre": ancestor})
+        self.assertNotEqual(0, overlapping.returncode)
+        self.assertIn("separate from both source trees", overlapping.stderr)
+
+        inside_jre = self.fixture.jres["linux"] / self.fixture.archives["linux"].name
+        inside_jre.write_bytes(self.fixture.archives["linux"].read_bytes())
+        nested_artifact = self.fixture.run(**{"linux-archive": inside_jre})
+        self.assertNotEqual(0, nested_artifact.returncode)
+        self.assertIn("outside reviewed JRE trees", nested_artifact.stderr)
+
     def test_dirty_or_wrong_locked_runtime_is_refused(self) -> None:
         tracked = self.fixture.core / "server/conf/server/data/private-map.bin"
         tracked.write_bytes(b"changed runtime input\n")
@@ -704,6 +716,19 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             durable = fixture.run()
             self.assertNotEqual(0, durable.returncode)
             self.assertIn("creator-state directory", durable.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-directory-data-") as temp:
+            fixture = CandidateFixture(Path(temp))
+            fixture.add_raw_entry(
+                "linux",
+                f"{PACKAGE_ROOT}/runtime/hidden/",
+                b'{"packageType":"layered-world"}\n',
+                stat.S_IFDIR | 0o755,
+            )
+            fixture.write_checksums()
+            hidden = fixture.run()
+            self.assertNotEqual(0, hidden.returncode)
+            self.assertIn("directory entry carries data", hidden.stderr)
 
         with tempfile.TemporaryDirectory(prefix="candidate-case-") as temp:
             fixture = CandidateFixture(Path(temp))

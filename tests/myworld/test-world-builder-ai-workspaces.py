@@ -39,6 +39,8 @@ class WorkflowFixture:
         package_stub.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
+            "printf '%s\\n' \"${WORLD_BUILDER_V2_MANAGER_CANDIDATE:-}\" "
+            "> \"$AI_CANDIDATE_MODE_CAPTURE\"\n"
             "printf '%s\\n' \"$@\" > \"$AI_RELEASE_CAPTURE\"\n",
             encoding="utf-8",
         )
@@ -60,6 +62,7 @@ class WorkflowFixture:
             "ROOT_DIR": str(self.root),
             "AI_REMOTE": "origin",
             "AI_WORKSPACE_PARENT": str(self.base),
+            "AI_CANDIDATE_MODE_CAPTURE": str(self.base / "candidate-mode.txt"),
             "AI_RELEASE_CAPTURE": str(self.base / "release-args.txt"),
         }
 
@@ -375,6 +378,10 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
             ["--version", "v0.1.0-alpha.1", "--assets-cleared"],
             capture.read_text(encoding="utf-8").splitlines(),
         )
+        self.assertEqual(
+            "",
+            (f.base / "candidate-mode.txt").read_text(encoding="utf-8").strip(),
+        )
 
     def test_manager_candidate_requires_closed_gate_and_restricted_mode(self) -> None:
         f = self.fixture
@@ -409,6 +416,10 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
                 "--assets-cleared",
             ],
             capture.read_text(encoding="utf-8").splitlines(),
+        )
+        self.assertEqual(
+            "1",
+            (f.base / "candidate-mode.txt").read_text(encoding="utf-8").strip(),
         )
 
     def test_manager_collects_exact_external_handoff_without_merging(self) -> None:

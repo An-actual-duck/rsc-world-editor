@@ -50,6 +50,9 @@ MAX_STRUCTURED_DOCUMENT_BYTES = 32 * 1024 * 1024
 MAX_RUNTIME_ENTRIES = 100_000
 MAX_RUNTIME_EXPANDED_BYTES = 1024 * 1024 * 1024
 MAX_RUNTIME_ENTRY_BYTES = 256 * 1024 * 1024
+MAX_RUNTIME_DEPTH = 128
+MAX_FORBIDDEN_CORE_FILES = 100_000
+MAX_FORBIDDEN_CORE_BYTES = 1024 * 1024 * 1024
 RELEVANT_RUNTIME_MODE_MASK = 0o777
 
 EXPECTED_RUNTIME_CAPABILITY = {
@@ -334,9 +337,14 @@ def external_runtime_directory(
         fail(f"Reviewed {platform} JRE input is unavailable: {path}: {error}")
     if path.is_symlink() or not stat.S_ISDIR(metadata.st_mode):
         fail(f"Reviewed {platform} JRE input must be a real directory: {path}")
-    if is_within(resolved, source_root) or is_within(resolved, core_root):
+    if (
+        is_within(resolved, source_root)
+        or is_within(source_root, resolved)
+        or is_within(resolved, core_root)
+        or is_within(core_root, resolved)
+    ):
         fail(
-            f"Reviewed {platform} JRE input must be outside both source trees: "
+            f"Reviewed {platform} JRE input must be separate from both source trees: "
             f"{resolved}"
         )
     return resolved
@@ -411,6 +419,8 @@ def inventory_runtime_tree(root: Path, platform: str) -> dict[str, Any]:
 
     def visit(source_path: Path, relative: str, ancestors: frozenset[tuple[int, int]]) -> None:
         nonlocal expanded_bytes
+        if len(ancestors) > MAX_RUNTIME_DEPTH:
+            fail(f"Reviewed {platform} JRE exceeds the directory-depth limit")
         record_path(relative)
         link_state = stable_link_state(source_path)
         try:
@@ -594,6 +604,8 @@ def reject_structured_world(data: bytes, display: str) -> None:
 
 def forbidden_core_hashes(core_root: Path) -> dict[str, tuple[str, str]]:
     result: dict[str, tuple[str, str]] = {}
+    file_count = 0
+    total_bytes = 0
     patterns = (
         ("Client_Base/Cache/video/*Landscape*", "map terrain"),
         ("server/conf/server/data/**/*", "map terrain"),
@@ -603,7 +615,18 @@ def forbidden_core_hashes(core_root: Path) -> dict[str, tuple[str, str]]:
     for pattern, role in patterns:
         for path in core_root.glob(pattern):
             if path.is_file() and not path.is_symlink():
-                result[digest(path.read_bytes())] = (
+                file_count += 1
+                if file_count > MAX_FORBIDDEN_CORE_FILES:
+                    fail("Locked runtime forbidden-world inventory exceeds its file limit")
+                data = read_expected_file(
+                    path,
+                    f"forbidden {role} source {path.relative_to(core_root).as_posix()}",
+                    core_root,
+                )
+                total_bytes += len(data)
+                if total_bytes > MAX_FORBIDDEN_CORE_BYTES:
+                    fail("Locked runtime forbidden-world inventory exceeds its byte limit")
+                result[digest(data)] = (
                     role,
                     path.relative_to(core_root).as_posix(),
                 )
@@ -934,6 +957,8 @@ def validate_nested_archive(
             if info.flag_bits & 0x1:
                 fail(f"Encrypted nested archive entry is forbidden: {display}!{name}")
             if info.is_dir():
+                if info.file_size:
+                    fail(f"Nested archive directory entry carries data: {display}!{name}")
                 continue
             nested_data = nested.read(info)
             nested_digest = digest(nested_data)
@@ -1133,6 +1158,8 @@ def validate_archive(
                 fail(f"Candidate contains an encrypted entry: {info.filename}")
             relative = PurePosixPath(*parts[1:]).as_posix()
             if info.is_dir():
+                if info.file_size:
+                    fail(f"Candidate directory entry carries data: {info.filename}")
                 if relative != ".":
                     validate_application_directory(
                         relative, allowed_runtime, packaged_jre_directories
@@ -1344,16 +1371,20 @@ def main(arguments: Iterable[str]) -> int:
     )
     if (
         linux_jre == windows_jre
+        or os.path.samefile(linux_jre, windows_jre)
         or is_within(linux_jre, windows_jre)
         or is_within(windows_jre, linux_jre)
     ):
         fail("Reviewed Linux and Windows JRE inputs must be separate trees")
-    linux_jre_inventory = inventory_runtime_tree(linux_jre, "Linux")
-    windows_jre_inventory = inventory_runtime_tree(windows_jre, "Windows")
 
     linux = external_regular_file(options.linux_archive, source_root, core_root)
     windows = external_regular_file(options.windows_archive, source_root, core_root)
     checksums = external_regular_file(options.checksums, source_root, core_root)
+    for artifact in (linux, windows, checksums):
+        if is_within(artifact, linux_jre) or is_within(artifact, windows_jre):
+            fail("Candidate artifacts and checksums must be outside reviewed JRE trees")
+    linux_jre_inventory = inventory_runtime_tree(linux_jre, "Linux")
+    windows_jre_inventory = inventory_runtime_tree(windows_jre, "Windows")
     linux_data, linux_identity = read_stable_external(linux, MAX_ARCHIVE_BYTES)
     windows_data, windows_identity = read_stable_external(windows, MAX_ARCHIVE_BYTES)
     checksum_data, checksum_identity = read_stable_external(
