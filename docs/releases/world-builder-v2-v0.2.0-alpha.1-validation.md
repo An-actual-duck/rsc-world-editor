@@ -11,7 +11,7 @@ is unchanged and does not approve this adaptive design.
 - Status: **PENDING — NOT RELEASE READY**
 - Restricted pre-gate candidate World Editor commit: **PENDING clean published `main`**
 - Locked runtime commit:
-  `ca725196abc1cc3a8c75028d1ee9c8e39ddc165c`
+  `77715c0f831be239c9d14278146be56853115150`
 - Restricted pre-gate Linux candidate SHA-256: **PENDING**
 - Restricted pre-gate Windows candidate SHA-256: **PENDING**
 - Restricted pre-gate `SHA256SUMS.txt` SHA-256: **PENDING**
