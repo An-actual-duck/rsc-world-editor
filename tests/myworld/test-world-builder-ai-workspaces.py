@@ -39,6 +39,8 @@ class WorkflowFixture:
         package_stub.write_text(
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
+            "printf '%s\\n' \"${WORLD_BUILDER_V2_MANAGER_CANDIDATE:-}\" "
+            "> \"$AI_CANDIDATE_MODE_CAPTURE\"\n"
             "printf '%s\\n' \"$@\" > \"$AI_RELEASE_CAPTURE\"\n",
             encoding="utf-8",
         )
@@ -60,6 +62,7 @@ class WorkflowFixture:
             "ROOT_DIR": str(self.root),
             "AI_REMOTE": "origin",
             "AI_WORKSPACE_PARENT": str(self.base),
+            "AI_CANDIDATE_MODE_CAPTURE": str(self.base / "candidate-mode.txt"),
             "AI_RELEASE_CAPTURE": str(self.base / "release-args.txt"),
         }
 
@@ -374,6 +377,49 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
         self.assertEqual(
             ["--version", "v0.1.0-alpha.1", "--assets-cleared"],
             capture.read_text(encoding="utf-8").splitlines(),
+        )
+        self.assertEqual(
+            "",
+            (f.base / "candidate-mode.txt").read_text(encoding="utf-8").strip(),
+        )
+
+    def test_manager_candidate_requires_closed_gate_and_restricted_mode(self) -> None:
+        f = self.fixture
+        capture = f.base / "release-args.txt"
+        blocked = f.run(
+            "ai-manager.sh",
+            "candidate",
+            "--version",
+            "v0.2.0-alpha.1",
+            "--assets-cleared",
+            check=False,
+        )
+        self.assertNotEqual(0, blocked.returncode)
+        self.assertIn("cannot be built after", blocked.stderr)
+        self.assertFalse(capture.exists())
+
+        f.git("rm", "release/world-builder-v2/RELEASE-READY")
+        f.git("commit", "-m", "Close adaptive release gate")
+        f.git("push", "origin", "main")
+        f.run(
+            "ai-manager.sh",
+            "candidate",
+            "--version",
+            "v0.2.0-alpha.1",
+            "--assets-cleared",
+        )
+        self.assertEqual(
+            [
+                "--candidate-build",
+                "--version",
+                "v0.2.0-alpha.1",
+                "--assets-cleared",
+            ],
+            capture.read_text(encoding="utf-8").splitlines(),
+        )
+        self.assertEqual(
+            "1",
+            (f.base / "candidate-mode.txt").read_text(encoding="utf-8").strip(),
         )
 
     def test_manager_collects_exact_external_handoff_without_merging(self) -> None:

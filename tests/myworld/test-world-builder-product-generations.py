@@ -35,6 +35,8 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         manager = (ROOT / "scripts" / "ai-manager.sh").read_text(encoding="utf-8")
         self.assertIn("legacy v1.1.0 release line is frozen", manager)
         self.assertIn("package-world-builder-v2-release.sh", manager)
+        self.assertIn("manager_candidate", manager)
+        self.assertIn("--candidate-build", manager)
 
     def test_v2_release_machinery_is_separate_and_marker_gated(self) -> None:
         self.assertTrue(V2_PACKAGER.is_file())
@@ -61,6 +63,8 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         self.assertNotIn('PACKAGE_NAME="Spoiled Milk World Builder 2"', updater)
         self.assertIn("RELEASE-READY", packager)
         self.assertIn("final cross-platform release validation", packager)
+        self.assertIn("output/candidates/world-builder-v2", packager)
+        self.assertIn("cannot be combined with --skip-build", packager)
         self.assertIn("rsc-world-editor-v1", updater)
         self.assertIn("legacyWorkspaceMigration", updater)
 

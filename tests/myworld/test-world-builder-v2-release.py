@@ -11,6 +11,7 @@ import shutil
 import sqlite3
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -19,6 +20,7 @@ from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 PACKAGER = SOURCE_ROOT / "scripts/package-world-builder-v2-release.sh"
+INSPECTOR = SOURCE_ROOT / "scripts/inspect-world-builder-v2-candidate.py"
 VERSION = "v0.1.0-alpha.1"
 VERSION_NUMBER = VERSION.removeprefix("v")
 PACKAGE_ROOT = "World Builder 2"
@@ -33,6 +35,28 @@ NATIVE_ENTRIES = (
     "windows/x64/org/lwjgl/lwjgl.dll",
     "windows/x64/org/lwjgl/glfw/glfw.dll",
     "windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll",
+)
+ADAPTIVE_CAPABILITY = (
+    json.dumps(
+        {
+            "schemaVersion": 1,
+            "manifestType": "adaptive-world-builder-runtime-capability",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "profileId": "adaptive-world-builder",
+            "serverBuildId": "core-framework-adaptive-builder-server-v1",
+            "clientBuildId": "core-framework-adaptive-builder-client-v1",
+            "loaderId": "generic-signed-layered-loader-v1",
+            "authoringId": "generic-signed-layered-authoring-v1",
+            "protocolId": "world-builder-native-layered-protocol-v1",
+            "packageSchemaId": "layered-world-package-v1",
+            "coordinateModel": "signed-layered-v1",
+            "authoring": {
+                "placementFamilies": ["boundary", "ground-item", "npc", "scenery"]
+            },
+        },
+        sort_keys=True,
+    )
+    + "\n"
 )
 
 
@@ -113,6 +137,7 @@ def make_fixture(
     make_jar(
         core / "Client_Base/Open_RSC_Client.jar",
         (
+            "orsc/AdaptiveWorldBuilderClientSession.class",
             "orsc/WorldBuilderClientProfile.class",
             "myworld-assets/ui/world-editor/action-save.png",
             *((RELEASE_MARKER_ENTRY,) if not production_build else ()),
@@ -122,6 +147,9 @@ def make_fixture(
     make_jar(
         core / "server/core.jar",
         (
+            "com/openrsc/server/content/worldedit/AdaptiveWorldBuilderPackagePublisher.class",
+            "com/openrsc/server/content/worldedit/AdaptiveWorldBuilderRuntimeIdentity.class",
+            "com/openrsc/server/content/worldedit/AdaptiveWorldBuilderRuntimeSession.class",
             "com/openrsc/server/content/worldedit/WorldEditStorageContext.class",
             "com/openrsc/server/content/worldedit/WorldBuilderRuntimeControl.class",
         ),
@@ -130,8 +158,14 @@ def make_fixture(
     make_jar(
         standalone / "output/world-builder-tools/world-builder-tools.jar",
         (
+            "com/openrsc/worldbuilder/WorldBuilderAdaptiveExporter.class",
+            "com/openrsc/worldbuilder/WorldBuilderAdaptiveImporter.class",
+            "com/openrsc/worldbuilder/WorldBuilderAdaptiveProjectLifecycle.class",
+            "com/openrsc/worldbuilder/WorldBuilderAdaptiveRecovery.class",
+            "com/openrsc/worldbuilder/WorldBuilderAdaptiveUndo.class",
             "com/openrsc/worldbuilder/WorldBuilderCli.class",
             "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
+            "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
         ),
     )
     write(core / "Client_Base/Cache/audio/audio.dat", "audio")
@@ -193,8 +227,14 @@ def make_fixture(
                 if seeded_user_state:
                     database.execute("INSERT INTO players VALUES (1, 'private-user')")
             continue
+        if role == "runtime-capability":
+            write(path, ADAPTIVE_CAPABILITY)
+            continue
         if not path.exists():
-            write(path, f"fixture {role}\n")
+            if path.suffix == ".jar":
+                make_jar(path, ("fixture/RuntimeLibrary.class",))
+            else:
+                write(path, f"fixture {role}\n")
     if disguised_world:
         (core / "Client_Base/Cache/video/library.orsc").write_bytes(
             (core / "Client_Base/Cache/video/Custom_Landscape.orsc").read_bytes()
@@ -308,6 +348,8 @@ def run_packager(
     windows_runtime: Path,
     *,
     skip_build: bool = True,
+    candidate_build: bool = False,
+    manager_candidate_authorized: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
     environment["ROOT_DIR"] = str(standalone)
@@ -327,6 +369,10 @@ def run_packager(
     if skip_build:
         environment["WORLD_BUILDER_V2_RELEASE_TEST_MODE"] = "1"
         arguments.append("--skip-build")
+    if candidate_build:
+        arguments.append("--candidate-build")
+        if manager_candidate_authorized:
+            environment["WORLD_BUILDER_V2_MANAGER_CANDIDATE"] = "1"
     return subprocess.run(
         arguments,
         cwd=SOURCE_ROOT,
@@ -343,6 +389,177 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             result = run_packager(*fixture, skip_build=False)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("final cross-platform release validation", result.stderr)
+
+    def test_real_pre_gate_candidate_build_is_restricted_and_does_not_weaken_release(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            standalone = fixture[0]
+            candidate_sibling = (
+                standalone
+                / "output/candidates/world-builder-v2/v9.9.9/keep.txt"
+            )
+            release_sibling = (
+                standalone
+                / "output/releases/world-builder-v2/v9.9.9/keep.txt"
+            )
+            write(candidate_sibling, "preserve candidate sibling\n")
+            write(release_sibling, "preserve release sibling\n")
+
+            candidate = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+
+            self.assertEqual(
+                0, candidate.returncode, candidate.stdout + candidate.stderr
+            )
+            self.assertIn("restricted", candidate.stdout)
+            candidate_output = (
+                standalone / "output/candidates/world-builder-v2" / VERSION
+            )
+            self.assertTrue(
+                (
+                    candidate_output
+                    / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip"
+                ).is_file()
+            )
+            self.assertFalse(
+                (standalone / "output/releases/world-builder-v2" / VERSION).exists()
+            )
+            self.assertFalse(
+                (standalone / "release/world-builder-v2/RELEASE-READY").exists()
+            )
+            self.assertEqual(
+                "preserve candidate sibling\n",
+                candidate_sibling.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "preserve release sibling\n",
+                release_sibling.read_text(encoding="utf-8"),
+            )
+
+            external = Path(temp) / "external-review"
+            external.mkdir()
+            for name in (
+                f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip",
+                f"{PRODUCT_ID}-{VERSION_NUMBER}-windows-x64.zip",
+                "SHA256SUMS.txt",
+            ):
+                shutil.copy2(candidate_output / name, external / name)
+            inspected = subprocess.run(
+                [
+                    sys.executable,
+                    str(INSPECTOR),
+                    "--source-root",
+                    str(standalone),
+                    "--core-framework",
+                    str(fixture[1]),
+                    "--linux-jre",
+                    str(fixture[3]),
+                    "--windows-jre",
+                    str(fixture[4]),
+                    "--version",
+                    VERSION,
+                    "--linux-archive",
+                    str(external / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip"),
+                    "--windows-archive",
+                    str(external / f"{PRODUCT_ID}-{VERSION_NUMBER}-windows-x64.zip"),
+                    "--checksums",
+                    str(external / "SHA256SUMS.txt"),
+                ],
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(
+                0, inspected.returncode, inspected.stdout + inspected.stderr
+            )
+            evidence = json.loads(inspected.stdout)
+            self.assertEqual(
+                "automated-archive-inspection-passed", evidence["status"]
+            )
+
+            production = run_packager(*fixture, skip_build=False)
+            self.assertNotEqual(0, production.returncode)
+            self.assertIn("final cross-platform release validation", production.stderr)
+
+    def test_pre_gate_candidate_mode_refuses_fixture_builds_open_gate_and_bad_inputs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-direct-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            direct = run_packager(
+                *fixture,
+                skip_build=False,
+                candidate_build=True,
+                manager_candidate_authorized=False,
+            )
+            self.assertNotEqual(0, direct.returncode)
+            self.assertIn("use ./scripts/ai-manager.sh candidate", direct.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-skip-") as temp:
+            fixture = make_fixture(Path(temp), release_ready=False)
+            skipped = run_packager(*fixture, candidate_build=True)
+            self.assertNotEqual(0, skipped.returncode)
+            self.assertIn("requires a real build", skipped.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-gate-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=True
+            )
+            opened = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+            self.assertNotEqual(0, opened.returncode)
+            self.assertIn("forbidden after", opened.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-native-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            missing_name = f"lwjgl-glfw-{LWJGL_VERSION}-natives-windows.jar"
+            (fixture[1] / "PC_Client/lib/lwjgl" / missing_name).unlink()
+            missing_native = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+            self.assertNotEqual(0, missing_native.returncode)
+            self.assertIn(missing_name, missing_native.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-dirty-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            write(fixture[1] / "dirty.txt", "unreviewed runtime input\n")
+            dirty = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+            self.assertNotEqual(0, dirty.returncode)
+            self.assertIn("release checkout must be clean", dirty.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-candidate-output-link-") as temp:
+            fixture = make_fixture(
+                Path(temp), production_build=True, release_ready=False
+            )
+            outside = Path(temp) / "outside-candidate-output"
+            outside.mkdir()
+            sentinel = outside / "preserve.txt"
+            write(sentinel, "outside output must remain unchanged\n")
+            candidate_parent = fixture[0] / "output/candidates"
+            candidate_parent.parent.mkdir(parents=True, exist_ok=True)
+            candidate_parent.symlink_to(outside, target_is_directory=True)
+            linked_output = run_packager(
+                *fixture, skip_build=False, candidate_build=True
+            )
+            self.assertNotEqual(0, linked_output.returncode)
+            self.assertIn("output path contains a symbolic link", linked_output.stderr)
+            self.assertEqual(
+                "outside output must remain unchanged\n",
+                sentinel.read_text(encoding="utf-8"),
+            )
 
     def test_production_build_marks_and_verifies_the_client(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-production-") as temp:

@@ -143,9 +143,18 @@ identity.
 
 The manager gate requires clean published `main`, no ambiguous worktrees or
 stashes, and exact remote backups for active work. The legacy v1.1.0 line is
-frozen. World Builder 2 packaging is enabled only by the reviewed
+frozen. World Builder 2 production packaging is enabled only by the reviewed
 `release/world-builder-v2/RELEASE-READY` marker. `ai-manager.sh release` first
 applies the manager gate, then delegates to the separate v2 packager. Packaging
 enforces the already-pinned clean Core-Framework revision, records both
 repository commits in release provenance, and never searches for or adopts
 upstream changes.
+
+Before the marker exists, the manager may use `ai-manager.sh candidate` solely
+to create real Phase 7 validation archives. This restricted route applies the
+same manager gate, exact dependency, production build, provenance, native, and
+archive checks; refuses fixture builds and an open marker; and writes only to
+`output/candidates/`. It does not create the marker, tag, upload, publish, or
+deploy. Candidate archives are never promoted in place: after acceptance and a
+published gate commit, production archives are rebuilt with
+`ai-manager.sh release`.

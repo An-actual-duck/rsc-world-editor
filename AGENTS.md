@@ -115,9 +115,15 @@ git status --short --branch
    come from clean, already-published World Editor `main` and use the exact
    already-selected dependency commit named by `core-framework.lock`; release
    preparation does not authorize checking for or adopting a newer upstream
-   revision. The legacy v1 line is frozen. World Builder 2 packaging is enabled
-   only while `release/world-builder-v2/RELEASE-READY` records an accepted
-   validation gate; `ai-manager.sh release` delegates only to the v2 packager.
+   revision. The legacy v1 line is frozen. World Builder 2 production packaging
+   is enabled only while `release/world-builder-v2/RELEASE-READY` records an
+   accepted validation gate; `ai-manager.sh release` delegates only to the v2
+   packager. Before that gate exists, `ai-manager.sh candidate` is the sole
+   exception: it may build real, restricted validation archives from clean
+   published `main`, the exact clean locked dependency, and reviewed JRE inputs
+   only under `output/candidates/`. It must refuse fixture builds and an open
+   gate, and it must never create the gate, tag, upload, publish, deploy, or
+   promote those archives. Production archives are rebuilt after acceptance.
 
 ## Preservation rules
 

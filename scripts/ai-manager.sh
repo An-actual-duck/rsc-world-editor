@@ -14,6 +14,7 @@ Usage:
   ./scripts/ai-manager.sh collect-contributor <ai-N> <remote-topic-branch> <exact-commit>
   ./scripts/ai-manager.sh merge <topic-branch>
   ./scripts/ai-manager.sh release-check
+  ./scripts/ai-manager.sh candidate <v2-packager-arguments>
   ./scripts/ai-manager.sh release <v2-packager-arguments>
 
 Rescue is an explicit preservation action for an abandoned slot. Merge accepts
@@ -297,6 +298,15 @@ manager_release() {
   "$ROOT_DIR/scripts/package-world-builder-v2-release.sh" "$@"
 }
 
+manager_candidate() {
+  [[ ! -e "$ROOT_DIR/release/world-builder-v2/RELEASE-READY" \
+    && ! -L "$ROOT_DIR/release/world-builder-v2/RELEASE-READY" ]] \
+    || ai_fail "Pre-gate candidates cannot be built after the World Builder 2 release gate is opened."
+  manager_release_check
+  WORLD_BUILDER_V2_MANAGER_CANDIDATE=1 \
+    "$ROOT_DIR/scripts/package-world-builder-v2-release.sh" --candidate-build "$@"
+}
+
 # Resolve a path back to its registered neutral slot without changing ROOT_DIR.
 ai_current_slot_for_path() {
   local wanted state_path state_path_value
@@ -339,6 +349,9 @@ case "$command" in
   release-check)
     [[ $# -eq 0 ]] || ai_fail "release-check takes no arguments."
     manager_release_check
+    ;;
+  candidate)
+    manager_candidate "$@"
     ;;
   release)
     manager_release "$@"
