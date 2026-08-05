@@ -1,4 +1,4 @@
 # Runtime source used by this World Builder source snapshot.
 CORE_REPOSITORY=https://github.com/An-actual-duck/open-rsc-spoiled-milk.git
 CORE_REF=refs/heads/world-builder/runtime/adaptive-v1
-CORE_COMMIT=b0040f7fbd972c22756b3ba37394c7d65be2917c
+CORE_COMMIT=ca725196abc1cc3a8c75028d1ee9c8e39ddc165c
