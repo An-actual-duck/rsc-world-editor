@@ -454,6 +454,7 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertIn("PENDING — NOT RELEASE READY", text)
         self.assertIn("this file does not authorize packaging", text)
         self.assertIn("report text, not screenshots", text)
+        self.assertIn("releaseReady: false", text)
         self.assertIn("AC-17", text)
         self.assertNotIn("Accepted on", text)
         self.assertFalse((ROOT / "release/world-builder-v2/RELEASE-READY").exists())

@@ -172,10 +172,13 @@ the independent evidence document with:
 ```
 
 The inspector never packages, extracts, publishes, or changes either source
-tree. Fixture archives from the focused suite are regression evidence, not
-substitutes for this real-artifact inspection. Fill the pending worksheet only
-with results from one exact candidate; unavailable native PowerShell execution
-or owner checks stay visibly pending or unavailable.
+tree. Its JSON status is `automated-archive-inspection-passed` while
+`releaseReady` and `releaseGateChanged` remain `false`; archive success cannot
+stand in for pending owner and manager evidence. Fixture archives from the
+focused suite are regression evidence, not substitutes for this real-artifact
+inspection. Fill the pending worksheet only with results from one exact
+candidate; unavailable native PowerShell execution or owner checks stay
+visibly pending or unavailable.
 
 Publishing a World Editor release does not authorize changing, deploying, or
 restarting any public game server.

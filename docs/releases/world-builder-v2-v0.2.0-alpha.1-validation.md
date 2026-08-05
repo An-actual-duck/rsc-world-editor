@@ -71,6 +71,8 @@ source trees. Its JSON binds the two outer hashes and manifests to both source
 commits and repeats safe-root, no-link, case/path, exhaustive-manifest,
 application-allowlist, copied-source, renamed world/creator content, empty
 database seed, runtime identity, JRE metadata, and production-marker checks.
+Even on success it reports `releaseReady: false`, `releaseGateChanged: false`,
+and the still-pending owner/manager evidence; it cannot authorize a release.
 
 ### Command evidence
 
