@@ -104,21 +104,18 @@ its client requires missing
 `Client_Base/Cache/video/Authentic_Landscape.orsc`. The current candidate
 remains blocked and must not be accepted or reused.
 
-A World Editor correction is under review: project creation generates the
-canonical 22-byte zero-entry ZIP container at that exact path inside the
-isolated project runtime. It is not packaged application content, contains no
-terrain entry or world bytes, is never copied from a provider or target, is
-excluded from immutable runtime asset evidence, and is exact-validated as
-project-only compatibility state. The signed-layered working package and
-adaptive protocol remain the sole terrain authority. Any nonempty, linked,
-shared, changed, packaged, provider-supplied, or target-supplied landscape
-archive remains forbidden and fails closed.
+World Editor must not supply a placeholder or legacy terrain archive. The
+locked Core provider must correct the explicitly activated adaptive client to
+skip legacy archive initialization, reject any attempted legacy terrain read,
+and wait for verified native layered terrain before rendering. Normal legacy
+client behavior must remain unchanged. The exact upstream requirements are in
+[`CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md`](../CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md).
 
 This blocker invalidates no recorded automated archive evidence, but it blocks
-owner acceptance and release readiness until a newly published commit is
-rebuilt, independently inspected, and launched natively. The owner report,
-every final status, and the release decision remain **PENDING**. No limitation,
-gate, or release is accepted.
+owner acceptance and release readiness until an authorized provider SHA is
+reviewed, locked through separate work, rebuilt, independently inspected, and
+launched natively. The owner report, every final status, and the release
+decision remain **PENDING**. No limitation, gate, or release is accepted.
 
 ## Required immutable inputs
 

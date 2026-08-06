@@ -762,6 +762,30 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("outside the exact application allowlist", result.stderr)
 
+    def test_legacy_landscape_archives_are_refused_with_refreshed_hashes(
+        self,
+    ) -> None:
+        for name in ("Authentic_Landscape.orsc", "Custom_Landscape.orsc"):
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory(
+                    prefix="candidate-legacy-landscape-"
+                ) as temp:
+                    fixture = CandidateFixture(Path(temp))
+                    fixture.files["linux"][name] = (
+                        b"legacy terrain must not ship\n",
+                        0o644,
+                    )
+                    fixture.write_archive("linux")
+                    fixture.write_checksums()
+
+                    result = fixture.run()
+
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn(
+                        "forbidden world or operational path", result.stderr
+                    )
+                    self.assertIn(name, result.stderr)
+
     def test_changed_or_missing_reviewed_jre_file_is_refused_with_refreshed_hashes(
         self,
     ) -> None:

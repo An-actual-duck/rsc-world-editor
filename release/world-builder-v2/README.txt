@@ -79,13 +79,6 @@ credential, control state, logs, and database. It never resolves the target
 during launch or save. Adopted and standalone visual/edit/save/reopen acceptance
 is still owner-run and PENDING, so this candidate does not open the release gate.
 
-Project creation generates an exact empty ZIP container at
-working/runtime/client/Cache/video/Authentic_Landscape.orsc solely for the
-legacy client bootstrap check. It contains no entries or terrain, is never
-shipped in the application runtime or copied from a target, and is validated
-as project-only state on reopen. The selected signed-layered working package
-and adaptive protocol remain the only terrain authority.
-
 AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or
 judged by the release process.
