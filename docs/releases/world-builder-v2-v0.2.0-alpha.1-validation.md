@@ -97,6 +97,26 @@ required by the current owner decision and was not performed or claimed;
 native PowerShell updater execution remains unclaimed. No limitation or
 release decision has been accepted.
 
+### Confirmed owner-native launch blocker
+
+The current Linux candidate cannot reach owner visual/edit validation because
+its client requires missing
+`Client_Base/Cache/video/Authentic_Landscape.orsc`. The current candidate
+remains blocked and must not be accepted or reused.
+
+World Editor must not supply a placeholder or legacy terrain archive. The
+locked Core provider must correct the explicitly activated adaptive client to
+skip legacy archive initialization, reject any attempted legacy terrain read,
+and wait for verified native layered terrain before rendering. Normal legacy
+client behavior must remain unchanged. The exact upstream requirements are in
+[`CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md`](../CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md).
+
+This blocker invalidates no recorded automated archive evidence, but it blocks
+owner acceptance and release readiness until an authorized provider SHA is
+reviewed, locked through separate work, rebuilt, independently inspected, and
+launched natively. The owner report, every final status, and the release
+decision remain **PENDING**. No limitation, gate, or release is accepted.
+
 ## Required immutable inputs
 
 - a clean World Editor manager checkout on the exact published `origin/main`

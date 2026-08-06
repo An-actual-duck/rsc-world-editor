@@ -1060,6 +1060,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         "builder-runtime/server/client.pem",
                         "builder-runtime/server/server.pem",
                         "builder-runtime/layered-world/",
+                        "Authentic_Landscape.orsc",
                         "Custom_Landscape.orsc",
                         "/defs/locs/",
                         "/ip.txt",

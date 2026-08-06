@@ -169,7 +169,7 @@ FORBIDDEN_PATH_FRAGMENTS = {
     "builder-runtime/server/server.pem",
     "clientsettings.conf",
     "credentials.txt",
-    "custom_landscape.orsc",
+    "landscape.orsc",
     "world-builder.credential",
     "world_builder.db",
 }
