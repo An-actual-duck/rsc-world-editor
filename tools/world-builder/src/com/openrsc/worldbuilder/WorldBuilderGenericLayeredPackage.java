@@ -28,6 +28,11 @@ final class WorldBuilderGenericLayeredPackage {
 	final String packageVersion;
 	final String worldSpace;
 	final String fingerprintSha256;
+	final String nativeInventorySha256;
+	final String manifestSha256;
+	final int initialLevel;
+	final int initialX;
+	final int initialY;
 	final int levelCount;
 	final int terrainCount;
 	final int placementSetCount;
@@ -44,6 +49,11 @@ final class WorldBuilderGenericLayeredPackage {
 		String packageVersion,
 		String worldSpace,
 		String fingerprintSha256,
+		String nativeInventorySha256,
+		String manifestSha256,
+		int initialLevel,
+		int initialX,
+		int initialY,
 		int levelCount,
 		int terrainCount,
 		int placementSetCount,
@@ -58,6 +68,11 @@ final class WorldBuilderGenericLayeredPackage {
 		this.packageVersion = packageVersion;
 		this.worldSpace = worldSpace;
 		this.fingerprintSha256 = fingerprintSha256;
+		this.nativeInventorySha256 = nativeInventorySha256;
+		this.manifestSha256 = manifestSha256;
+		this.initialLevel = initialLevel;
+		this.initialX = initialX;
+		this.initialY = initialY;
 		this.levelCount = levelCount;
 		this.terrainCount = terrainCount;
 		this.placementSetCount = placementSetCount;
@@ -141,6 +156,9 @@ final class WorldBuilderGenericLayeredPackage {
 			side + "-map-manifest", manifestRelative);
 		referenced.put(manifestRelative, manifestState);
 		Set<String> terrainCoverage = new HashSet<String>();
+		Integer initialLevel = null;
+		Integer initialX = null;
+		Integer initialY = null;
 		List<?> rawTerrain = array(
 			manifest.get("terrainSectors"), manifestRelative, "terrainSectors", 1, MAX_TERRAIN);
 		String previousTerrain = null;
@@ -164,6 +182,18 @@ final class WorldBuilderGenericLayeredPackage {
 					"Use unique level/sector coordinates sorted in canonical order.");
 			}
 			previousTerrain = order;
+			long minimumX = (long)sectorX * 48L;
+			long minimumY = (long)sectorY * 48L;
+			long candidateX = Math.max(0L, minimumX);
+			long candidateY = Math.max(0L, minimumY);
+			if (initialLevel == null
+				&& candidateX <= minimumX + 47L
+				&& candidateY <= minimumY + 47L
+				&& candidateX <= 32767L && candidateY <= 32767L) {
+				initialLevel = Integer.valueOf(level);
+				initialX = Integer.valueOf((int)candidateX);
+				initialY = Integer.valueOf((int)candidateY);
+			}
 			String packagePath = portableRelative(terrain, "path", manifestRelative);
 			String targetPath = child(packageRelative, packagePath, manifestRelative);
 			String expectedHash = hash(terrain, "sha256", manifestRelative);
@@ -249,16 +279,33 @@ final class WorldBuilderGenericLayeredPackage {
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(referenced.values());
 		Collections.sort(files);
 		MessageDigest digest = WorldBuilderHashes.newDigest();
+		MessageDigest nativeDigest = WorldBuilderHashes.newDigest();
 		for (WorldBuilderReadOnlyTarget.FileState file : files) {
 			String inside = file.relativePath.substring(packageRelative.length() + 1);
 			WorldBuilderHashes.updateText(digest, inside);
 			WorldBuilderHashes.updateText(digest, Long.toString(file.size));
 			WorldBuilderHashes.updateText(digest, file.sha256);
+			nativeDigest.update(inside.getBytes(
+				java.nio.charset.StandardCharsets.UTF_8));
+			nativeDigest.update((byte)0);
+			nativeDigest.update(Long.toString(file.size).getBytes(
+				java.nio.charset.StandardCharsets.US_ASCII));
+			nativeDigest.update((byte)0);
+			nativeDigest.update(file.sha256.getBytes(
+				java.nio.charset.StandardCharsets.US_ASCII));
+			nativeDigest.update((byte)'\n');
 		}
 		Collections.sort(placementSemantics);
 		Collections.sort(placementIdentities);
+		if (initialLevel == null) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, manifestRelative,
+				"Layered package terrain has no tile addressable by the adaptive client.",
+				"Provide terrain intersecting global client coordinates 0..32767.");
+		}
 		return new WorldBuilderGenericLayeredPackage(packageId, packageVersion,
-			worldSpace, WorldBuilderHashes.hex(digest.digest()), levels.size(),
+			worldSpace, WorldBuilderHashes.hex(digest.digest()),
+			WorldBuilderHashes.hex(nativeDigest.digest()), manifestState.sha256,
+			initialLevel.intValue(), initialX.intValue(), initialY.intValue(), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
 			npcs, scenery, placementSemantics, placementIdentities, files);
 	}

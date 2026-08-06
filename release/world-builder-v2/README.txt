@@ -73,10 +73,11 @@ NATIVE VALIDATION GATE
 
 The pinned provider now advertises generic layered loading, existing-level and
 canonical-void authoring, all placement families, isolated runtime binding, and
-verified copy-on-write save. This development release keeps native adaptive
-launch fail-closed with LOADER_INCOMPATIBLE until the owner records adopted and
-standalone visual/edit/save/reopen acceptance. The project stays valid and the
-target is not touched by that refusal.
+verified copy-on-write save. Native adaptive launch now runs only the selected
+UUID project's independent server/client copies, layered working package,
+credential, control state, logs, and database. It never resolves the target
+during launch or save. Adopted and standalone visual/edit/save/reopen acceptance
+is still owner-run and PENDING, so this candidate does not open the release gate.
 
 AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or

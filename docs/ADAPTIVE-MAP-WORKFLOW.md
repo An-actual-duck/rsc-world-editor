@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phases 0-3, repository-owned Phase 5, and Phase 6 transactions are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
+| Status | Phases 0-6 and project-local native supervision are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
 | Product/release readiness | NOT READY; Phase 4 owner validation and the Phase 7 candidate-validation record remain gated |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
@@ -1012,20 +1012,21 @@ access. Linux and Windows launchers auto-discover the parent, preserve
 historical `workspace/`, and use the active project instead of a fixed
 config/package.
 
-The native runtime part of this phase is intentionally fail-closed. The
-project-only supervisor, lock/readiness/shutdown lifecycle, and generated-state
-confinement are tested with temporary runtime processes for all three origins,
-but `run-adaptive-project` remains fail-closed before starting real processes
-until owner-native validation accepts the already published and pinned Phase 4
-generic-loader/authoring capability. Phase 6 export and target transactions are
-implemented independently of that visual-validation gate.
+The native runtime part now prepares and inventories independent server/client
+copies beneath `working/runtime`, binds the selected project/source/capability,
+package manifest and closed inventories, definition/asset evidence, initial
+location, credential, and exact `run/world-builder` control directory, then
+supervises readiness and orderly shutdown. Automated controlled-process tests
+cover all three origins, locking, unsafe mutable state, readiness/server/client
+failure cleanup, clean save/reopen, and source/baseline/target preservation.
+Owner-native rendering/edit/save/reopen validation of the pinned Phase 4
+generic-loader/authoring capability remains a separate product gate.
 
 Repository implementation readiness and product readiness are separate gates.
 The Phase 3 repository gate is satisfied by the published merge above, but that
-merge is not native-runtime, product, package, or release readiness and did not
-open a release gate. This split allows reviewed repository infrastructure to
-land without pretending that the external runtime or later packaging and
-import/export work exists.
+merge alone was not native-runtime, product, package, or release readiness and
+did not open a release gate. Later implementation does not retroactively change
+that historical Phase 3 gate or accept a release candidate.
 
 - Add UUID registry/selection/creation and source snapshot v2.
 - Refactor runtime preparation/supervision for adopted, converted, and empty
@@ -1038,7 +1039,7 @@ import/export work exists.
 Repository gate (satisfied at the Phase 3 merge): all three origins create,
 select, save, and reopen isolated working projects; project-only supervision
 proves locking, process lifecycle, and generated-state confinement; the native
-path refuses before process creation; targets and pre-existing projects remain
+path was still intentionally closed at that historical merge; targets and pre-existing projects remain
 byte-identical through success and injected failure; and standalone
 import/undo fail before target access.
 
@@ -1197,6 +1198,11 @@ pre-gate output, while the inspector binds both artifacts to the complete
 reviewed Linux/Windows JRE inventories and executable-mode state. Pre-gate
 hashes are validation evidence only; production archives are rebuilt after a
 later accepted gate commit.
+
+The candidate implementation now includes the production project-local native
+launch path. This removes the intentional `LOADER_INCOMPATIBLE` launch stub; it
+does not fill any worksheet evidence, accept owner-native behavior, change
+`releaseReady: false`, create `RELEASE-READY`, or authorize publication.
 
 Gate: every acceptance criterion has evidence. Release-gate opening, tag,
 publication, and deployment remain separate manager decisions.

@@ -247,7 +247,7 @@ final class WorldBuilderAdaptiveRecovery {
 					Path temporary = destination.getParent().resolve("."
 						+ destination.getFileName() + ".recover-" + plan.transactionId);
 					staged.reserve(temporary);
-					Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+					WorldBuilderAdaptiveOwnedFiles.copyReserved(source, temporary);
 					forceFile(temporary);
 					verifyFile(temporary, action.after, action.relativePath);
 					staged.seal(temporary);
@@ -851,7 +851,7 @@ final class WorldBuilderAdaptiveRecovery {
 					new WorldBuilderAdaptiveOwnedFiles();
 				try {
 					owned.reserve(temporary);
-					Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+					WorldBuilderAdaptiveOwnedFiles.copyReserved(source, temporary);
 					forceFile(temporary);
 					owned.seal(temporary);
 					observeContract("recovery-rollback-before-" + pad(index),

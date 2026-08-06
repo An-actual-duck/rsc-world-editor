@@ -88,7 +88,12 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
 		Path runtime = realDirectory(requestedRuntimeRoot, "World Builder runtime root");
 		Path runtimeJar = safeRegularFile(runtime, RUNTIME_JAR, "application runtime");
-		String runtimeSha256 = WorldBuilderHashes.sha256(runtimeJar);
+		// Keep the launcher check explicit, then bind the project to the complete
+		// immutable server/client runtime that will actually execute inside it.
+		WorldBuilderHashes.sha256(runtimeJar);
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime =
+			WorldBuilderAdaptiveRuntimePreparer.inspect(runtime);
+		String runtimeSha256 = sourceRuntime.fingerprintSha256;
 		Map<String,Object> report = readContractMap(
 			discoveryReportPath, WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
 		requireDiscoveryFingerprint(report);
@@ -129,7 +134,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Wait for the other operation to finish and retry.");
 			}
 			try {
-				return createLocked(install, runtimeSha256, target, report,
+				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
 					discoveryReportPath, displayName, origin, port);
 			} finally {
 				lock.release();
@@ -137,7 +142,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 	}
 
-	private ProjectResult createLocked(Path install, String runtimeSha256, Path target,
+	private ProjectResult createLocked(Path install,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
+		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
 		int port) throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
@@ -182,16 +189,25 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 			copyTreeExact(stage.resolve(BASELINE_DIRECTORY),
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
-			writeRuntimeMetadata(stage, projectId, origin, runtimeSha256, port);
 			for (String relative : Arrays.asList(
-				"exports", "backups", "receipts", "diagnostics", "logs", "run",
-				"working/runtime/server", "working/runtime/client")) {
+				"exports", "backups", "receipts", "diagnostics", "logs", "run")) {
 				ensureRealDirectory(stage.resolve(relative));
 			}
-			observe("working-prepared", stage);
 
 			Map<String,Object> snapshot = sourceSnapshot(
 				stage, projectId, origin, report, prepared);
+			WorldBuilderReadOnlyTarget stagedTarget = WorldBuilderReadOnlyTarget.open(stage);
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog stagedDefinitions =
+				WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(
+					stagedTarget, definitionCatalogPath(snapshot));
+			WorldBuilderGenericLayeredPackage stagedWorking =
+				WorldBuilderGenericLayeredPackage.inspect(stagedTarget,
+					WORKING_PACKAGE_DIRECTORY, "working", stagedDefinitions);
+			WorldBuilderAdaptiveRuntimePreparer.prepare(stage, sourceRuntime,
+				snapshot, origin, port);
+			writeRuntimeMetadata(stage, projectId, origin, runtimeSha256, port,
+				stagedWorking);
+			observe("working-prepared", stage);
 			Path snapshotPath = stage.resolve(SNAPSHOT_FILE);
 			writeContractNew(snapshotPath, snapshot,
 				WorldBuilderAdaptiveContracts.Kind.SOURCE_SNAPSHOT);
@@ -538,7 +554,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			"project runtime metadata");
 		Map<String,Object> runtime = readJsonObject(runtimePath, WORKING_RUNTIME_FILE);
 		requireRuntimeMetadata(runtime, projectId, string(manifest, "origin"),
-			string(fingerprints, "runtimeSha256"));
+			string(fingerprints, "runtimeSha256"), working);
+		WorldBuilderAdaptiveRuntimePreparer.verify(project,
+			string(fingerprints, "runtimeSha256"), snapshot,
+			string(manifest, "origin"), (int)integer(runtime, "port"));
 		return new VerifiedProject(project, projectId, string(manifest, "origin"),
 			string(manifest, "state"), manifest, snapshot, report, definitions,
 			baseline, working);
@@ -724,16 +743,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Adaptive project run directory is missing, linked, or escaped.",
 				"Restore the complete contained project run directory.");
 		}
-		try (FileChannel channel = openLock(run.resolve("world-builder.lock"))) {
-			FileLock lock = tryLock(channel);
-			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-				"run/world-builder.lock", "Adaptive project is currently running.",
-				"Close the Builder before invoking save-project separately.");
-			try {
-				return saveWithRunLockHeld(project);
-			} finally {
-				lock.release();
-			}
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			return saveWithRunLockHeld(project);
 		}
 	}
 
@@ -1091,7 +1103,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	}
 
 	private static void writeRuntimeMetadata(Path stage, String projectId,
-		String origin, String runtimeSha256, int port) throws IOException {
+		String origin, String runtimeSha256, int port,
+		WorldBuilderGenericLayeredPackage working) throws IOException {
 		Map<String,Object> runtime = new LinkedHashMap<String,Object>();
 		runtime.put("schemaVersion", Long.valueOf(1L));
 		runtime.put("runtimeType", "adaptive-isolated-world-builder");
@@ -1102,9 +1115,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		runtime.put("host", "127.0.0.1");
 		runtime.put("port", Long.valueOf(port));
 		runtime.put("workingPackageRelativePath", WORKING_PACKAGE_DIRECTORY);
-		runtime.put("initialLayer", Long.valueOf(0L));
-		runtime.put("initialX", Long.valueOf(0L));
-		runtime.put("initialY", Long.valueOf(0L));
+		runtime.put("initialLayer", Long.valueOf(working.initialLevel));
+		runtime.put("initialX", Long.valueOf(working.initialX));
+		runtime.put("initialY", Long.valueOf(working.initialY));
 		runtime.put("upstreamAuthoringCapability",
 			"adaptive-world-builder-runtime-capability-v1");
 		writeNew(stage.resolve(WORKING_RUNTIME_FILE),
@@ -1112,7 +1125,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	}
 
 	private static void requireRuntimeMetadata(Map<String,Object> value,
-		String projectId, String origin, String runtimeSha256)
+		String projectId, String origin, String runtimeSha256,
+		WorldBuilderGenericLayeredPackage working)
 		throws WorldBuilderContractException {
 		exact(value, "runtime metadata", "schemaVersion", "runtimeType", "runtimeId",
 			"applicationRuntimeSha256", "projectId", "origin", "host", "port",
@@ -1127,9 +1141,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			|| !"127.0.0.1".equals(string(value, "host"))
 			|| !WORKING_PACKAGE_DIRECTORY.equals(
 				string(value, "workingPackageRelativePath"))
-			|| integer(value, "initialLayer") != 0L
-			|| integer(value, "initialX") != 0L
-			|| integer(value, "initialY") != 0L
+			|| integer(value, "initialLayer") != working.initialLevel
+			|| integer(value, "initialX") != working.initialX
+			|| integer(value, "initialY") != working.initialY
 			|| !"adaptive-world-builder-runtime-capability-v1".equals(
 				string(value, "upstreamAuthoringCapability"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, WORKING_RUNTIME_FILE,

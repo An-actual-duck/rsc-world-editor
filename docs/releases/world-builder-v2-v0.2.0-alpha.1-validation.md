@@ -26,6 +26,11 @@ An unavailable check stays explicitly unavailable; it is never inferred from
 another platform, an older release, a fixture archive, or a different runtime
 checkout.
 
+The candidate source now contains the production project-local adaptive launch
+path rather than the earlier intentional `LOADER_INCOMPATIBLE` stub. That makes
+the owner checklist executable; it does not satisfy it. Native visual/edit/save/
+reopen evidence, `releaseReady`, and the release decision remain PENDING.
+
 ## Required immutable inputs
 
 - a clean World Editor manager checkout on the exact published `origin/main`
@@ -107,6 +112,7 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 | PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PENDING or UNAVAILABLE | PENDING or N/A |
 | Windows updater/launcher Java and static control flow | focused suite and review | PENDING | PENDING |
 | Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PENDING | PENDING |
+| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | focused lifecycle suite | PENDING | PENDING |
 
 Fixture archives prove rejection and transaction behavior; only the external
 inspection row may be used as evidence for the final candidate archive hashes.

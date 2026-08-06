@@ -565,7 +565,7 @@ final class WorldBuilderAdaptiveUndo {
 				new WorldBuilderAdaptiveOwnedFiles();
 			try {
 				owned.reserve(temporary);
-				Files.copy(backup, temporary, StandardCopyOption.REPLACE_EXISTING);
+				WorldBuilderAdaptiveOwnedFiles.copyReserved(backup, temporary);
 				forceFile(temporary);
 					verifyFile(temporary, action.before);
 					owned.seal(temporary);

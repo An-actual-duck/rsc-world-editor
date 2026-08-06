@@ -61,6 +61,7 @@ import java.nio.file.Files;
 import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.net.URI;
 import java.util.HashMap;
 
@@ -88,7 +89,28 @@ public final class AdaptiveTransactionFailureHarness {
         final Path project = Paths.get(args[2]);
         final Path target = Paths.get(args[3]);
         try {
-            if ("project-lock-replacement".equals(operation)) {
+            if ("reserved-stage-copy".equals(operation)) {
+                Files.createDirectories(target);
+                Path source = target.resolve("source.bin");
+                Path stage = target.resolve("stage.bin");
+                Files.write(source, new byte[] {1, 2, 3, 4},
+                    StandardOpenOption.CREATE_NEW);
+                WorldBuilderAdaptiveOwnedFiles owned =
+                    new WorldBuilderAdaptiveOwnedFiles();
+                owned.reserve(stage);
+                Object before = Files.readAttributes(stage,
+                    BasicFileAttributes.class).fileKey();
+                WorldBuilderAdaptiveOwnedFiles.copyReserved(source, stage);
+                owned.seal(stage);
+                Object after = Files.readAttributes(stage,
+                    BasicFileAttributes.class).fileKey();
+                if (before == null || !before.equals(after)) {
+                    throw new Exception("reserved stage identity changed");
+                }
+                owned.cleanupOrThrow();
+                if (Files.exists(stage)) throw new Exception(
+                    "reserved stage cleanup failed");
+            } else if ("project-lock-replacement".equals(operation)) {
                 WorldBuilderAdaptiveProjectLock.IdentityObserver observer =
                     new WorldBuilderAdaptiveProjectLock.IdentityObserver() {
                         @Override public void observe(String milestone, Path path)
@@ -719,6 +741,19 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertEqual(0, undone.returncode, undone.stderr)
                 self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
                 self.assertEqual(source_before, self.lifecycle.tree_bytes(project / "source"))
+
+    def test_reserved_stage_copy_preserves_identity_and_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reserved-copy-") as temp:
+            base = Path(temp)
+            project = base / "project"
+            target = base / "target"
+            project.mkdir()
+            copied = self.run_failure(
+                "reserved-stage-copy", "none", project, target
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            self.assertEqual(b"\x01\x02\x03\x04", (target / "source.bin").read_bytes())
+            self.assertFalse((target / "stage.bin").exists())
 
     def test_export_is_portable_deterministic_and_failure_atomic(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-export-portable-") as temp:
