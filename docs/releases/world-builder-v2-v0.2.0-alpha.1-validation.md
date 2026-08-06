@@ -9,14 +9,20 @@ is unchanged and does not approve this adaptive design.
 ## Gate state
 
 - Status: **PENDING — NOT RELEASE READY**
-- Restricted pre-gate candidate World Editor commit: **PENDING clean published `main`**
+- Restricted pre-gate candidate World Editor commit:
+  `e7dd87a1fb92d0b386891ed2e975aecac5898a0d`
 - Locked runtime commit:
   `77715c0f831be239c9d14278146be56853115150`
-- Restricted pre-gate Linux candidate SHA-256: **PENDING**
-- Restricted pre-gate Windows candidate SHA-256: **PENDING**
-- Restricted pre-gate `SHA256SUMS.txt` SHA-256: **PENDING**
-- Reviewed Linux JRE inventory SHA-256: **PENDING**
-- Reviewed Windows JRE inventory SHA-256: **PENDING**
+- Restricted pre-gate Linux candidate SHA-256:
+  `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0`
+- Restricted pre-gate Windows candidate SHA-256:
+  `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2`
+- Restricted pre-gate `SHA256SUMS.txt` SHA-256:
+  `43bb01b286cd1dcbe3510e8f3209499ebf8372892be710d4a6611728f85d6a82`
+- Reviewed Linux JRE inventory SHA-256:
+  `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e`
+- Reviewed Windows JRE inventory SHA-256:
+  `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967`
 - Owner-native report: **PENDING**
 - Accepted limitations: **NONE ACCEPTED**
 - Release decision and accepting manager/owner: **PENDING**
@@ -30,6 +36,66 @@ The candidate source now contains the production project-local adaptive launch
 path rather than the earlier intentional `LOADER_INCOMPATIBLE` stub. That makes
 the owner checklist executable; it does not satisfy it. Native visual/edit/save/
 reopen evidence, `releaseReady`, and the release decision remain PENDING.
+
+## Automated evidence for the restricted candidate
+
+Automated archive inspection passed on 2026-08-06 for the exact candidate
+commit and locked runtime above. This evidence does not accept the candidate:
+the official record reports `releaseReady: false`,
+`releaseGateChanged: false`, and status
+`automated-archive-inspection-passed`.
+
+- Official `ai1-candidate-archive-inspection.sXDesP.json` SHA-256:
+  `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8`.
+  It passed clean-published-source, exact locked runtime, external artifact,
+  outer checksum, safe-root, exact application allowlist, exhaustive manifest,
+  content-neutral world/creator scan, empty Builder seed, dual-platform Java
+  17 metadata, exact reviewed JRE bytes/modes, Linux launcher modes, and
+  production runtime identity/capability assertions.
+- Independent `ai1-independent-archive-audit.7U11Fn.json` SHA-256:
+  `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86`.
+  It confirmed 98 exact allowlist records, the exact 42-file neutral definition
+  closure, byte equality with the locked provider, and absence of
+  `defs/locs`, terrain, placements, user/project/workspace state, and shared
+  PEM keys. It also confirmed the packaged Windows launcher byte-for-byte
+  against source and reviewed its adaptive target/runtime/identity control
+  flow without executing Windows.
+- Extracted Linux no-UI real-runtime integration log SHA-256:
+  `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c`.
+  The test passed standalone-empty discovery and creation, real server
+  readiness, database migrations, orderly shutdown, post-run save/reopen,
+  project-local key/log handling, and immutable package/provider/target checks
+  using the candidate's bundled Temurin 17 runtime.
+- Validation-record test log SHA-256:
+  `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27`.
+  It records a clean diff check, all 21 candidate-validation tests, all four
+  product-generation tests, project-independence validation, and all 17
+  adaptive-contract tests passing.
+- Focused candidate-suite log SHA-256:
+  `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289`.
+  It records 166 passing tests plus project-independence validation across
+  discovery, conversion, project lifecycle, supervision, Phase 6
+  transactions, packaging, updater, product-generation, and workspace
+  contracts. The exact-runtime test and five native PowerShell tests were
+  explicitly skipped because their reviewed local inputs were unavailable;
+  they are not claimed by this log.
+- Independent immutable-input inventory digests before and after validation
+  matched exactly:
+  `3e75f4af8b81851ca79f256415b2bb6832e5440f22dd9b6d5d9468781490baf6`
+  for the locked provider working tree,
+  `fc6632d6d7e32e3aad9cc8ff876e5d0c05ae954d7077c3cfc6b10abf706ff650`
+  for the physical Linux JRE tree, and
+  `e800e14cfaaa4370065277a9dc7c0f7007fd58ad8dadb8ed22540fb47eeb8a1d`
+  for the physical Windows JRE tree. File counts, byte counts, directory and
+  link counts, modes, and aggregate digests were unchanged. The candidate
+  archive and checksum hashes also matched their pre-validation values.
+
+Still pending are owner-native layered and standalone edit/save/reopen,
+owner software/OpenGL visual review, disposable-target import/undo/recovery,
+and manager candidate acceptance. Native Windows application execution is not
+required by the current owner decision and was not performed or claimed;
+native PowerShell updater execution remains unclaimed. No limitation or
+release decision has been accepted.
 
 ## Required immutable inputs
 
@@ -103,16 +169,17 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 
 | Check | Exact command/input | Result | Log/evidence SHA-256 |
 | --- | --- | --- | --- |
-| Whitespace | `git diff --check` | PENDING | PENDING |
-| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PENDING | PENDING |
+| Whitespace | `git diff --check` | PASS | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
+| Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PASS — 42 tests plus independence check | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
+| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PASS — 166 tests plus independence; one exact-runtime and five native PowerShell checks explicitly skipped | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
 | Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
-| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PENDING | PENDING |
-| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PENDING | PENDING |
-| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PENDING | PENDING |
-| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PENDING or UNAVAILABLE | PENDING or N/A |
-| Windows updater/launcher Java and static control flow | focused suite and review | PENDING | PENDING |
-| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PENDING | PENDING |
-| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | focused lifecycle suite | PENDING | PENDING |
+| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PASS — restricted artifacts only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
+| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
+| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PASS — automated fixtures only; owner/update acceptance pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | UNAVAILABLE — static checks pass; native execution not claimed | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` records all five explicit skips |
+| Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PASS — static/code review only | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
+| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PASS — 31 automated cases; owner target exercise pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PASS — owner edit/visual checks pending | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
 
 Fixture archives prove rejection and transaction behavior; only the external
 inspection row may be used as evidence for the final candidate archive hashes.
@@ -128,10 +195,12 @@ retain the outer `SHA256SUMS.txt`.
 
 | Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Manifested files | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
-| Windows x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+| Linux x64 | `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0` | `429bc1138a7d258c5afa0755cad511ab976a3f31e37a4d622739d275f9c13ce0` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 397 | AUTOMATED PASS — acceptance pending |
+| Windows x64 | `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2` | `9822def834f99b5e04548c9498d945e1814612992c63b56bf78e9524aa0b8b13` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 455 | AUTOMATED PASS — acceptance pending |
 
-Required review statements, all currently **PENDING**:
+Required automated archive review statements below are **PASS** for these exact
+restricted artifacts; owner validation and candidate acceptance remain
+**PENDING**:
 
 - both archives have the sole root `World Builder 2/`;
 - archive names, identity, version, source commits, platform runtime, inner
@@ -154,17 +223,17 @@ live or public server.
 
 | Scenario | Automated evidence | Owner/native evidence | Final status |
 | --- | --- | --- | --- |
-| Compatible layered target: discover/adopt/save/reopen, target unchanged | PENDING | PENDING | PENDING |
-| Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PENDING | PENDING | PENDING |
-| Standalone empty: layer 0/origin 0,0, first authoring/save/reopen/export | PENDING | PENDING | PENDING |
-| No server versus recognizable broken/unsupported/ambiguous server | PENDING | Owner report if encountered | PENDING |
-| Multiple projects, moved folder, detached target, no implicit rebase | PENDING | PENDING | PENDING |
-| Software/OpenGL terrain, levels, collision, and all four placement families | Contract tests PENDING | PENDING | PENDING |
-| Exact import preview/apply/verify/client distribution/undo | PENDING | PENDING | PENDING |
-| Interrupted import/undo rollback and explicit recovery | PENDING | PENDING | PENDING |
-| Linux update success, incompatibility, installation failure, rollback | PENDING | PENDING | PENDING |
-| Windows launcher | Java/static coverage PENDING | Native host not required | PENDING |
-| PowerShell updater | Static coverage PENDING; execution PENDING or UNAVAILABLE | Native host not required | PENDING |
+| Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
+| Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
+| Standalone empty: layer 0/origin 0,0, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
+| No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
+| Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
+| Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
+| Exact import preview/apply/verify/client distribution/undo | PASS — temporary fixtures | PENDING | PENDING |
+| Interrupted import/undo rollback and explicit recovery | PASS — injected-failure fixtures | PENDING | PENDING |
+| Linux update success, incompatibility, installation failure, rollback | PASS — automated fixtures | PENDING | PENDING |
+| Windows launcher | PASS — Java/static and exact archive/source coverage | Native host not required | PENDING |
+| PowerShell updater | PASS — static coverage; native execution UNAVAILABLE and unclaimed | Native host not required | PENDING |
 
 ## Owner checklist — report text, not screenshots
 
@@ -238,22 +307,22 @@ row below needs exact evidence and no unresolved failure.
 
 | Contract | Evidence | Status |
 | --- | --- | --- |
-| AC-01 no release-owned world or creator data | External inspection JSON and hashes | PENDING |
-| AC-02 adaptive parent-root discovery on both launcher paths | Focused suites; owner native target | PENDING |
-| AC-03 layered adoption | Automated fixture; owner report | PENDING |
-| AC-04 lossless packed conversion and placement parity | Automated fixture; owner report | PENDING |
-| AC-05 unsupported/unrepresentable refusal | Focused suites | PENDING |
-| AC-06 selected working project is the only edited world | Automated fixture; owner report | PENDING |
-| AC-07 canonical standalone structural void | Automated fixture; owner report | PENDING |
-| AC-08 standalone save/export and target-operation refusal | Automated fixture; owner report | PENDING |
-| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated fixture; scoped byte inventory; owner report | PENDING |
-| AC-10 multiple/portable/detached projects | Focused suite; owner report | PENDING |
-| AC-11 deterministic complete export and lineage | Phase 6 suite | PENDING |
-| AC-12 exact server/client import capability and distribution identity | Phase 6 suite; owner report | PENDING |
-| AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | 30-case Phase 6 suite; owner report | PENDING |
-| AC-14 no implicit server rebase/install | Focused suite; updater suite | PENDING |
-| AC-15 updater durable preservation and v1 isolation | Linux/PowerShell results | PENDING |
-| AC-16 complete automated and owner-native candidate validation | All command logs and owner report | PENDING |
+| AC-01 no release-owned world or creator data | Automated PASS — external inspection JSON and hashes; acceptance pending | PENDING |
+| AC-02 adaptive parent-root discovery on both launcher paths | Automated PASS — focused suites; owner native target pending | PENDING |
+| AC-03 layered adoption | Automated PASS — fixture; owner report pending | PENDING |
+| AC-04 lossless packed conversion and placement parity | Automated PASS — fixture; owner report pending | PENDING |
+| AC-05 unsupported/unrepresentable refusal | Automated PASS — focused suites | PENDING |
+| AC-06 selected working project is the only edited world | Automated PASS — fixture; owner report pending | PENDING |
+| AC-07 canonical standalone structural void | Automated PASS — fixture and no-UI runtime; owner report pending | PENDING |
+| AC-08 standalone save/export and target-operation refusal | Automated PASS — fixture; owner report pending | PENDING |
+| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated PASS — fixture and scoped inventories; owner report pending | PENDING |
+| AC-10 multiple/portable/detached projects | Automated PASS — focused suite; owner report pending | PENDING |
+| AC-11 deterministic complete export and lineage | Automated PASS — Phase 6 suite | PENDING |
+| AC-12 exact server/client import capability and distribution identity | Automated PASS — Phase 6 suite; owner report pending | PENDING |
+| AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | Automated PASS — 31-case Phase 6 suite; owner report pending | PENDING |
+| AC-14 no implicit server rebase/install | Automated PASS — focused and updater suites | PENDING |
+| AC-15 updater durable preservation and v1 isolation | Linux automated PASS; PowerShell static PASS and native execution unavailable | PENDING |
+| AC-16 complete automated and owner-native candidate validation | Focused and archive automation PASS; full suite and owner report pending | PENDING |
 | AC-17 accurate simple workflow and compatibility documentation | Final documentation review | PENDING |
 
 This worksheet becomes an accepted validation record only after the exact
