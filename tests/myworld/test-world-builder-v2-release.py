@@ -36,6 +36,17 @@ NATIVE_ENTRIES = (
     "windows/x64/org/lwjgl/glfw/glfw.dll",
     "windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll",
 )
+REQUIRED_LANGUAGE_BUNDLES = (
+    "AuthenticMessages_en_UK.properties",
+    "AuthenticMessages_en_UK_female.properties",
+    "AuthenticMessages_en_UK_female_no_misgender.properties",
+    "AuthenticMessages_en_UK_gender_neutral.properties",
+    "AuthenticMessages_en_UK_male.properties",
+    "CustomMessages_en_UK.properties",
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+)
 ADAPTIVE_CAPABILITY = (
     json.dumps(
         {
@@ -819,6 +830,12 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         + "adaptive-runtime-capability-v1.json",
                         prefix + "builder-runtime/launcher/world-builder-tools.jar",
                     }
+                    required.update(
+                        prefix
+                        + "builder-runtime/server/conf/server/languages/"
+                        + bundle
+                        for bundle in REQUIRED_LANGUAGE_BUNDLES
+                    )
                     self.assertFalse(required - names, required - names)
                     runtime_java = (
                         prefix + "runtime/bin/java.exe"

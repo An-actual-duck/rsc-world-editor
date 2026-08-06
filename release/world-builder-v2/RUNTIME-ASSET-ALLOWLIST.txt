@@ -50,6 +50,10 @@ server/conf/server/languages/AuthenticMessages_en_UK_female.properties	server/co
 server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties	server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties	runtime-configuration
 server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties	server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties	runtime-configuration
 server/conf/server/languages/AuthenticMessages_en_UK_male.properties	server/conf/server/languages/AuthenticMessages_en_UK_male.properties	runtime-configuration
+server/conf/server/languages/CustomMessages_en_UK.properties	server/conf/server/languages/CustomMessages_en_UK.properties	runtime-configuration
+server/conf/server/languages/CustomMessages_en_UK_female.properties	server/conf/server/languages/CustomMessages_en_UK_female.properties	runtime-configuration
+server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties	server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties	runtime-configuration
+server/conf/server/languages/CustomMessages_en_UK_male.properties	server/conf/server/languages/CustomMessages_en_UK_male.properties	runtime-configuration
 server/conf/server/log4j2.xml	server/conf/server/log4j2.xml	runtime-configuration
 server/conf/server/log4j2b.xml	server/conf/server/log4j2b.xml	runtime-configuration
 server/conf/server/words.list	server/conf/server/words.list	runtime-configuration
