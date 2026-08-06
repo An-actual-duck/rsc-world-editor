@@ -71,6 +71,14 @@ the official record reports `releaseReady: false`,
   It records a clean diff check, all 21 candidate-validation tests, all four
   product-generation tests, project-independence validation, and all 17
   adaptive-contract tests passing.
+- Focused candidate-suite log SHA-256:
+  `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289`.
+  It records 166 passing tests plus project-independence validation across
+  discovery, conversion, project lifecycle, supervision, Phase 6
+  transactions, packaging, updater, product-generation, and workspace
+  contracts. The exact-runtime test and five native PowerShell tests were
+  explicitly skipped because their reviewed local inputs were unavailable;
+  they are not claimed by this log.
 - Independent immutable-input inventory digests before and after validation
   matched exactly:
   `3e75f4af8b81851ca79f256415b2bb6832e5440f22dd9b6d5d9468781490baf6`
@@ -163,14 +171,14 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 | --- | --- | --- | --- |
 | Whitespace | `git diff --check` | PASS | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
 | Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PASS — 42 tests plus independence check | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
-| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PENDING | PENDING |
+| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PASS — 166 tests plus independence; one exact-runtime and five native PowerShell checks explicitly skipped | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
 | Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
-| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PENDING | PENDING |
+| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PASS — restricted artifacts only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
 | External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
-| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PENDING | PENDING |
-| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PENDING or UNAVAILABLE | PENDING or N/A |
+| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PASS — automated fixtures only; owner/update acceptance pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | UNAVAILABLE — static checks pass; native execution not claimed | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` records all five explicit skips |
 | Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PASS — static/code review only | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
-| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PENDING | PENDING |
+| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PASS — 31 automated cases; owner target exercise pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
 | Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PASS — owner edit/visual checks pending | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
 
 Fixture archives prove rejection and transaction behavior; only the external
@@ -215,17 +223,17 @@ live or public server.
 
 | Scenario | Automated evidence | Owner/native evidence | Final status |
 | --- | --- | --- | --- |
-| Compatible layered target: discover/adopt/save/reopen, target unchanged | PENDING | PENDING | PENDING |
-| Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PENDING | PENDING | PENDING |
-| Standalone empty: layer 0/origin 0,0, first authoring/save/reopen/export | PENDING | PENDING | PENDING |
-| No server versus recognizable broken/unsupported/ambiguous server | PENDING | Owner report if encountered | PENDING |
-| Multiple projects, moved folder, detached target, no implicit rebase | PENDING | PENDING | PENDING |
-| Software/OpenGL terrain, levels, collision, and all four placement families | Contract tests PENDING | PENDING | PENDING |
-| Exact import preview/apply/verify/client distribution/undo | PENDING | PENDING | PENDING |
-| Interrupted import/undo rollback and explicit recovery | PENDING | PENDING | PENDING |
-| Linux update success, incompatibility, installation failure, rollback | PENDING | PENDING | PENDING |
-| Windows launcher | Java/static coverage PENDING | Native host not required | PENDING |
-| PowerShell updater | Static coverage PENDING; execution PENDING or UNAVAILABLE | Native host not required | PENDING |
+| Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
+| Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
+| Standalone empty: layer 0/origin 0,0, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
+| No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
+| Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
+| Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
+| Exact import preview/apply/verify/client distribution/undo | PASS — temporary fixtures | PENDING | PENDING |
+| Interrupted import/undo rollback and explicit recovery | PASS — injected-failure fixtures | PENDING | PENDING |
+| Linux update success, incompatibility, installation failure, rollback | PASS — automated fixtures | PENDING | PENDING |
+| Windows launcher | PASS — Java/static and exact archive/source coverage | Native host not required | PENDING |
+| PowerShell updater | PASS — static coverage; native execution UNAVAILABLE and unclaimed | Native host not required | PENDING |
 
 ## Owner checklist — report text, not screenshots
 
@@ -299,22 +307,22 @@ row below needs exact evidence and no unresolved failure.
 
 | Contract | Evidence | Status |
 | --- | --- | --- |
-| AC-01 no release-owned world or creator data | External inspection JSON and hashes | PENDING |
-| AC-02 adaptive parent-root discovery on both launcher paths | Focused suites; owner native target | PENDING |
-| AC-03 layered adoption | Automated fixture; owner report | PENDING |
-| AC-04 lossless packed conversion and placement parity | Automated fixture; owner report | PENDING |
-| AC-05 unsupported/unrepresentable refusal | Focused suites | PENDING |
-| AC-06 selected working project is the only edited world | Automated fixture; owner report | PENDING |
-| AC-07 canonical standalone structural void | Automated fixture; owner report | PENDING |
-| AC-08 standalone save/export and target-operation refusal | Automated fixture; owner report | PENDING |
-| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated fixture; scoped byte inventory; owner report | PENDING |
-| AC-10 multiple/portable/detached projects | Focused suite; owner report | PENDING |
-| AC-11 deterministic complete export and lineage | Phase 6 suite | PENDING |
-| AC-12 exact server/client import capability and distribution identity | Phase 6 suite; owner report | PENDING |
-| AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | 30-case Phase 6 suite; owner report | PENDING |
-| AC-14 no implicit server rebase/install | Focused suite; updater suite | PENDING |
-| AC-15 updater durable preservation and v1 isolation | Linux/PowerShell results | PENDING |
-| AC-16 complete automated and owner-native candidate validation | All command logs and owner report | PENDING |
+| AC-01 no release-owned world or creator data | Automated PASS — external inspection JSON and hashes; acceptance pending | PENDING |
+| AC-02 adaptive parent-root discovery on both launcher paths | Automated PASS — focused suites; owner native target pending | PENDING |
+| AC-03 layered adoption | Automated PASS — fixture; owner report pending | PENDING |
+| AC-04 lossless packed conversion and placement parity | Automated PASS — fixture; owner report pending | PENDING |
+| AC-05 unsupported/unrepresentable refusal | Automated PASS — focused suites | PENDING |
+| AC-06 selected working project is the only edited world | Automated PASS — fixture; owner report pending | PENDING |
+| AC-07 canonical standalone structural void | Automated PASS — fixture and no-UI runtime; owner report pending | PENDING |
+| AC-08 standalone save/export and target-operation refusal | Automated PASS — fixture; owner report pending | PENDING |
+| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated PASS — fixture and scoped inventories; owner report pending | PENDING |
+| AC-10 multiple/portable/detached projects | Automated PASS — focused suite; owner report pending | PENDING |
+| AC-11 deterministic complete export and lineage | Automated PASS — Phase 6 suite | PENDING |
+| AC-12 exact server/client import capability and distribution identity | Automated PASS — Phase 6 suite; owner report pending | PENDING |
+| AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | Automated PASS — 31-case Phase 6 suite; owner report pending | PENDING |
+| AC-14 no implicit server rebase/install | Automated PASS — focused and updater suites | PENDING |
+| AC-15 updater durable preservation and v1 isolation | Linux automated PASS; PowerShell static PASS and native execution unavailable | PENDING |
+| AC-16 complete automated and owner-native candidate validation | Focused and archive automation PASS; full suite and owner report pending | PENDING |
 | AC-17 accurate simple workflow and compatibility documentation | Final documentation review | PENDING |
 
 This worksheet becomes an accepted validation record only after the exact
