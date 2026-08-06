@@ -247,6 +247,10 @@ public final class AdaptiveProjectSupervisorHarness {
                 "-Dopenrsc.worldBuilderAssetEvidenceFile="
                     + project.resolve("working/runtime/client/evidence/adaptive-assets.sha256")),
                 "client assets");
+            require(contains(productionClient,
+                "-Dspoiledmilk.clientLog="
+                    + project.resolve("logs/client-runtime.log")),
+                "client runtime log confinement");
         }
 
         List<String> server = command(classes, "FakeServer", project, port);
@@ -550,6 +554,10 @@ public final class Server {
         Files.createDirectories(control);
         Files.createDirectories(credential.getParent());
         Files.write(credential, "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
+        Path serverLogs = project.resolve("working/runtime/server/logs");
+        Files.createDirectories(serverLogs);
+        Files.write(serverLogs.resolve("default.log"),
+            "project-local server log\n".getBytes(StandardCharsets.UTF_8));
         require("true".equals(System.getProperty("openrsc.worldBuilderAdaptiveMode")),
             "adaptive activation");
         require("adaptive-world-builder".equals(System.getProperty(
@@ -599,6 +607,11 @@ import java.security.MessageDigest;
 public final class FakeAdaptiveClient {
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(System.getProperty("openrsc.worldBuilderWorkspaceRoot"));
+        Path clientLog = Paths.get(System.getProperty("spoiledmilk.clientLog"));
+        require(clientLog.equals(project.resolve("logs/client-runtime.log")),
+            "client runtime log confinement");
+        Files.write(clientLog,
+            "project-local client log\n".getBytes(StandardCharsets.UTF_8));
         require("true".equals(System.getProperty("openrsc.worldBuilderAdaptiveMode")),
             "adaptive activation");
         require(Files.isRegularFile(Paths.get(System.getProperty(
@@ -928,6 +941,10 @@ public final class FakeAdaptiveClient {
             self.assertTrue(
                 (project / "working/runtime/client/clientSettings.conf").is_file()
             )
+            self.assertTrue(
+                (project / "working/runtime/server/logs/default.log").is_file()
+            )
+            self.assertTrue((project / "logs/client-runtime.log").is_file())
             supervised = self.run_supervision(project)
             self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
             self.assertEqual("adaptive-supervision-ok\n", supervised.stdout)

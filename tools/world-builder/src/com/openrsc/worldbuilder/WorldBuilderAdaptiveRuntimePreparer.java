@@ -47,6 +47,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"server/inc/sqlite/world-builder.credential",
 			"client/clientSettings.conf",
 			"client/Cache/credentials.txt",
+			"client/Cache/hideIp.txt",
 			"client/Cache/uid.dat",
 			"client/Cache/ip.txt",
 			"client/Cache/port.txt",
@@ -646,6 +647,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		final String[] unsafe = new String[] {null};
 		final int[] count = new int[] {0};
 		final long[] total = new long[] {0L};
+		final Set<String> folded = new HashSet<String>();
+		final Set<Object> identities = new HashSet<Object>();
 		Files.walkFileTree(runtime, new SimpleFileVisitor<Path>() {
 			@Override public FileVisitResult preVisitDirectory(Path directory,
 				BasicFileAttributes attributes) {
@@ -658,12 +661,16 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			}
 
 			@Override public FileVisitResult visitFile(Path file,
-				BasicFileAttributes attributes) {
+				BasicFileAttributes attributes) throws IOException {
 				String relative = portableRuntimePath(runtime, file);
 				if (!attributes.isRegularFile() || Files.isSymbolicLink(file)
 					|| ++count[0] > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES * 2
 					|| attributes.size() < 0L
 					|| attributes.size() > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
+					|| !folded.add(relative.toLowerCase(Locale.ROOT))
+					|| attributes.fileKey() != null
+						&& !identities.add(attributes.fileKey())
+					|| hasMultipleLinks(file)
 					|| !knownRuntimePath(relative, immutableEntries)) {
 					unsafe[0] = relative;
 					return FileVisitResult.TERMINATE;
@@ -698,6 +705,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Map<String,Entry> immutableEntries) {
 		if (immutableEntries.containsKey(relative)
 			|| GENERATED_SOURCE_PATHS.contains(relative)) return true;
+		if (relative.startsWith("server/logs/")
+			|| "client/spoiled-milk-client.log".equals(relative)) return true;
 		if ("runtime-assets.sha256".equals(relative)
 			|| "runtime.json".equals(relative)
 			|| SERVER_DEFINITION_EVIDENCE.substring("working/runtime/".length())
@@ -711,6 +720,17 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		return relative.equals("server/inc/sqlite/world_builder.db-journal")
 			|| relative.equals("server/inc/sqlite/world_builder.db-wal")
 			|| relative.equals("server/inc/sqlite/world_builder.db-shm");
+	}
+
+	private static boolean hasMultipleLinks(Path path) throws IOException {
+		try {
+			Object links = Files.getAttribute(path, "unix:nlink", LinkOption.NOFOLLOW_LINKS);
+			return links instanceof Number && ((Number)links).longValue() != 1L;
+		} catch (UnsupportedOperationException ignored) {
+			return false;
+		} catch (IllegalArgumentException ignored) {
+			return false;
+		}
 	}
 
 	private static byte[] readBounded(Path path, long maximum, String label)

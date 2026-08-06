@@ -88,6 +88,7 @@ public final class WorldBuilderProcessSupervisor {
 			int exit = superviseLocked(ProcessLayout.adaptive(project), port,
 				serverCommand, clientCommand, readyTimeoutMillis);
 			if (exit == 0) {
+				requireAdaptiveMutableLayout(project);
 				new WorldBuilderAdaptiveProjectLifecycle()
 					.saveAfterSupervisedRun(project);
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
@@ -783,6 +784,8 @@ public final class WorldBuilderProcessSupervisor {
 				"-Dsun.java2d.opengl=false",
 				"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
 				"-Dspoiledmilk.openglVsync=true",
+				property("spoiledmilk.clientLog",
+					project.resolve("logs/client-runtime.log")),
 				property("openrsc.worldBuilderMode", "true"),
 				property("openrsc.worldBuilderAdaptiveMode", "true"),
 				property("openrsc.worldBuilderHost", "127.0.0.1"),
