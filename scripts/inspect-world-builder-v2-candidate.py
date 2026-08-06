@@ -129,6 +129,7 @@ REQUIRED_TOOL_ENTRIES = {
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveExporter.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveImporter.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveProjectLifecycle.class",
+    "com/openrsc/worldbuilder/WorldBuilderAdaptiveRuntimePreparer.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveRecovery.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveUndo.class",
     "com/openrsc/worldbuilder/WorldBuilderCli.class",

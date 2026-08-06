@@ -72,51 +72,27 @@ public final class WorldBuilderProcessSupervisor {
 		Path project = verified.projectRoot;
 		int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
 		requireAdaptiveMutableLayout(project);
-		Path run = project.resolve("run");
-		Path lockPath = run.resolve("world-builder.lock");
-		if (Files.exists(lockPath, LinkOption.NOFOLLOW_LINKS)
-			&& (!Files.isRegularFile(lockPath, LinkOption.NOFOLLOW_LINKS)
-				|| Files.isSymbolicLink(lockPath))) {
-			throw unsafeAdaptive("run/world-builder.lock",
-				"Adaptive project lock path is not a contained regular file.");
-		}
-		try (FileChannel lockChannel = FileChannel.open(lockPath,
-			StandardOpenOption.CREATE, StandardOpenOption.WRITE)) {
-			FileLock lock;
-			try {
-				lock = lockChannel.tryLock();
-			} catch (OverlappingFileLockException busy) {
-				lock = null;
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(
+				project, "adaptive-project-supervision")) {
+			verified = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+				project, true);
+			requireAdaptiveMutableLayout(project);
+			List<String> serverCommand = suppliedServerCommand;
+			List<String> clientCommand = suppliedClientCommand;
+			if (productionCommands) {
+				AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
+				serverCommand = launch.serverCommand();
+				clientCommand = launch.clientCommand();
 			}
-			if (lock == null) {
-				throw new WorldBuilderContractException(
-					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-					"adaptive-project-supervision", "run/world-builder.lock", false,
-					"This adaptive project is already running.",
-					"Close the other Builder process and retry this exact project.");
+			int exit = superviseLocked(ProcessLayout.adaptive(project), port,
+				serverCommand, clientCommand, readyTimeoutMillis);
+			if (exit == 0) {
+				new WorldBuilderAdaptiveProjectLifecycle()
+					.saveAfterSupervisedRun(project);
+				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			}
-			try {
-				verified = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
-					project, true);
-				requireAdaptiveMutableLayout(project);
-				List<String> serverCommand = suppliedServerCommand;
-				List<String> clientCommand = suppliedClientCommand;
-				if (productionCommands) {
-					AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
-					serverCommand = launch.serverCommand();
-					clientCommand = launch.clientCommand();
-				}
-				int exit = superviseLocked(ProcessLayout.adaptive(project), port,
-					serverCommand, clientCommand, readyTimeoutMillis);
-				if (exit == 0) {
-					new WorldBuilderAdaptiveProjectLifecycle()
-						.saveAfterSupervisedRun(project);
-					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
-				}
-				return exit;
-			} finally {
-				lock.release();
-			}
+			return exit;
 		}
 	}
 
@@ -709,7 +685,7 @@ public final class WorldBuilderProcessSupervisor {
 				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY);
 			this.binding = control.resolve("runtime-binding.properties");
 			this.projectId = verified.projectId;
-			this.displayName = displayName;
+			this.displayName = displayName.length() <= 64 ? displayName : verified.projectId;
 			this.sourceFingerprint = sourceFingerprint;
 			this.sourceCapability = sourceCapability;
 			this.origin = verified.origin;

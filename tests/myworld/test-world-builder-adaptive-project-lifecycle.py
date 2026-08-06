@@ -212,8 +212,10 @@ public final class AdaptiveProjectSupervisorHarness {
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
         String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
             StandardCharsets.UTF_8);
-        if (manifest.contains("\"origin\": \"standalone-empty\"")
-            && !(args.length > 2 && "unsafe".equals(args[2]))) {
+        if (!(args.length > 2 && "unsafe".equals(args[2]))) {
+            String expectedOrigin = manifest.contains("\"origin\": \"target-layered\"")
+                ? "target-layered" : manifest.contains("\"origin\": \"target-packed\"")
+                    ? "target-packed" : "standalone-empty";
             List<String> productionServer =
                 WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
             List<String> productionClient =
@@ -221,7 +223,7 @@ public final class AdaptiveProjectSupervisorHarness {
             require(contains(productionServer,
                 "-Dopenrsc.worldBuilderWorkspaceRoot=" + project), "server project root");
             require(contains(productionServer,
-                "-Dopenrsc.worldBuilderProjectOrigin=standalone-empty"), "server origin");
+                "-Dopenrsc.worldBuilderProjectOrigin=" + expectedOrigin), "server origin");
             require(contains(productionServer,
                 "-Dopenrsc.worldBuilderAdaptiveMode=true"), "server adaptive mode");
             require(contains(productionServer,
@@ -261,6 +263,41 @@ public final class AdaptiveProjectSupervisorHarness {
             System.out.println("unsafe-adaptive-supervision-refused");
             return;
         }
+        if (args.length > 2 && "failures".equals(args[2])) {
+            byte[] manifestBefore = Files.readAllBytes(project.resolve("project.json"));
+            boolean timeout = false;
+            try {
+                supervisor.superviseAdaptiveWithCommands(
+                    project, command(classes, "NeverReadyServer", project, port),
+                    client, 350L);
+            } catch (WorldBuilderDiscoveryException expected) {
+                timeout = expected.getMessage().contains("did not become ready");
+            }
+            require(timeout, "adaptive readiness timeout");
+            requireCleanFailure(project, manifestBefore, "readiness timeout");
+
+            boolean early = false;
+            try {
+                supervisor.superviseAdaptiveWithCommands(
+                    project, command(classes, "EarlyServer", project, port),
+                    client, 5000L);
+            } catch (WorldBuilderDiscoveryException expected) {
+                early = expected.getMessage().contains("exited before it became ready");
+            }
+            require(early, "adaptive server early exit");
+            requireCleanFailure(project, manifestBefore, "server early exit");
+
+            int clientFailure = supervisor.superviseAdaptiveWithCommands(
+                project, server, command(classes, "FailingClient", project, port),
+                5000L);
+            require(clientFailure == 7, "adaptive client failure exit");
+            requireCleanFailure(project, manifestBefore, "client failure");
+            String receipt = new String(Files.readAllBytes(
+                project.resolve("run/last-run.json")), StandardCharsets.UTF_8);
+            require(receipt.contains("\"clientExit\": 7"), "client failure receipt");
+            System.out.println("adaptive-supervision-failures-ok");
+            return;
+        }
         Path lockPath = project.resolve("run/world-builder.lock");
         try (FileChannel channel = FileChannel.open(lockPath,
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE);
@@ -293,6 +330,19 @@ public final class AdaptiveProjectSupervisorHarness {
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             "bounded run receipt");
         System.out.println("adaptive-supervision-ok");
+    }
+
+    private static void requireCleanFailure(Path project, byte[] manifestBefore,
+        String label) throws Exception {
+        require(!Files.exists(project.resolve("run/server.pid")), label + " server PID");
+        require(!Files.exists(project.resolve("run/client.pid")), label + " client PID");
+        require(!Files.exists(project.resolve("run/world-builder/ready")),
+            label + " ready cleanup");
+        require(Files.isRegularFile(project.resolve("run/last-run.json")),
+            label + " run receipt");
+        require(Arrays.equals(manifestBefore,
+            Files.readAllBytes(project.resolve("project.json"))),
+            label + " must not save project metadata");
     }
 
     public static final class FakeServer {
@@ -330,6 +380,34 @@ public final class AdaptiveProjectSupervisorHarness {
             Files.write(client.resolve("clientSettings.conf"),
                 "generated=true\n".getBytes(StandardCharsets.UTF_8));
             Thread.sleep(250L);
+        }
+    }
+
+    public static final class NeverReadyServer {
+        public static void main(String[] args) throws Exception {
+            Path project = Paths.get(args[0]);
+            Path control = project.resolve("run/world-builder");
+            Path credential = project.resolve(
+                "working/runtime/server/inc/sqlite/world-builder.credential");
+            Files.createDirectories(control);
+            Files.createDirectories(credential.getParent());
+            Files.write(credential,
+                "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
+            while (!Files.exists(control.resolve("shutdown.request"))) {
+                Thread.sleep(25L);
+            }
+        }
+    }
+
+    public static final class EarlyServer {
+        public static void main(String[] args) {
+            System.exit(9);
+        }
+    }
+
+    public static final class FailingClient {
+        public static void main(String[] args) {
+            System.exit(7);
         }
     }
 }
@@ -382,7 +460,10 @@ public final class AdaptiveProjectSupervisorHarness {
         (server / "conf/world-builder").mkdir(parents=True)
         client.mkdir(parents=True)
         (server / "world-builder.conf").write_text(
-            "server_name: Fixture World Builder\n",
+            "server_name: Fixture World Builder\n"
+            "server_bind_address: 0.0.0.0\n"
+            "custom_landscape: true\n"
+            "unbound_fixture_setting: must-not-enter-a-project\n",
             encoding="utf-8",
         )
         (server / "inc/sqlite/world_builder_seed.db").write_bytes(
@@ -438,6 +519,9 @@ public final class AdaptiveProjectSupervisorHarness {
     @classmethod
     def make_executable_runtime(cls, root: Path) -> Path:
         runtime = cls.make_runtime(root)
+        (runtime / "server/ipbans.txt").write_text(
+            "must-not-enter-a-project\n", encoding="utf-8"
+        )
         source = Path(cls.compile_temp.name) / "fake-native-runtime"
         classes = source / "classes"
         classes.mkdir(parents=True, exist_ok=True)
@@ -466,7 +550,20 @@ public final class Server {
         Files.createDirectories(control);
         Files.createDirectories(credential.getParent());
         Files.write(credential, "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
+        require("true".equals(System.getProperty("openrsc.worldBuilderAdaptiveMode")),
+            "adaptive activation");
+        require("adaptive-world-builder".equals(System.getProperty(
+            "openrsc.layeredNativeWorldRuntimeProfile")), "runtime profile");
+        require(project.resolve("working/layered-world/package").toString().equals(
+            System.getProperty("openrsc.layeredNativeTerrainPackagePath")),
+            "working package binding");
+        require(Files.isRegularFile(Paths.get(System.getProperty(
+            "openrsc.worldBuilderDefinitionEvidencePath"))), "server definitions");
+        require(Files.isRegularFile(Paths.get(System.getProperty(
+            "openrsc.worldBuilderAssetEvidencePath"))), "server assets");
         Files.write(project.resolve("working/runtime/server/ipbans.txt"), new byte[0]);
+        Files.write(control.resolve("runtime-binding.properties"),
+            "fixture-binding=true\n".getBytes(StandardCharsets.US_ASCII));
         try (ServerSocket listener = new ServerSocket(
                 port, 1, InetAddress.getByName("127.0.0.1"))) {
             listener.setSoTimeout(100);
@@ -479,6 +576,10 @@ public final class Server {
                 }
             }
         }
+    }
+
+    private static void require(boolean condition, String label) {
+        if (!condition) throw new IllegalStateException("missing " + label);
     }
 }
 '''.strip()
@@ -493,13 +594,50 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.security.MessageDigest;
 
 public final class FakeAdaptiveClient {
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(System.getProperty("openrsc.worldBuilderWorkspaceRoot"));
+        require("true".equals(System.getProperty("openrsc.worldBuilderAdaptiveMode")),
+            "adaptive activation");
+        require(Files.isRegularFile(Paths.get(System.getProperty(
+            "openrsc.worldBuilderRuntimeBindingFile"))), "runtime binding");
+        require(Files.isRegularFile(Paths.get(System.getProperty(
+            "openrsc.worldBuilderDefinitionEvidenceFile"))), "client definitions");
+        require(Files.isRegularFile(Paths.get(System.getProperty(
+            "openrsc.worldBuilderAssetEvidenceFile"))), "client assets");
+        Path packageRoot = project.resolve("working/layered-world/package");
+        Path terrain = packageRoot.resolve("terrain/global/lp0/xp0-yp0.raw");
+        byte[] payload = Files.readAllBytes(terrain);
+        payload[1] ^= 1;
+        Files.write(terrain, payload);
+        Path manifestPath = packageRoot.resolve("manifest.json");
+        String manifest = new String(Files.readAllBytes(manifestPath),
+            StandardCharsets.UTF_8);
+        String terrainDeclaration = "\"path\": \"terrain/global/lp0/xp0-yp0.raw\"";
+        int declaration = manifest.indexOf(terrainDeclaration);
+        int hashStart = manifest.indexOf("\"sha256\": \"", declaration)
+            + "\"sha256\": \"".length();
+        require(declaration >= 0 && hashStart >= "\"sha256\": \"".length(),
+            "terrain declaration");
+        String updated = manifest.substring(0, hashStart) + sha256(payload)
+            + manifest.substring(hashStart + 64);
+        Files.write(manifestPath, updated.getBytes(StandardCharsets.UTF_8));
         Files.write(project.resolve("working/runtime/client/clientSettings.conf"),
             "generated=true\n".getBytes(StandardCharsets.UTF_8));
         Thread.sleep(250L);
+    }
+
+    private static String sha256(byte[] value) throws Exception {
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest(value);
+        StringBuilder text = new StringBuilder(64);
+        for (byte item : digest) text.append(String.format("%02x", item & 0xff));
+        return text.toString();
+    }
+
+    private static void require(boolean condition, String label) {
+        if (!condition) throw new IllegalStateException("missing " + label);
     }
 }
 '''.strip()
@@ -712,6 +850,20 @@ public final class FakeAdaptiveClient {
             project = Path(summary["projectRoot"])
             source_before = tree_bytes(project / "source")
             baseline_before = tree_bytes(project / "source/layered-baseline/package")
+            self.assertEqual(
+                "must-not-enter-a-project\n",
+                (runtime / "server/ipbans.txt").read_text(encoding="utf-8"),
+            )
+            self.assertFalse(
+                (project / "working/runtime/server/ipbans.txt").exists()
+            )
+            isolated_config = (
+                project / "working/runtime/server/world-builder.conf"
+            ).read_text(encoding="utf-8")
+            self.assertIn("server_bind_address: 127.0.0.1\n", isolated_config)
+            self.assertIn("custom_landscape: false\n", isolated_config)
+            self.assertIn("want_discord_bot: false\n", isolated_config)
+            self.assertNotIn("unbound_fixture_setting", isolated_config)
 
             stored_report = json.loads(
                 (project / "discovery/report.json").read_text(encoding="utf-8")
@@ -763,8 +915,15 @@ public final class FakeAdaptiveClient {
                 self.assertEqual(3, refused_active.returncode)
                 self.assertIn("NO_TARGET", refused_active.stderr)
                 self.assertEqual(before_target, tree_bytes(target))
+            working_before_native = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
             native = self.run_cli("run-adaptive-project", "--project", project)
             self.assertEqual(0, native.returncode, native.stderr)
+            working_after_native = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+            self.assertNotEqual(working_before_native, working_after_native)
             self.assertTrue((project / "working/runtime/server/ipbans.txt").is_file())
             self.assertTrue(
                 (project / "working/runtime/client/clientSettings.conf").is_file()
@@ -812,7 +971,9 @@ public final class FakeAdaptiveClient {
     def test_layered_adoption_save_and_portable_detached_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-layered-") as temp:
             base = Path(temp)
-            target = self.fixtures.descriptor_fixture(str(base))
+            target = self.fixtures.descriptor_fixture(
+                str(base), world_space="global"
+            )
             installation = target / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
@@ -1212,6 +1373,140 @@ public final class FakeAdaptiveClient {
             self.assertEqual(target_before, tree_bytes(target))
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertFalse((project / "run/world-builder.lock").exists())
+
+    def test_adaptive_supervision_failure_cleanup_never_saves_or_touches_target(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-runtime-failures-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Failure cleanup", 43833
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source_before = tree_bytes(project / "source")
+            baseline_before = tree_bytes(
+                project / "source/layered-baseline/package"
+            )
+            failed = self.run_supervision(project, "failures")
+            self.assertEqual(0, failed.returncode, failed.stdout + failed.stderr)
+            self.assertEqual(
+                "adaptive-supervision-failures-ok\n", failed.stdout
+            )
+            reopened = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(
+                baseline_before,
+                tree_bytes(project / "source/layered-baseline/package"),
+            )
+
+    def test_runtime_capability_mismatches_fail_before_project_publication(self):
+        mutations = {
+            "definition-contract": lambda value: value.__setitem__(
+                "definitionContractId", "wrong-definition-contract-v1"
+            ),
+            "placement-order": lambda value: value["authoring"].__setitem__(
+                "placementFamilies", ["scenery", "npc", "ground-item", "boundary"]
+            ),
+            "non-loopback": lambda value: value["activation"].__setitem__(
+                "loopbackOnly", False
+            ),
+            "wrong-void": lambda value: value.__setitem__(
+                "canonicalVoidTile", [0] * 10
+            ),
+            "unexpected-field": lambda value: value.__setitem__(
+                "unexpected", True
+            ),
+        }
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-capability-") as temp:
+            base = Path(temp)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            for index, (label, mutate) in enumerate(mutations.items()):
+                with self.subTest(label=label):
+                    installation = base / label / "World Builder 2"
+                    installation.mkdir(parents=True)
+                    runtime = self.make_runtime(installation)
+                    capability_path = (
+                        runtime
+                        / "server/conf/world-builder/"
+                        "adaptive-runtime-capability-v1.json"
+                    )
+                    capability = json.loads(
+                        capability_path.read_text(encoding="utf-8")
+                    )
+                    mutate(capability)
+                    write_json(capability_path, capability)
+                    runtime_before = tree_bytes(runtime)
+                    refused, _ = self.create_project(
+                        installation,
+                        runtime,
+                        target,
+                        report,
+                        f"Rejected {label}",
+                        43900 + index,
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+                    self.assertFalse(
+                        (installation / "project-registry.json").exists()
+                    )
+                    self.assertFalse(
+                        list((installation / "projects").glob(".staging-*"))
+                    )
+                    self.assertEqual(runtime_before, tree_bytes(runtime))
+                    self.assertEqual(target_before, tree_bytes(target))
+
+    def test_unbound_project_runtime_entry_refuses_reopen(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-closure-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Runtime closure", 43834
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source_before = tree_bytes(project / "source")
+            injected = project / "working/runtime/server/lib/injected.jar"
+            injected.parent.mkdir(parents=True, exist_ok=True)
+            injected.write_bytes(b"unbound runtime entry\n")
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            self.assertIn("working/runtime/server/lib/injected.jar", refused.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
 
     def test_empty_origin_is_deterministic_across_absolute_roots(self):
         generated = []

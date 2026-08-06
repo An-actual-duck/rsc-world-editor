@@ -19,10 +19,12 @@ Adaptive discovery, lossless packed conversion, UUID projects, isolated
 working copies, save/reopen, a generic pinned runtime capability, content-
 neutral packaging, deterministic export, bounded target import, verified
 rollback/recovery, exact undo, and durable application updates are implemented. Native
-adaptive launch remains intentionally fail-closed with `LOADER_INCOMPATIBLE`
-until the owner records target-backed and standalone visual/edit/save/reopen
-validation. That owner-run gate and final release validation remain separate
-from the implemented Phase 6 transaction path.
+adaptive launch now prepares independent server/client runtime copies beneath
+each UUID project and supervises the pinned generic runtime against only that
+project's layered working package. Owner-run target-backed and standalone
+visual/edit/save/reopen validation is still pending; that acceptance gate and
+final release validation remain separate from the implemented launch and Phase
+6 transaction paths.
 
 Build the standalone tools with:
 
@@ -64,9 +66,10 @@ Later launches validate and reopen the selected project. Optional
 `--configuration-role <role>` resolves an explicitly declared multi-role
 server, and `--display-name <name>` names the first project.
 
-The current native-process step stops at the owner-validation gate described
-above. Project creation and validation remain useful and fully transactional;
-the refusal does not partially start a client or server.
+The native-process step verifies the complete project and project-local runtime,
+holds the project run lock, starts the isolated server and client with the
+bundled Java, waits for bound readiness, requests orderly shutdown, and records
+a save only after a clean completion. It never resolves or mutates the target.
 
 ## Read-only discovery
 
@@ -216,9 +219,11 @@ record provenance and zero-delta semantics.
 
 `run-adaptive-project --project <projects/uuid>` supervises only one verified
 adaptive project. Runtime PIDs, logs, locks, credentials, generated ban lists,
-and server/client mutable state remain inside that UUID project. At present it
-reaches the deliberate owner-validation gate and exits without a partial
-native launch.
+database state, client settings, and server/client mutable state remain inside
+that UUID project. Immutable runtime assets, definition/asset evidence, the
+working package, and source baseline are revalidated before process creation;
+readiness, server, or client failure cleans up supervision state and does not
+commit a project save.
 
 Application updates replace only manifest-owned content-neutral files. They
 preserve all UUID projects, registry/selection, historical `workspace/`,

@@ -743,16 +743,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Adaptive project run directory is missing, linked, or escaped.",
 				"Restore the complete contained project run directory.");
 		}
-		try (FileChannel channel = openLock(run.resolve("world-builder.lock"))) {
-			FileLock lock = tryLock(channel);
-			if (lock == null) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-				"run/world-builder.lock", "Adaptive project is currently running.",
-				"Close the Builder before invoking save-project separately.");
-			try {
-				return saveWithRunLockHeld(project);
-			} finally {
-				lock.release();
-			}
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			return saveWithRunLockHeld(project);
 		}
 	}
 

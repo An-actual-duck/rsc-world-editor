@@ -219,7 +219,14 @@ public final class AdaptiveDiscoveryDriftHarness {
             "groundItems": [40, 41],
         }
 
-    def write_package(self, package: Path, *, terrain_seed: int = 0, scenery_id: int = 20):
+    def write_package(
+        self,
+        package: Path,
+        *,
+        terrain_seed: int = 0,
+        scenery_id: int = 20,
+        world_space: str = "creator-space",
+    ):
         terrain_relative = "terrain/creator/lp0/xp0-yp0.raw"
         placement_relative = "placements/creator/lp0.json"
         terrain = package / terrain_relative
@@ -228,7 +235,7 @@ public final class AdaptiveDiscoveryDriftHarness {
         placements = {
             "schemaVersion": 3,
             "encoding": "layered-world-placements-v3",
-            "worldSpace": "creator-space",
+            "worldSpace": world_space,
             "level": 0,
             "boundaries": [
                 {
@@ -273,13 +280,13 @@ public final class AdaptiveDiscoveryDriftHarness {
             "packageVersion": "9.2.0-alpha.1",
             "coordinateModel": "signed-layered-v1",
             "storage": {"presentationChunkSize": 24, "sectorSize": 48},
-            "worldSpaces": [{"id": "creator-space", "kind": "static"}],
+            "worldSpaces": [{"id": world_space, "kind": "static"}],
             "levels": [
                 {
                     "level": 0,
                     "name": "Surface",
                     "role": "surface",
-                    "worldSpace": "creator-space",
+                    "worldSpace": world_space,
                 }
             ],
             "terrainSectors": [
@@ -290,7 +297,7 @@ public final class AdaptiveDiscoveryDriftHarness {
                     "sectorX": 0,
                     "sectorY": 0,
                     "sha256": sha256(terrain),
-                    "worldSpace": "creator-space",
+                    "worldSpace": world_space,
                 }
             ],
             "placementSets": [
@@ -300,7 +307,7 @@ public final class AdaptiveDiscoveryDriftHarness {
                     "level": 0,
                     "path": placement_relative,
                     "sha256": sha256(placement),
-                    "worldSpace": "creator-space",
+                    "worldSpace": world_space,
                 }
             ],
         }
@@ -468,13 +475,19 @@ public final class AdaptiveDiscoveryDriftHarness {
         )
         return sources
 
-    def descriptor_fixture(self, base: str, *, representation: str = "layered") -> Path:
+    def descriptor_fixture(
+        self,
+        base: str,
+        *,
+        representation: str = "layered",
+        world_space: str = "creator-space",
+    ) -> Path:
         root = Path(base) / "target"
         common = self.write_common_evidence(root, representation=representation)
         if representation == "layered":
             server_map = root / "server/maps/active"
             client_map = root / "client/maps/active"
-            self.write_package(server_map)
+            self.write_package(server_map, world_space=world_space)
             client_map.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(server_map, client_map)
             placements = []

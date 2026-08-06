@@ -42,6 +42,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/world-builder.conf",
 			"server/connections.conf",
+			"server/ipbans.txt",
 			"server/inc/sqlite/world_builder.db",
 			"server/inc/sqlite/world-builder.credential",
 			"client/clientSettings.conf",
@@ -97,20 +98,11 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			copyVerified(input, output, item.getValue());
 		}
 
-		Path template = requireFile(
-			source.root.resolve("server/world-builder.conf"),
+		requireFile(source.root.resolve("server/world-builder.conf"),
 			"server/world-builder.conf");
 		Path config = runtime.resolve("server/world-builder.conf");
 		Files.createDirectories(config.getParent());
-		try {
-			WorldBuilderConfigWriter.write(template, config, overrides(port));
-		} catch (WorldBuilderDiscoveryException invalid) {
-			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-				"working/runtime/server/world-builder.conf",
-				"Adaptive runtime configuration template is incompatible: "
-					+ invalid.getMessage(),
-				"Restore the exact candidate runtime configuration.");
-		}
+		writeConfig(config, overrides(port));
 		Files.write(runtime.resolve("server/connections.conf"),
 			"db_type: sqlite\n".getBytes(StandardCharsets.UTF_8));
 		copyVerified(
@@ -137,7 +129,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Path runtime = realDirectory(project.resolve("working/runtime"),
 			"project-local adaptive runtime");
 		Path inventoryPath = requireFile(project.resolve(INVENTORY_FILE), INVENTORY_FILE);
-		byte[] inventoryBytes = Files.readAllBytes(inventoryPath);
+		byte[] inventoryBytes = readBounded(inventoryPath,
+			WorldBuilderContractLimits.MAX_JSON_BYTES, INVENTORY_FILE);
 		if (!expectedFingerprint.equals(WorldBuilderHashes.sha256(inventoryBytes))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, INVENTORY_FILE,
 				"Project runtime inventory does not match its bound fingerprint.",
@@ -168,6 +161,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime.");
 			}
 		}
+		validateRuntimeClosure(runtime, entries);
 		validateCapability(runtime.resolve(
 			"server/conf/world-builder/adaptive-runtime-capability-v1.json"));
 		validateConfig(runtime.resolve("server/world-builder.conf"), port);
@@ -203,8 +197,10 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			SERVER_ASSET_EVIDENCE);
 		Path clientAssets = requireFile(project.resolve(CLIENT_ASSET_EVIDENCE),
 			CLIENT_ASSET_EVIDENCE);
-		byte[] serverAssetBytes = Files.readAllBytes(serverAssets);
-		byte[] clientAssetBytes = Files.readAllBytes(clientAssets);
+		byte[] serverAssetBytes = readBounded(serverAssets,
+			WorldBuilderContractLimits.MAX_JSON_BYTES, SERVER_ASSET_EVIDENCE);
+		byte[] clientAssetBytes = readBounded(clientAssets,
+			WorldBuilderContractLimits.MAX_JSON_BYTES, CLIENT_ASSET_EVIDENCE);
 		if (!Arrays.equals(expectedAssets, serverAssetBytes)
 			|| !Arrays.equals(expectedAssets, clientAssetBytes)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
@@ -225,6 +221,11 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("server_name", "World Builder 2 Runtime");
 		values.put("server_name_welcome", "World Builder 2 Runtime");
 		values.put("welcome_text", "Local isolated World Builder");
+		values.put("client_version", "10048");
+		values.put("member_world", "true");
+		values.put("based_map_data", "64");
+		values.put("want_myworld", "false");
+		values.put("custom_landscape", "false");
 		values.put("server_bind_address", "127.0.0.1");
 		values.put("server_port", Integer.toString(port));
 		values.put("ws_server_port", Integer.toString(port == 65534 ? 65533 : port + 1));
@@ -241,6 +242,14 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("monitor_online", "false");
 		values.put("monitor_automatic_shutdown", "false");
 		values.put("want_auto_server_shutdown", "false");
+		values.put("want_discord_auction_updates", "false");
+		values.put("want_discord_monitoring_updates", "false");
+		values.put("want_discord_staff_commands", "false");
+		values.put("want_discord_report_abuse_updates", "false");
+		values.put("want_discord_naughty_words_updates", "false");
+		values.put("want_discord_general_logging", "false");
+		values.put("want_discord_bot", "false");
+		values.put("want_discord_downtime_reports", "false");
 		values.put("want_layered_player_location_authority", "true");
 		values.put("want_layered_spatial_runtime_authority", "true");
 		values.put("want_layered_protocol_client_authority", "true");
@@ -253,6 +262,18 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("want_layered_native_terrain_atomic_activation", "true");
 		values.put("layered_native_world_runtime_profile", "adaptive-world-builder");
 		return values;
+	}
+
+	private static void writeConfig(Path destination,
+		LinkedHashMap<String,String> values) throws IOException {
+		StringBuilder rendered = new StringBuilder(
+			"# Generated adaptive World Builder project isolation settings\n");
+		for (Map.Entry<String,String> item : values.entrySet()) {
+			rendered.append(item.getKey()).append(": ")
+				.append(item.getValue()).append('\n');
+		}
+		Files.write(destination,
+			rendered.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static void collect(final Path root, final String prefix,
@@ -485,17 +506,19 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 
 	private static void validateCapability(Path path)
 		throws IOException, WorldBuilderContractException {
+		final String relative =
+			"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json";
 		Map<String,Object> value;
 		try {
-			value = WorldBuilderJsonDocuments.readObject(requireFile(path,
-				"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json"));
+			value = WorldBuilderJsonDocuments.readObject(requireFile(path, relative));
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-				"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json",
+				relative,
 				"Adaptive runtime capability evidence is malformed.",
 				"Restore the exact project-local runtime.");
 		}
-		Map<String,String> expected = new LinkedHashMap<String,String>();
+		Map<String,Object> expected = new LinkedHashMap<String,Object>();
+		expected.put("schemaVersion", Long.valueOf(1L));
 		expected.put("manifestType", "adaptive-world-builder-runtime-capability");
 		expected.put("capabilityId", "adaptive-world-builder-runtime-capability-v1");
 		expected.put("profileId", "adaptive-world-builder");
@@ -503,17 +526,82 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		expected.put("clientBuildId", "core-framework-adaptive-builder-client-v1");
 		expected.put("loaderId", "generic-signed-layered-loader-v1");
 		expected.put("authoringId", "generic-signed-layered-authoring-v1");
+		expected.put("definitionContractId",
+			"world-builder-definition-catalog-binding-v1");
+		expected.put("assetContractId", "world-builder-client-asset-binding-v1");
 		expected.put("protocolId", "world-builder-native-layered-protocol-v1");
+		expected.put("effectiveCompositionId",
+			"world-builder-effective-static-composition-v1");
+		expected.put("mapFormatId", "signed-layered-v1");
 		expected.put("packageSchemaId", "layered-world-package-v1");
 		expected.put("coordinateModel", "signed-layered-v1");
-		for (Map.Entry<String,String> item : expected.entrySet()) {
+		for (Map.Entry<String,Object> item : expected.entrySet()) {
 			if (!item.getValue().equals(value.get(item.getKey()))) {
-				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-					"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json",
-					"Project runtime capability identity is incompatible: " + item.getKey() + ".",
-					"Restore the exact pinned adaptive project runtime.");
+				throw incompatibleCapability(relative, item.getKey());
 			}
 		}
+		if (!exactKeys(value, "schemaVersion", "manifestType", "capabilityId",
+			"profileId", "serverBuildId", "clientBuildId", "loaderId",
+			"authoringId", "definitionContractId", "assetContractId", "protocolId",
+			"effectiveCompositionId", "mapFormatId", "packageSchemaId",
+			"coordinateModel", "encodingVersions", "authoring", "activation",
+			"canonicalVoidTile")) {
+			throw incompatibleCapability(relative, "document shape");
+		}
+		if (!numericList(value.get("encodingVersions"), 1L, 3L)) {
+			throw incompatibleCapability(relative, "encodingVersions");
+		}
+		Map<String,Object> authoring = object(value.get("authoring"));
+		if (authoring == null
+			|| !exactKeys(authoring, "editExistingLevels", "createLevels",
+				"placementFamilies")
+			|| !Boolean.TRUE.equals(authoring.get("editExistingLevels"))
+			|| !Boolean.TRUE.equals(authoring.get("createLevels"))
+			|| !Arrays.asList("boundary", "ground-item", "npc", "scenery")
+				.equals(authoring.get("placementFamilies"))) {
+			throw incompatibleCapability(relative, "authoring");
+		}
+		Map<String,Object> activation = object(value.get("activation"));
+		if (activation == null
+			|| !exactKeys(activation, "worldBuilderMode", "adaptiveMode",
+				"runtimeProfile", "builderOnly", "loopbackOnly")
+			|| !Boolean.TRUE.equals(activation.get("worldBuilderMode"))
+			|| !Boolean.TRUE.equals(activation.get("adaptiveMode"))
+			|| !"adaptive-world-builder".equals(activation.get("runtimeProfile"))
+			|| !Boolean.TRUE.equals(activation.get("builderOnly"))
+			|| !Boolean.TRUE.equals(activation.get("loopbackOnly"))) {
+			throw incompatibleCapability(relative, "activation");
+		}
+		if (!numericList(value.get("canonicalVoidTile"),
+			0L, 1L, 8L, 0L, 0L, 0L, 0L, 0L, 0L, 0L)) {
+			throw incompatibleCapability(relative, "canonicalVoidTile");
+		}
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String,Object> object(Object value) {
+		return value instanceof Map ? (Map<String,Object>)value : null;
+	}
+
+	private static boolean exactKeys(Map<String,Object> value, String... keys) {
+		return value.keySet().equals(new HashSet<String>(Arrays.asList(keys)));
+	}
+
+	private static boolean numericList(Object value, long... expected) {
+		if (!(value instanceof List)) return false;
+		List<?> values = (List<?>)value;
+		if (values.size() != expected.length) return false;
+		for (int index = 0; index < expected.length; index++) {
+			if (!Long.valueOf(expected[index]).equals(values.get(index))) return false;
+		}
+		return true;
+	}
+
+	private static WorldBuilderContractException incompatibleCapability(
+		String relative, String field) {
+		return problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, relative,
+			"Project runtime capability identity is incompatible: " + field + ".",
+			"Restore the exact pinned adaptive project runtime.");
 	}
 
 	private static void validateConfig(Path path, int port)
@@ -521,7 +609,9 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Path config = requireFile(path, "working/runtime/server/world-builder.conf");
 		Map<String,String> values = new HashMap<String,String>();
 		Set<String> duplicated = new HashSet<String>();
-		for (String raw : Files.readAllLines(config, StandardCharsets.UTF_8)) {
+		String document = new String(readBounded(config, 1024L * 1024L,
+			"working/runtime/server/world-builder.conf"), StandardCharsets.UTF_8);
+		for (String raw : document.split("\\n", -1)) {
 			String line = raw.trim();
 			if (line.isEmpty() || line.startsWith("#") || line.indexOf(':') < 0) continue;
 			int separator = line.indexOf(':');
@@ -532,6 +622,12 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			if (values.put(key, value) != null) duplicated.add(key);
 		}
 		Map<String,String> required = overrides(port);
+		if (!values.keySet().equals(required.keySet())) {
+			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+				"working/runtime/server/world-builder.conf",
+				"Project runtime configuration has missing or unexpected settings.",
+				"Restore the generated project-local adaptive configuration.");
+		}
 		for (Map.Entry<String,String> item : required.entrySet()) {
 			if (duplicated.contains(item.getKey())
 				|| !item.getValue().equals(values.get(item.getKey()))) {
@@ -542,6 +638,90 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the generated project-local adaptive configuration.");
 			}
 		}
+	}
+
+	private static void validateRuntimeClosure(final Path runtime,
+		final Map<String,Entry> immutableEntries)
+		throws IOException, WorldBuilderContractException {
+		final String[] unsafe = new String[] {null};
+		final int[] count = new int[] {0};
+		final long[] total = new long[] {0L};
+		Files.walkFileTree(runtime, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) {
+				if (!attributes.isDirectory() || Files.isSymbolicLink(directory)
+					|| ++count[0] > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES * 2) {
+					unsafe[0] = portableRuntimePath(runtime, directory);
+					return FileVisitResult.TERMINATE;
+				}
+				return FileVisitResult.CONTINUE;
+			}
+
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) {
+				String relative = portableRuntimePath(runtime, file);
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file)
+					|| ++count[0] > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES * 2
+					|| attributes.size() < 0L
+					|| attributes.size() > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
+					|| !knownRuntimePath(relative, immutableEntries)) {
+					unsafe[0] = relative;
+					return FileVisitResult.TERMINATE;
+				}
+				try {
+					total[0] = Math.addExact(total[0], attributes.size());
+				} catch (ArithmeticException overflow) {
+					unsafe[0] = relative;
+					return FileVisitResult.TERMINATE;
+				}
+				if (total[0] > WorldBuilderContractLimits.MAX_INVENTORY_TOTAL_BYTES) {
+					unsafe[0] = relative;
+					return FileVisitResult.TERMINATE;
+				}
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		if (unsafe[0] != null) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"working/runtime/" + unsafe[0],
+				"Project runtime contains an unbound, linked, or unbounded entry.",
+				"Restore the complete project-local runtime before launching.");
+		}
+	}
+
+	private static String portableRuntimePath(Path runtime, Path path) {
+		String relative = runtime.relativize(path).toString().replace('\\', '/');
+		return relative.isEmpty() ? "." : relative;
+	}
+
+	private static boolean knownRuntimePath(String relative,
+		Map<String,Entry> immutableEntries) {
+		if (immutableEntries.containsKey(relative)
+			|| GENERATED_SOURCE_PATHS.contains(relative)) return true;
+		if ("runtime-assets.sha256".equals(relative)
+			|| "runtime.json".equals(relative)
+			|| SERVER_DEFINITION_EVIDENCE.substring("working/runtime/".length())
+				.equals(relative)
+			|| CLIENT_DEFINITION_EVIDENCE.substring("working/runtime/".length())
+				.equals(relative)
+			|| SERVER_ASSET_EVIDENCE.substring("working/runtime/".length())
+				.equals(relative)
+			|| CLIENT_ASSET_EVIDENCE.substring("working/runtime/".length())
+				.equals(relative)) return true;
+		return relative.equals("server/inc/sqlite/world_builder.db-journal")
+			|| relative.equals("server/inc/sqlite/world_builder.db-wal")
+			|| relative.equals("server/inc/sqlite/world_builder.db-shm");
+	}
+
+	private static byte[] readBounded(Path path, long maximum, String label)
+		throws IOException, WorldBuilderContractException {
+		long size = Files.size(path);
+		if (size < 1L || size > maximum) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, label,
+				"Adaptive runtime evidence size is outside its bound.",
+				"Restore one bounded project-local runtime file.");
+		}
+		return Files.readAllBytes(path);
 	}
 
 	private static Path realDirectory(Path requested, String label)
