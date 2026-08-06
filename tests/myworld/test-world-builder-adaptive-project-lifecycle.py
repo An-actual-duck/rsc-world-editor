@@ -19,8 +19,32 @@ SOURCE_ROOT = ROOT / "tools/world-builder/src"
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
 DISCOVERY_TEST = ROOT / "tests/myworld/test-world-builder-adaptive-discovery.py"
 PACKED_CONVERSION_TEST = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
+RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+RUNTIME_ALLOWLIST_RESOURCE = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
+REQUIRED_LANGUAGE_BUNDLES = (
+    "AuthenticMessages_en_UK.properties",
+    "AuthenticMessages_en_UK_female.properties",
+    "AuthenticMessages_en_UK_female_no_misgender.properties",
+    "AuthenticMessages_en_UK_gender_neutral.properties",
+    "AuthenticMessages_en_UK_male.properties",
+    "CustomMessages_en_UK.properties",
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+)
+EMPTY_LANGUAGE_BUNDLES = {
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+}
+REQUIRED_DATABASE_PATCHES = (
+    "2021_05_11_add_db_patches.sql",
+    "2023_02_01_former_names.sql",
+    "2026_05_14_add_summoning_skill.sql",
+    "2026_08_03_add_blessing_skill.sql",
+)
 
 
 def load_discovery_fixtures():
@@ -49,6 +73,18 @@ def load_packed_fixtures():
 
 def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def runtime_allowlist_records() -> tuple[tuple[str, str, str], ...]:
+    records = []
+    for raw in RUNTIME_ALLOWLIST.read_text(encoding="utf-8").splitlines():
+        if not raw or raw.startswith("#"):
+            continue
+        fields = tuple(raw.split("\t"))
+        if len(fields) != 3:
+            raise AssertionError(f"Malformed fixture runtime allowlist line: {raw!r}")
+        records.append(fields)
+    return tuple(records)
 
 
 def write_json(path: Path, value: dict) -> None:
@@ -97,6 +133,9 @@ class AdaptiveProjectLifecycleTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        allowlist_resource = cls.classes / RUNTIME_ALLOWLIST_RESOURCE
+        allowlist_resource.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(RUNTIME_ALLOWLIST, allowlist_resource)
         harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/AdaptiveProjectFailureHarness.java"
@@ -361,6 +400,14 @@ public final class AdaptiveProjectSupervisorHarness {
             Files.write(credential,
                 "Abcdefghijk23456789Z".getBytes(StandardCharsets.US_ASCII));
             Files.write(server.resolve("ipbans.txt"), new byte[0]);
+            Files.write(server.resolve("client.pem"),
+                "fixture client key\n".getBytes(StandardCharsets.US_ASCII));
+            Files.write(server.resolve("server.pem"),
+                "fixture server key\n".getBytes(StandardCharsets.US_ASCII));
+            Files.write(server.resolve("create_db.log"),
+                "fixture database setup log\n".getBytes(StandardCharsets.US_ASCII));
+            Files.write(server.resolve("create_db_error.log"),
+                "fixture database error log\n".getBytes(StandardCharsets.US_ASCII));
             try (ServerSocket listener = new ServerSocket(
                     port, 1, InetAddress.getByName("127.0.0.1"))) {
                 listener.setSoTimeout(100);
@@ -508,6 +555,31 @@ public final class AdaptiveProjectSupervisorHarness {
             server / "conf/world-builder/adaptive-runtime-capability-v1.json",
             capability,
         )
+        for name in REQUIRED_LANGUAGE_BUNDLES:
+            path = server / "conf/server/languages" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(
+                b"" if name in EMPTY_LANGUAGE_BUNDLES else b"fixture bundle\n"
+            )
+        for name in REQUIRED_DATABASE_PATCHES:
+            path = server / "database/sqlite/patches" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"-- fixture runtime migration\n")
+        for _, destination, role in runtime_allowlist_records():
+            path = runtime / destination
+            if path.exists():
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if path.name in EMPTY_LANGUAGE_BUNDLES:
+                path.write_bytes(b"")
+            elif path.suffix == ".jar":
+                with zipfile.ZipFile(path, "w") as archive:
+                    entry = zipfile.ZipInfo(
+                        "fixture/Runtime.class", (2024, 1, 2, 3, 4, 6)
+                    )
+                    archive.writestr(entry, b"fixture")
+            else:
+                path.write_bytes(("fixture " + role + "\n").encode("utf-8"))
         for jar in (
             server / "core.jar",
             server / "plugins.jar",
@@ -570,6 +642,14 @@ public final class Server {
         require(Files.isRegularFile(Paths.get(System.getProperty(
             "openrsc.worldBuilderAssetEvidencePath"))), "server assets");
         Files.write(project.resolve("working/runtime/server/ipbans.txt"), new byte[0]);
+        Files.write(project.resolve("working/runtime/server/client.pem"),
+            "fixture client key\n".getBytes(StandardCharsets.US_ASCII));
+        Files.write(project.resolve("working/runtime/server/server.pem"),
+            "fixture server key\n".getBytes(StandardCharsets.US_ASCII));
+        Files.write(project.resolve("working/runtime/server/create_db.log"),
+            "fixture database setup log\n".getBytes(StandardCharsets.US_ASCII));
+        Files.write(project.resolve("working/runtime/server/create_db_error.log"),
+            "fixture database error log\n".getBytes(StandardCharsets.US_ASCII));
         Files.write(control.resolve("runtime-binding.properties"),
             "fixture-binding=true\n".getBytes(StandardCharsets.US_ASCII));
         try (ServerSocket listener = new ServerSocket(
@@ -938,6 +1018,19 @@ public final class FakeAdaptiveClient {
             )["fingerprints"]["workingSha256"]
             self.assertNotEqual(working_before_native, working_after_native)
             self.assertTrue((project / "working/runtime/server/ipbans.txt").is_file())
+            for name in ("client.pem", "server.pem"):
+                source_key = runtime / "server" / name
+                project_key = project / "working/runtime/server" / name
+                self.assertFalse(source_key.exists(), source_key)
+                self.assertTrue(project_key.is_file(), project_key)
+                self.assertFalse(project_key.is_symlink(), project_key)
+                self.assertEqual(1, project_key.stat().st_nlink)
+                self.assertGreater(project_key.stat().st_size, 0)
+            for name in ("create_db.log", "create_db_error.log"):
+                self.assertFalse((project / "working/runtime/server" / name).exists())
+                self.assertTrue(
+                    (project / "working/runtime/server/logs" / name).is_file()
+                )
             self.assertTrue(
                 (project / "working/runtime/client/clientSettings.conf").is_file()
             )
@@ -984,6 +1077,226 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, undo_result.returncode)
             self.assertIn("NO_TARGET", undo_result.stderr)
             self.assertFalse(missing_target.exists())
+
+    def test_native_runtime_bundles_preserve_bounded_empty_fallbacks(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-native-runtime-assets-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation,
+                runtime,
+                target,
+                report,
+                "Native runtime assets",
+                43813,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            inventory = (
+                project / "working/runtime/runtime-assets.sha256"
+            ).read_text(encoding="utf-8")
+            empty_digest = hashlib.sha256(b"").hexdigest()
+            for bundle in EMPTY_LANGUAGE_BUNDLES:
+                relative = "server/conf/server/languages/" + bundle
+                copied = project / "working/runtime" / relative
+                self.assertTrue(copied.is_file(), copied)
+                self.assertEqual(b"", copied.read_bytes())
+                self.assertIn(f"{empty_digest}\t0\t{relative}\n", inventory)
+            for patch in REQUIRED_DATABASE_PATCHES:
+                self.assertTrue(
+                    (
+                        project
+                        / "working/runtime/server/database/sqlite/patches"
+                        / patch
+                    ).is_file()
+                )
+            definition_destinations = {
+                destination
+                for _, destination, role in runtime_allowlist_records()
+                if role == "default-definition-catalog"
+            }
+            self.assertTrue(definition_destinations)
+            for relative in definition_destinations:
+                self.assertEqual(
+                    (runtime / relative).read_bytes(),
+                    (project / "working/runtime" / relative).read_bytes(),
+                    relative,
+                )
+            self.assertFalse(
+                (project / "working/runtime/server/conf/server/defs/locs").exists()
+            )
+
+            validated = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(0, validated.returncode, validated.stderr)
+
+            changed = (
+                project
+                / "working/runtime/server/conf/server/languages/"
+                "CustomMessages_en_UK_female.properties"
+            )
+            changed.write_bytes(b"changed\n")
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            changed.write_bytes(b"")
+
+            missing = (
+                project
+                / "working/runtime/server/database/sqlite/patches/"
+                "2026_08_03_add_blessing_skill.sql"
+            )
+            missing.unlink()
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("UNSAFE_PATH", refused.stderr)
+            self.assertIn("2026_08_03_add_blessing_skill.sql", refused.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+
+            incomplete_installation = base / "Incomplete World Builder 2"
+            incomplete_installation.mkdir()
+            incomplete_runtime = self.make_runtime(incomplete_installation)
+            (
+                incomplete_runtime
+                / "server/conf/server/languages/CustomMessages_en_UK.properties"
+            ).unlink()
+            refused, _ = self.create_project(
+                incomplete_installation,
+                incomplete_runtime,
+                target,
+                report,
+                "Incomplete native runtime",
+                43814,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("CustomMessages_en_UK.properties", refused.stderr)
+            self.assertFalse(
+                (incomplete_installation / "project-registry.json").exists()
+            )
+            self.assertEqual(target_before, tree_bytes(target))
+
+            keyed_installation = base / "Keyed World Builder 2"
+            keyed_installation.mkdir()
+            keyed_runtime = self.make_runtime(keyed_installation)
+            (keyed_runtime / "server/client.pem").write_text(
+                "shared key material must not be imported\n", encoding="utf-8"
+            )
+            refused, _ = self.create_project(
+                keyed_installation,
+                keyed_runtime,
+                target,
+                report,
+                "Shared-key runtime",
+                43815,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("project-only generated", refused.stderr)
+            self.assertFalse((keyed_installation / "project-registry.json").exists())
+            self.assertEqual(target_before, tree_bytes(target))
+
+            located_installation = base / "Located World Builder 2"
+            located_installation.mkdir()
+            located_runtime = self.make_runtime(located_installation)
+            located_definition = (
+                located_runtime
+                / "server/conf/server/defs/locs/private-target-locations.xml"
+            )
+            located_definition.parent.mkdir(parents=True)
+            located_definition.write_text("must not enter a project\n", encoding="utf-8")
+            refused, _ = self.create_project(
+                located_installation,
+                located_runtime,
+                target,
+                report,
+                "Located definition runtime",
+                43817,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("exact allowlist", refused.stderr)
+            self.assertFalse((located_installation / "project-registry.json").exists())
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_project_local_pem_links_refuse_reopen(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-pem-safety-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "PEM safety", 43816
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            server = project / "working/runtime/server"
+            for name in ("client.pem", "server.pem"):
+                (server / name).write_text("project-local key\n", encoding="utf-8")
+
+            accepted = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+
+            external = base / "external-key.pem"
+            external.write_text("external key must remain unchanged\n", encoding="utf-8")
+            before = external.read_bytes()
+            client_key = server / "client.pem"
+            client_key.unlink()
+            client_key.symlink_to(external)
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            self.assertEqual(before, external.read_bytes())
+
+            client_key.unlink()
+            os.link(external, client_key)
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            self.assertEqual(before, external.read_bytes())
+            self.assertEqual(target_before, tree_bytes(target))
 
     def test_layered_adoption_save_and_portable_detached_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-layered-") as temp:
@@ -1331,11 +1644,27 @@ public final class FakeAdaptiveClient {
             projects = json.loads(listing.stdout)["projects"]
             self.assertEqual(1, len(projects))
             first_project = projects[0]["projectId"]
+            project = installation / "projects" / first_project
+            generated_keys = {
+                "client.pem": b"fixture client key\n",
+                "server.pem": b"fixture server key\n",
+            }
+            for name, expected in generated_keys.items():
+                self.assertEqual(
+                    expected,
+                    (project / "working/runtime/server" / name).read_bytes(),
+                )
+                self.assertFalse((runtime / "server" / name).exists())
             self.assertFalse(list(installation.glob(".adaptive-discovery-*")))
             self.assertEqual(target_before, tree_bytes(target))
 
             reopened = self.run_cli(*arguments)
             self.assertEqual(0, reopened.returncode, reopened.stderr)
+            for name, expected in generated_keys.items():
+                self.assertEqual(
+                    expected,
+                    (project / "working/runtime/server" / name).read_bytes(),
+                )
             listing = self.run_cli(
                 "list-projects", "--installation-root", installation
             )
@@ -1390,6 +1719,24 @@ public final class FakeAdaptiveClient {
             self.assertEqual(target_before, tree_bytes(target))
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertFalse((project / "run/world-builder.lock").exists())
+
+            (project / "logs/shared.log").unlink()
+            linked_key = server / "client.pem"
+            linked_key.symlink_to(external / "preserve.txt")
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            self.assertIn("working/runtime/server/client.pem", refused.stderr)
+            self.assertEqual(shared_before, tree_bytes(external))
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
 
     def test_adaptive_supervision_failure_cleanup_never_saves_or_touches_target(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-runtime-failures-") as temp:

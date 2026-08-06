@@ -6,6 +6,8 @@ SOURCE_DIR="$ROOT_DIR/tools/world-builder/src"
 OUTPUT_DIR="$ROOT_DIR/output/world-builder-tools"
 CLASSES_DIR="$OUTPUT_DIR/classes"
 JAR_PATH="$OUTPUT_DIR/world-builder-tools.jar"
+RUNTIME_ALLOWLIST="$ROOT_DIR/release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+RUNTIME_ALLOWLIST_RESOURCE="$CLASSES_DIR/com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 
 for command_name in javac jar; do
 	command -v "$command_name" >/dev/null 2>&1 || {
@@ -23,11 +25,18 @@ mapfile -t sources < <(find "$SOURCE_DIR" -type f -name '*.java' -print | sort)
 rm -rf "$OUTPUT_DIR"
 mkdir -p "$CLASSES_DIR"
 
+[[ -f "$RUNTIME_ALLOWLIST" && ! -L "$RUNTIME_ALLOWLIST" ]] || {
+	printf 'FAIL: Missing or unsafe runtime allowlist: %s\n' "$RUNTIME_ALLOWLIST" >&2
+	exit 1
+}
+
 if javac --help 2>&1 | grep -q -- '--release'; then
 	javac --release 8 -encoding UTF-8 -d "$CLASSES_DIR" "${sources[@]}"
 else
 	javac -source 8 -target 8 -encoding UTF-8 -d "$CLASSES_DIR" "${sources[@]}"
 fi
+mkdir -p "$(dirname "$RUNTIME_ALLOWLIST_RESOURCE")"
+cp "$RUNTIME_ALLOWLIST" "$RUNTIME_ALLOWLIST_RESOURCE"
 jar cfe "$JAR_PATH" com.openrsc.worldbuilder.WorldBuilderCli -C "$CLASSES_DIR" .
 
 printf 'Built %s\n' "$JAR_PATH"

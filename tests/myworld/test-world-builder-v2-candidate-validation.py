@@ -81,6 +81,35 @@ TOOL_ENTRIES = (
     "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
     "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
 )
+TOOL_RUNTIME_ALLOWLIST_ENTRY = (
+    "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
+)
+DEFINITION_FIXTURES = (
+    "server/conf/server/defs/TileDef.xml",
+    "server/conf/server/defs/extras/ItemCookingDef.xml",
+)
+REQUIRED_LANGUAGE_BUNDLES = (
+    "AuthenticMessages_en_UK.properties",
+    "AuthenticMessages_en_UK_female.properties",
+    "AuthenticMessages_en_UK_female_no_misgender.properties",
+    "AuthenticMessages_en_UK_gender_neutral.properties",
+    "AuthenticMessages_en_UK_male.properties",
+    "CustomMessages_en_UK.properties",
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+)
+EMPTY_LANGUAGE_BUNDLES = {
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+}
+REQUIRED_DATABASE_PATCHES = (
+    "2021_05_11_add_db_patches.sql",
+    "2023_02_01_former_names.sql",
+    "2026_05_14_add_summoning_skill.sql",
+    "2026_08_03_add_blessing_skill.sql",
+)
 RUNTIME_CONFIGURATION = (
     b"server_bind_address: 127.0.0.1\n"
     b"client_version: 10048\n"
@@ -182,6 +211,10 @@ class CandidateFixture:
         core_seed_object_rows: int = 0,
         plugin_world_payload: bool = False,
         capability: bytes = CAPABILITY,
+        include_native_runtime_records: bool = True,
+        include_definition_records: bool = True,
+        include_locs_record: bool = False,
+        include_generated_key_record: bool = False,
     ) -> None:
         self.base = base
         self.source = base / "source"
@@ -208,7 +241,6 @@ class CandidateFixture:
             if plugin_world_payload
             else jar_bytes(("fixture/Plugin.class",))
         )
-        self.tools_jar = jar_bytes(TOOL_ENTRIES)
         core_paths = {
             "Client_Base/Open_RSC_Client.jar": self.client_jar,
             "server/core.jar": self.server_jar,
@@ -220,13 +252,56 @@ class CandidateFixture:
             "server/conf/server/data/private-map.bin": self.forbidden_world,
             "release/player/ASSET-SOURCES.txt": b"fixture\n",
             "dev/myworld/assets/ui/world-editor/CREDITS.md": b"fixture\n",
+            DEFINITION_FIXTURES[0]: b"<tiles/>\n",
+            DEFINITION_FIXTURES[1]: b"<cooking/>\n",
+            "server/conf/server/defs/locs/private-target-locations.xml": (
+                b"must-not-ship\n"
+            ),
+            "server/client.pem": b"generated client key must not ship\n",
+            "server/server.pem": b"generated server key must not ship\n",
         }
+        for name in REQUIRED_LANGUAGE_BUNDLES:
+            core_paths[f"server/conf/server/languages/{name}"] = (
+                b"" if name in EMPTY_LANGUAGE_BUNDLES else b"fixture bundle\n"
+            )
+        for name in REQUIRED_DATABASE_PATCHES:
+            core_paths[f"server/database/sqlite/patches/{name}"] = (
+                b"-- fixture runtime migration\n"
+            )
         for relative, data in core_paths.items():
             path = self.core / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         self.core_commit = initialize_repository(self.core, "Create runtime fixture")
 
+        native_records = ""
+        if include_native_runtime_records:
+            native_records = "".join(
+                f"server/conf/server/languages/{name}\t"
+                f"server/conf/server/languages/{name}\truntime-configuration\n"
+                for name in REQUIRED_LANGUAGE_BUNDLES
+            ) + "".join(
+                f"server/database/sqlite/patches/{name}\t"
+                f"server/database/sqlite/patches/{name}\truntime-database-contract\n"
+                for name in REQUIRED_DATABASE_PATCHES
+            )
+        definition_records = (
+            "".join(
+                f"{relative}\t{relative}\tdefault-definition-catalog\n"
+                for relative in DEFINITION_FIXTURES
+            )
+            if include_definition_records
+            else ""
+        )
+        if include_locs_record:
+            locs = "server/conf/server/defs/locs/private-target-locations.xml"
+            definition_records += (
+                f"{locs}\t{locs}\tdefault-definition-catalog\n"
+            )
+        if include_generated_key_record:
+            definition_records += (
+                "server/client.pem\tserver/client.pem\truntime-configuration\n"
+            )
         self.allowlist = (
             "# Candidate validation fixture allowlist\n"
             "server/inc/sqlite/myworld_seed.db\t"
@@ -234,7 +309,13 @@ class CandidateFixture:
             "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
             "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
             "runtime-capability\n"
+            + native_records
+            + definition_records
         ).encode("utf-8")
+        self.tools_jar = jar_bytes(
+            TOOL_ENTRIES + (TOOL_RUNTIME_ALLOWLIST_ENTRY,),
+            {TOOL_RUNTIME_ALLOWLIST_ENTRY: self.allowlist},
+        )
         allowlist_path = (
             self.source / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
         )
@@ -418,6 +499,14 @@ class CandidateFixture:
         )
         java = "runtime/bin/java.exe" if platform == "windows" else "runtime/bin/java"
         files[java] = (b"bundled java\n", 0o644 if platform == "windows" else 0o755)
+        for raw in self.allowlist.decode("utf-8").splitlines():
+            if not raw or raw.startswith("#"):
+                continue
+            source, destination, _ = raw.split("\t")
+            files.setdefault(
+                "builder-runtime/" + destination,
+                ((self.core / source).read_bytes(), 0o644),
+            )
         return files
 
     def write_archive(self, platform: str, *, refresh_manifest: bool = True) -> None:
@@ -515,6 +604,68 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertRegex(artifact["reviewedJreInventorySha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(artifact["reviewedJreFileCount"], 3)
         self.assertIn("owner-software-and-opengl-visual-review", evidence["pendingEvidence"])
+
+    def test_inspector_requires_complete_native_server_runtime_contract(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="candidate-native-contract-") as temp:
+            fixture = CandidateFixture(
+                Path(temp), include_native_runtime_records=False
+            )
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing required native server assets", result.stderr)
+            self.assertIn("CustomMessages_en_UK.properties", result.stderr)
+
+    def test_inspector_requires_neutral_definitions_and_excludes_locs(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="candidate-definition-closure-") as temp:
+            fixture = CandidateFixture(
+                Path(temp), include_definition_records=False
+            )
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("content-neutral definition closure", result.stderr)
+            self.assertIn(DEFINITION_FIXTURES[0], result.stderr)
+
+        with tempfile.TemporaryDirectory(prefix="candidate-definition-locs-") as temp:
+            fixture = CandidateFixture(Path(temp), include_locs_record=True)
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("exclude the complete defs/locs subtree", result.stderr)
+
+    def test_tool_runtime_embedded_allowlist_must_match_release_source(self) -> None:
+        self.fixture.files["linux"][
+            "builder-runtime/launcher/world-builder-tools.jar"
+        ] = (
+            jar_bytes(
+                TOOL_ENTRIES + (TOOL_RUNTIME_ALLOWLIST_ENTRY,),
+                {TOOL_RUNTIME_ALLOWLIST_ENTRY: b"wrong embedded allowlist\n"},
+            ),
+            0o644,
+        )
+        self.fixture.write_archive("linux")
+        self.fixture.write_checksums()
+
+        result = self.fixture.run()
+
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("embedded allowlist differs", result.stderr)
+
+    def test_inspector_excludes_project_generated_rsa_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="candidate-rsa-keys-") as temp:
+            fixture = CandidateFixture(
+                Path(temp), include_generated_key_record=True
+            )
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("project-only generated state", result.stderr)
+            self.assertIn("server/client.pem", result.stderr)
 
     def test_pending_worksheet_cannot_be_mistaken_for_release_acceptance(self) -> None:
         text = PENDING_RECORD.read_text(encoding="utf-8")

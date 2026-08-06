@@ -87,6 +87,8 @@ public final class WorldBuilderProcessSupervisor {
 			}
 			int exit = superviseLocked(ProcessLayout.adaptive(project), port,
 				serverCommand, clientCommand, readyTimeoutMillis);
+			requireAdaptiveMutableLayout(project);
+			relocateLegacyDatabaseLogs(project);
 			if (exit == 0) {
 				requireAdaptiveMutableLayout(project);
 				new WorldBuilderAdaptiveProjectLifecycle()
@@ -94,6 +96,54 @@ public final class WorldBuilderProcessSupervisor {
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			}
 			return exit;
+		}
+	}
+
+	private static void relocateLegacyDatabaseLogs(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path server = project.resolve("working/runtime/server");
+		Path logs = server.resolve("logs");
+		if (Files.exists(logs, LinkOption.NOFOLLOW_LINKS)) {
+			if (!Files.isDirectory(logs, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(logs)) {
+				throw unsafeAdaptive("working/runtime/server/logs",
+					"Adaptive server log directory is missing, linked, or unsafe.");
+			}
+		} else {
+			Files.createDirectory(logs);
+		}
+		for (String name : Arrays.asList("create_db.log", "create_db_error.log")) {
+			Path source = server.resolve(name);
+			if (!Files.exists(source, LinkOption.NOFOLLOW_LINKS)) continue;
+			BasicFileAttributes before = Files.readAttributes(source,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!before.isRegularFile() || before.isSymbolicLink()
+				|| before.size() > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
+				|| hasMultipleLinks(source)) {
+				throw unsafeAdaptive("working/runtime/server/" + name,
+					"Legacy database setup log is linked, unsupported, or unbounded.");
+			}
+			Path destination = logs.resolve(name);
+			if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+				BasicFileAttributes existing = Files.readAttributes(destination,
+					BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+				if (!existing.isRegularFile() || existing.isSymbolicLink()
+					|| hasMultipleLinks(destination)) {
+					throw unsafeAdaptive("working/runtime/server/logs/" + name,
+						"Legacy database setup log destination is linked or unsafe.");
+				}
+			}
+			Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+			BasicFileAttributes after = Files.readAttributes(destination,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			if (!after.isRegularFile() || after.isSymbolicLink()
+				|| after.size() != before.size() || hasMultipleLinks(destination)
+				|| before.fileKey() != null && after.fileKey() != null
+					&& !before.fileKey().equals(after.fileKey())) {
+				throw unsafeAdaptive("working/runtime/server/logs/" + name,
+					"Relocated database setup log changed identity or became unsafe.");
+			}
 		}
 	}
 

@@ -3,6 +3,10 @@
     <property name="output" location="../../output/world-builder-tools"/>
     <property name="classes" location="${output}/classes"/>
     <property name="jar" location="${output}/world-builder-tools.jar"/>
+    <property name="runtime.allowlist"
+              location="../../release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"/>
+    <property name="runtime.allowlist.resource"
+              location="${classes}/com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"/>
     <property name="javac.source" value="1.8"/>
     <property name="javac.target" value="1.8"/>
     <property name="javac.lint" value="-Xlint:none"/>
@@ -19,6 +23,7 @@
                target="${javac.target}" encoding="UTF-8">
             <compilerarg line="${javac.lint} -Xmaxwarns ${javac.maxwarns}"/>
         </javac>
+        <copy file="${runtime.allowlist}" tofile="${runtime.allowlist.resource}"/>
     </target>
 
     <target name="jar" depends="clean,compile">

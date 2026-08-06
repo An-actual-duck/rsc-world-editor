@@ -58,7 +58,23 @@ The Phase 7 focused release-candidate boundary is:
 
 It groups the adaptive contracts/discovery/origins, packed conversion,
 project lifecycle, Phase 6 transactions, content-neutral release, updater,
-product-generation, independence, and external-candidate-inspector fixtures.
+product-generation, independence, external-candidate-inspector fixtures, and
+the opt-in exact-provider native startup proof. The native proof skips unless
+the reviewed runtime and exact-provider inputs are explicit; the Java override
+is optional when the reviewed `java` is already on `PATH`:
+
+```bash
+WORLD_BUILDER_NATIVE_RUNTIME_ROOT=/path/to/fresh/builder-runtime \
+WORLD_BUILDER_EXACT_CORE_RUNTIME=/path/to/clean-exact-locked-core \
+WORLD_BUILDER_NATIVE_JAVA=/path/to/reviewed-java \
+python3 tests/myworld/test-world-builder-native-runtime-integration.py -v
+```
+
+The runtime allowlist must be the runtime directory's sibling. The proof uses
+no editor UI: it creates a standalone-empty project, starts the real server,
+waits for readiness, requests orderly shutdown, verifies the post-run save,
+database migrations and project-local PEM generation, and proves the packaged
+runtime, exact provider, and target outside the installation stayed unchanged.
 It closes test stdin so preview-cancellation fixtures cannot become interactive
 confirmation prompts, and reports rather than hides an unavailable native
 PowerShell run. Final real archives are inspected separately from outside both
