@@ -34,6 +34,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		"working/runtime/server/evidence/adaptive-assets.sha256";
 	static final String CLIENT_ASSET_EVIDENCE =
 		"working/runtime/client/evidence/adaptive-assets.sha256";
+	static final String CLIENT_TERRAIN_BOOTSTRAP =
+		"client/Cache/video/Authentic_Landscape.orsc";
 	static final String ASSET_ID = "adaptive-project-assets-v1";
 	private static final String INVENTORY_HEADER =
 		"adaptive-world-builder-runtime-assets-v1";
@@ -85,6 +87,10 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/client.pem",
 			"server/server.pem")));
+	private static final byte[] EMPTY_ZIP_ARCHIVE = new byte[] {
+		'P', 'K', 5, 6,
+		0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+	};
 
 	private WorldBuilderAdaptiveRuntimePreparer() {
 	}
@@ -149,6 +155,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			runtime.resolve("server/inc/sqlite/world_builder_seed.db"),
 			runtime.resolve("server/inc/sqlite/world_builder.db"),
 			source.entries.get("server/inc/sqlite/world_builder_seed.db"));
+		writeClientTerrainBootstrap(runtime.resolve(CLIENT_TERRAIN_BOOTSTRAP));
 
 		copyDefinitionEvidence(projectStage, snapshot, origin,
 			runtime.resolve("server/evidence/adaptive-definitions.json"), true);
@@ -200,6 +207,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			}
 		}
 		validateDefinitionClosure(entries.keySet(), requiredPaths, true);
+		verifyClientTerrainBootstrap(runtime.resolve(CLIENT_TERRAIN_BOOTSTRAP));
 		validateRuntimeClosure(runtime, entries);
 		validateCapability(runtime.resolve(
 			"server/conf/world-builder/adaptive-runtime-capability-v1.json"));
@@ -313,6 +321,25 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		}
 		Files.write(destination,
 			rendered.toString().getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static void writeClientTerrainBootstrap(Path destination)
+		throws IOException {
+		Files.createDirectories(destination.getParent());
+		Files.write(destination, EMPTY_ZIP_ARCHIVE);
+	}
+
+	private static void verifyClientTerrainBootstrap(Path requested)
+		throws IOException, WorldBuilderContractException {
+		Path path = requireFile(requested,
+			"working/runtime/" + CLIENT_TERRAIN_BOOTSTRAP);
+		if (Files.size(path) != EMPTY_ZIP_ARCHIVE.length
+			|| !Arrays.equals(Files.readAllBytes(path), EMPTY_ZIP_ARCHIVE)) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"working/runtime/" + CLIENT_TERRAIN_BOOTSTRAP,
+				"Project-local neutral client terrain bootstrap changed.",
+				"Restore the complete project-local adaptive runtime.");
+		}
 	}
 
 	private static void collect(final Path root, final String prefix,
@@ -878,6 +905,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static boolean knownRuntimePath(String relative,
 		Map<String,Entry> immutableEntries) {
 		if (immutableEntries.containsKey(relative)
+			|| CLIENT_TERRAIN_BOOTSTRAP.equals(relative)
 			|| GENERATED_SOURCE_PATHS.contains(relative)
 			|| PROJECT_ONLY_GENERATED_PATHS.contains(relative)) return true;
 		if (relative.startsWith("server/logs/")

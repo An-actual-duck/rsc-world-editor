@@ -23,6 +23,10 @@ RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt
 RUNTIME_ALLOWLIST_RESOURCE = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
+EMPTY_ZIP_ARCHIVE = b"PK\x05\x06" + (b"\x00" * 18)
+CLIENT_TERRAIN_BOOTSTRAP = Path(
+    "working/runtime/client/Cache/video/Authentic_Landscape.orsc"
+)
 REQUIRED_LANGUAGE_BUNDLES = (
     "AuthenticMessages_en_UK.properties",
     "AuthenticMessages_en_UK_female.properties",
@@ -914,6 +918,22 @@ public final class FakeAdaptiveClient {
         self.assertEqual([], placement["scenery"])
         self.assertEqual(sha256(placement_path), placement_set["sha256"])
 
+    def assert_client_terrain_bootstrap(self, project: Path, runtime: Path) -> None:
+        bootstrap = project / CLIENT_TERRAIN_BOOTSTRAP
+        self.assertTrue(bootstrap.is_file(), bootstrap)
+        self.assertFalse(bootstrap.is_symlink(), bootstrap)
+        self.assertEqual(1, bootstrap.stat().st_nlink)
+        self.assertEqual(EMPTY_ZIP_ARCHIVE, bootstrap.read_bytes())
+        with zipfile.ZipFile(bootstrap) as archive:
+            self.assertEqual([], archive.namelist())
+        self.assertFalse(
+            (runtime / "Client_Base/Cache/video/Authentic_Landscape.orsc").exists()
+        )
+        inventory = (
+            project / "working/runtime/runtime-assets.sha256"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("Landscape.orsc", inventory)
+
     def test_standalone_empty_create_save_reopen_and_no_target_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-empty-") as temp:
             base = Path(temp)
@@ -941,6 +961,7 @@ public final class FakeAdaptiveClient {
             self.assertEqual("ready-standalone", summary["state"])
             self.assertEqual(before_target, tree_bytes(target))
             project = Path(summary["projectRoot"])
+            self.assert_client_terrain_bootstrap(project, runtime)
             source_before = tree_bytes(project / "source")
             baseline_before = tree_bytes(project / "source/layered-baseline/package")
             self.assertEqual(
@@ -1100,6 +1121,7 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(0, created.returncode, created.stderr)
             project = Path(summary["projectRoot"])
+            self.assert_client_terrain_bootstrap(project, runtime)
             inventory = (
                 project / "working/runtime/runtime-assets.sha256"
             ).read_text(encoding="utf-8")
@@ -1241,6 +1263,93 @@ public final class FakeAdaptiveClient {
             self.assertFalse((located_installation / "project-registry.json").exists())
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_client_terrain_bootstrap_is_generated_empty_and_fails_closed(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-client-bootstrap-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            target_before = tree_bytes(target)
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Empty bootstrap", 43818
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.assert_client_terrain_bootstrap(project, runtime)
+            bootstrap = project / CLIENT_TERRAIN_BOOTSTRAP
+
+            with zipfile.ZipFile(bootstrap, "w") as archive:
+                archive.writestr("h0x0y0", CANONICAL_VOID_SECTOR)
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            self.assertIn("neutral client terrain bootstrap", refused.stderr)
+            bootstrap.write_bytes(EMPTY_ZIP_ARCHIVE)
+
+            external = base / "external-empty-archive.orsc"
+            external.write_bytes(EMPTY_ZIP_ARCHIVE)
+            external_before = external.read_bytes()
+            bootstrap.unlink()
+            bootstrap.symlink_to(external)
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("UNSAFE_PATH", refused.stderr)
+            self.assertEqual(external_before, external.read_bytes())
+            bootstrap.unlink()
+
+            os.link(external, bootstrap)
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("UNSAFE_PATH", refused.stderr)
+            self.assertEqual(external_before, external.read_bytes())
+            bootstrap.unlink()
+            bootstrap.write_bytes(EMPTY_ZIP_ARCHIVE)
+            self.assertEqual(target_before, tree_bytes(target))
+
+            smuggled_installation = base / "Smuggled World Builder 2"
+            smuggled_installation.mkdir()
+            smuggled_runtime = self.make_runtime(smuggled_installation)
+            smuggled_archive = (
+                smuggled_runtime
+                / "Client_Base/Cache/video/Authentic_Landscape.orsc"
+            )
+            smuggled_archive.parent.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(smuggled_archive, "w") as archive:
+                archive.writestr("h0x0y0", CANONICAL_VOID_SECTOR)
+            refused, _ = self.create_project(
+                smuggled_installation,
+                smuggled_runtime,
+                target,
+                report,
+                "Smuggled runtime",
+                43819,
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("forbidden world content", refused.stderr)
+            self.assertFalse(
+                (smuggled_installation / "project-registry.json").exists()
+            )
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_project_local_pem_links_refuse_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-pem-safety-") as temp:
             base = Path(temp)
@@ -1317,6 +1426,7 @@ public final class FakeAdaptiveClient {
             self.assertEqual("target-layered", summary["origin"])
             self.assertEqual(target_before, tree_bytes(target, installation))
             project = Path(summary["projectRoot"])
+            self.assert_client_terrain_bootstrap(project, runtime)
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             self.assertEqual(str(target.resolve()), manifest["target"]["locatorDisplay"])
             self.assertEqual("", manifest["fingerprints"]["conversionSha256"])
@@ -1479,6 +1589,7 @@ public final class FakeAdaptiveClient {
             self.assertEqual("target-packed", summary["origin"])
             self.assertEqual(target_before, tree_bytes(target))
             project = Path(summary["projectRoot"])
+            self.assert_client_terrain_bootstrap(project, runtime)
             self.assertTrue((project / "source/conversion/plan.json").is_file())
             self.assertTrue((project / "source/conversion/report.json").is_file())
             conversion = json.loads(
@@ -1912,6 +2023,9 @@ public final class FakeAdaptiveClient {
                             "runtime": (
                                 project
                                 / "source/runtime/default-runtime-evidence.json"
+                            ).read_bytes(),
+                            "bootstrap": (
+                                project / CLIENT_TERRAIN_BOOTSTRAP
                             ).read_bytes(),
                         }
                     )

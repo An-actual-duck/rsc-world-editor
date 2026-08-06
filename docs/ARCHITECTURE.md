@@ -42,6 +42,15 @@ placements, layered packages, projects, and generated operational state can
 never enter this layer. Release and updater work may replace it only after the
 Builder is closed and the replacement has been verified.
 
+Project preparation generates one exact 22-byte zero-entry ZIP at
+`working/runtime/client/Cache/video/Authentic_Landscape.orsc` for the legacy
+client bootstrap check. This project-only compatibility container has no
+entries and no terrain bytes; it is not a release asset, immutable source,
+target copy, map fallback, or terrain authority. Reopen requires its exact
+bytes and refuses links, hard links, nonempty content, or replacement. The
+verified signed-layered working package and adaptive protocol remain the sole
+terrain authority.
+
 Each v2 package inventories that replaceable layer in
 `PACKAGE-MANIFEST.sha256`. Updates back up and remove only paths owned by the
 installed manifest, refuse collisions with unknown files, and restore the old

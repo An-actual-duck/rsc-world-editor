@@ -97,6 +97,29 @@ required by the current owner decision and was not performed or claimed;
 native PowerShell updater execution remains unclaimed. No limitation or
 release decision has been accepted.
 
+### Confirmed owner-native launch blocker
+
+The current Linux candidate cannot reach owner visual/edit validation because
+its client requires missing
+`Client_Base/Cache/video/Authentic_Landscape.orsc`. The current candidate
+remains blocked and must not be accepted or reused.
+
+A World Editor correction is under review: project creation generates the
+canonical 22-byte zero-entry ZIP container at that exact path inside the
+isolated project runtime. It is not packaged application content, contains no
+terrain entry or world bytes, is never copied from a provider or target, is
+excluded from immutable runtime asset evidence, and is exact-validated as
+project-only compatibility state. The signed-layered working package and
+adaptive protocol remain the sole terrain authority. Any nonempty, linked,
+shared, changed, packaged, provider-supplied, or target-supplied landscape
+archive remains forbidden and fails closed.
+
+This blocker invalidates no recorded automated archive evidence, but it blocks
+owner acceptance and release readiness until a newly published commit is
+rebuilt, independently inspected, and launched natively. The owner report,
+every final status, and the release decision remain **PENDING**. No limitation,
+gate, or release is accepted.
+
 ## Required immutable inputs
 
 - a clean World Editor manager checkout on the exact published `origin/main`

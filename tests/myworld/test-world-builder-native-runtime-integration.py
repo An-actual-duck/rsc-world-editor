@@ -51,6 +51,10 @@ TOOLS_ALLOWLIST_RESOURCE = (
     "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 )
 MAX_GENERATED_PEM_BYTES = 1024 * 1024
+EMPTY_ZIP_ARCHIVE = b"PK\x05\x06" + (b"\x00" * 18)
+CLIENT_TERRAIN_BOOTSTRAP = Path(
+    "working/runtime/client/Cache/video/Authentic_Landscape.orsc"
+)
 
 
 def sha256(path: Path) -> str:
@@ -343,6 +347,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.List;
+import java.util.zip.ZipFile;
 
 public final class NativeAdaptiveServerHarness {
     private static void require(boolean condition, String message) {
@@ -352,6 +357,11 @@ public final class NativeAdaptiveServerHarness {
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(args[0]);
         String classes = args[1];
+        try (ZipFile archive = new ZipFile(project.resolve(
+                "working/runtime/client/Cache/video/Authentic_Landscape.orsc")
+                .toFile())) {
+            require(archive.size() == 0, "project-local empty terrain bootstrap");
+        }
         List<String> server =
             WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
         List<String> client = Arrays.asList(
@@ -376,6 +386,12 @@ public final class NativeAdaptiveServerHarness {
 
     public static final class NoUiClient {
         public static void main(String[] args) throws Exception {
+            try (ZipFile archive = new ZipFile(Paths.get(
+                    "Cache/video/Authentic_Landscape.orsc").toFile())) {
+                require(archive.size() == 0,
+                    "client working-directory empty terrain bootstrap");
+            }
+            System.out.println("native-client-empty-bootstrap-ok");
             Thread.sleep(1000L);
         }
     }
@@ -467,6 +483,25 @@ public final class NativeAdaptiveServerHarness {
             summary = json.loads(created.stdout)
             self.assertEqual("standalone-empty", summary["origin"])
             project = Path(summary["projectRoot"])
+            bootstrap = project / CLIENT_TERRAIN_BOOTSTRAP
+            self.assertTrue(bootstrap.is_file(), bootstrap)
+            self.assertFalse(bootstrap.is_symlink(), bootstrap)
+            self.assertEqual(1, bootstrap.stat().st_nlink)
+            self.assertEqual(EMPTY_ZIP_ARCHIVE, bootstrap.read_bytes())
+            with zipfile.ZipFile(bootstrap) as archive:
+                self.assertEqual([], archive.namelist())
+            self.assertFalse(
+                (
+                    self.runtime
+                    / "Client_Base/Cache/video/Authentic_Landscape.orsc"
+                ).exists()
+            )
+            self.assertNotIn(
+                "Landscape.orsc",
+                (project / "working/runtime/runtime-assets.sha256").read_text(
+                    encoding="utf-8"
+                ),
+            )
             source_before = tree_inventory(project / "source")
             working_package_before = tree_inventory(
                 project / "working/layered-world/package"
@@ -515,6 +550,11 @@ public final class NativeAdaptiveServerHarness {
             )
             self.assertIn(
                 "native-adaptive-server-readiness-shutdown-ok", supervised.stdout
+            )
+            client_log = project / "logs/client.log"
+            self.assertIn(
+                "native-client-empty-bootstrap-ok",
+                client_log.read_text(encoding="utf-8", errors="replace"),
             )
             for fatal in (
                 "MissingResourceException",
