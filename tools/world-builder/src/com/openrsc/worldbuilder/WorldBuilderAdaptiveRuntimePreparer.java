@@ -1,6 +1,8 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -38,26 +40,28 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static final String ASSET_HEADER =
 		"adaptive-world-builder-asset-evidence-v1";
 	private static final String OPERATION = "adaptive-runtime-preparation";
-	private static final List<String> REQUIRED_RUNTIME_PATHS =
+	private static final String RUNTIME_ALLOWLIST_RESOURCE =
+		"runtime-asset-allowlist-v1.txt";
+	private static final String DEFINITION_PREFIX =
+		"server/conf/server/defs/";
+	private static final List<String> BASE_REQUIRED_RUNTIME_PATHS =
 		Collections.unmodifiableList(Arrays.asList(
 			"server/core.jar",
 			"server/plugins.jar",
 			"server/conf/world-builder/adaptive-runtime-capability-v1.json",
 			"server/inc/sqlite/world_builder_seed.db",
-			"server/conf/server/languages/AuthenticMessages_en_UK.properties",
-			"server/conf/server/languages/AuthenticMessages_en_UK_female.properties",
-			"server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties",
-			"server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties",
-			"server/conf/server/languages/AuthenticMessages_en_UK_male.properties",
-			"server/conf/server/languages/CustomMessages_en_UK.properties",
-			"server/conf/server/languages/CustomMessages_en_UK_female.properties",
-			"server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties",
-			"server/conf/server/languages/CustomMessages_en_UK_male.properties",
-			"server/database/sqlite/patches/2021_05_11_add_db_patches.sql",
-			"server/database/sqlite/patches/2023_02_01_former_names.sql",
-			"server/database/sqlite/patches/2026_05_14_add_summoning_skill.sql",
-			"server/database/sqlite/patches/2026_08_03_add_blessing_skill.sql",
 			"client/Open_RSC_Client.jar"));
+	private static final Set<String> ALLOWED_RUNTIME_ROLES =
+		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
+			"builder-database-seed",
+			"client-template",
+			"default-definition-catalog",
+			"default-render-catalog",
+			"runtime-audio",
+			"runtime-capability",
+			"runtime-configuration",
+			"runtime-database-contract",
+			"runtime-library")));
 	private static final Set<String> EMPTY_RUNTIME_ASSET_PATHS =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/conf/server/languages/CustomMessages_en_UK_female.properties",
@@ -77,6 +81,10 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"client/Cache/ip.txt",
 			"client/Cache/port.txt",
 			"client/Cache/discord_inuse.txt")));
+	private static final Set<String> PROJECT_ONLY_GENERATED_PATHS =
+		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
+			"server/client.pem",
+			"server/server.pem")));
 
 	private WorldBuilderAdaptiveRuntimePreparer() {
 	}
@@ -87,21 +95,31 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Path server = realDirectory(runtime.resolve("server"), "runtime server");
 		Path client = realDirectory(runtime.resolve("Client_Base"), "runtime client");
 		requireFile(server.resolve("world-builder.conf"), "server/world-builder.conf");
+		for (String relative : PROJECT_ONLY_GENERATED_PATHS) {
+			if (Files.exists(runtime.resolve(relative), LinkOption.NOFOLLOW_LINKS)) {
+				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, relative,
+					"Application runtime contains a project-only generated entry.",
+					"Remove shared key material and restore the exact packaged runtime.");
+			}
+		}
 		final Map<String,Entry> entries = new TreeMap<String,Entry>();
 		final Set<String> folded = new HashSet<String>();
 		final long[] total = new long[] {0L};
 		collect(server, "server", entries, folded, total);
 		collect(client, "client", entries, folded, total);
-		for (String required : REQUIRED_RUNTIME_PATHS) {
+		byte[] allowlist = readEmbeddedAllowlist();
+		Set<String> requiredPaths = requiredRuntimePaths(allowlist);
+		for (String required : requiredPaths) {
 			if (!entries.containsKey(required)) {
 				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, required,
 					"Application runtime is missing a required adaptive asset.",
 					"Restore the exact content-neutral builder-runtime directory.");
 			}
 		}
+		validateDefinitionClosure(entries.keySet(), requiredPaths, false);
 		byte[] inventory = inventoryBytes(entries);
 		return new SourceRuntime(runtime, entries, inventory,
-			WorldBuilderHashes.sha256(inventory));
+			runtimeFingerprint(inventory, allowlist));
 	}
 
 	static void prepare(Path projectStage, SourceRuntime source,
@@ -153,7 +171,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Path inventoryPath = requireFile(project.resolve(INVENTORY_FILE), INVENTORY_FILE);
 		byte[] inventoryBytes = readBounded(inventoryPath,
 			WorldBuilderContractLimits.MAX_JSON_BYTES, INVENTORY_FILE);
-		if (!expectedFingerprint.equals(WorldBuilderHashes.sha256(inventoryBytes))) {
+		byte[] allowlist = readEmbeddedAllowlist();
+		if (!expectedFingerprint.equals(runtimeFingerprint(inventoryBytes, allowlist))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, INVENTORY_FILE,
 				"Project runtime inventory does not match its bound fingerprint.",
 				"Restore the complete project-local runtime from its trusted project backup.");
@@ -171,7 +190,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime before launching.");
 			}
 		}
-		for (String required : REQUIRED_RUNTIME_PATHS) {
+		Set<String> requiredPaths = requiredRuntimePaths(allowlist);
+		for (String required : requiredPaths) {
 			if (!entries.containsKey(required)) {
 				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
 					"working/runtime/" + required,
@@ -179,6 +199,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime.");
 			}
 		}
+		validateDefinitionClosure(entries.keySet(), requiredPaths, true);
 		validateRuntimeClosure(runtime, entries);
 		validateCapability(runtime.resolve(
 			"server/conf/world-builder/adaptive-runtime-capability-v1.json"));
@@ -314,6 +335,15 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 				String relative = prefix + "/" + root.relativize(file)
 					.toString().replace('\\', '/');
 				if (GENERATED_SOURCE_PATHS.contains(relative)) return FileVisitResult.CONTINUE;
+				if (PROJECT_ONLY_GENERATED_PATHS.contains(relative)) {
+					throw new IOException(
+						"Application runtime contains a project-only generated entry: "
+							+ relative);
+				}
+				if (isWorldContentPath(relative)) {
+					throw new IOException(
+						"Application runtime contains forbidden world content: " + relative);
+				}
 				try {
 					WorldBuilderPortablePath.require(relative, OPERATION);
 				} catch (WorldBuilderContractException invalid) {
@@ -350,6 +380,129 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 				.append(item.getKey()).append('\n');
 		}
 		return value.toString().getBytes(StandardCharsets.UTF_8);
+	}
+
+	private static String runtimeFingerprint(byte[] inventory, byte[] allowlist) {
+		String value = "adaptive-world-builder-runtime-binding-v2\n"
+			+ WorldBuilderHashes.sha256(inventory) + "\n"
+			+ WorldBuilderHashes.sha256(allowlist) + "\n";
+		return WorldBuilderHashes.sha256(value.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static void validateDefinitionClosure(Set<String> entries,
+		Set<String> required, boolean project)
+		throws WorldBuilderContractException {
+		for (String entry : entries) {
+			if (entry.toLowerCase(Locale.ROOT).startsWith(DEFINITION_PREFIX)
+				&& !required.contains(entry)) {
+				throw problem(project ? WorldBuilderErrorCodes.SOURCE_CORRUPT
+					: WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+					(project ? "working/runtime/" : "") + entry,
+					"Adaptive runtime definition inventory is outside its exact allowlist.",
+					"Restore the exact content-neutral builder-runtime directory.");
+			}
+		}
+	}
+
+	private static boolean isWorldContentPath(String relative) {
+		String lower = relative.toLowerCase(Locale.ROOT);
+		return lower.startsWith("server/conf/server/data/")
+			|| (lower.startsWith("client/cache/video/")
+				&& lower.contains("landscape"));
+	}
+
+	private static byte[] readEmbeddedAllowlist()
+		throws IOException, WorldBuilderContractException {
+		InputStream input = WorldBuilderAdaptiveRuntimePreparer.class
+			.getResourceAsStream(RUNTIME_ALLOWLIST_RESOURCE);
+		if (input == null) {
+			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+				RUNTIME_ALLOWLIST_RESOURCE,
+				"World Builder tooling is missing its embedded runtime allowlist.",
+				"Restore the exact packaged world-builder-tools.jar.");
+		}
+		try (InputStream source = input;
+			ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+			byte[] buffer = new byte[8192];
+			int read;
+			long total = 0L;
+			while ((read = source.read(buffer)) >= 0) {
+				total = Math.addExact(total, read);
+				if (total > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+					throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
+						RUNTIME_ALLOWLIST_RESOURCE,
+						"Embedded runtime allowlist exceeds its byte limit.",
+						"Restore the exact packaged world-builder-tools.jar.");
+				}
+				output.write(buffer, 0, read);
+			}
+			byte[] bytes = output.toByteArray();
+			if (bytes.length == 0) throw malformedRuntimeAllowlist();
+			return bytes;
+		} catch (ArithmeticException overflow) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
+				RUNTIME_ALLOWLIST_RESOURCE,
+				"Embedded runtime allowlist exceeds its byte limit.",
+				"Restore the exact packaged world-builder-tools.jar.");
+		}
+	}
+
+	private static Set<String> requiredRuntimePaths(byte[] bytes)
+		throws WorldBuilderContractException {
+		String value = new String(bytes, StandardCharsets.UTF_8);
+		if (!Arrays.equals(bytes, value.getBytes(StandardCharsets.UTF_8))
+			|| value.indexOf('\r') >= 0 || !value.endsWith("\n")) {
+			throw malformedRuntimeAllowlist();
+		}
+		Set<String> required = new HashSet<String>(BASE_REQUIRED_RUNTIME_PATHS);
+		Set<String> sources = new HashSet<String>();
+		Set<String> destinations = new HashSet<String>();
+		int records = 0;
+		for (String line : value.split("\n", -1)) {
+			if (line.isEmpty() || line.startsWith("#")) continue;
+			String[] columns = line.split("\\t", -1);
+			if (columns.length != 3 || !ALLOWED_RUNTIME_ROLES.contains(columns[2])
+				|| records++ >= WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) {
+				throw malformedRuntimeAllowlist();
+			}
+			try {
+				WorldBuilderPortablePath.require(columns[0], OPERATION);
+				WorldBuilderPortablePath.require(columns[1], OPERATION);
+			} catch (WorldBuilderContractException invalid) {
+				throw malformedRuntimeAllowlist();
+			}
+			String sourceKey = columns[0].toLowerCase(Locale.ROOT);
+			String destinationKey = columns[1].toLowerCase(Locale.ROOT);
+			if (!sources.add(sourceKey) || !destinations.add(destinationKey)) {
+				throw malformedRuntimeAllowlist();
+			}
+			String destination;
+			if (columns[1].startsWith("server/")) {
+				destination = columns[1];
+			} else if (columns[1].startsWith("Client_Base/")) {
+				destination = "client/"
+					+ columns[1].substring("Client_Base/".length());
+			} else {
+				throw malformedRuntimeAllowlist();
+			}
+			if (!(columns[0].startsWith("server/")
+					|| columns[0].startsWith("Client_Base/"))
+				|| destination.startsWith("server/conf/server/defs/locs/")
+				|| GENERATED_SOURCE_PATHS.contains(destination)
+				|| PROJECT_ONLY_GENERATED_PATHS.contains(destination)) {
+				throw malformedRuntimeAllowlist();
+			}
+			required.add(destination);
+		}
+		if (records == 0) throw malformedRuntimeAllowlist();
+		return required;
+	}
+
+	private static WorldBuilderContractException malformedRuntimeAllowlist() {
+		return problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+			RUNTIME_ALLOWLIST_RESOURCE,
+			"Embedded runtime allowlist is malformed or unsafe.",
+			"Restore the exact packaged world-builder-tools.jar.");
 	}
 
 	private static Map<String,Entry> parseInventory(byte[] bytes)
@@ -711,7 +864,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		if (unsafe[0] != null) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
 				"working/runtime/" + unsafe[0],
-				"Project runtime contains an unbound, linked, or unbounded entry.",
+				"Project runtime contains an unbound, linked, or unbounded entry: "
+					+ unsafe[0] + ".",
 				"Restore the complete project-local runtime before launching.");
 		}
 	}
@@ -724,7 +878,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static boolean knownRuntimePath(String relative,
 		Map<String,Entry> immutableEntries) {
 		if (immutableEntries.containsKey(relative)
-			|| GENERATED_SOURCE_PATHS.contains(relative)) return true;
+			|| GENERATED_SOURCE_PATHS.contains(relative)
+			|| PROJECT_ONLY_GENERATED_PATHS.contains(relative)) return true;
 		if (relative.startsWith("server/logs/")
 			|| "client/spoiled-milk-client.log".equals(relative)) return true;
 		if ("runtime-assets.sha256".equals(relative)

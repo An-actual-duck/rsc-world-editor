@@ -12,6 +12,7 @@ git -C "$ROOT_DIR" diff --check
 
 tests=(
 	tests/myworld/test-world-builder-v2-candidate-validation.py
+	tests/myworld/test-world-builder-native-runtime-integration.py
 	tests/myworld/test-world-builder-adaptive-contracts.py
 	tests/myworld/test-world-builder-adaptive-discovery.py
 	tests/myworld/test-world-builder-packed-conversion.py

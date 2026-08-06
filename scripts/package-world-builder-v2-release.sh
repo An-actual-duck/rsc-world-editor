@@ -330,6 +330,7 @@ TOOLS_JAR="$ROOT_DIR/output/world-builder-tools/world-builder-tools.jar"
 SERVER_JAR="$CORE_ROOT/server/core.jar"
 PLUGINS_JAR="$CORE_ROOT/server/plugins.jar"
 RUNTIME_ALLOWLIST="$PACKAGE_ASSETS/RUNTIME-ASSET-ALLOWLIST.txt"
+TOOLS_RUNTIME_ALLOWLIST_ENTRY="com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 
 for required_path in \
 	"$CLIENT_JAR" \
@@ -395,6 +396,7 @@ required_native_records = {
         "2026_08_03_add_blessing_skill.sql",
     )
 }
+project_only_generated = {"server/client.pem", "server/server.pem"}
 portable = re.compile(r"^[A-Za-z0-9._+ -]+(?:/[A-Za-z0-9._+ -]+)*$")
 seen_source = set()
 seen_destination = set()
@@ -406,6 +408,10 @@ for number, raw in enumerate(allowlist.read_text(encoding="utf-8").splitlines(),
     if len(fields) != 3:
         raise SystemExit(f"Malformed runtime allowlist line {number}")
     source, destination, role = fields
+    if source in project_only_generated or destination in project_only_generated:
+        raise SystemExit(
+            f"Runtime allowlist includes project-only generated state: {source}"
+        )
     if (
         not portable.fullmatch(source)
         or not portable.fullmatch(destination)
@@ -433,6 +439,65 @@ if missing_native:
         "Runtime allowlist is missing required native server assets: "
         + ", ".join(missing)
     )
+
+definition_prefix = "server/conf/server/defs/"
+definition_root = core / "server/conf/server/defs"
+if not definition_root.is_dir() or definition_root.is_symlink():
+    raise SystemExit("Exact provider definition root is missing or unsafe")
+provider_definitions = set()
+for path in definition_root.rglob("*"):
+    relative = path.relative_to(definition_root)
+    if relative.parts and relative.parts[0].casefold() == "locs":
+        continue
+    if path.is_symlink():
+        raise SystemExit(f"Exact provider definition closure contains a link: {relative}")
+    if path.is_dir():
+        continue
+    if not path.is_file() or path.stat(follow_symlinks=False).st_nlink != 1:
+        raise SystemExit(
+            f"Exact provider definition closure contains an unsupported entry: {relative}"
+        )
+    provider_definitions.add(definition_prefix + relative.as_posix())
+if not provider_definitions:
+    raise SystemExit("Exact provider definition closure is empty")
+required_definition_records = {
+    (relative, relative, "default-definition-catalog")
+    for relative in provider_definitions
+}
+allowlisted_definition_records = {
+    record
+    for record in records
+    if record[0].casefold().startswith(definition_prefix)
+    or record[1].casefold().startswith(definition_prefix)
+}
+if any(
+    source.casefold().startswith(definition_prefix + "locs/")
+    or destination.casefold().startswith(definition_prefix + "locs/")
+    for source, destination, _ in records
+):
+    raise SystemExit("Runtime allowlist must exclude the complete defs/locs subtree")
+missing_definitions = required_definition_records.difference(
+    allowlisted_definition_records
+)
+extra_definitions = allowlisted_definition_records.difference(
+    required_definition_records
+)
+if missing_definitions or extra_definitions:
+    detail = []
+    if missing_definitions:
+        detail.append(
+            "missing "
+            + ", ".join(sorted(source for source, _, _ in missing_definitions))
+        )
+    if extra_definitions:
+        detail.append(
+            "unexpected "
+            + ", ".join(sorted(source for source, _, _ in extra_definitions))
+        )
+    raise SystemExit(
+        "Runtime allowlist does not match the exact content-neutral definition closure: "
+        + "; ".join(detail)
+    )
 PY
 }
 
@@ -456,6 +521,21 @@ require_jar_entry "$TOOLS_JAR" \
 	"com/openrsc/worldbuilder/WorldBuilderCli.class" "tools jar"
 require_jar_entry "$TOOLS_JAR" \
 	"com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class" "tools jar"
+require_jar_entry "$TOOLS_JAR" "$TOOLS_RUNTIME_ALLOWLIST_ENTRY" "tools jar"
+python3 - "$TOOLS_JAR" "$RUNTIME_ALLOWLIST" "$TOOLS_RUNTIME_ALLOWLIST_ENTRY" <<'PY' \
+	|| fail "Tools jar embedded runtime allowlist differs from its release source"
+import pathlib
+import sys
+import zipfile
+
+archive = pathlib.Path(sys.argv[1])
+allowlist = pathlib.Path(sys.argv[2]).read_bytes()
+entry = sys.argv[3]
+with zipfile.ZipFile(archive) as jar:
+    matches = [item for item in jar.infolist() if item.filename == entry]
+    if len(matches) != 1 or jar.read(matches[0]) != allowlist:
+        raise SystemExit(1)
+PY
 
 jar tf "$CLIENT_JAR" | grep '^myworld-assets/ui/world-editor/' >/dev/null \
 	|| fail "Client jar is missing embedded World Builder UI assets"

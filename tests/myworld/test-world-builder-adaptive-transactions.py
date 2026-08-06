@@ -46,6 +46,15 @@ class AdaptiveTransactionTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        allowlist_resource = (
+            cls.classes
+            / "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
+        )
+        allowlist_resource.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt",
+            allowlist_resource,
+        )
         harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/AdaptiveTransactionFailureHarness.java"

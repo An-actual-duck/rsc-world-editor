@@ -87,7 +87,11 @@ def write(path: Path, contents: str) -> None:
     path.write_text(contents, encoding="utf-8")
 
 
-def make_jar(path: Path, entries: tuple[str, ...]) -> None:
+def make_jar(
+    path: Path,
+    entries: tuple[str, ...],
+    overrides: dict[str, bytes] | None = None,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(path, "w") as archive:
         for entry in entries:
@@ -96,6 +100,8 @@ def make_jar(path: Path, entries: tuple[str, ...]) -> None:
                 if entry == RELEASE_MARKER_ENTRY
                 else b"fixture"
             )
+            if overrides and entry in overrides:
+                contents = overrides[entry]
             archive.writestr(entry, contents)
 
 
@@ -189,7 +195,14 @@ def make_fixture(
             "com/openrsc/worldbuilder/WorldBuilderCli.class",
             "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
             "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
+            "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt",
         ),
+        {
+            "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt": (
+                standalone
+                / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            ).read_bytes()
+        },
     )
     write(core / "Client_Base/Cache/audio/audio.dat", "audio")
     write(core / "Client_Base/Cache/video/library.orsc", "library")
@@ -201,12 +214,18 @@ def make_fixture(
     write(core / "server/lib/runtime.jar", "runtime")
     write(core / "server/conf/server/data/Custom_Landscape.orsc", "terrain")
     write(core / "server/conf/server/defs/TileDef.xml", "<tiles/>\n")
+    write(
+        core / "server/conf/server/defs/locs/private-target-locations.xml",
+        "must-not-ship\n",
+    )
     write(core / "server/database/sqlite/core.sqlite", "queries")
     write(core / "server/inc/sqlite/myworld_seed.db", "clean-seed")
     write(core / "server/myworld.conf", "\tclient_version: 10048\n")
     for name in ("alertwords.txt", "badwords.txt", "goodwords.txt"):
         write(core / "server" / name, "\n")
     write(core / "server/ipbans.txt", "ignored generated bans must not ship\n")
+    write(core / "server/client.pem", "generated client key must not ship\n")
+    write(core / "server/server.pem", "generated server key must not ship\n")
     write(core / "server/globalrules.txt", "rules\n")
     write(core / "release/player/ASSET-SOURCES.txt", "player assets resolved\n")
     credits = (
@@ -410,6 +429,68 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
+    def test_packager_requires_neutral_definition_closure_and_excludes_locs(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-definition-closure-"
+        ) as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            allowlist_path = (
+                standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            )
+            missing = "server/conf/server/defs/extras/ItemCookingDef.xml"
+            lines = [
+                line
+                for line in allowlist_path.read_text(encoding="utf-8").splitlines()
+                if missing not in line
+            ]
+            allowlist_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            git(standalone, "add", str(allowlist_path.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Omit neutral definition fixture")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("content-neutral definition closure", result.stderr)
+            self.assertIn(missing, result.stderr)
+
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-definition-locs-"
+        ) as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            allowlist_path = (
+                standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            )
+            forbidden = (
+                "server/conf/server/defs/locs/private-target-locations.xml"
+            )
+            with allowlist_path.open("a", encoding="utf-8") as allowlist:
+                allowlist.write(
+                    f"{forbidden}\t{forbidden}\tdefault-definition-catalog\n"
+                )
+            git(standalone, "add", str(allowlist_path.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Attempt to include target locations")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("exclude the complete defs/locs subtree", result.stderr)
+
     def test_packager_requires_complete_native_server_runtime_contract(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="world-builder-v2-native-contract-"
@@ -440,6 +521,53 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("missing required native server assets", result.stderr)
             self.assertIn(missing, result.stderr)
+
+    def test_packager_binds_tools_to_exact_runtime_allowlist(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-tools-allowlist-"
+        ) as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            tools = (
+                standalone
+                / "output/world-builder-tools/world-builder-tools.jar"
+            )
+            entry = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
+            with zipfile.ZipFile(tools) as archive:
+                entries = tuple(archive.namelist())
+            make_jar(tools, entries, {entry: b"wrong embedded allowlist\n"})
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("embedded runtime allowlist differs", result.stderr)
+
+    def test_packager_excludes_project_generated_rsa_keys(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-v2-rsa-keys-") as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            allowlist_path = (
+                standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            )
+            forbidden = "server/client.pem"
+            with allowlist_path.open("a", encoding="utf-8") as allowlist:
+                allowlist.write(
+                    f"{forbidden}\t{forbidden}\truntime-configuration\n"
+                )
+            git(standalone, "add", str(allowlist_path.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Attempt to package generated RSA key")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("project-only generated state", result.stderr)
+            self.assertIn(forbidden, result.stderr)
 
     def test_public_packaging_refuses_without_acceptance_marker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-release-gate-") as temp:
@@ -929,6 +1057,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         "uid.dat",
                         "clientSettings.conf",
                         "builder-runtime/server/ipbans.txt",
+                        "builder-runtime/server/client.pem",
+                        "builder-runtime/server/server.pem",
                         "builder-runtime/layered-world/",
                         "Custom_Landscape.orsc",
                         "/defs/locs/",

@@ -9,9 +9,11 @@ import os
 import shutil
 import socket
 import sqlite3
+import stat
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -44,6 +46,11 @@ REQUIRED_DATABASE_PATCHES = {
     "2026_05_14_add_summoning_skill.sql",
     "2026_08_03_add_blessing_skill.sql",
 }
+DEFINITION_PREFIX = "server/conf/server/defs/"
+TOOLS_ALLOWLIST_RESOURCE = (
+    "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
+)
+MAX_GENERATED_PEM_BYTES = 1024 * 1024
 
 
 def sha256(path: Path) -> str:
@@ -70,14 +77,54 @@ def locked_core_commit() -> str:
 
 def parse_allowlist(path: Path) -> list[tuple[str, str, str]]:
     records = []
+    sources = set()
+    destinations = set()
     for raw in path.read_text(encoding="utf-8").splitlines():
         if not raw or raw.startswith("#"):
             continue
         fields = raw.split("\t")
         if len(fields) != 3:
             raise AssertionError(f"Malformed runtime allowlist line: {raw!r}")
+        source_key = fields[0].casefold()
+        destination_key = fields[1].casefold()
+        if (
+            source_key in sources
+            or destination_key in destinations
+            or any(character in fields[0] + fields[1] for character in "*?[]")
+        ):
+            raise AssertionError(f"Non-exact runtime allowlist line: {raw!r}")
+        sources.add(source_key)
+        destinations.add(destination_key)
         records.append((fields[0], fields[1], fields[2]))
     return records
+
+
+def tree_inventory(root: Path, excluded: Path | None = None) -> dict[str, tuple]:
+    inventory = {}
+    excluded_path = excluded.absolute() if excluded is not None else None
+    for path in sorted(root.rglob("*")):
+        if excluded_path is not None:
+            try:
+                path.absolute().relative_to(excluded_path)
+                continue
+            except ValueError:
+                pass
+        relative = path.relative_to(root).as_posix()
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            inventory[relative] = ("link", os.readlink(path))
+        elif stat.S_ISDIR(metadata.st_mode):
+            inventory[relative] = ("directory",)
+        elif stat.S_ISREG(metadata.st_mode):
+            inventory[relative] = (
+                "file",
+                metadata.st_size,
+                metadata.st_nlink,
+                sha256(path),
+            )
+        else:
+            inventory[relative] = ("special", stat.S_IFMT(metadata.st_mode))
+    return inventory
 
 
 def choose_port() -> int:
@@ -117,22 +164,94 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
                 "Native runtime must have its packaged RUNTIME-ASSET-ALLOWLIST.txt sibling"
             )
         records = parse_allowlist(cls.allowlist)
-        destinations = {destination for _, destination, _ in records}
-        required_destinations = {
-            f"server/conf/server/languages/{name}"
+        cls.records = records
+        required_records = {
+            (
+                f"server/conf/server/languages/{name}",
+                f"server/conf/server/languages/{name}",
+                "runtime-configuration",
+            )
             for name in REQUIRED_LANGUAGE_BUNDLES
         } | {
-            f"server/database/sqlite/patches/{name}"
+            (
+                f"server/database/sqlite/patches/{name}",
+                f"server/database/sqlite/patches/{name}",
+                "runtime-database-contract",
+            )
             for name in REQUIRED_DATABASE_PATCHES
         }
-        missing = required_destinations - destinations
+        missing = required_records - set(records)
         if missing:
             raise AssertionError(
                 "Packaged runtime allowlist omits native server assets: "
-                + ", ".join(sorted(missing))
+                + ", ".join(sorted(destination for _, destination, _ in missing))
             )
 
+        definition_root = cls.core / "server/conf/server/defs"
+        if not definition_root.is_dir() or definition_root.is_symlink():
+            raise AssertionError("Exact provider definition root is missing or unsafe")
+        provider_definitions = set()
+        for path in definition_root.rglob("*"):
+            relative = path.relative_to(definition_root)
+            if relative.parts and relative.parts[0] == "locs":
+                continue
+            if path.is_symlink() or (not path.is_dir() and not path.is_file()):
+                raise AssertionError(
+                    f"Exact provider definition entry is unsafe: {relative.as_posix()}"
+                )
+            if path.is_file():
+                provider_definitions.add(
+                    DEFINITION_PREFIX + relative.as_posix()
+                )
+        allowlisted_definitions = {
+            (source, destination, role)
+            for source, destination, role in records
+            if source.startswith(DEFINITION_PREFIX)
+            or destination.startswith(DEFINITION_PREFIX)
+        }
+        required_definitions = {
+            (relative, relative, "default-definition-catalog")
+            for relative in provider_definitions
+        }
+        if allowlisted_definitions != required_definitions:
+            missing_definitions = sorted(
+                source
+                for source, _, _ in required_definitions - allowlisted_definitions
+            )
+            extra_definitions = sorted(
+                source
+                for source, _, _ in allowlisted_definitions - required_definitions
+            )
+            raise AssertionError(
+                "Packaged runtime definition closure differs from exact provider; "
+                f"missing={missing_definitions}, extra={extra_definitions}"
+            )
+        if not provider_definitions:
+            raise AssertionError("Exact provider definition closure is empty")
+        cls.provider_definitions = provider_definitions
+
+        for path in cls.runtime.rglob("*"):
+            if path.is_dir() and not path.is_symlink():
+                continue
+            relative = path.relative_to(cls.runtime).as_posix()
+            if path.is_symlink() or not path.is_file():
+                raise AssertionError(f"Packaged runtime entry is unsafe: {relative}")
+            lower = relative.casefold()
+            if (
+                lower.startswith("server/conf/server/defs/locs/")
+                or lower.startswith("server/conf/server/data/")
+                or (
+                    lower.startswith("client_base/cache/video/")
+                    and "landscape" in lower
+                )
+                or lower in {"server/client.pem", "server/server.pem"}
+            ):
+                raise AssertionError(
+                    f"Packaged runtime contains forbidden world/generated content: {relative}"
+                )
+
         cls.bound_inputs: dict[Path, str] = {}
+        cls.provider_inputs: dict[Path, str] = {}
         for source, destination, _ in records:
             source_path = cls.core / source
             runtime_path = cls.runtime / destination
@@ -146,6 +265,7 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
                     f"Packaged runtime differs from exact provider: {destination}"
                 )
             cls.bound_inputs[runtime_path] = source_hash
+            cls.provider_inputs[source_path] = source_hash
 
         for relative in (
             "Client_Base/Open_RSC_Client.jar",
@@ -162,6 +282,7 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
                     f"Native runtime binary differs from exact provider: {relative}"
                 )
             cls.bound_inputs[runtime_path] = provider_hash
+            cls.provider_inputs[provider_path] = provider_hash
 
         for name in EMPTY_LANGUAGE_BUNDLES:
             path = cls.runtime / "server/conf/server/languages" / name
@@ -172,6 +293,18 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
         if not cls.tools.is_file() or cls.tools.is_symlink():
             raise AssertionError("Native runtime is missing world-builder-tools.jar")
         cls.bound_inputs[cls.tools] = sha256(cls.tools)
+        with zipfile.ZipFile(cls.tools) as tools:
+            if tools.read(TOOLS_ALLOWLIST_RESOURCE) != cls.allowlist.read_bytes():
+                raise AssertionError(
+                    "Native tools jar embedded allowlist differs from packaged allowlist"
+                )
+
+        cls.runtime_before = tree_inventory(cls.runtime)
+        cls.allowlist_before = sha256(cls.allowlist)
+        cls.core_head_before = actual_core
+        cls.core_status_before = git(
+            cls.core, "status", "--porcelain=v1", "--untracked-files=all"
+        )
 
         configured_java = os.environ.get(JAVA_ENV, "")
         if configured_java:
@@ -299,6 +432,7 @@ public final class NativeAdaptiveServerHarness {
             target.mkdir()
             installation = target / "World Builder 2"
             installation.mkdir()
+            target_outside_before = tree_inventory(target, installation)
             report = base / "discovery-report.json"
 
             discovered = self.run_cli(
@@ -333,6 +467,10 @@ public final class NativeAdaptiveServerHarness {
             summary = json.loads(created.stdout)
             self.assertEqual("standalone-empty", summary["origin"])
             project = Path(summary["projectRoot"])
+            source_before = tree_inventory(project / "source")
+            working_package_before = tree_inventory(
+                project / "working/layered-world/package"
+            )
 
             for name in REQUIRED_LANGUAGE_BUNDLES:
                 packaged = self.runtime / "server/conf/server/languages" / name
@@ -342,6 +480,12 @@ public final class NativeAdaptiveServerHarness {
                     / name
                 )
                 self.assertEqual(packaged.read_bytes(), project_copy.read_bytes())
+            for relative in self.provider_definitions:
+                self.assertEqual(
+                    (self.core / relative).read_bytes(),
+                    (project / "working/runtime" / relative).read_bytes(),
+                    relative,
+                )
 
             classpath = os.pathsep.join((str(self.classes), str(self.tools)))
             supervised = subprocess.run(
@@ -379,6 +523,34 @@ public final class NativeAdaptiveServerHarness {
                 "Exception starting server with a configuration file",
             ):
                 self.assertNotIn(fatal, log_text)
+            verified = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+                "--validate-only",
+            )
+            self.assertEqual(0, verified.returncode, verified.stdout + verified.stderr)
+            self.assertEqual("ready-standalone", json.loads(verified.stdout)["state"])
+
+            runtime_server = project / "working/runtime/server"
+            for name in ("create_db.log", "create_db_error.log"):
+                self.assertFalse((runtime_server / name).exists())
+                relocated = runtime_server / "logs" / name
+                self.assertTrue(relocated.is_file(), relocated)
+                self.assertFalse(relocated.is_symlink(), relocated)
+                self.assertEqual(1, relocated.stat().st_nlink, relocated)
+            for name in ("client.pem", "server.pem"):
+                key = runtime_server / name
+                metadata = key.lstat()
+                self.assertTrue(stat.S_ISREG(metadata.st_mode), key)
+                self.assertFalse(key.is_symlink(), key)
+                self.assertEqual(1, metadata.st_nlink, key)
+                self.assertGreater(metadata.st_size, 0, key)
+                self.assertLessEqual(metadata.st_size, MAX_GENERATED_PEM_BYTES, key)
+                self.assertEqual(runtime_server.resolve(), key.resolve().parent)
+                self.assertFalse((self.runtime / "server" / name).exists())
 
             database_path = (
                 project / "working/runtime/server/inc/sqlite/world_builder.db"
@@ -396,15 +568,31 @@ public final class NativeAdaptiveServerHarness {
             self.assertTrue(REQUIRED_DATABASE_PATCHES <= applied, applied)
             self.assertTrue({"summoning", "blessing"} <= curstats_columns)
 
-            outside_installation = []
-            for path in target.rglob("*"):
-                try:
-                    path.relative_to(installation)
-                except ValueError:
-                    outside_installation.append(path)
-            self.assertEqual([], outside_installation)
+            self.assertEqual(source_before, tree_inventory(project / "source"))
+            self.assertEqual(
+                working_package_before,
+                tree_inventory(project / "working/layered-world/package"),
+            )
+            self.assertEqual(
+                target_outside_before,
+                tree_inventory(target, installation),
+            )
+            self.assertEqual(self.runtime_before, tree_inventory(self.runtime))
+            self.assertEqual(self.allowlist_before, sha256(self.allowlist))
             for path, before_hash in self.bound_inputs.items():
                 self.assertEqual(before_hash, sha256(path), path)
+            for path, before_hash in self.provider_inputs.items():
+                self.assertEqual(before_hash, sha256(path), path)
+            self.assertEqual(self.core_head_before, git(self.core, "rev-parse", "HEAD"))
+            self.assertEqual(
+                self.core_status_before,
+                git(
+                    self.core,
+                    "status",
+                    "--porcelain=v1",
+                    "--untracked-files=all",
+                ),
+            )
 
 
 if __name__ == "__main__":

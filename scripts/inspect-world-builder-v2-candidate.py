@@ -125,6 +125,9 @@ REQUIRED_SERVER_ENTRIES = {
     "com/openrsc/server/content/worldedit/WorldEditStorageContext.class",
     "com/openrsc/server/content/worldedit/WorldBuilderRuntimeControl.class",
 }
+TOOL_RUNTIME_ALLOWLIST_ENTRY = (
+    "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
+)
 REQUIRED_TOOL_ENTRIES = {
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveExporter.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveImporter.class",
@@ -135,6 +138,7 @@ REQUIRED_TOOL_ENTRIES = {
     "com/openrsc/worldbuilder/WorldBuilderCli.class",
     "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
     "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
+    TOOL_RUNTIME_ALLOWLIST_ENTRY,
 }
 WINDOWS_RESERVED = {
     "CON",
@@ -160,7 +164,9 @@ FORBIDDEN_ROOT_COMPONENTS = {
 }
 FORBIDDEN_PATH_FRAGMENTS = {
     "builder-runtime/layered-world/",
+    "builder-runtime/server/client.pem",
     "builder-runtime/server/ipbans.txt",
+    "builder-runtime/server/server.pem",
     "clientsettings.conf",
     "credentials.txt",
     "custom_landscape.orsc",
@@ -666,6 +672,7 @@ def forbidden_core_hashes(core_root: Path) -> dict[str, tuple[str, str]]:
 
 def parse_runtime_allowlist(
     source_root: Path,
+    core_root: Path,
 ) -> tuple[bytes, set[str], dict[str, str], dict[str, Path]]:
     path = source_root / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
     try:
@@ -678,6 +685,7 @@ def parse_runtime_allowlist(
     destinations: set[str] = set()
     runtime_sources: dict[str, str] = {}
     records: set[tuple[str, str, str]] = set()
+    project_only_generated = {"server/client.pem", "server/server.pem"}
     for line in lines:
         if not line or line.startswith("#"):
             continue
@@ -696,6 +704,8 @@ def parse_runtime_allowlist(
             fail(f"Duplicate runtime allowlist source or destination: {line!r}")
         if role not in ALLOWED_RUNTIME_ROLES:
             fail(f"Unknown runtime allowlist role: {role!r}")
+        if source in project_only_generated or destination in project_only_generated:
+            fail(f"Runtime allowlist includes project-only generated state: {line!r}")
         validate_zip_name(f"{PACKAGE_ROOT}/builder-runtime/{destination}")
         sources.add(source_key)
         destinations.add(destination_key)
@@ -708,6 +718,64 @@ def parse_runtime_allowlist(
         fail(
             "Runtime allowlist is missing required native server assets: "
             + ", ".join(missing)
+        )
+    definition_prefix = "server/conf/server/defs/"
+    definition_root = core_root / "server/conf/server/defs"
+    if not definition_root.is_dir() or definition_root.is_symlink():
+        fail("Exact provider definition root is missing or unsafe")
+    provider_definitions: set[str] = set()
+    for definition in definition_root.rglob("*"):
+        relative = definition.relative_to(definition_root)
+        if relative.parts and relative.parts[0].casefold() == "locs":
+            continue
+        if definition.is_symlink():
+            fail(f"Exact provider definition closure contains a link: {relative}")
+        if definition.is_dir():
+            continue
+        if (
+            not definition.is_file()
+            or definition.stat(follow_symlinks=False).st_nlink != 1
+        ):
+            fail(
+                "Exact provider definition closure contains an unsupported entry: "
+                + relative.as_posix()
+            )
+        provider_definitions.add(definition_prefix + relative.as_posix())
+    if not provider_definitions:
+        fail("Exact provider definition closure is empty")
+    required_definition_records = {
+        (relative, relative, "default-definition-catalog")
+        for relative in provider_definitions
+    }
+    allowlisted_definition_records = {
+        record
+        for record in records
+        if record[0].casefold().startswith(definition_prefix)
+        or record[1].casefold().startswith(definition_prefix)
+    }
+    if any(
+        source.casefold().startswith(definition_prefix + "locs/")
+        or destination.casefold().startswith(definition_prefix + "locs/")
+        for source, destination, _ in records
+    ):
+        fail("Runtime allowlist must exclude the complete defs/locs subtree")
+    missing_definitions = required_definition_records - allowlisted_definition_records
+    extra_definitions = allowlisted_definition_records - required_definition_records
+    if missing_definitions or extra_definitions:
+        detail = []
+        if missing_definitions:
+            detail.append(
+                "missing "
+                + ", ".join(sorted(source for source, _, _ in missing_definitions))
+            )
+        if extra_definitions:
+            detail.append(
+                "unexpected "
+                + ", ".join(sorted(source for source, _, _ in extra_definitions))
+            )
+        fail(
+            "Runtime allowlist does not match the exact content-neutral definition "
+            "closure: " + "; ".join(detail)
         )
     schema_root = source_root / "tools/world-builder/schema"
     schemas: dict[str, Path] = {}
@@ -1342,6 +1410,14 @@ def validate_archive(
     )
     if not REQUIRED_TOOL_ENTRIES.issubset(tool_entries):
         fail(f"Tool runtime is missing required adaptive classes: {path.name}")
+    with zipfile.ZipFile(
+        io.BytesIO(files["builder-runtime/launcher/world-builder-tools.jar"])
+    ) as tools:
+        if tools.read(TOOL_RUNTIME_ALLOWLIST_ENTRY) != allowlist_bytes:
+            fail(
+                "Tool runtime embedded allowlist differs from the exact release "
+                f"allowlist: {path.name}"
+            )
 
     for relative, data in files.items():
         if relative.endswith((".jar", ".zip")) and relative not in {
@@ -1451,7 +1527,7 @@ def main(arguments: Iterable[str]) -> int:
         allowed_runtime,
         runtime_sources,
         schemas,
-    ) = parse_runtime_allowlist(source_root)
+    ) = parse_runtime_allowlist(source_root, core_root)
     forbidden_hashes = forbidden_core_hashes(core_root)
     copied_files = copied_file_expectations(
         source_root,
@@ -1494,7 +1570,7 @@ def main(arguments: Iterable[str]) -> int:
         fail("Reviewed Linux JRE input changed during candidate inspection")
     if inventory_runtime_tree(windows_jre, "Windows") != windows_jre_inventory:
         fail("Reviewed Windows JRE input changed during candidate inspection")
-    reloaded_allowlist = parse_runtime_allowlist(source_root)
+    reloaded_allowlist = parse_runtime_allowlist(source_root, core_root)
     if reloaded_allowlist[:3] != (
         allowlist_bytes,
         allowed_runtime,
