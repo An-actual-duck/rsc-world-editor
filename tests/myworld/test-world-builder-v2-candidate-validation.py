@@ -81,6 +81,28 @@ TOOL_ENTRIES = (
     "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
     "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
 )
+REQUIRED_LANGUAGE_BUNDLES = (
+    "AuthenticMessages_en_UK.properties",
+    "AuthenticMessages_en_UK_female.properties",
+    "AuthenticMessages_en_UK_female_no_misgender.properties",
+    "AuthenticMessages_en_UK_gender_neutral.properties",
+    "AuthenticMessages_en_UK_male.properties",
+    "CustomMessages_en_UK.properties",
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+)
+EMPTY_LANGUAGE_BUNDLES = {
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+}
+REQUIRED_DATABASE_PATCHES = (
+    "2021_05_11_add_db_patches.sql",
+    "2023_02_01_former_names.sql",
+    "2026_05_14_add_summoning_skill.sql",
+    "2026_08_03_add_blessing_skill.sql",
+)
 RUNTIME_CONFIGURATION = (
     b"server_bind_address: 127.0.0.1\n"
     b"client_version: 10048\n"
@@ -182,6 +204,7 @@ class CandidateFixture:
         core_seed_object_rows: int = 0,
         plugin_world_payload: bool = False,
         capability: bytes = CAPABILITY,
+        include_native_runtime_records: bool = True,
     ) -> None:
         self.base = base
         self.source = base / "source"
@@ -221,12 +244,31 @@ class CandidateFixture:
             "release/player/ASSET-SOURCES.txt": b"fixture\n",
             "dev/myworld/assets/ui/world-editor/CREDITS.md": b"fixture\n",
         }
+        for name in REQUIRED_LANGUAGE_BUNDLES:
+            core_paths[f"server/conf/server/languages/{name}"] = (
+                b"" if name in EMPTY_LANGUAGE_BUNDLES else b"fixture bundle\n"
+            )
+        for name in REQUIRED_DATABASE_PATCHES:
+            core_paths[f"server/database/sqlite/patches/{name}"] = (
+                b"-- fixture runtime migration\n"
+            )
         for relative, data in core_paths.items():
             path = self.core / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
         self.core_commit = initialize_repository(self.core, "Create runtime fixture")
 
+        native_records = ""
+        if include_native_runtime_records:
+            native_records = "".join(
+                f"server/conf/server/languages/{name}\t"
+                f"server/conf/server/languages/{name}\truntime-configuration\n"
+                for name in REQUIRED_LANGUAGE_BUNDLES
+            ) + "".join(
+                f"server/database/sqlite/patches/{name}\t"
+                f"server/database/sqlite/patches/{name}\truntime-database-contract\n"
+                for name in REQUIRED_DATABASE_PATCHES
+            )
         self.allowlist = (
             "# Candidate validation fixture allowlist\n"
             "server/inc/sqlite/myworld_seed.db\t"
@@ -234,6 +276,7 @@ class CandidateFixture:
             "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
             "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
             "runtime-capability\n"
+            + native_records
         ).encode("utf-8")
         allowlist_path = (
             self.source / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
@@ -418,6 +461,14 @@ class CandidateFixture:
         )
         java = "runtime/bin/java.exe" if platform == "windows" else "runtime/bin/java"
         files[java] = (b"bundled java\n", 0o644 if platform == "windows" else 0o755)
+        for raw in self.allowlist.decode("utf-8").splitlines():
+            if not raw or raw.startswith("#"):
+                continue
+            source, destination, _ = raw.split("\t")
+            files.setdefault(
+                "builder-runtime/" + destination,
+                ((self.core / source).read_bytes(), 0o644),
+            )
         return files
 
     def write_archive(self, platform: str, *, refresh_manifest: bool = True) -> None:
@@ -515,6 +566,18 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertRegex(artifact["reviewedJreInventorySha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(artifact["reviewedJreFileCount"], 3)
         self.assertIn("owner-software-and-opengl-visual-review", evidence["pendingEvidence"])
+
+    def test_inspector_requires_complete_native_server_runtime_contract(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="candidate-native-contract-") as temp:
+            fixture = CandidateFixture(
+                Path(temp), include_native_runtime_records=False
+            )
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing required native server assets", result.stderr)
+            self.assertIn("CustomMessages_en_UK.properties", result.stderr)
 
     def test_pending_worksheet_cannot_be_mistaken_for_release_acceptance(self) -> None:
         text = PENDING_RECORD.read_text(encoding="utf-8")

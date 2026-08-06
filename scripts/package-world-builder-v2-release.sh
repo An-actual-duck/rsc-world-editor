@@ -371,6 +371,30 @@ allowed_roles = {
     "runtime-library", "runtime-configuration", "default-definition-catalog",
     "runtime-capability", "runtime-database-contract", "builder-database-seed",
 }
+required_native_records = {
+    (f"server/conf/server/languages/{name}",
+     f"server/conf/server/languages/{name}", "runtime-configuration")
+    for name in (
+        "AuthenticMessages_en_UK.properties",
+        "AuthenticMessages_en_UK_female.properties",
+        "AuthenticMessages_en_UK_female_no_misgender.properties",
+        "AuthenticMessages_en_UK_gender_neutral.properties",
+        "AuthenticMessages_en_UK_male.properties",
+        "CustomMessages_en_UK.properties",
+        "CustomMessages_en_UK_female.properties",
+        "CustomMessages_en_UK_gender_neutral.properties",
+        "CustomMessages_en_UK_male.properties",
+    )
+} | {
+    (f"server/database/sqlite/patches/{name}",
+     f"server/database/sqlite/patches/{name}", "runtime-database-contract")
+    for name in (
+        "2021_05_11_add_db_patches.sql",
+        "2023_02_01_former_names.sql",
+        "2026_05_14_add_summoning_skill.sql",
+        "2026_08_03_add_blessing_skill.sql",
+    )
+}
 portable = re.compile(r"^[A-Za-z0-9._+ -]+(?:/[A-Za-z0-9._+ -]+)*$")
 seen_source = set()
 seen_destination = set()
@@ -402,6 +426,13 @@ if not records:
     raise SystemExit("Runtime asset allowlist is empty")
 if sum(role == "builder-database-seed" for _, _, role in records) != 1:
     raise SystemExit("Runtime allowlist must contain exactly one Builder database seed")
+missing_native = required_native_records.difference(records)
+if missing_native:
+    missing = sorted(destination for _, destination, _ in missing_native)
+    raise SystemExit(
+        "Runtime allowlist is missing required native server assets: "
+        + ", ".join(missing)
+    )
 PY
 }
 

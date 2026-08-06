@@ -38,6 +38,31 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static final String ASSET_HEADER =
 		"adaptive-world-builder-asset-evidence-v1";
 	private static final String OPERATION = "adaptive-runtime-preparation";
+	private static final List<String> REQUIRED_RUNTIME_PATHS =
+		Collections.unmodifiableList(Arrays.asList(
+			"server/core.jar",
+			"server/plugins.jar",
+			"server/conf/world-builder/adaptive-runtime-capability-v1.json",
+			"server/inc/sqlite/world_builder_seed.db",
+			"server/conf/server/languages/AuthenticMessages_en_UK.properties",
+			"server/conf/server/languages/AuthenticMessages_en_UK_female.properties",
+			"server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties",
+			"server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties",
+			"server/conf/server/languages/AuthenticMessages_en_UK_male.properties",
+			"server/conf/server/languages/CustomMessages_en_UK.properties",
+			"server/conf/server/languages/CustomMessages_en_UK_female.properties",
+			"server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties",
+			"server/conf/server/languages/CustomMessages_en_UK_male.properties",
+			"server/database/sqlite/patches/2021_05_11_add_db_patches.sql",
+			"server/database/sqlite/patches/2023_02_01_former_names.sql",
+			"server/database/sqlite/patches/2026_05_14_add_summoning_skill.sql",
+			"server/database/sqlite/patches/2026_08_03_add_blessing_skill.sql",
+			"client/Open_RSC_Client.jar"));
+	private static final Set<String> EMPTY_RUNTIME_ASSET_PATHS =
+		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
+			"server/conf/server/languages/CustomMessages_en_UK_female.properties",
+			"server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties",
+			"server/conf/server/languages/CustomMessages_en_UK_male.properties")));
 	private static final Set<String> GENERATED_SOURCE_PATHS =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/world-builder.conf",
@@ -67,11 +92,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		final long[] total = new long[] {0L};
 		collect(server, "server", entries, folded, total);
 		collect(client, "client", entries, folded, total);
-		for (String required : Arrays.asList(
-			"server/core.jar", "server/plugins.jar",
-			"server/conf/world-builder/adaptive-runtime-capability-v1.json",
-			"server/inc/sqlite/world_builder_seed.db",
-			"client/Open_RSC_Client.jar")) {
+		for (String required : REQUIRED_RUNTIME_PATHS) {
 			if (!entries.containsKey(required)) {
 				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, required,
 					"Application runtime is missing a required adaptive asset.",
@@ -150,11 +171,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime before launching.");
 			}
 		}
-		for (String required : Arrays.asList(
-			"server/core.jar", "server/plugins.jar",
-			"server/conf/world-builder/adaptive-runtime-capability-v1.json",
-			"server/inc/sqlite/world_builder_seed.db",
-			"client/Open_RSC_Client.jar")) {
+		for (String required : REQUIRED_RUNTIME_PATHS) {
 			if (!entries.containsKey(required)) {
 				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
 					"working/runtime/" + required,
@@ -310,7 +327,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					throw new IOException("Runtime asset inventory is too large");
 				}
 				long size = attributes.size();
-				if (size < 1L || size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES) {
+				if ((size == 0L && !EMPTY_RUNTIME_ASSET_PATHS.contains(relative))
+					|| size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES) {
 					throw new IOException("Runtime asset has an unsupported size: " + relative);
 				}
 				total[0] = Math.addExact(total[0], size);
@@ -357,7 +375,9 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			} catch (NumberFormatException invalid) {
 				throw malformedInventory();
 			}
-			if (size < 1L || size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
+			if (size < 0L
+				|| (size == 0L && !EMPTY_RUNTIME_ASSET_PATHS.contains(columns[2]))
+				|| size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
 				|| previous.compareTo(columns[2]) >= 0
 				|| entries.size() >= WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) {
 				throw malformedInventory();

@@ -21,6 +21,28 @@ DISCOVERY_TEST = ROOT / "tests/myworld/test-world-builder-adaptive-discovery.py"
 PACKED_CONVERSION_TEST = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
 CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
+REQUIRED_LANGUAGE_BUNDLES = (
+    "AuthenticMessages_en_UK.properties",
+    "AuthenticMessages_en_UK_female.properties",
+    "AuthenticMessages_en_UK_female_no_misgender.properties",
+    "AuthenticMessages_en_UK_gender_neutral.properties",
+    "AuthenticMessages_en_UK_male.properties",
+    "CustomMessages_en_UK.properties",
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+)
+EMPTY_LANGUAGE_BUNDLES = {
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+}
+REQUIRED_DATABASE_PATCHES = (
+    "2021_05_11_add_db_patches.sql",
+    "2023_02_01_former_names.sql",
+    "2026_05_14_add_summoning_skill.sql",
+    "2026_08_03_add_blessing_skill.sql",
+)
 
 
 def load_discovery_fixtures():
@@ -508,6 +530,16 @@ public final class AdaptiveProjectSupervisorHarness {
             server / "conf/world-builder/adaptive-runtime-capability-v1.json",
             capability,
         )
+        for name in REQUIRED_LANGUAGE_BUNDLES:
+            path = server / "conf/server/languages" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(
+                b"" if name in EMPTY_LANGUAGE_BUNDLES else b"fixture bundle\n"
+            )
+        for name in REQUIRED_DATABASE_PATCHES:
+            path = server / "database/sqlite/patches" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"-- fixture runtime migration\n")
         for jar in (
             server / "core.jar",
             server / "plugins.jar",
@@ -984,6 +1016,111 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, undo_result.returncode)
             self.assertIn("NO_TARGET", undo_result.stderr)
             self.assertFalse(missing_target.exists())
+
+    def test_native_runtime_bundles_preserve_bounded_empty_fallbacks(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-native-runtime-assets-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation,
+                runtime,
+                target,
+                report,
+                "Native runtime assets",
+                43813,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            inventory = (
+                project / "working/runtime/runtime-assets.sha256"
+            ).read_text(encoding="utf-8")
+            empty_digest = hashlib.sha256(b"").hexdigest()
+            for bundle in EMPTY_LANGUAGE_BUNDLES:
+                relative = "server/conf/server/languages/" + bundle
+                copied = project / "working/runtime" / relative
+                self.assertTrue(copied.is_file(), copied)
+                self.assertEqual(b"", copied.read_bytes())
+                self.assertIn(f"{empty_digest}\t0\t{relative}\n", inventory)
+            for patch in REQUIRED_DATABASE_PATCHES:
+                self.assertTrue(
+                    (
+                        project
+                        / "working/runtime/server/database/sqlite/patches"
+                        / patch
+                    ).is_file()
+                )
+
+            validated = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(0, validated.returncode, validated.stderr)
+
+            changed = (
+                project
+                / "working/runtime/server/conf/server/languages/"
+                "CustomMessages_en_UK_female.properties"
+            )
+            changed.write_bytes(b"changed\n")
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("SOURCE_CORRUPT", refused.stderr)
+            changed.write_bytes(b"")
+
+            missing = (
+                project
+                / "working/runtime/server/database/sqlite/patches/"
+                "2026_08_03_add_blessing_skill.sql"
+            )
+            missing.unlink()
+            refused = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--validate-only",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("UNSAFE_PATH", refused.stderr)
+            self.assertIn("2026_08_03_add_blessing_skill.sql", refused.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+
+            incomplete_installation = base / "Incomplete World Builder 2"
+            incomplete_installation.mkdir()
+            incomplete_runtime = self.make_runtime(incomplete_installation)
+            (
+                incomplete_runtime
+                / "server/conf/server/languages/CustomMessages_en_UK.properties"
+            ).unlink()
+            refused, _ = self.create_project(
+                incomplete_installation,
+                incomplete_runtime,
+                target,
+                report,
+                "Incomplete native runtime",
+                43814,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("CustomMessages_en_UK.properties", refused.stderr)
+            self.assertFalse(
+                (incomplete_installation / "project-registry.json").exists()
+            )
+            self.assertEqual(target_before, tree_bytes(target))
 
     def test_layered_adoption_save_and_portable_detached_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-layered-") as temp:

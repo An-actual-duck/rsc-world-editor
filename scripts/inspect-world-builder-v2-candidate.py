@@ -188,6 +188,36 @@ ALLOWED_RUNTIME_ROLES = {
     "runtime-database-contract",
     "runtime-library",
 }
+REQUIRED_NATIVE_RUNTIME_RECORDS = {
+    (
+        f"server/conf/server/languages/{name}",
+        f"server/conf/server/languages/{name}",
+        "runtime-configuration",
+    )
+    for name in (
+        "AuthenticMessages_en_UK.properties",
+        "AuthenticMessages_en_UK_female.properties",
+        "AuthenticMessages_en_UK_female_no_misgender.properties",
+        "AuthenticMessages_en_UK_gender_neutral.properties",
+        "AuthenticMessages_en_UK_male.properties",
+        "CustomMessages_en_UK.properties",
+        "CustomMessages_en_UK_female.properties",
+        "CustomMessages_en_UK_gender_neutral.properties",
+        "CustomMessages_en_UK_male.properties",
+    )
+} | {
+    (
+        f"server/database/sqlite/patches/{name}",
+        f"server/database/sqlite/patches/{name}",
+        "runtime-database-contract",
+    )
+    for name in (
+        "2021_05_11_add_db_patches.sql",
+        "2023_02_01_former_names.sql",
+        "2026_05_14_add_summoning_skill.sql",
+        "2026_08_03_add_blessing_skill.sql",
+    )
+}
 
 
 class CandidateError(Exception):
@@ -647,6 +677,7 @@ def parse_runtime_allowlist(
     sources: set[str] = set()
     destinations: set[str] = set()
     runtime_sources: dict[str, str] = {}
+    records: set[tuple[str, str, str]] = set()
     for line in lines:
         if not line or line.startswith("#"):
             continue
@@ -668,8 +699,16 @@ def parse_runtime_allowlist(
         validate_zip_name(f"{PACKAGE_ROOT}/builder-runtime/{destination}")
         sources.add(source_key)
         destinations.add(destination_key)
+        records.add((source, destination, role))
         allowed.add("builder-runtime/" + destination)
         runtime_sources["builder-runtime/" + destination] = source
+    missing_native = REQUIRED_NATIVE_RUNTIME_RECORDS - records
+    if missing_native:
+        missing = sorted(destination for _, destination, _ in missing_native)
+        fail(
+            "Runtime allowlist is missing required native server assets: "
+            + ", ".join(missing)
+        )
     schema_root = source_root / "tools/world-builder/schema"
     schemas: dict[str, Path] = {}
     for schema in schema_root.rglob("*"):

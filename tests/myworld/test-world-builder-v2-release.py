@@ -47,6 +47,17 @@ REQUIRED_LANGUAGE_BUNDLES = (
     "CustomMessages_en_UK_gender_neutral.properties",
     "CustomMessages_en_UK_male.properties",
 )
+EMPTY_LANGUAGE_BUNDLES = {
+    "CustomMessages_en_UK_female.properties",
+    "CustomMessages_en_UK_gender_neutral.properties",
+    "CustomMessages_en_UK_male.properties",
+}
+REQUIRED_DATABASE_PATCHES = (
+    "2021_05_11_add_db_patches.sql",
+    "2023_02_01_former_names.sql",
+    "2026_05_14_add_summoning_skill.sql",
+    "2026_08_03_add_blessing_skill.sql",
+)
 ADAPTIVE_CAPABILITY = (
     json.dumps(
         {
@@ -242,6 +253,10 @@ def make_fixture(
         if role == "runtime-capability":
             write(path, ADAPTIVE_CAPABILITY)
             continue
+        if path.name in EMPTY_LANGUAGE_BUNDLES:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"")
+            continue
         if not path.exists():
             if path.suffix == ".jar":
                 make_jar(path, ("fixture/RuntimeLibrary.class",))
@@ -395,6 +410,37 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
+    def test_packager_requires_complete_native_server_runtime_contract(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-native-contract-"
+        ) as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            allowlist_path = (
+                standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            )
+            missing = "CustomMessages_en_UK_gender_neutral.properties"
+            lines = [
+                line
+                for line in allowlist_path.read_text(encoding="utf-8").splitlines()
+                if missing not in line
+            ]
+            allowlist_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            git(standalone, "add", str(allowlist_path.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Omit native language fixture")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing required native server assets", result.stderr)
+            self.assertIn(missing, result.stderr)
+
     def test_public_packaging_refuses_without_acceptance_marker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-release-gate-") as temp:
             fixture = make_fixture(Path(temp), release_ready=False)
@@ -836,7 +882,22 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         + bundle
                         for bundle in REQUIRED_LANGUAGE_BUNDLES
                     )
+                    required.update(
+                        prefix
+                        + "builder-runtime/server/database/sqlite/patches/"
+                        + patch
+                        for patch in REQUIRED_DATABASE_PATCHES
+                    )
                     self.assertFalse(required - names, required - names)
+                    for bundle in EMPTY_LANGUAGE_BUNDLES:
+                        self.assertEqual(
+                            b"",
+                            archive.read(
+                                prefix
+                                + "builder-runtime/server/conf/server/languages/"
+                                + bundle
+                            ),
+                        )
                     runtime_java = (
                         prefix + "runtime/bin/java.exe"
                         if windows
