@@ -482,7 +482,7 @@ final class WorldBuilderAdaptiveImporter {
 		} else {
 			Path source = WorldBuilderAdaptiveExporter.requireFile(
 				plan.export.root, action.contentRelativePath, "adaptive export content");
-			Files.copy(source, temporary, StandardCopyOption.REPLACE_EXISTING);
+			WorldBuilderAdaptiveOwnedFiles.copyReserved(source, temporary);
 			forceFile(temporary);
 		}
 		verifyFile(temporary, action.after);
@@ -569,7 +569,7 @@ final class WorldBuilderAdaptiveImporter {
 					new WorldBuilderAdaptiveOwnedFiles();
 				try {
 					owned.reserve(temporary);
-					Files.copy(backup, temporary, StandardCopyOption.REPLACE_EXISTING);
+					WorldBuilderAdaptiveOwnedFiles.copyReserved(backup, temporary);
 					forceFile(temporary);
 					verifyFile(temporary, action.before);
 					owned.seal(temporary);

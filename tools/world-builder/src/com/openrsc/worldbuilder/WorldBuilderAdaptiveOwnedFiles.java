@@ -1,9 +1,12 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -36,6 +39,21 @@ final class WorldBuilderAdaptiveOwnedFiles {
 			"Staging identity changed before verification: " + path.getFileName());
 		owned.size = attributes.size();
 		owned.sha256 = WorldBuilderHashes.sha256(path);
+	}
+
+	/** Copies into an already reserved regular file without replacing its inode. */
+	static void copyReserved(Path source, Path destination) throws IOException {
+		try (InputStream input = Files.newInputStream(source,
+			StandardOpenOption.READ, LinkOption.NOFOLLOW_LINKS);
+			OutputStream output = Files.newOutputStream(destination,
+				StandardOpenOption.WRITE, StandardOpenOption.TRUNCATE_EXISTING,
+				LinkOption.NOFOLLOW_LINKS)) {
+			byte[] buffer = new byte[64 * 1024];
+			int count;
+			while ((count = input.read(buffer)) >= 0) {
+				if (count > 0) output.write(buffer, 0, count);
+			}
+		}
 	}
 
 	void forget(Path path) {
