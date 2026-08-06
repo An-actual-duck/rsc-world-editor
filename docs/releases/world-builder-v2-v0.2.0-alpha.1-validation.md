@@ -9,14 +9,20 @@ is unchanged and does not approve this adaptive design.
 ## Gate state
 
 - Status: **PENDING — NOT RELEASE READY**
-- Restricted pre-gate candidate World Editor commit: **PENDING clean published `main`**
+- Restricted pre-gate candidate World Editor commit:
+  `e7dd87a1fb92d0b386891ed2e975aecac5898a0d`
 - Locked runtime commit:
   `77715c0f831be239c9d14278146be56853115150`
-- Restricted pre-gate Linux candidate SHA-256: **PENDING**
-- Restricted pre-gate Windows candidate SHA-256: **PENDING**
-- Restricted pre-gate `SHA256SUMS.txt` SHA-256: **PENDING**
-- Reviewed Linux JRE inventory SHA-256: **PENDING**
-- Reviewed Windows JRE inventory SHA-256: **PENDING**
+- Restricted pre-gate Linux candidate SHA-256:
+  `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0`
+- Restricted pre-gate Windows candidate SHA-256:
+  `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2`
+- Restricted pre-gate `SHA256SUMS.txt` SHA-256:
+  `43bb01b286cd1dcbe3510e8f3209499ebf8372892be710d4a6611728f85d6a82`
+- Reviewed Linux JRE inventory SHA-256:
+  `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e`
+- Reviewed Windows JRE inventory SHA-256:
+  `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967`
 - Owner-native report: **PENDING**
 - Accepted limitations: **NONE ACCEPTED**
 - Release decision and accepting manager/owner: **PENDING**
@@ -30,6 +36,58 @@ The candidate source now contains the production project-local adaptive launch
 path rather than the earlier intentional `LOADER_INCOMPATIBLE` stub. That makes
 the owner checklist executable; it does not satisfy it. Native visual/edit/save/
 reopen evidence, `releaseReady`, and the release decision remain PENDING.
+
+## Automated evidence for the restricted candidate
+
+Automated archive inspection passed on 2026-08-06 for the exact candidate
+commit and locked runtime above. This evidence does not accept the candidate:
+the official record reports `releaseReady: false`,
+`releaseGateChanged: false`, and status
+`automated-archive-inspection-passed`.
+
+- Official `ai1-candidate-archive-inspection.sXDesP.json` SHA-256:
+  `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8`.
+  It passed clean-published-source, exact locked runtime, external artifact,
+  outer checksum, safe-root, exact application allowlist, exhaustive manifest,
+  content-neutral world/creator scan, empty Builder seed, dual-platform Java
+  17 metadata, exact reviewed JRE bytes/modes, Linux launcher modes, and
+  production runtime identity/capability assertions.
+- Independent `ai1-independent-archive-audit.7U11Fn.json` SHA-256:
+  `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86`.
+  It confirmed 98 exact allowlist records, the exact 42-file neutral definition
+  closure, byte equality with the locked provider, and absence of
+  `defs/locs`, terrain, placements, user/project/workspace state, and shared
+  PEM keys. It also confirmed the packaged Windows launcher byte-for-byte
+  against source and reviewed its adaptive target/runtime/identity control
+  flow without executing Windows.
+- Extracted Linux no-UI real-runtime integration log SHA-256:
+  `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c`.
+  The test passed standalone-empty discovery and creation, real server
+  readiness, database migrations, orderly shutdown, post-run save/reopen,
+  project-local key/log handling, and immutable package/provider/target checks
+  using the candidate's bundled Temurin 17 runtime.
+- Validation-record test log SHA-256:
+  `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27`.
+  It records a clean diff check, all 21 candidate-validation tests, all four
+  product-generation tests, project-independence validation, and all 17
+  adaptive-contract tests passing.
+- Independent immutable-input inventory digests before and after validation
+  matched exactly:
+  `3e75f4af8b81851ca79f256415b2bb6832e5440f22dd9b6d5d9468781490baf6`
+  for the locked provider working tree,
+  `fc6632d6d7e32e3aad9cc8ff876e5d0c05ae954d7077c3cfc6b10abf706ff650`
+  for the physical Linux JRE tree, and
+  `e800e14cfaaa4370065277a9dc7c0f7007fd58ad8dadb8ed22540fb47eeb8a1d`
+  for the physical Windows JRE tree. File counts, byte counts, directory and
+  link counts, modes, and aggregate digests were unchanged. The candidate
+  archive and checksum hashes also matched their pre-validation values.
+
+Still pending are owner-native layered and standalone edit/save/reopen,
+owner software/OpenGL visual review, disposable-target import/undo/recovery,
+and manager candidate acceptance. Native Windows application execution is not
+required by the current owner decision and was not performed or claimed;
+native PowerShell updater execution remains unclaimed. No limitation or
+release decision has been accepted.
 
 ## Required immutable inputs
 
@@ -103,16 +161,17 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 
 | Check | Exact command/input | Result | Log/evidence SHA-256 |
 | --- | --- | --- | --- |
-| Whitespace | `git diff --check` | PENDING | PENDING |
+| Whitespace | `git diff --check` | PASS | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
+| Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PASS — 42 tests plus independence check | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
 | Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PENDING | PENDING |
 | Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
 | Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PENDING | PENDING |
-| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PENDING | PENDING |
+| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
 | Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PENDING | PENDING |
 | PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PENDING or UNAVAILABLE | PENDING or N/A |
-| Windows updater/launcher Java and static control flow | focused suite and review | PENDING | PENDING |
+| Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PASS — static/code review only | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
 | Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PENDING | PENDING |
-| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | focused lifecycle suite | PENDING | PENDING |
+| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PASS — owner edit/visual checks pending | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
 
 Fixture archives prove rejection and transaction behavior; only the external
 inspection row may be used as evidence for the final candidate archive hashes.
@@ -128,10 +187,12 @@ retain the outer `SHA256SUMS.txt`.
 
 | Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Manifested files | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
-| Windows x64 | PENDING | PENDING | PENDING | PENDING | PENDING | PENDING |
+| Linux x64 | `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0` | `429bc1138a7d258c5afa0755cad511ab976a3f31e37a4d622739d275f9c13ce0` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 397 | AUTOMATED PASS — acceptance pending |
+| Windows x64 | `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2` | `9822def834f99b5e04548c9498d945e1814612992c63b56bf78e9524aa0b8b13` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 455 | AUTOMATED PASS — acceptance pending |
 
-Required review statements, all currently **PENDING**:
+Required automated archive review statements below are **PASS** for these exact
+restricted artifacts; owner validation and candidate acceptance remain
+**PENDING**:
 
 - both archives have the sole root `World Builder 2/`;
 - archive names, identity, version, source commits, platform runtime, inner
