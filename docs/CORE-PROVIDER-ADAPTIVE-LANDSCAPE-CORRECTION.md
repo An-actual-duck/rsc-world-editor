@@ -2,11 +2,17 @@
 
 | Field | Required value |
 | --- | --- |
-| Status | UPSTREAM CORRECTION REQUIRED — NOT IMPLEMENTED IN WORLD EDITOR |
+| Status | PROVIDER CORRECTION VERIFIED AT `0dd7aabb1eb599b2082ae44503ce42cf589b00fd` |
 | Affected product | World Builder 2 adaptive client/runtime |
-| Current locked provider | `77715c0f831be239c9d14278146be56853115150` |
-| Observed blocker | The Linux candidate requests missing `Client_Base/Cache/video/Authentic_Landscape.orsc` before owner visual/edit validation. |
+| Current locked provider | `0dd7aabb1eb599b2082ae44503ce42cf589b00fd` |
+| Observed blocker | RESOLVED — the Linux client stays alive without requesting or rendering the legacy landscape archive. |
 | Release state | PENDING — NOT RELEASE READY |
+
+This correction is complete. The later native candidate is blocked by a
+separate undecided-protocol login framing defect documented in
+[`CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
+This file remains as the accepted terrain-startup contract and regression
+baseline; it is not the current provider work request.
 
 ## Ownership decision
 

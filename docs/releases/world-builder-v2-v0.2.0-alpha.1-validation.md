@@ -10,15 +10,15 @@ is unchanged and does not approve this adaptive design.
 
 - Status: **PENDING — NOT RELEASE READY**
 - Restricted pre-gate candidate World Editor commit:
-  `e7dd87a1fb92d0b386891ed2e975aecac5898a0d`
+  `b05b16fd744f410a7e95e601f5f8f8d42ea2ce6b`
 - Locked runtime commit:
-  `77715c0f831be239c9d14278146be56853115150`
+  `0dd7aabb1eb599b2082ae44503ce42cf589b00fd`
 - Restricted pre-gate Linux candidate SHA-256:
-  `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0`
+  `4fd6949addebd87dbd9920d80d2c3e7fdb64a602cc820e32acf54635371e5c80`
 - Restricted pre-gate Windows candidate SHA-256:
-  `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2`
+  `0f7a4ff742cbbb83213be204bdaed51f3f627753d8bd270f94aa3359a3cf6b17`
 - Restricted pre-gate `SHA256SUMS.txt` SHA-256:
-  `43bb01b286cd1dcbe3510e8f3209499ebf8372892be710d4a6611728f85d6a82`
+  `d6658e36f401dc286d5362e4ab056dc05d5e28152fe74d82531619b06d8d9c24`
 - Reviewed Linux JRE inventory SHA-256:
   `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e`
 - Reviewed Windows JRE inventory SHA-256:
@@ -39,19 +39,25 @@ reopen evidence, `releaseReady`, and the release decision remain PENDING.
 
 ## Automated evidence for the restricted candidate
 
-Automated archive inspection passed on 2026-08-06 for the exact candidate
+Automated archive inspection passed on 2026-08-09 for the exact candidate
 commit and locked runtime above. This evidence does not accept the candidate:
 the official record reports `releaseReady: false`,
 `releaseGateChanged: false`, and status
 `automated-archive-inspection-passed`.
 
-- Official `ai1-candidate-archive-inspection.sXDesP.json` SHA-256:
-  `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8`.
+- Official `candidate-archive-inspection.json` SHA-256:
+  `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41`.
   It passed clean-published-source, exact locked runtime, external artifact,
   outer checksum, safe-root, exact application allowlist, exhaustive manifest,
   content-neutral world/creator scan, empty Builder seed, dual-platform Java
   17 metadata, exact reviewed JRE bytes/modes, Linux launcher modes, and
   production runtime identity/capability assertions.
+
+The remaining hashes in this subsection are retained as prior-candidate
+baseline evidence only. They are not acceptance evidence for the rejected
+`b05b16f`/`0dd7aab` candidate and must be replaced by exact reruns after the
+provider login correction is separately authorized and locked.
+
 - Independent `ai1-independent-archive-audit.7U11Fn.json` SHA-256:
   `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86`.
   It confirmed 98 exact allowlist records, the exact 42-file neutral definition
@@ -99,17 +105,28 @@ release decision has been accepted.
 
 ### Confirmed owner-native launch blocker
 
-The current Linux candidate cannot reach owner visual/edit validation because
-its client requires missing
-`Client_Base/Cache/video/Authentic_Landscape.orsc`. The current candidate
-remains blocked and must not be accepted or reused.
+The locked provider now correctly avoids the missing legacy landscape archive:
+the extracted Linux candidate starts its server and OpenGL client and remains
+alive without attempting a legacy terrain read. It still cannot reach owner
+visual/edit validation because the automatic Builder login times out before
+authentication.
 
-World Editor must not supply a placeholder or legacy terrain archive. The
-locked Core provider must correct the explicitly activated adaptive client to
-skip legacy archive initialization, reject any attempted legacy terrain read,
-and wait for verified native layered terrain before rendering. Normal legacy
-client behavior must remain unchanged. The exact upstream requirements are in
-[`CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md`](../CORE-PROVIDER-ADAPTIVE-LANDSCAPE-CORRECTION.md).
+The client emits a complete custom login frame whose two-byte length is 278
+bytes. On each attempt, the provider's undecided protocol decoder logs
+`Buffer readable bytes: 278 len: 1` followed by
+`Buffer readable bytes: 276 len: 0`. It has consumed the high length byte
+`0x01` as a one-byte legacy frame length and then consumed the actual login
+opcode `0x00` as a zero-length frame. The login handler is never reached.
+The isolated Builder credential is a valid project-owned 20-byte regular file
+at mode `0600`, the account provisioner reports success, and no credential is
+included in this record.
+
+World Editor must not weaken the login or adaptive binding contracts and must
+not patch or copy the provider. The locked Core provider must classify complete
+two-byte custom login frames before destructive legacy-frame parsing while an
+incoming connection is still undecided. Exact requirements and regression
+coverage are in
+[`CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](../CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
 
 This blocker invalidates no recorded automated archive evidence, but it blocks
 owner acceptance and release readiness until an authorized provider SHA is
@@ -190,16 +207,16 @@ and the still-pending owner/manager evidence; it cannot authorize a release.
 | Check | Exact command/input | Result | Log/evidence SHA-256 |
 | --- | --- | --- | --- |
 | Whitespace | `git diff --check` | PASS | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
-| Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PASS — 42 tests plus independence check | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
-| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PASS — 166 tests plus independence; one exact-runtime and five native PowerShell checks explicitly skipped | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PRIOR BASELINE — exact corrected-candidate rerun required | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
+| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
 | Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
-| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PASS — restricted artifacts only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
-| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `de000df78d5865f4ffe48f0185060cab50a541d364e3e931b90081d644ac52f8` |
-| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PASS — automated fixtures only; owner/update acceptance pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
-| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | UNAVAILABLE — static checks pass; native execution not claimed | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` records all five explicit skips |
-| Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PASS — static/code review only | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
-| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PASS — 31 automated cases; owner target exercise pending | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
-| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PASS — owner edit/visual checks pending | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
+| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PASS — restricted artifacts only; acceptance pending | `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41` |
+| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41` |
+| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PRIOR BASELINE UNAVAILABLE — native execution not claimed | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` records all five explicit skips |
+| Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PRIOR BASELINE — exact corrected-candidate static rerun required | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
+| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
+| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PRIOR BASELINE — native login now fails on the rejected candidate | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
 
 Fixture archives prove rejection and transaction behavior; only the external
 inspection row may be used as evidence for the final candidate archive hashes.
@@ -215,8 +232,8 @@ retain the outer `SHA256SUMS.txt`.
 
 | Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Manifested files | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| Linux x64 | `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `5b7e64b07c751ee10686073e1c3321dfb6b562c661f04001752b4e79f0ec49a0` | `429bc1138a7d258c5afa0755cad511ab976a3f31e37a4d622739d275f9c13ce0` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 397 | AUTOMATED PASS — acceptance pending |
-| Windows x64 | `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `cbd8fbddd3dc938eea0b734b4dfb5c33cc6fabec8b58d01fbb0771d78ee5e9c2` | `9822def834f99b5e04548c9498d945e1814612992c63b56bf78e9524aa0b8b13` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 455 | AUTOMATED PASS — acceptance pending |
+| Linux x64 | `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `4fd6949addebd87dbd9920d80d2c3e7fdb64a602cc820e32acf54635371e5c80` | `f06bd1f5bca564c9f3914a865622798fb7291fb5ee87b01e9941eecf4d2d1468` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 397 | AUTOMATED PASS — acceptance pending |
+| Windows x64 | `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `0f7a4ff742cbbb83213be204bdaed51f3f627753d8bd270f94aa3359a3cf6b17` | `2fd8151e3fb5841e90752781ccaaca313cc91ca40888c302c89b6559dc5e3440` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 455 | AUTOMATED PASS — acceptance pending |
 
 Required automated archive review statements below are **PASS** for these exact
 restricted artifacts; owner validation and candidate acceptance remain
