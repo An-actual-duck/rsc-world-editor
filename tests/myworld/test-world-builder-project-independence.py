@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Guard the World Editor manager/worker boundary from Spoiled Milk state."""
+"""Guard World Editor and runtime-provider ownership from Spoiled Milk state."""
 
 from pathlib import Path
 
@@ -21,10 +21,10 @@ def main() -> None:
     )
     manager = (ROOT / "scripts/ai-manager.sh").read_text(encoding="utf-8")
     workspace = (ROOT / "scripts/ai-workspace.sh").read_text(encoding="utf-8")
-    checkout = (ROOT / "scripts/checkout-core-framework.sh").read_text(
+    checkout = (ROOT / "scripts/checkout-runtime-provider.sh").read_text(
         encoding="utf-8"
     )
-    dependency_lock = (ROOT / "core-framework.lock").read_text(encoding="utf-8")
+    dependency_lock = (ROOT / "runtime-provider.lock").read_text(encoding="utf-8")
     ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     v2_packager = (
         ROOT / "scripts/package-world-builder-v2-release.sh"
@@ -37,9 +37,11 @@ def main() -> None:
 
     for required in (
         "manage only the `rsc-world-editor` Git",
-        "Never run `.core-framework/scripts/ai-manager.sh`",
+        "Never run `.runtime-provider/scripts/ai-manager.sh`",
         "does not create a World Editor task",
         "only when the user explicitly assigns a dependency-update task",
+        "Never activate, inspect, or collect `/home/justin/Core-Framework-ai-*`",
+        "`/home/justin/rsc-world-editor-runtime`",
     ):
         require(
             required in normalized_agents,
@@ -51,7 +53,7 @@ def main() -> None:
         "World Editor manager still treats Spoiled Milk advancement as routine work",
     )
     require(
-        "Do not run collaboration scripts inside `.core-framework`" in workspace_docs,
+        "Do not run collaboration scripts inside `.runtime-provider`" in workspace_docs,
         "workspace documentation does not isolate the dependency checkout",
     )
     require(
@@ -60,14 +62,14 @@ def main() -> None:
         "development routing still allows implicit cross-project synchronization",
     )
     require(
-        "check-core-parity.sh" not in v2_packager,
+        "check-runtime-provider-parity.sh" not in v2_packager,
         "World Builder 2 packaging still requires repository source parity",
     )
     for forbidden in (
         "--layered-package",
-        'cp -R "$CORE_ROOT/server/conf"',
-        'cp -R "$CORE_ROOT/server/database"',
-        'cp -R "$CORE_ROOT/Client_Base/Cache/video"',
+        'cp -R "$RUNTIME_PROVIDER_ROOT/server/conf"',
+        'cp -R "$RUNTIME_PROVIDER_ROOT/server/database"',
+        'cp -R "$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/video"',
         "spoiled-milk-package",
     ):
         require(
@@ -82,25 +84,27 @@ def main() -> None:
         "runtime allowlist is missing generic catalogs or admits world content",
     )
     require(
-        "./scripts/checkout-core-framework.sh" in ci_workflow
-        and "CORE_FRAMEWORK_DIR: .core-framework" in ci_workflow
+        "./scripts/checkout-runtime-provider.sh" in ci_workflow
+        and "RUNTIME_PROVIDER_DIR: .runtime-provider" in ci_workflow
         and "run: ./scripts/test.sh" in ci_workflow,
         "routine CI no longer tests with the exact locked dependency checkout",
     )
     require(
-        "check-core-parity.sh" not in ci_workflow,
+        "check-runtime-provider-parity.sh" not in ci_workflow,
         "routine CI still requires repository source parity",
     )
     require(
-        "CORE_REF=refs/heads/world-builder/runtime/" in dependency_lock,
-        "runtime dependency is not retained through a durable provider ref",
+        "RUNTIME_PROVIDER_REPOSITORY=https://github.com/An-actual-duck/rsc-world-editor-runtime.git"
+        in dependency_lock
+        and "RUNTIME_PROVIDER_REF=refs/heads/main" in dependency_lock,
+        "runtime dependency is not owned by the independent provider main ref",
     )
     require(
-        'fetch origin "$CORE_REF"' in checkout
+        'fetch origin "$RUNTIME_PROVIDER_REF"' in checkout
         and "FETCH_HEAD^{commit}" in checkout,
-        "dependency checkout does not verify its provider ref against CORE_COMMIT",
+        "dependency checkout does not verify its provider ref against RUNTIME_PROVIDER_COMMIT",
     )
-    sync = (ROOT / "scripts/sync-from-core-framework.sh").read_text(
+    sync = (ROOT / "scripts/sync-from-runtime-provider.sh").read_text(
         encoding="utf-8"
     )
     require(
@@ -109,8 +113,8 @@ def main() -> None:
         "dependency adoption can still overwrite World Builder-owned source",
     )
     for explicit_tool in (
-        ROOT / "scripts/check-core-parity.sh",
-        ROOT / "scripts/sync-from-core-framework.sh",
+        ROOT / "scripts/check-runtime-provider-parity.sh",
+        ROOT / "scripts/sync-from-runtime-provider.sh",
     ):
         require(
             explicit_tool.is_file(),
@@ -136,7 +140,7 @@ def main() -> None:
             f"{script_name} contains a hard-coded Spoiled Milk worktree",
         )
 
-    print("PASS: World Editor manager and workers are isolated from Spoiled Milk state")
+    print("PASS: World Editor and its runtime provider are isolated from Spoiled Milk state")
 
 
 if __name__ == "__main__":

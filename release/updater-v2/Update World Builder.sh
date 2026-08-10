@@ -23,7 +23,7 @@ NEW_MANIFEST=""
 ROLLBACK_ARMED=false
 PRESERVE_STAGE=false
 IDENTITY_SOURCE_COMMIT=""
-IDENTITY_CORE_COMMIT=""
+IDENTITY_RUNTIME_PROVIDER_COMMIT=""
 VERSION_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-alpha\.(0|[1-9][0-9]*))?$'
 NUMERIC_COMPARISON=0
 
@@ -294,7 +294,7 @@ END {
 
 write_expected_identity() {
 	local destination="$1" version="$2" release_tag="$3"
-	local source_commit="$4" core_commit="$5"
+	local source_commit="$4" runtime_provider_commit="$5"
 	cat > "$destination" <<EOF
 {
   "schemaVersion": 1,
@@ -313,31 +313,31 @@ write_expected_identity() {
   "legacyWorkspaceMigration": false,
   "version": "$version",
   "sourceCommit": "$source_commit",
-  "coreSourceCommit": "$core_commit"
+  "runtimeProviderCommit": "$runtime_provider_commit"
 }
 EOF
 }
 
 validate_identity() {
 	local identity="$1" expected_version="$2" expected_tag="$3"
-	local source_commit core_commit expected
+	local source_commit runtime_provider_commit expected
 
 	[[ -f "$identity" && ! -L "$identity" ]] || return 1
 	source_commit="$(sed -n 's/^  "sourceCommit": "\([0-9a-f]\{40\}\)",$/\1/p' "$identity")"
-	core_commit="$(sed -n 's/^  "coreSourceCommit": "\([0-9a-f]\{40\}\)"$/\1/p' "$identity")"
+	runtime_provider_commit="$(sed -n 's/^  "runtimeProviderCommit": "\([0-9a-f]\{40\}\)"$/\1/p' "$identity")"
 	[[ "$source_commit" =~ ^[0-9a-f]{40}$ \
-		&& "$core_commit" =~ ^[0-9a-f]{40}$ ]] || return 1
+		&& "$runtime_provider_commit" =~ ^[0-9a-f]{40}$ ]] || return 1
 	expected="$(mktemp "${TMPDIR:-/tmp}/world-builder-v2-identity-XXXXXX")" \
 		|| return 1
 	write_expected_identity "$expected" "$expected_version" "$expected_tag" \
-		"$source_commit" "$core_commit"
+		"$source_commit" "$runtime_provider_commit"
 	if ! cmp -s "$expected" "$identity"; then
 		rm -f -- "$expected"
 		return 1
 	fi
 	rm -f -- "$expected"
 	IDENTITY_SOURCE_COMMIT="$source_commit"
-	IDENTITY_CORE_COMMIT="$core_commit"
+	IDENTITY_RUNTIME_PROVIDER_COMMIT="$runtime_provider_commit"
 }
 
 validate_relative_path() {
@@ -410,7 +410,7 @@ require_manifest_paths() {
 	for required in \
 		"VERSION.txt" \
 		"SOURCE-COMMIT.txt" \
-		"CORE-SOURCE-COMMIT.txt" \
+		"RUNTIME-PROVIDER-COMMIT.txt" \
 		"RELEASE-IDENTITY.json" \
 		"Start World Builder.sh" \
 		"Start World Builder.cmd" \
@@ -441,7 +441,7 @@ validate_application_paths() {
 	local root="$1" manifest="$2" line relative source destination role
 	local -A allowed=()
 	for relative in \
-		"ASSET-SOURCES.txt" "CORE-SOURCE-COMMIT.txt" \
+		"ASSET-SOURCES.txt" "RUNTIME-PROVIDER-COMMIT.txt" \
 		"EDITOR-ICON-CREDITS.txt" "Import Map Changes.cmd" \
 		"Import Map Changes.sh" "LICENSE" "PLAYER-ASSET-SOURCES.txt" \
 		"README.txt" "Recover Map Transaction.cmd" \
@@ -645,7 +645,7 @@ validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 	"$CURRENT_VERSION" "$CURRENT_RELEASE_TAG" \
 	|| fail "Installed release identity is missing, malformed, or not $PRODUCT_ID"
 [[ "$(tr -d '\r\n' < "$ROOT_DIR/SOURCE-COMMIT.txt")" == "$IDENTITY_SOURCE_COMMIT" \
-	&& "$(tr -d '\r\n' < "$ROOT_DIR/CORE-SOURCE-COMMIT.txt")" == "$IDENTITY_CORE_COMMIT" ]] \
+	&& "$(tr -d '\r\n' < "$ROOT_DIR/RUNTIME-PROVIDER-COMMIT.txt")" == "$IDENTITY_RUNTIME_PROVIDER_COMMIT" ]] \
 	|| fail "Installed release provenance does not match its v2 identity"
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed World Builder 2 application manifest is missing or does not verify"
@@ -772,7 +772,7 @@ validate_identity "$PACKAGE_ROOT/RELEASE-IDENTITY.json" \
 	"$LATEST_VERSION" "$LATEST_RELEASE_TAG" \
 	|| fail "Downloaded package is not an exact $PRODUCT_ID release"
 [[ "$(tr -d '\r\n' < "$PACKAGE_ROOT/SOURCE-COMMIT.txt")" == "$IDENTITY_SOURCE_COMMIT" \
-	&& "$(tr -d '\r\n' < "$PACKAGE_ROOT/CORE-SOURCE-COMMIT.txt")" == "$IDENTITY_CORE_COMMIT" ]] \
+	&& "$(tr -d '\r\n' < "$PACKAGE_ROOT/RUNTIME-PROVIDER-COMMIT.txt")" == "$IDENTITY_RUNTIME_PROVIDER_COMMIT" ]] \
 	|| fail "Downloaded package provenance does not match its v2 identity"
 
 declare -A old_managed=()

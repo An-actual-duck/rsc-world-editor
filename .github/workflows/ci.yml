@@ -17,9 +17,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-      - name: Check out exact locked Core-Framework dependency
-        run: ./scripts/checkout-core-framework.sh
+      - name: Check out exact locked runtime provider
+        run: ./scripts/checkout-runtime-provider.sh
       - name: Build and test standalone tooling
         env:
-          CORE_FRAMEWORK_DIR: .core-framework
+          RUNTIME_PROVIDER_DIR: .runtime-provider
         run: ./scripts/test.sh

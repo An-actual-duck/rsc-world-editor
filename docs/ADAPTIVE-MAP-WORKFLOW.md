@@ -10,7 +10,7 @@
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
 | Repository reviewed | Phase 3 published state `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
-| Pinned adaptive runtime | `77715c0f831be239c9d14278146be56853115150` via immutable provider ref `refs/heads/world-builder/runtime/adaptive-v1` |
+| Pinned adaptive runtime | `56acea6c7a77f96ed50d394c314a1de264fcb3aa` via the independent provider's canonical `refs/heads/main` |
 
 Approval establishes this document as the implementation plan. It does not by
 itself authorize a dependency update, release-gate change, migration of user
@@ -73,7 +73,7 @@ server binary safely.
 - Server administrators distribute the matching client/map update to players.
 - Ease of use is the primary UX goal; strict validation remains fail-closed
   under the simple workflow.
-- The pinned Core-Framework/Spoiled Milk revision is an external generic
+- The pinned independent runtime-provider revision is an external generic
   build/runtime dependency and one supported adapter source, not the product's
   identity, default world, target content, or permanent content assumption.
 
@@ -84,12 +84,12 @@ preflight for the checkout role. It MUST also:
 
 1. use one focused topic branch and temporary fixtures;
 2. preserve frozen v1 code, identity, workspace, release, and updater behavior;
-3. treat `.core-framework/` only as the clean detached checkout named by
-   `core-framework.lock`;
+3. treat `.runtime-provider/` only as the clean detached checkout named by
+   `runtime-provider.lock`;
 4. put required client, server, loader, protocol, or in-game editor changes in
-   the separately managed owning runtime repository—currently Spoiled
-   Milk/Core-Framework—and publish them there; consume them only as an exact
-   dependency commit after a separately authorized `core-framework.lock`
+   the separately managed `rsc-world-editor-runtime` repository and publish
+   them there; consume them only as an exact
+   dependency commit after a separately authorized `runtime-provider.lock`
    update, without taking over that project's manager, workers, or branches;
 5. preserve source-snapshot verification, offline-target checks, exact preview
    and confirmation, drift detection, backups, receipts, post-write
@@ -123,7 +123,7 @@ reviewed only from the exact pinned checkout.
 | Import | `WorldBuilderImporter` provides strong locking, offline checks, rediscovery, exact plans, backups, receipts, verification, rollback, undo, and no force. Its packed destinations are fixed. `WorldBuilderLayeredImportConfiguration` has a fixed marker, path, profile, and configuration override set. | Retain the transaction engine; drive bounded server/client package paths, configuration, offline evidence, and verification from a reviewed adapter mutation profile. |
 | Projects | Launchers use one `workspace/`; project/receipt identities assume one selected configuration and fixed paths. | Add multiple durable projects with stable IDs, explicit target or standalone origin, conversion lineage, and portable relative manifests. |
 | Updates | The v2 updater preserves one `workspace/` and requires a managed bundled layered manifest and `signed-layered-v1` release identity. | Preserve all projects and historical state while managing only a content-neutral application layer. |
-| Pinned conversion tooling | `.core-framework/tools/layered-maps/` has reusable signed-layered codecs and validation. Its active `spoiled-milk-package` generator also applies exact Spoiled Milk removals, precedence, cleanup, reclassification, exclusions, and relocations. | Reuse generic contracts only. Conversion policy belongs to a versioned adapter and must be lossless unless a separately approved transform says otherwise. |
+| Pinned conversion tooling | `.runtime-provider/tools/layered-maps/` has reusable signed-layered codecs and validation. Its active `spoiled-milk-package` generator also applies exact Spoiled Milk removals, precedence, cleanup, reclassification, exclusions, and relocations. | Reuse generic contracts only. Conversion policy belongs to a versioned adapter and must be lossless unless a separately approved transform says otherwise. |
 
 ### Conversion mechanics found in the pinned runtime
 
@@ -823,7 +823,7 @@ and accepting a bundled layered-package input. It uses allowlists and a new
 world-source identity such as `target-adaptive-v1`.
 
 It retains every existing safeguard: exact clean commit from
-`core-framework.lock`, production client marker, reproducible LWJGL natives,
+`runtime-provider.lock`, production client marker, reproducible LWJGL natives,
 asset provenance, safe archive inventory, repository independence, channel
 isolation, and archive verification. The release gate stays closed until a
 manager separately validates a completed implementation.
@@ -1051,8 +1051,7 @@ release tests and all later candidate-validation gates remain mandatory.
 
 ### Phase 4 — required external runtime capability
 
-In the separately managed owning runtime repository, currently Spoiled
-Milk/Core-Framework:
+In the separately managed `rsc-world-editor-runtime` repository:
 
 - publish the versioned capability/build/definition/protocol identities;
 - support generic validated packages rather than one fixed package;
@@ -1064,12 +1063,12 @@ Milk/Core-Framework:
 
 Gate: external runtime tests and owner validation pass and the exact commit is
 published. Only a separately authorized World Editor dependency-update task
-may advance `core-framework.lock`; this repository never edits or manages the
+may advance `runtime-provider.lock`; this repository never edits or manages the
 external project's checkout, branches, or workers, and never edits
-`.core-framework/` in place.
+`.runtime-provider/` in place.
 
 Implementation record: the automated runtime portion is published and pinned
-at `77715c0f831be239c9d14278146be56853115150`. It supplies the generic signed-
+at `56acea6c7a77f96ed50d394c314a1de264fcb3aa`. It supplies the generic signed-
 layered loader/authoring capability, strict runtime binding, isolated project
 lock/readiness lifecycle, all four placement families, canonical void
 authoring, and verified copy-on-write package persistence. The standalone

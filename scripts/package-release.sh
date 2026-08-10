@@ -4,10 +4,10 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${ROOT_DIR:-$SCRIPT_ROOT}"
 # shellcheck disable=SC1091
-source "$ROOT_DIR/core-framework.lock"
+source "$ROOT_DIR/runtime-provider.lock"
 
 VERSION=""
-CORE_ROOT=""
+RUNTIME_PROVIDER_ROOT=""
 LINUX_JRE=""
 WINDOWS_JRE=""
 ASSETS_CLEARED=false
@@ -24,7 +24,7 @@ usage() {
 Usage:
   ./scripts/package-release.sh \
     --version v0.1.0-alpha.1 \
-    --core-framework /path/to/open-rsc-spoiled-milk \
+    --runtime-provider /path/to/rsc-world-editor-runtime \
     --linux-jre /path/to/temurin-17-linux-x64-jre \
     --windows-jre /path/to/temurin-17-windows-x64-jre \
     --assets-cleared
@@ -43,9 +43,9 @@ while (($#)); do
 			VERSION="$2"
 			shift 2
 			;;
-		--core-framework)
-			[[ $# -ge 2 ]] || fail "--core-framework requires a value"
-			CORE_ROOT="$2"
+		--runtime-provider)
+			[[ $# -ge 2 ]] || fail "--runtime-provider requires a value"
+			RUNTIME_PROVIDER_ROOT="$2"
 			shift 2
 			;;
 		--windows-jre)
@@ -78,9 +78,9 @@ done
 
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-alpha\.[0-9]+)?$ ]] \
 	|| fail "Version must use semantic form, for example v0.1.0 or v0.1.0-alpha.1"
-[[ -n "$CORE_ROOT" ]] || fail "--core-framework is required"
-[[ "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "core-framework.lock contains an invalid commit"
-CORE_ROOT="$(cd "$CORE_ROOT" 2>/dev/null && pwd)" || fail "Core-Framework directory does not exist"
+[[ -n "$RUNTIME_PROVIDER_ROOT" ]] || fail "--runtime-provider is required"
+[[ "$RUNTIME_PROVIDER_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail "runtime-provider.lock contains an invalid commit"
+RUNTIME_PROVIDER_ROOT="$(cd "$RUNTIME_PROVIDER_ROOT" 2>/dev/null && pwd)" || fail "Runtime provider directory does not exist"
 [[ "$ASSETS_CLEARED" == true ]] \
 	|| fail "Confirm redistribution terms with --assets-cleared before packaging"
 if [[ "$SKIP_BUILD" == true && "${SPOILED_MILK_WORLD_BUILDER_RELEASE_TEST_MODE:-}" != 1 ]]; then
@@ -136,20 +136,20 @@ require_release_git_state() {
 
 require_release_git_state
 
-require_core_state() {
-	local expected_commit="${1:-$CORE_COMMIT}" actual_commit worktree_status
-	git -C "$CORE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-		|| fail "--core-framework must name a Git checkout"
-	actual_commit="$(git -C "$CORE_ROOT" rev-parse --verify 'HEAD^{commit}')"
+require_runtime_provider_state() {
+	local expected_commit="${1:-$RUNTIME_PROVIDER_COMMIT}" actual_commit worktree_status
+	git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+		|| fail "--runtime-provider must name a Git checkout"
+	actual_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify 'HEAD^{commit}')"
 	[[ "$actual_commit" == "$expected_commit" ]] \
-		|| fail "Core-Framework must be at locked commit $expected_commit; found $actual_commit"
-	worktree_status="$(git -C "$CORE_ROOT" status --porcelain --untracked-files=all)"
+		|| fail "Runtime provider must be at locked commit $expected_commit; found $actual_commit"
+	worktree_status="$(git -C "$RUNTIME_PROVIDER_ROOT" status --porcelain --untracked-files=all)"
 	[[ -z "$worktree_status" ]] \
-		|| fail "Core-Framework release checkout must be clean"
+		|| fail "Runtime provider release checkout must be clean"
 }
 
-require_core_state
-"$ROOT_DIR/scripts/check-core-parity.sh" "$CORE_ROOT"
+require_runtime_provider_state
+"$ROOT_DIR/scripts/check-runtime-provider-parity.sh" "$RUNTIME_PROVIDER_ROOT"
 
 validate_runtime() {
 	local platform="$1" runtime="$2" java_path="$3" expected_os="$4"
@@ -185,41 +185,41 @@ validate_runtime "Windows" "$WINDOWS_JRE" "bin/java.exe" "Windows"
 
 PACKAGE_ASSETS="$ROOT_DIR/release/world-builder"
 UPDATE_ASSETS="$ROOT_DIR/release/updater"
-ICON_CREDITS="$CORE_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
+ICON_CREDITS="$RUNTIME_PROVIDER_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
 [[ -f "$ICON_CREDITS" ]] || fail "World editor icon credits are missing"
 if grep -Eiq 'pending confirmation|pending;|not release-ready' "$ICON_CREDITS"; then
 	fail "World editor icon provenance is unresolved; update $ICON_CREDITS before packaging"
 fi
 
 if [[ "$SKIP_BUILD" != true ]]; then
-	"$CORE_ROOT/scripts/build-server.sh"
-	"$CORE_ROOT/scripts/build-client.sh"
+	"$RUNTIME_PROVIDER_ROOT/scripts/build-server.sh"
+	"$RUNTIME_PROVIDER_ROOT/scripts/build-client.sh"
 	"$ROOT_DIR/scripts/build-tools.sh"
 fi
 require_release_git_state "$SOURCE_COMMIT"
-require_core_state "$CORE_COMMIT"
+require_runtime_provider_state "$RUNTIME_PROVIDER_COMMIT"
 
-CLIENT_JAR="$CORE_ROOT/Client_Base/Open_RSC_Client.jar"
+CLIENT_JAR="$RUNTIME_PROVIDER_ROOT/Client_Base/Open_RSC_Client.jar"
 TOOLS_JAR="$ROOT_DIR/output/world-builder-tools/world-builder-tools.jar"
-SERVER_JAR="$CORE_ROOT/server/core.jar"
-PLUGINS_JAR="$CORE_ROOT/server/plugins.jar"
-SEED_DATABASE="$CORE_ROOT/server/inc/sqlite/myworld_seed.db"
+SERVER_JAR="$RUNTIME_PROVIDER_ROOT/server/core.jar"
+PLUGINS_JAR="$RUNTIME_PROVIDER_ROOT/server/plugins.jar"
+SEED_DATABASE="$RUNTIME_PROVIDER_ROOT/server/inc/sqlite/myworld_seed.db"
 
 for required_path in \
 	"$CLIENT_JAR" \
-	"$CORE_ROOT/Client_Base/Cache/audio" \
-	"$CORE_ROOT/Client_Base/Cache/video" \
-	"$CORE_ROOT/Client_Base/Cache/config.txt" \
+	"$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/audio" \
+	"$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/video" \
+	"$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/config.txt" \
 	"$SERVER_JAR" \
 	"$PLUGINS_JAR" \
-	"$CORE_ROOT/server/lib" \
-	"$CORE_ROOT/server/conf" \
-	"$CORE_ROOT/server/database" \
+	"$RUNTIME_PROVIDER_ROOT/server/lib" \
+	"$RUNTIME_PROVIDER_ROOT/server/conf" \
+	"$RUNTIME_PROVIDER_ROOT/server/database" \
 	"$SEED_DATABASE" \
 	"$TOOLS_JAR" \
 	"$ROOT_DIR/tools/world-builder/schema" \
 	"$ROOT_DIR/LICENSE" \
-	"$CORE_ROOT/release/player/ASSET-SOURCES.txt" \
+	"$RUNTIME_PROVIDER_ROOT/release/player/ASSET-SOURCES.txt" \
 	"$PACKAGE_ASSETS/README.txt" \
 	"$PACKAGE_ASSETS/ASSET-SOURCES.txt" \
 	"$PACKAGE_ASSETS/world-builder-runtime.conf" \
@@ -259,8 +259,8 @@ for native_entry in \
 	require_jar_entry "$CLIENT_JAR" "$native_entry" "client jar"
 done
 
-server_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$CORE_ROOT/server/myworld.conf" | head -n 1)"
-client_protocol="$(sed -n 's/.*CLIENT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$CORE_ROOT/Client_Base/src/orsc/Config.java" | head -n 1)"
+server_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RUNTIME_PROVIDER_ROOT/server/myworld.conf" | head -n 1)"
+client_protocol="$(sed -n 's/.*CLIENT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RUNTIME_PROVIDER_ROOT/Client_Base/src/orsc/Config.java" | head -n 1)"
 runtime_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$PACKAGE_ASSETS/world-builder-runtime.conf" | head -n 1)"
 [[ -n "$server_protocol" && "$server_protocol" == "$client_protocol" && "$server_protocol" == "$runtime_protocol" ]] \
 	|| fail "Client, server, and Builder runtime protocol versions disagree"
@@ -283,17 +283,17 @@ stage_builder() {
 	mkdir -p "$runtime/Client_Base/Cache" "$runtime/server/inc/sqlite" \
 		"$runtime/launcher/schema"
 	cp "$CLIENT_JAR" "$runtime/Client_Base/Open_RSC_Client.jar"
-	cp -R "$CORE_ROOT/Client_Base/Cache/audio" "$runtime/Client_Base/Cache/audio"
-	cp -R "$CORE_ROOT/Client_Base/Cache/video" "$runtime/Client_Base/Cache/video"
-	cp "$CORE_ROOT/Client_Base/Cache/config.txt" "$runtime/Client_Base/Cache/config.txt"
+	cp -R "$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/audio" "$runtime/Client_Base/Cache/audio"
+	cp -R "$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/video" "$runtime/Client_Base/Cache/video"
+	cp "$RUNTIME_PROVIDER_ROOT/Client_Base/Cache/config.txt" "$runtime/Client_Base/Cache/config.txt"
 	cp "$SERVER_JAR" "$runtime/server/core.jar"
 	cp "$PLUGINS_JAR" "$runtime/server/plugins.jar"
-	cp -R "$CORE_ROOT/server/lib" "$runtime/server/lib"
-	cp -R "$CORE_ROOT/server/conf" "$runtime/server/conf"
-	cp -R "$CORE_ROOT/server/database" "$runtime/server/database"
+	cp -R "$RUNTIME_PROVIDER_ROOT/server/lib" "$runtime/server/lib"
+	cp -R "$RUNTIME_PROVIDER_ROOT/server/conf" "$runtime/server/conf"
+	cp -R "$RUNTIME_PROVIDER_ROOT/server/database" "$runtime/server/database"
 	cp "$SEED_DATABASE" "$runtime/server/inc/sqlite/myworld_seed.db"
 	for name in alertwords.txt badwords.txt goodwords.txt globalrules.txt ipbans.txt; do
-		cp "$CORE_ROOT/server/$name" "$runtime/server/$name"
+		cp "$RUNTIME_PROVIDER_ROOT/server/$name" "$runtime/server/$name"
 	done
 	cp "$PACKAGE_ASSETS/world-builder-runtime.conf" "$runtime/server/myworld.conf"
 	cp "$TOOLS_JAR" "$runtime/launcher/world-builder-tools.jar"
@@ -313,14 +313,14 @@ stage_builder() {
 	sed "s/@VERSION@/$VERSION/g; s/@SOURCE_COMMIT@/$SOURCE_COMMIT/g" \
 		"$PACKAGE_ASSETS/README.txt" > "$destination/README.txt"
 	cat "$UPDATE_ASSETS/README-AUTO-UPDATE.txt" >> "$destination/README.txt"
-	printf '\nCore-Framework runtime commit: %s\n' "$CORE_COMMIT" >> "$destination/README.txt"
+	printf '\nRuntime provider commit: %s\n' "$RUNTIME_PROVIDER_COMMIT" >> "$destination/README.txt"
 	cp "$ROOT_DIR/LICENSE" "$destination/LICENSE"
 	cp "$PACKAGE_ASSETS/ASSET-SOURCES.txt" "$destination/ASSET-SOURCES.txt"
-	cp "$CORE_ROOT/release/player/ASSET-SOURCES.txt" "$destination/PLAYER-ASSET-SOURCES.txt"
+	cp "$RUNTIME_PROVIDER_ROOT/release/player/ASSET-SOURCES.txt" "$destination/PLAYER-ASSET-SOURCES.txt"
 	cp "$ICON_CREDITS" "$destination/EDITOR-ICON-CREDITS.txt"
 	printf '%s\n' "$VERSION" > "$destination/VERSION.txt"
 	printf '%s\n' "$SOURCE_COMMIT" > "$destination/SOURCE-COMMIT.txt"
-	printf '%s\n' "$CORE_COMMIT" > "$destination/CORE-SOURCE-COMMIT.txt"
+	printf '%s\n' "$RUNTIME_PROVIDER_COMMIT" > "$destination/CORE-SOURCE-COMMIT.txt"
 }
 
 stage_builder "$LINUX_STAGE"
@@ -350,7 +350,7 @@ for stage in "$LINUX_STAGE" "$WINDOWS_STAGE"; do
 done
 
 require_release_git_state "$SOURCE_COMMIT"
-require_core_state "$CORE_COMMIT"
+require_runtime_provider_state "$RUNTIME_PROVIDER_COMMIT"
 
 (
 	cd "$STAGING_DIR/linux"

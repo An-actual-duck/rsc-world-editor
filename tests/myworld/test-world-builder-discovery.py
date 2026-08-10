@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-CORE_FRAMEWORK_ROOT = os.environ.get("CORE_FRAMEWORK_DIR")
+RUNTIME_PROVIDER_ROOT = os.environ.get("RUNTIME_PROVIDER_DIR")
 SOURCE_ROOT = ROOT / "tools" / "world-builder" / "src"
 SCHEMA_ROOT = ROOT / "tools" / "world-builder" / "schema"
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
@@ -169,11 +169,11 @@ class WorldBuilderDiscoveryTest(unittest.TestCase):
             self.assertRegex(manifest["sourceFingerprintSha256"], r"^[0-9a-f]{64}$")
 
     @unittest.skipUnless(
-        CORE_FRAMEWORK_ROOT,
-        "set CORE_FRAMEWORK_DIR to run the pinned runtime-layout integration test",
+        RUNTIME_PROVIDER_ROOT,
+        "set RUNTIME_PROVIDER_DIR to run the pinned runtime-layout integration test",
     )
     def test_current_repository_matches_supported_layout(self):
-        result = self.run_discovery(Path(CORE_FRAMEWORK_ROOT))
+        result = self.run_discovery(Path(RUNTIME_PROVIDER_ROOT))
         self.assertEqual(0, result.returncode, result.stderr)
         manifest = json.loads(result.stdout)
         self.assertEqual(10048, manifest["configuration"]["clientVersion"])

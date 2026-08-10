@@ -119,7 +119,7 @@ RUNTIME_CONFIGURATION = (
 )
 TOP_FILES = (
     "ASSET-SOURCES.txt",
-    "CORE-SOURCE-COMMIT.txt",
+    "RUNTIME-PROVIDER-COMMIT.txt",
     "EDITOR-ICON-CREDITS.txt",
     "Import Map Changes.cmd",
     "Import Map Changes.sh",
@@ -272,7 +272,7 @@ class CandidateFixture:
             path = self.core / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        self.core_commit = initialize_repository(self.core, "Create runtime fixture")
+        self.runtime_provider_commit = initialize_repository(self.core, "Create runtime fixture")
 
         native_records = ""
         if include_native_runtime_records:
@@ -349,10 +349,10 @@ class CandidateFixture:
             path = self.source / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
-        (self.source / "core-framework.lock").write_text(
-            "CORE_REPOSITORY=https://example.invalid/runtime.git\n"
-            "CORE_REF=refs/heads/runtime/adaptive-v1\n"
-            f"CORE_COMMIT={self.core_commit}\n",
+        (self.source / "runtime-provider.lock").write_text(
+            "RUNTIME_PROVIDER_REPOSITORY=https://example.invalid/runtime.git\n"
+            "RUNTIME_PROVIDER_REF=refs/heads/runtime/adaptive-v1\n"
+            f"RUNTIME_PROVIDER_COMMIT={self.runtime_provider_commit}\n",
             encoding="utf-8",
         )
         self.source_commit = initialize_repository(self.source, "Create source fixture")
@@ -416,7 +416,7 @@ class CandidateFixture:
             "legacyWorkspaceMigration": False,
             "version": VERSION,
             "sourceCommit": self.source_commit,
-            "coreSourceCommit": self.core_commit,
+            "runtimeProviderCommit": self.runtime_provider_commit,
         }
         return (json.dumps(value, indent=2) + "\n").encode("utf-8")
 
@@ -434,14 +434,14 @@ class CandidateFixture:
             {
                 "VERSION.txt": ((VERSION + "\n").encode(), 0o644),
                 "SOURCE-COMMIT.txt": ((self.source_commit + "\n").encode(), 0o644),
-                "CORE-SOURCE-COMMIT.txt": ((self.core_commit + "\n").encode(), 0o644),
+                "RUNTIME-PROVIDER-COMMIT.txt": ((self.runtime_provider_commit + "\n").encode(), 0o644),
                 "RELEASE-IDENTITY.json": (self.identity(), 0o644),
                 "RUNTIME-ASSET-ALLOWLIST.txt": (self.allowlist, 0o644),
                 "README.txt": (
                     (
                         f"World Builder {VERSION} from {self.source_commit}\n"
                         "Updater appendix\n"
-                        f"\nCore-Framework runtime commit: {self.core_commit}\n"
+                        f"\nRuntime provider commit: {self.runtime_provider_commit}\n"
                     ).encode(),
                     0o644,
                 ),
@@ -555,7 +555,7 @@ class CandidateFixture:
     def command(self, **overrides: Path | str) -> list[str]:
         values: dict[str, Path | str] = {
             "source-root": self.source,
-            "core-framework": self.core,
+            "runtime-provider": self.core,
             "linux-jre": self.jres["linux"],
             "windows-jre": self.jres["windows"],
             "version": VERSION,
@@ -589,7 +589,7 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertFalse(evidence["releaseReady"])
         self.assertFalse(evidence["releaseGateChanged"])
         self.assertEqual(self.fixture.source_commit, evidence["sourceCommit"])
-        self.assertEqual(self.fixture.core_commit, evidence["coreSourceCommit"])
+        self.assertEqual(self.fixture.runtime_provider_commit, evidence["runtimeProviderCommit"])
         self.assertEqual(
             {LINUX_NAME, WINDOWS_NAME},
             {artifact["fileName"] for artifact in evidence["artifacts"]},

@@ -12,15 +12,17 @@ folder is an AI seat, not a category of work.
 
 The standalone repository is managed independently from Spoiled Milk. Its
 manager and workers observe only this repository, its `origin` remote, and the
-`rsc-world-editor-ai-*` worktrees. `core-framework.lock` names a frozen runtime
+`rsc-world-editor-ai-*` worktrees. `runtime-provider.lock` names a frozen runtime
 dependency; it is not an instruction to monitor Spoiled Milk or its workers.
 The collaboration scripts also reject invocation from any current directory
 outside this repository's registered manager/worker worktrees.
 
-Do not run collaboration scripts inside `.core-framework`, follow its nested
-`AGENTS.md`, or report activity from `/home/justin/Core-Framework`. A newer
-Spoiled Milk commit, worker handoff, merge, or release is irrelevant here until
-the user explicitly creates a World Editor dependency-update task.
+Do not run collaboration scripts inside `.runtime-provider`, follow its nested
+`AGENTS.md`, or report activity from `/home/justin/Core-Framework`. Runtime work
+is managed separately at `/home/justin/rsc-world-editor-runtime` with workers
+`/home/justin/rsc-world-editor-runtime-ai-1` through `-ai-3`. A Spoiled Milk
+commit, worker handoff, merge, or release is never a World Editor dependency
+signal.
 
 ## First-time setup
 
@@ -119,13 +121,12 @@ Dependency synchronization is exceptional manager work, never a background
 responsibility. Perform it only when the user explicitly assigns that task in
 the World Editor project. When authorized, use this bounded sequence:
 
-1. Receive the exact external dependency commit and durable provider ref
-   selected for adoption; do not choose either by watching another project's
-   branches or workers.
+1. Receive the exact tested commit published by the independent runtime
+   manager on `refs/heads/main`; never source it from Core-Framework.
 2. In this manager checkout, adopt that exact clean published runtime without
    copying repository-owned source from the provider.
 3. Review the bounded lock/protocol diff, run
-   `./scripts/check-core-parity.sh`, and run `./scripts/test.sh`.
+   `./scripts/check-runtime-provider-parity.sh`, and run `./scripts/test.sh`.
 4. Publish this repository's tested `main`. The provider ref is immutable
    dependency provenance, not a worker branch for this manager to operate.
 
@@ -146,7 +147,7 @@ stashes, and exact remote backups for active work. The legacy v1.1.0 line is
 frozen. World Builder 2 production packaging is enabled only by the reviewed
 `release/world-builder-v2/RELEASE-READY` marker. `ai-manager.sh release` first
 applies the manager gate, then delegates to the separate v2 packager. Packaging
-enforces the already-pinned clean Core-Framework revision, records both
+enforces the already-pinned clean runtime-provider revision, records both
 repository commits in release provenance, and never searches for or adopts
 upstream changes.
 

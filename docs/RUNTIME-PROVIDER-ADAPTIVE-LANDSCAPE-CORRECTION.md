@@ -1,4 +1,4 @@
-# Core provider correction: strict adaptive terrain startup
+# Runtime provider correction: strict adaptive terrain startup
 
 | Field | Required value |
 | --- | --- |
@@ -10,7 +10,7 @@
 
 This correction is complete. The later native candidate is blocked by a
 separate undecided-protocol login framing defect documented in
-[`CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
+[`RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
 This file remains as the accepted terrain-startup contract and regression
 baseline; it is not the current provider work request.
 
@@ -25,11 +25,12 @@ package must be the sole terrain authority. A downstream placeholder would
 retain an unverified legacy initialization path and could conceal an attempted
 fallback, incomplete native residency, or rendering before layered terrain is
 ready. Client terrain initialization, native residency, and rendering gates
-belong to the Core provider.
+belong to the independent runtime provider.
 
-This specification does not authorize modifying Core from this repository or
-advancing `core-framework.lock`. The provider change must arrive as an exact
-authorized READY handoff before a separately assigned dependency update.
+This specification does not authorize modifying Spoiled Milk/Core-Framework
+or advancing `runtime-provider.lock`. Provider work belongs in
+`rsc-world-editor-runtime` and must arrive as an exact READY handoff before a
+separately assigned dependency update.
 
 ## Required provider behavior
 
@@ -115,7 +116,7 @@ Use content-neutral temporary fixtures and the real client startup path.
 
 ## Provider handoff requirements
 
-The Core provider handoff must report:
+The runtime provider handoff must report:
 
 - exact pushed commit and branch;
 - changed files and the exact legacy initialization/read entry points guarded;
@@ -131,7 +132,7 @@ or alter a live checkout.
 ## Downstream steps after an authorized provider SHA
 
 The World Editor manager must use a separately authorized dependency-update
-task to review the provider handoff and update `core-framework.lock`. Then:
+task to review the provider handoff and update `runtime-provider.lock`. Then:
 
 1. run the full World Editor suite against the exact clean locked provider;
 2. publish tested World Editor `main`;

@@ -9,12 +9,12 @@ isolated project; editing and saving stay inside World Builder until the user
 explicitly runs the transactional import command.
 
 The downloadable application is published from this repository. Its in-game
-editing runtime is compiled from a pinned revision of
-[Spoiled Milk](https://github.com/An-actual-duck/open-rsc-spoiled-milk), so
-client and server bug fixes are incorporated deliberately instead of being
-copied into a second game fork. That pinned Core-Framework checkout is an
-external generic build/runtime dependency and one supported adapter source; it
-is not World Builder 2's product identity, target world, or bundled map.
+editing runtime is compiled from the separately managed
+[RSC World Editor Runtime](https://github.com/An-actual-duck/rsc-world-editor-runtime).
+That exact pinned checkout is a generic build/runtime dependency and supported
+adapter source; it is not World Builder 2's product identity, target world, or
+bundled map. Runtime development is intentionally independent from Spoiled
+Milk/Core-Framework.
 
 ## Product generations
 
@@ -46,7 +46,7 @@ This repository contains:
 - Linux and Windows launch/import/recovery/undo packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
-- release tooling tied to an explicit Core-Framework source revision; and
+- release tooling tied to an explicit independent runtime-provider revision; and
 - architecture, development, provenance, and release documentation.
 
 Built clients, servers, Java runtimes, user workspaces, credentials, maps,
@@ -118,22 +118,22 @@ Java 8 bytecode for compatibility with the bundled runtime contract.
 ```
 
 The frozen runtime dependency is declared in
-[`core-framework.lock`](core-framework.lock). To materialize that exact locked
+[`runtime-provider.lock`](runtime-provider.lock). To materialize that exact locked
 revision and verify its adaptive runtime contract:
 
 ```bash
-./scripts/checkout-core-framework.sh
-./scripts/check-core-parity.sh .core-framework
+./scripts/checkout-runtime-provider.sh
+./scripts/check-runtime-provider-parity.sh .runtime-provider
 ```
 
 The World Editor manager does not monitor or operate Spoiled Milk branches,
-workers, or releases. Only when the user explicitly assigns an exact runtime
-commit and durable provider ref should the dependency lock be updated with:
+workers, or releases. Only when the user explicitly assigns an exact published
+runtime-provider commit should the dependency lock be updated with:
 
 ```bash
-./scripts/sync-from-core-framework.sh \
+./scripts/sync-from-runtime-provider.sh \
   /path/to/clean-runtime-provider \
-  refs/heads/world-builder/runtime/name
+  refs/heads/main
 ```
 
 Maintainer development uses one manager checkout and reusable neutral worker
@@ -144,7 +144,8 @@ worktrees. Initialize or inspect that workflow with:
 ./scripts/ai-manager.sh status
 ```
 
-See [AI Workspaces](docs/AI-WORKSPACES.md) for task activation, checkpoint,
+See [Independent Runtime Provider](docs/RUNTIME-PROVIDER.md) and
+[AI Workspaces](docs/AI-WORKSPACES.md) for task activation, checkpoint,
 handoff, review, rescue, recycling, and the explicitly gated dependency-update
 procedure.
 

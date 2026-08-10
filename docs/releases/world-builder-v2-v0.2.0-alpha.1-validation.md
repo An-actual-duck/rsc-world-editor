@@ -122,11 +122,11 @@ at mode `0600`, the account provisioner reports success, and no credential is
 included in this record.
 
 World Editor must not weaken the login or adaptive binding contracts and must
-not patch or copy the provider. The locked Core provider must classify complete
+not patch or copy the provider. The locked runtime provider must classify complete
 two-byte custom login frames before destructive legacy-frame parsing while an
 incoming connection is still undecided. Exact requirements and regression
 coverage are in
-[`CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](../CORE-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
+[`RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](../RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
 
 This blocker invalidates no recorded automated archive evidence, but it blocks
 owner acceptance and release readiness until an authorized provider SHA is
@@ -139,7 +139,7 @@ decision remain **PENDING**. No limitation, gate, or release is accepted.
 - a clean World Editor manager checkout on the exact published `origin/main`
   commit represented inside both candidate archives;
 - a separate clean runtime checkout at the exact commit in
-  `core-framework.lock`, without fetching, advancing, or substituting a newer
+  `runtime-provider.lock`, without fetching, advancing, or substituting a newer
   provider revision during release preparation;
 - reviewed Linux x64 and Windows x64 JRE 17+ directories, including legal
   notices, plus the exact LWJGL 3.3.4 Linux/Windows native inputs required by
@@ -167,7 +167,7 @@ git diff --check
 
 ./scripts/ai-manager.sh candidate \
   --version v0.2.0-alpha.1 \
-  --core-framework /path/to/clean-exact-locked-runtime \
+  --runtime-provider /path/to/clean-exact-locked-runtime \
   --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
   --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --assets-cleared
@@ -177,7 +177,7 @@ git diff --check
 
 ./scripts/inspect-world-builder-v2-candidate.py \
   --source-root /path/to/clean-published-rsc-world-editor \
-  --core-framework /path/to/clean-exact-locked-runtime \
+  --runtime-provider /path/to/clean-exact-locked-runtime \
   --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
   --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --version v0.2.0-alpha.1 \

@@ -1,7 +1,7 @@
 # World Builder 2 content-neutral runtime asset allowlist v1
 #
 # Each non-comment line is: SOURCE<TAB>DESTINATION<TAB>ROLE
-# Paths are relative to the exact checkout named by core-framework.lock and to
+# Paths are relative to the exact checkout named by runtime-provider.lock and to
 # builder-runtime/ in the release archive respectively.  The packager rejects
 # malformed, duplicate, linked, missing, or unlisted inputs.  World terrain,
 # placement data, layered packages, and generated state have no allowed role.

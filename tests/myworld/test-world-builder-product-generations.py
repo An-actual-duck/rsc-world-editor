@@ -78,10 +78,10 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         self.assertNotIn("rsc-world-editor-v2", legacy_updater)
 
     def test_runtime_adoption_preserves_owned_source_and_v1(self) -> None:
-        sync = (ROOT / "scripts" / "sync-from-core-framework.sh").read_text(
+        sync = (ROOT / "scripts" / "sync-from-runtime-provider.sh").read_text(
             encoding="utf-8"
         )
-        parity = (ROOT / "scripts" / "check-core-parity.sh").read_text(
+        parity = (ROOT / "scripts" / "check-runtime-provider-parity.sh").read_text(
             encoding="utf-8"
         )
         self.assertNotIn("rsync", sync)
@@ -92,12 +92,12 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         self.assertIn("AdaptiveWorldBuilderRuntimeSession.java", parity)
         self.assertIn("release/world-builder-v2", parity)
         self.assertNotIn(
-            '"$CORE_ROOT/release/world-builder/" "$ROOT_DIR/release/world-builder/"',
+            '"$RUNTIME_PROVIDER_ROOT/release/world-builder/" "$ROOT_DIR/release/world-builder/"',
             sync,
         )
 
-        lock = (ROOT / "core-framework.lock").read_text(encoding="utf-8")
-        match = re.search(r"^CORE_COMMIT=([0-9a-f]{40})$", lock, re.MULTILINE)
+        lock = (ROOT / "runtime-provider.lock").read_text(encoding="utf-8")
+        match = re.search(r"^RUNTIME_PROVIDER_COMMIT=([0-9a-f]{40})$", lock, re.MULTILINE)
         self.assertIsNotNone(match)
 
     def test_layered_tooling_is_present_in_the_standalone_source(self) -> None:

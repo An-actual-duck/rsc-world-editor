@@ -31,9 +31,9 @@ release readiness. Phase 6 transactions are implemented, but that does not
 open or replace the missing release gate.
 
 The dependency checkout used for packaging must already be clean and at the
-exact commit in `core-framework.lock`. Packaging never checks for a newer
+exact commit in `runtime-provider.lock`. Packaging never checks for a newer
 provider commit and never manages the provider's branches or workers. An
-explicit dependency-update task uses `check-core-parity.sh` to verify the
+explicit dependency-update task uses `check-runtime-provider-parity.sh` to verify the
 published ref, capability document, runtime surfaces, and protocol.
 
 ## Restricted pre-gate candidate command
@@ -44,7 +44,7 @@ for owner and archive validation with the guarded candidate route:
 ```bash
 ./scripts/ai-manager.sh candidate \
   --version v0.2.0-alpha.1 \
-  --core-framework /path/to/clean-pinned-core-framework \
+  --runtime-provider /path/to/clean-pinned-runtime-provider \
   --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
   --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --assets-cleared
@@ -69,11 +69,11 @@ manager `main`:
 LWJGL_VERSION=3.3.4 \
 LWJGL_MODULES='lwjgl lwjgl-glfw lwjgl-opengl' \
 LWJGL_NATIVE_CLASSIFIERS='natives-linux natives-windows' \
-  /path/to/clean-pinned-core-framework/scripts/download-lwjgl.sh
+  /path/to/clean-pinned-runtime-provider/scripts/download-lwjgl.sh
 
 ./scripts/ai-manager.sh release \
   --version v0.2.0-alpha.1 \
-  --core-framework /path/to/clean-pinned-core-framework \
+  --runtime-provider /path/to/clean-pinned-runtime-provider \
   --linux-jre /path/to/temurin-17-linux-x64-jre \
   --windows-jre /path/to/temurin-17-windows-x64-jre \
   --assets-cleared
@@ -189,7 +189,7 @@ the independent evidence document with:
 ```bash
 ./scripts/inspect-world-builder-v2-candidate.py \
   --source-root /path/to/clean-published-rsc-world-editor \
-  --core-framework /path/to/clean-exact-locked-runtime \
+  --runtime-provider /path/to/clean-exact-locked-runtime \
   --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
   --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
   --version v0.2.0-alpha.1 \

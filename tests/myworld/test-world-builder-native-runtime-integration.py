@@ -20,10 +20,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
 RUNTIME_ENV = "WORLD_BUILDER_NATIVE_RUNTIME_ROOT"
-CORE_ENV = "WORLD_BUILDER_EXACT_CORE_RUNTIME"
+PROVIDER_ENV = "WORLD_BUILDER_EXACT_RUNTIME_PROVIDER"
 JAVA_ENV = "WORLD_BUILDER_NATIVE_JAVA"
 RUNTIME_TEXT = os.environ.get(RUNTIME_ENV, "")
-CORE_TEXT = os.environ.get(CORE_ENV, "")
+PROVIDER_TEXT = os.environ.get(PROVIDER_ENV, "")
 REQUIRED_LANGUAGE_BUNDLES = {
     "AuthenticMessages_en_UK.properties",
     "AuthenticMessages_en_UK_female.properties",
@@ -68,11 +68,11 @@ def git(root: Path, *arguments: str) -> str:
     return result.stdout.strip()
 
 
-def locked_core_commit() -> str:
-    for line in (ROOT / "core-framework.lock").read_text(encoding="utf-8").splitlines():
-        if line.startswith("CORE_COMMIT="):
+def locked_runtime_provider_commit() -> str:
+    for line in (ROOT / "runtime-provider.lock").read_text(encoding="utf-8").splitlines():
+        if line.startswith("RUNTIME_PROVIDER_COMMIT="):
             return line.split("=", 1)[1]
-    raise AssertionError("core-framework.lock has no CORE_COMMIT")
+    raise AssertionError("runtime-provider.lock has no RUNTIME_PROVIDER_COMMIT")
 
 
 def parse_allowlist(path: Path) -> list[tuple[str, str, str]]:
@@ -138,24 +138,24 @@ def choose_port() -> int:
 
 
 @unittest.skipUnless(
-    RUNTIME_TEXT and CORE_TEXT,
-    f"set {RUNTIME_ENV} and {CORE_ENV} for the exact native runtime check",
+    RUNTIME_TEXT and PROVIDER_TEXT,
+    f"set {RUNTIME_ENV} and {PROVIDER_ENV} for the exact native runtime check",
 )
 class NativeRuntimeIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.runtime = Path(RUNTIME_TEXT).resolve(strict=True)
-        cls.core = Path(CORE_TEXT).resolve(strict=True)
-        if not cls.runtime.is_dir() or not cls.core.is_dir():
-            raise AssertionError("Native runtime and exact Core inputs must be directories")
+        cls.provider = Path(PROVIDER_TEXT).resolve(strict=True)
+        if not cls.runtime.is_dir() or not cls.provider.is_dir():
+            raise AssertionError("Native runtime and exact provider inputs must be directories")
 
-        expected_core = locked_core_commit()
-        actual_core = git(cls.core, "rev-parse", "HEAD")
-        if actual_core != expected_core:
+        expected_provider = locked_runtime_provider_commit()
+        actual_provider = git(cls.provider, "rev-parse", "HEAD")
+        if actual_provider != expected_provider:
             raise AssertionError(
-                f"Exact runtime checkout is {actual_core}; expected {expected_core}"
+                f"Exact runtime checkout is {actual_provider}; expected {expected_provider}"
             )
-        if git(cls.core, "status", "--porcelain=v1", "--untracked-files=all"):
+        if git(cls.provider, "status", "--porcelain=v1", "--untracked-files=all"):
             raise AssertionError("Exact runtime checkout is dirty")
 
         cls.allowlist = cls.runtime.parent / "RUNTIME-ASSET-ALLOWLIST.txt"
@@ -187,7 +187,7 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
                 + ", ".join(sorted(destination for _, destination, _ in missing))
             )
 
-        definition_root = cls.core / "server/conf/server/defs"
+        definition_root = cls.provider / "server/conf/server/defs"
         if not definition_root.is_dir() or definition_root.is_symlink():
             raise AssertionError("Exact provider definition root is missing or unsafe")
         provider_definitions = set()
@@ -253,7 +253,7 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
         cls.bound_inputs: dict[Path, str] = {}
         cls.provider_inputs: dict[Path, str] = {}
         for source, destination, _ in records:
-            source_path = cls.core / source
+            source_path = cls.provider / source
             runtime_path = cls.runtime / destination
             if not source_path.is_file() or source_path.is_symlink():
                 raise AssertionError(f"Exact provider input is missing: {source}")
@@ -272,7 +272,7 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
             "server/core.jar",
             "server/plugins.jar",
         ):
-            provider_path = cls.core / relative
+            provider_path = cls.provider / relative
             runtime_path = cls.runtime / relative
             if not provider_path.is_file() or not runtime_path.is_file():
                 raise AssertionError(f"Native runtime binary is missing: {relative}")
@@ -301,9 +301,9 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
 
         cls.runtime_before = tree_inventory(cls.runtime)
         cls.allowlist_before = sha256(cls.allowlist)
-        cls.core_head_before = actual_core
-        cls.core_status_before = git(
-            cls.core, "status", "--porcelain=v1", "--untracked-files=all"
+        cls.provider_head_before = actual_provider
+        cls.provider_status_before = git(
+            cls.provider, "status", "--porcelain=v1", "--untracked-files=all"
         )
 
         configured_java = os.environ.get(JAVA_ENV, "")
@@ -482,7 +482,7 @@ public final class NativeAdaptiveServerHarness {
                 self.assertEqual(packaged.read_bytes(), project_copy.read_bytes())
             for relative in self.provider_definitions:
                 self.assertEqual(
-                    (self.core / relative).read_bytes(),
+                    (self.provider / relative).read_bytes(),
                     (project / "working/runtime" / relative).read_bytes(),
                     relative,
                 )
@@ -583,11 +583,13 @@ public final class NativeAdaptiveServerHarness {
                 self.assertEqual(before_hash, sha256(path), path)
             for path, before_hash in self.provider_inputs.items():
                 self.assertEqual(before_hash, sha256(path), path)
-            self.assertEqual(self.core_head_before, git(self.core, "rev-parse", "HEAD"))
             self.assertEqual(
-                self.core_status_before,
+                self.provider_head_before, git(self.provider, "rev-parse", "HEAD")
+            )
+            self.assertEqual(
+                self.provider_status_before,
                 git(
-                    self.core,
+                    self.provider,
                     "status",
                     "--porcelain=v1",
                     "--untracked-files=all",

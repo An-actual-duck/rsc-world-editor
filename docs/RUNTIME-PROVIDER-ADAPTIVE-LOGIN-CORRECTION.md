@@ -1,13 +1,14 @@
-# Core provider adaptive login correction
+# Runtime provider adaptive login correction
 
 This is a bounded external-provider correction request for the runtime pinned
-by RSC World Editor. It does not authorize importing Core main, changing a live
-server, publishing a release, or moving the World Editor dependency lock.
+by RSC World Editor. Implement it only in `rsc-world-editor-runtime`; it does
+not authorize changing Spoiled Milk/Core-Framework, a live server, a release,
+or the World Editor dependency lock.
 
 ## Rejected candidate
 
 - World Editor commit: `b05b16fd744f410a7e95e601f5f8f8d42ea2ce6b`
-- Core provider commit: `0dd7aabb1eb599b2082ae44503ce42cf589b00fd`
+- Runtime provider baseline: `56acea6c7a77f96ed50d394c314a1de264fcb3aa`
 - Linux candidate SHA-256:
   `4fd6949addebd87dbd9920d80d2c3e7fdb64a602cc820e32acf54635371e5c80`
 - Windows candidate SHA-256:
@@ -105,7 +106,8 @@ smoke test. Report any unavailable native or visual checks honestly.
 
 ## Handoff
 
-Return one exact clean pushed commit on the authorized adaptive provider branch
+Return one exact clean pushed commit on the runtime topic branch
+`fix/undecided-custom-login-framing`
 with:
 
 - commit SHA and durable ref;
@@ -113,10 +115,10 @@ with:
 - exact tests and builds run;
 - evidence for the 278-byte frame and end-to-end authenticated Builder launch;
 - untested behavior and remaining risks; and
-- confirmation that Core main, deployment, tags, releases, live servers, and
-  the World Editor lock were not changed.
+- confirmation that Spoiled Milk/Core-Framework, deployment, tags, releases,
+  live servers, and the World Editor lock were not changed.
 
 After the owner separately authorizes that exact provider SHA, the World Editor
-manager will advance `core-framework.lock`, repeat parity and the full suite,
+manager will advance `runtime-provider.lock`, repeat parity and the full suite,
 publish clean `main`, rebuild both restricted candidates, inspect them
 externally, and retry owner-native validation.

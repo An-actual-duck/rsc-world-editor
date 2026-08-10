@@ -123,7 +123,7 @@ function Read-ReleaseIdentity(
         "updateChannel", "releaseTag", "artifactPrefix",
         "worldSourceIdentity", "automaticUpgradeFromProductIds",
         "legacyProductId", "legacyFinalTag", "legacyWorkspaceMigration",
-        "version", "sourceCommit", "coreSourceCommit"
+        "version", "sourceCommit", "runtimeProviderCommit"
     )
     $ActualProperties = @($Identity.PSObject.Properties.Name)
     if (($ActualProperties -join "`n") -cne ($ExpectedProperties -join "`n")) {
@@ -146,7 +146,7 @@ function Read-ReleaseIdentity(
         $Identity.legacyWorkspaceMigration -ne $false -or
         $Identity.version -cne $ExpectedVersion -or
         $Identity.sourceCommit -notmatch '^[0-9a-f]{40}$' -or
-        $Identity.coreSourceCommit -notmatch '^[0-9a-f]{40}$'
+        $Identity.runtimeProviderCommit -notmatch '^[0-9a-f]{40}$'
     ) {
         Fail-Update "release identity is not an exact $ProductId identity"
     }
@@ -168,7 +168,7 @@ function Read-ReleaseIdentity(
         '  "legacyWorkspaceMigration": false,',
         ('  "version": "{0}",' -f $ExpectedVersion),
         ('  "sourceCommit": "{0}",' -f $Identity.sourceCommit),
-        ('  "coreSourceCommit": "{0}"' -f $Identity.coreSourceCommit),
+        ('  "runtimeProviderCommit": "{0}"' -f $Identity.runtimeProviderCommit),
         '}'
     ) -join "`n"
     $ExpectedRaw += "`n"
@@ -315,7 +315,7 @@ function Assert-RequiredManagedFiles(
     $Managed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $Records | ForEach-Object { [void]$Managed.Add($_.Relative) }
     foreach ($Required in @(
-        "VERSION.txt", "SOURCE-COMMIT.txt", "CORE-SOURCE-COMMIT.txt",
+        "VERSION.txt", "SOURCE-COMMIT.txt", "RUNTIME-PROVIDER-COMMIT.txt",
         "RELEASE-IDENTITY.json", "Start World Builder.sh",
         "Start World Builder.cmd", "Update World Builder.sh",
         "Update World Builder.cmd", "Update World Builder.ps1",
@@ -344,7 +344,7 @@ function Assert-ApplicationAllowlist(
 ) {
     $Allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($Relative in @(
-        "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
+        "ASSET-SOURCES.txt", "RUNTIME-PROVIDER-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
         "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
         "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
         "Recover Map Transaction.cmd", "Recover Map Transaction.sh",
@@ -492,7 +492,7 @@ if (
 $InstalledIdentity = Read-ReleaseIdentity $InstalledIdentityPath $CurrentVersion $CurrentTag
 if (
     (Get-Content -LiteralPath (Join-Path $RootDir "SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.sourceCommit -or
-    (Get-Content -LiteralPath (Join-Path $RootDir "CORE-SOURCE-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.coreSourceCommit
+    (Get-Content -LiteralPath (Join-Path $RootDir "RUNTIME-PROVIDER-COMMIT.txt") -Raw).Trim() -cne $InstalledIdentity.runtimeProviderCommit
 ) {
     Fail-Update "installed release provenance does not match its v2 identity"
 }
@@ -620,7 +620,7 @@ try {
     $DownloadedIdentity = Read-ReleaseIdentity (Join-Path $PackageRoot "RELEASE-IDENTITY.json") $LatestVersion $LatestTag
     if (
         (Get-Content -LiteralPath (Join-Path $PackageRoot "SOURCE-COMMIT.txt") -Raw).Trim() -cne $DownloadedIdentity.sourceCommit -or
-        (Get-Content -LiteralPath (Join-Path $PackageRoot "CORE-SOURCE-COMMIT.txt") -Raw).Trim() -cne $DownloadedIdentity.coreSourceCommit
+        (Get-Content -LiteralPath (Join-Path $PackageRoot "RUNTIME-PROVIDER-COMMIT.txt") -Raw).Trim() -cne $DownloadedIdentity.runtimeProviderCommit
     ) {
         Fail-Update "downloaded package provenance does not match its v2 identity"
     }

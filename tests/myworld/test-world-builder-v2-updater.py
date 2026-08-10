@@ -78,7 +78,7 @@ def channel_decoys() -> list[dict[str, object]]:
 def identity_text(
     version: str,
     source_commit: str,
-    core_commit: str,
+    runtime_provider_commit: str,
     *,
     product_id: str = PRODUCT_ID,
 ) -> str:
@@ -97,7 +97,7 @@ def identity_text(
         "legacyWorkspaceMigration": False,
         "version": version,
         "sourceCommit": source_commit,
-        "coreSourceCommit": core_commit,
+        "runtimeProviderCommit": runtime_provider_commit,
     }
     return json.dumps(identity, indent=2, separators=(",", ": ")) + "\n"
 
@@ -225,19 +225,19 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         (package / "Update World Builder.sh").chmod(0o755)
         (package / "Start World Builder.sh").chmod(0o755)
         source_commit = "a" * 40 if application.startswith("old") else "c" * 40
-        core_commit = "b" * 40 if application.startswith("old") else "d" * 40
+        runtime_provider_commit = "b" * 40 if application.startswith("old") else "d" * 40
         (package / "VERSION.txt").write_text(version + "\n", encoding="utf-8")
         (package / "SOURCE-COMMIT.txt").write_text(
             source_commit + "\n", encoding="utf-8"
         )
-        (package / "CORE-SOURCE-COMMIT.txt").write_text(
-            core_commit + "\n", encoding="utf-8"
+        (package / "RUNTIME-PROVIDER-COMMIT.txt").write_text(
+            runtime_provider_commit + "\n", encoding="utf-8"
         )
         (package / "RELEASE-IDENTITY.json").write_text(
             identity_text(
                 version,
                 source_commit,
-                core_commit,
+                runtime_provider_commit,
                 product_id=product_id,
             ),
             encoding="utf-8",
@@ -282,7 +282,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             {
                 "VERSION.txt",
                 "SOURCE-COMMIT.txt",
-                "CORE-SOURCE-COMMIT.txt",
+                "RUNTIME-PROVIDER-COMMIT.txt",
                 "RELEASE-IDENTITY.json",
                 "README.txt",
                 "RUNTIME-ASSET-ALLOWLIST.txt",

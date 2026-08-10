@@ -65,7 +65,7 @@ is optional when the reviewed `java` is already on `PATH`:
 
 ```bash
 WORLD_BUILDER_NATIVE_RUNTIME_ROOT=/path/to/fresh/builder-runtime \
-WORLD_BUILDER_EXACT_CORE_RUNTIME=/path/to/clean-exact-locked-core \
+WORLD_BUILDER_EXACT_RUNTIME_PROVIDER=/path/to/clean-exact-locked-runtime-provider \
 WORLD_BUILDER_NATIVE_JAVA=/path/to/reviewed-java \
 python3 tests/myworld/test-world-builder-native-runtime-integration.py -v
 ```
@@ -88,59 +88,57 @@ relevant modes; see
 [Releasing](RELEASING.md) and the pending
 [adaptive validation worksheet](releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
 
-## Core-Framework dependency
+## Independent runtime-provider dependency
 
-`core-framework.lock` is the sole runtime dependency pin. Treat its exact
-commit and durable provider ref as a frozen external build input during
-ordinary development. The provider ref exists only to keep that exact object
-fetchable; it is not a signal to check Spoiled Milk status, branches, workers,
-releases, or newer commits.
+`runtime-provider.lock` is the sole runtime dependency pin. Treat its exact
+commit on its canonical `refs/heads/main` as a frozen external build input
+during ordinary development. The provider is developed in
+`https://github.com/An-actual-duck/rsc-world-editor-runtime`; it is never
+resolved from or synchronized with Spoiled Milk/Core-Framework.
 
-A local checkout can be created at the ignored `.core-framework/` path when a
+A local checkout can be created at the ignored `.runtime-provider/` path when a
 build or explicitly assigned dependency audit requires it:
 
 ```bash
-./scripts/checkout-core-framework.sh
+./scripts/checkout-runtime-provider.sh
 ```
 
 For an explicitly assigned dependency-update task, verify that it is the
 expected revision and that its adaptive capability and protocol match:
 
 ```bash
-./scripts/check-core-parity.sh .core-framework
+./scripts/check-runtime-provider-parity.sh .runtime-provider
 ```
 
-Do not run collaboration scripts inside that checkout or follow its nested
-`AGENTS.md`; it belongs to another project. Fetching a locked object for a
-build does not authorize updating the lock. Ordinary repository-owned tooling,
-packaging, test, and documentation fixes do not require source parity with the
-frozen dependency.
+Do not run collaboration scripts inside the disposable checkout. Provider work
+uses `/home/justin/rsc-world-editor-runtime` and its own workers; dependency
+consumption here uses only the detached exact lock. Fetching a locked object
+does not authorize updating the lock.
 
 Only when the user explicitly assigns a dependency-update task, adopt the
 exact external commit and durable runtime provider ref they selected with:
 
 ```bash
-./scripts/sync-from-core-framework.sh \
+./scripts/sync-from-runtime-provider.sh \
   /path/to/clean-runtime-provider \
-  refs/heads/world-builder/runtime/name
-./scripts/checkout-core-framework.sh
-./scripts/check-core-parity.sh .core-framework
+  refs/heads/main
+./scripts/checkout-runtime-provider.sh
+./scripts/check-runtime-provider-parity.sh .runtime-provider
 ./scripts/test.sh
 git diff --check
 ```
 
 Review the dependency and protocol diff before committing. The adoption
 command refuses dirty providers, requires the exact commit at the named remote
-ref, and updates only `core-framework.lock` plus the v2 runtime protocol. It
+ref, and updates only `runtime-provider.lock` plus the v2 runtime protocol. It
 never copies World Builder-owned tooling, templates, or either release line.
 
 ## Change routing
 
 - Standalone World Editor tooling, tests, documentation, packaging, updater,
   CI, and release-channel work belong here and use this repository's workers.
-- If a feature needs client/server behavior not owned here, record it as an
-  external compatibility dependency rather than assuming control of Spoiled
-  Milk development.
+- If a feature needs client/server behavior not owned here, assign it through
+  the independent runtime manager rather than assuming control of Spoiled Milk.
 - Runtime adoption occurs only through an explicitly assigned exact commit and
   durable provider ref. It never copies shared source and is never triggered by
   another project's activity.

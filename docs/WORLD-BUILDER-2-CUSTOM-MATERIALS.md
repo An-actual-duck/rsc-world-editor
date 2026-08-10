@@ -31,10 +31,10 @@ Before working on any phase:
 
 1. Read `AGENTS.md` and run the preflight for the current checkout role.
 2. Work on one focused topic branch and inspect the complete current code path.
-3. Treat `.core-framework/` only as the clean detached checkout named by
-   `core-framework.lock`. Do not develop in it, modify it, fetch in it, or use
+3. Treat `.runtime-provider/` only as the clean detached checkout named by
+   `runtime-provider.lock`. Do not develop in it, modify it, fetch in it, or use
    it as a source worktree.
-4. Do not advance `core-framework.lock` unless the manager explicitly assigns
+4. Do not advance `runtime-provider.lock` unless the manager explicitly assigns
    an exact published runtime-provider commit in a separate dependency-update
    task.
 5. Do not change `release/world-builder/`, the v1 updater, v1 identities, or v1
@@ -53,7 +53,7 @@ Runtime support cannot be completed solely in this repository. Client,
 server, protocol, and in-game editor changes MUST land in the external runtime
 provider first.
 Only a later, explicitly authorized manager task may select that exact commit
-and advance the lock. Editing `.core-framework/` is never a substitute.
+and advance the lock. Editing `.runtime-provider/` is never a substitute.
 
 ## Approved product scope
 
@@ -555,7 +555,7 @@ output. Stop here if client/server owners cannot accept the contract.
 
 ### Phase 1: Implement the external runtime contract
 
-This is a separate upstream task, never work inside `.core-framework/`.
+This is a separate upstream task, never work inside `.runtime-provider/`.
 Likely integration points must be confirmed in the exact upstream checkout:
 
 - client definition loading near
@@ -586,7 +586,7 @@ before any lock update is considered.
 Manager-only, separately authorized work:
 
 - select the exact published runtime-provider commit;
-- advance `core-framework.lock` to only that commit;
+- advance `runtime-provider.lock` to only that commit;
 - materialize a clean detached dependency checkout;
 - verify required client/server capability artifacts and matching fingerprints;
 - run the explicitly authorized synchronization/parity checks; and

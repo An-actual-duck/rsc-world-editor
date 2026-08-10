@@ -30,8 +30,8 @@ git status --short --branch
 - `/home/justin/rsc-world-editor-ai-1` through `-ai-3` are reusable neutral
   worker slots. A worker may edit only after the manager starts a focused topic
   branch in that slot.
-- `.core-framework/` is a disposable, detached dependency checkout at the
-  exact revision in `core-framework.lock`. It is not a development worktree,
+- `.runtime-provider/` is a disposable, detached dependency checkout at the
+  exact revision in `runtime-provider.lock`. It is not a development worktree,
   manager checkout, worker slot, or source of collaboration instructions.
 
 ## Project independence
@@ -43,9 +43,9 @@ git status --short --branch
   worktrees, worker state, releases, pull requests, or live-server state of
   `/home/justin/Core-Framework` or another Spoiled Milk checkout as part of
   routine World Editor work.
-- Never run `.core-framework/scripts/ai-manager.sh`,
-  `.core-framework/scripts/ai-workspace.sh`, or follow
-  `.core-framework/AGENTS.md`. Those belong to a different project and a
+- Never run `.runtime-provider/scripts/ai-manager.sh`,
+  `.runtime-provider/scripts/ai-workspace.sh`, or follow
+  `.runtime-provider/AGENTS.md`. Those belong to a different project and a
   different manager/worker team.
 - Collaboration scripts reject callers whose current directory is outside a
   registered `rsc-world-editor` worktree. Do not bypass that boundary by
@@ -53,17 +53,31 @@ git status --short --branch
 - Activity in Spoiled Milk—including a worker handoff, merge, release, or a
   newer upstream commit—does not create a World Editor task and must not be
   monitored automatically.
-- `core-framework.lock` is an immutable compatibility input during ordinary
+- `runtime-provider.lock` is an immutable compatibility input during ordinary
   development. Fetch, advance, or synchronize that dependency only when the
   user explicitly assigns a dependency-update task to the World Editor
   manager. Do not infer such permission from a status request, release request,
   related Spoiled Milk work, or the existence of a newer commit.
 
+## Independent runtime provider
+
+- World Builder client/server runtime work belongs to the separate
+  `rsc-world-editor-runtime` repository, not Spoiled Milk/Core-Framework.
+- Its manager is `/home/justin/rsc-world-editor-runtime`; its independent
+  workers are `/home/justin/rsc-world-editor-runtime-ai-1` through `-ai-3`.
+  Coordinate runtime work only by opening that manager checkout and following
+  its own `AGENTS.md` and collaboration scripts.
+- Never activate, inspect, or collect `/home/justin/Core-Framework-ai-*` for a
+  World Editor task. Never route a runtime correction to the Core manager.
+- This repository consumes only the exact published runtime commit recorded in
+  `runtime-provider.lock`. A dependency update advances that lock only after
+  the runtime manager publishes and reports an exact tested commit.
+
 ## Runtime dependency boundary
 
 - This repository owns standalone World Builder tooling, package assets,
   tests, documentation, automatic updates, and its release channel.
-- The locked Core-Framework checkout is an external runtime/build dependency,
+- The locked runtime-provider checkout is an external runtime/build dependency,
   comparable to a pinned SDK. Use only the exact locked revision when a build,
   parity check, or explicitly assigned dependency update requires it.
 - If a requested World Editor feature requires client/server functionality not
@@ -90,7 +104,7 @@ git status --short --branch
 5. Report changed files, tests, untested behavior, known risks, and whether the
    handoff is READY.
 6. Workers do not merge other tasks, inspect or manage Spoiled Milk work,
-   advance `core-framework.lock`, publish `main`, tag releases, or upload
+   advance `runtime-provider.lock`, publish `main`, tag releases, or upload
    release assets.
 
 ## Manager rules
@@ -105,7 +119,7 @@ git status --short --branch
 4. Inspect the complete branch diff, then merge only an exact READY handoff
    with `./scripts/ai-manager.sh merge <branch>`.
 5. Run `./scripts/test.sh` before publishing. Run
-   `./scripts/check-core-parity.sh <clean-pinned-core-checkout>` only for an
+   `./scripts/check-runtime-provider-parity.sh <clean-pinned-runtime-checkout>` only for an
    explicitly assigned dependency synchronization or a release that needs to
    verify the already-locked runtime.
 6. Push tested `main` to `origin`, then recycle a merged slot with
@@ -113,7 +127,7 @@ git status --short --branch
    branch not contained in published `main`.
 7. Run `./scripts/ai-manager.sh release-check` before packaging. Releases must
    come from clean, already-published World Editor `main` and use the exact
-   already-selected dependency commit named by `core-framework.lock`; release
+   already-selected dependency commit named by `runtime-provider.lock`; release
    preparation does not authorize checking for or adopting a newer upstream
    revision. The legacy v1 line is frozen. World Builder 2 production packaging
    is enabled only while `release/world-builder-v2/RELEASE-READY` records an

@@ -4,11 +4,11 @@ set -euo pipefail
 SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_DIR="${ROOT_DIR:-$SCRIPT_ROOT}"
 # shellcheck disable=SC1091
-source "$ROOT_DIR/core-framework.lock"
+source "$ROOT_DIR/runtime-provider.lock"
 ROOT_DIR="$(cd "$ROOT_DIR" && pwd -P)"
 
 VERSION=""
-CORE_ROOT=""
+RUNTIME_PROVIDER_ROOT=""
 LINUX_JRE=""
 WINDOWS_JRE=""
 ASSETS_CLEARED=false
@@ -40,7 +40,7 @@ usage() {
 Usage:
   ./scripts/package-world-builder-v2-release.sh \
     --version v0.1.0-alpha.1 \
-    --core-framework /path/to/open-rsc-spoiled-milk \
+    --runtime-provider /path/to/rsc-world-editor-runtime \
     --linux-jre /path/to/temurin-17-linux-x64-jre \
     --windows-jre /path/to/temurin-17-windows-x64-jre \
     --assets-cleared
@@ -62,9 +62,9 @@ while (($#)); do
 			VERSION="$2"
 			shift 2
 			;;
-		--core-framework)
-			[[ $# -ge 2 ]] || fail "--core-framework requires a value"
-			CORE_ROOT="$2"
+		--runtime-provider)
+			[[ $# -ge 2 ]] || fail "--runtime-provider requires a value"
+			RUNTIME_PROVIDER_ROOT="$2"
 			shift 2
 			;;
 		--windows-jre)
@@ -101,11 +101,11 @@ done
 
 [[ "$VERSION" =~ $VERSION_PATTERN ]] \
 	|| fail "Version must use semantic form, for example v0.1.0 or v0.1.0-alpha.1"
-[[ -n "$CORE_ROOT" ]] || fail "--core-framework is required"
-[[ "$CORE_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
-	|| fail "core-framework.lock contains an invalid commit"
-CORE_ROOT="$(cd "$CORE_ROOT" 2>/dev/null && pwd -P)" \
-	|| fail "Core-Framework directory does not exist"
+[[ -n "$RUNTIME_PROVIDER_ROOT" ]] || fail "--runtime-provider is required"
+[[ "$RUNTIME_PROVIDER_COMMIT" =~ ^[0-9a-f]{40}$ ]] \
+	|| fail "runtime-provider.lock contains an invalid commit"
+RUNTIME_PROVIDER_ROOT="$(cd "$RUNTIME_PROVIDER_ROOT" 2>/dev/null && pwd -P)" \
+	|| fail "Runtime provider directory does not exist"
 [[ "$ASSETS_CLEARED" == true ]] \
 	|| fail "Confirm redistribution terms with --assets-cleared before packaging"
 if [[ "$SKIP_BUILD" == true \
@@ -168,16 +168,16 @@ require_release_git_state() {
 		|| fail "Packaging requires HEAD to match origin/main"
 }
 
-require_core_state() {
-	local expected_commit="${1:-$CORE_COMMIT}" actual_commit worktree_status
-	git -C "$CORE_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
-		|| fail "--core-framework must name a Git checkout"
-	actual_commit="$(git -C "$CORE_ROOT" rev-parse --verify 'HEAD^{commit}')"
+require_runtime_provider_state() {
+	local expected_commit="${1:-$RUNTIME_PROVIDER_COMMIT}" actual_commit worktree_status
+	git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+		|| fail "--runtime-provider must name a Git checkout"
+	actual_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify 'HEAD^{commit}')"
 	[[ "$actual_commit" == "$expected_commit" ]] \
-		|| fail "Core-Framework must be at locked commit $expected_commit; found $actual_commit"
-	worktree_status="$(git -C "$CORE_ROOT" status --porcelain --untracked-files=all)"
+		|| fail "Runtime provider must be at locked commit $expected_commit; found $actual_commit"
+	worktree_status="$(git -C "$RUNTIME_PROVIDER_ROOT" status --porcelain --untracked-files=all)"
 	[[ -z "$worktree_status" ]] \
-		|| fail "Core-Framework release checkout must be clean"
+		|| fail "Runtime provider release checkout must be clean"
 }
 
 print_lwjgl_preparation_guidance() {
@@ -185,11 +185,11 @@ print_lwjgl_preparation_guidance() {
 	printf 'Prepare the pinned Core checkout with the exact World Builder 2 LWJGL inputs, then rerun packaging:\n' >&2
 	printf "  LWJGL_VERSION=%s LWJGL_MODULES='%s' LWJGL_NATIVE_CLASSIFIERS='%s' %q\n" \
 		"$LWJGL_VERSION" "$LWJGL_MODULES" "$LWJGL_NATIVE_CLASSIFIERS" \
-		"$CORE_ROOT/scripts/download-lwjgl.sh" >&2
+		"$RUNTIME_PROVIDER_ROOT/scripts/download-lwjgl.sh" >&2
 }
 
 require_lwjgl_release_inputs() {
-	local library_root="$CORE_ROOT/PC_Client/lib/lwjgl"
+	local library_root="$RUNTIME_PROVIDER_ROOT/PC_Client/lib/lwjgl"
 	local specification jar_name expected_entry jar_path is_expected
 	local -a missing=()
 	local -a invalid=()
@@ -206,7 +206,7 @@ require_lwjgl_release_inputs() {
 		"lwjgl-opengl-$LWJGL_VERSION-natives-windows.jar:windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll"
 	)
 
-	[[ -x "$CORE_ROOT/scripts/download-lwjgl.sh" ]] \
+	[[ -x "$RUNTIME_PROVIDER_ROOT/scripts/download-lwjgl.sh" ]] \
 		|| fail "Pinned Core checkout is missing executable scripts/download-lwjgl.sh"
 	for specification in "${specifications[@]}"; do
 		jar_name="${specification%%:*}"
@@ -249,7 +249,7 @@ require_lwjgl_release_inputs() {
 }
 
 require_release_git_state
-require_core_state
+require_runtime_provider_state
 
 validate_runtime() {
 	local platform="$1" runtime="$2" java_path="$3" expected_os="$4"
@@ -303,7 +303,7 @@ validate_runtime "Windows" "$WINDOWS_JRE" "bin/java.exe" "Windows"
 
 PACKAGE_ASSETS="$ROOT_DIR/release/world-builder-v2"
 UPDATE_ASSETS="$ROOT_DIR/release/updater-v2"
-ICON_CREDITS="$CORE_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
+ICON_CREDITS="$RUNTIME_PROVIDER_ROOT/dev/myworld/assets/ui/world-editor/CREDITS.md"
 if [[ "$CANDIDATE_BUILD" == true ]]; then
 	[[ ! -e "$PACKAGE_ASSETS/RELEASE-READY" \
 		&& ! -L "$PACKAGE_ASSETS/RELEASE-READY" ]] \
@@ -318,17 +318,17 @@ fi
 
 if [[ "$SKIP_BUILD" != true ]]; then
 	require_lwjgl_release_inputs
-	"$CORE_ROOT/scripts/build-server.sh"
-	SPOILED_MILK_RELEASE_BUILD=1 "$CORE_ROOT/scripts/build-client.sh"
+	"$RUNTIME_PROVIDER_ROOT/scripts/build-server.sh"
+	SPOILED_MILK_RELEASE_BUILD=1 "$RUNTIME_PROVIDER_ROOT/scripts/build-client.sh"
 	"$ROOT_DIR/scripts/build-tools.sh"
 fi
 require_release_git_state "$SOURCE_COMMIT"
-require_core_state "$CORE_COMMIT"
+require_runtime_provider_state "$RUNTIME_PROVIDER_COMMIT"
 
-CLIENT_JAR="$CORE_ROOT/Client_Base/Open_RSC_Client.jar"
+CLIENT_JAR="$RUNTIME_PROVIDER_ROOT/Client_Base/Open_RSC_Client.jar"
 TOOLS_JAR="$ROOT_DIR/output/world-builder-tools/world-builder-tools.jar"
-SERVER_JAR="$CORE_ROOT/server/core.jar"
-PLUGINS_JAR="$CORE_ROOT/server/plugins.jar"
+SERVER_JAR="$RUNTIME_PROVIDER_ROOT/server/core.jar"
+PLUGINS_JAR="$RUNTIME_PROVIDER_ROOT/server/plugins.jar"
 RUNTIME_ALLOWLIST="$PACKAGE_ASSETS/RUNTIME-ASSET-ALLOWLIST.txt"
 TOOLS_RUNTIME_ALLOWLIST_ENTRY="com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 
@@ -339,7 +339,7 @@ for required_path in \
 	"$TOOLS_JAR" \
 	"$ROOT_DIR/tools/world-builder/schema" \
 	"$ROOT_DIR/LICENSE" \
-	"$CORE_ROOT/release/player/ASSET-SOURCES.txt" \
+	"$RUNTIME_PROVIDER_ROOT/release/player/ASSET-SOURCES.txt" \
 	"$PACKAGE_ASSETS/README.txt" \
 	"$PACKAGE_ASSETS/ASSET-SOURCES.txt" \
 	"$RUNTIME_ALLOWLIST" \
@@ -360,7 +360,7 @@ for required_path in \
 done
 
 validate_allowlist() {
-	python3 - "$CORE_ROOT" "$RUNTIME_ALLOWLIST" <<'PY'
+	python3 - "$RUNTIME_PROVIDER_ROOT" "$RUNTIME_ALLOWLIST" <<'PY'
 import pathlib
 import re
 import sys
@@ -552,8 +552,8 @@ for native_entry in \
 	fi
 done
 
-server_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$CORE_ROOT/server/myworld.conf" | head -n 1)"
-client_protocol="$(sed -n 's/.*CLIENT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$CORE_ROOT/Client_Base/src/orsc/Config.java" | head -n 1)"
+server_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RUNTIME_PROVIDER_ROOT/server/myworld.conf" | head -n 1)"
+client_protocol="$(sed -n 's/.*CLIENT_VERSION[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$RUNTIME_PROVIDER_ROOT/Client_Base/src/orsc/Config.java" | head -n 1)"
 runtime_protocol="$(sed -n 's/^[[:space:]]*client_version:[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$PACKAGE_ASSETS/world-builder-runtime.conf" | head -n 1)"
 [[ -n "$server_protocol" && "$server_protocol" == "$client_protocol" \
 	&& "$server_protocol" == "$runtime_protocol" ]] \
@@ -619,7 +619,7 @@ write_release_identity() {
   "legacyWorkspaceMigration": false,
   "version": "$VERSION",
   "sourceCommit": "$SOURCE_COMMIT",
-  "coreSourceCommit": "$CORE_COMMIT"
+  "runtimeProviderCommit": "$RUNTIME_PROVIDER_COMMIT"
 }
 EOF
 }
@@ -635,7 +635,7 @@ stage_builder() {
 	cp "$PLUGINS_JAR" "$runtime/server/plugins.jar"
 	while IFS=$'\t' read -r source relative role || [[ -n "$source$relative$role" ]]; do
 		[[ -n "$source" && "$source" != \#* ]] || continue
-		source_path="$CORE_ROOT/$source"
+		source_path="$RUNTIME_PROVIDER_ROOT/$source"
 		destination_path="$runtime/$relative"
 		mkdir -p "${destination_path%/*}"
 		cp "$source_path" "$destination_path"
@@ -669,17 +669,17 @@ stage_builder() {
 	sed "s/@VERSION@/$VERSION/g; s/@SOURCE_COMMIT@/$SOURCE_COMMIT/g" \
 		"$PACKAGE_ASSETS/README.txt" > "$destination/README.txt"
 	cat "$UPDATE_ASSETS/README-AUTO-UPDATE.txt" >> "$destination/README.txt"
-	printf '\nCore-Framework runtime commit: %s\n' "$CORE_COMMIT" \
+	printf '\nRuntime provider commit: %s\n' "$RUNTIME_PROVIDER_COMMIT" \
 		>> "$destination/README.txt"
 	cp "$ROOT_DIR/LICENSE" "$destination/LICENSE"
 	cp "$PACKAGE_ASSETS/ASSET-SOURCES.txt" "$destination/ASSET-SOURCES.txt"
 	cp "$RUNTIME_ALLOWLIST" "$destination/RUNTIME-ASSET-ALLOWLIST.txt"
-	cp "$CORE_ROOT/release/player/ASSET-SOURCES.txt" \
+	cp "$RUNTIME_PROVIDER_ROOT/release/player/ASSET-SOURCES.txt" \
 		"$destination/PLAYER-ASSET-SOURCES.txt"
 	cp "$ICON_CREDITS" "$destination/EDITOR-ICON-CREDITS.txt"
 	printf '%s\n' "$VERSION" > "$destination/VERSION.txt"
 	printf '%s\n' "$SOURCE_COMMIT" > "$destination/SOURCE-COMMIT.txt"
-	printf '%s\n' "$CORE_COMMIT" > "$destination/CORE-SOURCE-COMMIT.txt"
+	printf '%s\n' "$RUNTIME_PROVIDER_COMMIT" > "$destination/RUNTIME-PROVIDER-COMMIT.txt"
 	write_release_identity "$destination"
 }
 
@@ -697,7 +697,7 @@ validate_stage() {
 	if find "$stage" -type l -print -quit | grep -q .; then
 		fail "Staged World Builder package contains a symbolic link"
 	fi
-	python3 - "$stage" "$CORE_ROOT" "$RUNTIME_ALLOWLIST" \
+	python3 - "$stage" "$RUNTIME_PROVIDER_ROOT" "$RUNTIME_ALLOWLIST" \
 		"$ROOT_DIR/tools/world-builder/schema" <<'PY'
 import hashlib
 import json
@@ -717,7 +717,7 @@ reserved = {
     *(f"LPT{number}" for number in range(1, 10)),
 }
 top_files = {
-    "ASSET-SOURCES.txt", "CORE-SOURCE-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
+    "ASSET-SOURCES.txt", "RUNTIME-PROVIDER-COMMIT.txt", "EDITOR-ICON-CREDITS.txt",
     "Import Map Changes.cmd", "Import Map Changes.sh", "LICENSE",
     "PLAYER-ASSET-SOURCES.txt", "README.txt", "Recover Map Transaction.cmd",
     "Recover Map Transaction.sh", "RELEASE-IDENTITY.json",
@@ -910,7 +910,7 @@ for stage in "$LINUX_STAGE" "$WINDOWS_STAGE"; do
 done
 
 require_release_git_state "$SOURCE_COMMIT"
-require_core_state "$CORE_COMMIT"
+require_runtime_provider_state "$RUNTIME_PROVIDER_COMMIT"
 
 (
 	cd "$STAGING_DIR/linux"

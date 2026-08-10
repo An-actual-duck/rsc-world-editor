@@ -71,7 +71,7 @@ EXPECTED_RUNTIME_CAPABILITY = {
 
 TOP_LEVEL_FILES = {
     "ASSET-SOURCES.txt",
-    "CORE-SOURCE-COMMIT.txt",
+    "RUNTIME-PROVIDER-COMMIT.txt",
     "EDITOR-ICON-CREDITS.txt",
     "Import Map Changes.cmd",
     "Import Map Changes.sh",
@@ -275,25 +275,25 @@ def validate_source_checkout(root: Path) -> str:
     return head
 
 
-def read_locked_core_commit(source_root: Path) -> str:
-    lock = source_root / "core-framework.lock"
+def read_locked_runtime_provider_commit(source_root: Path) -> str:
+    lock = source_root / "runtime-provider.lock"
     try:
         lines = lock.read_text(encoding="utf-8").splitlines()
     except OSError as error:
-        fail(f"Unable to read core-framework.lock: {error}")
+        fail(f"Unable to read runtime-provider.lock: {error}")
     values: dict[str, str] = {}
     for line in lines:
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
         values[key] = value
-    commit = values.get("CORE_COMMIT", "")
+    commit = values.get("RUNTIME_PROVIDER_COMMIT", "")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
-        fail("core-framework.lock does not name one lowercase 40-character commit")
+        fail("runtime-provider.lock does not name one lowercase 40-character commit")
     return commit
 
 
-def validate_core_checkout(root: Path, expected_commit: str) -> None:
+def validate_runtime_provider_checkout(root: Path, expected_commit: str) -> None:
     if run_git(root, "rev-parse", "--is-inside-work-tree") != "true":
         fail("Locked runtime source is not a Git worktree")
     if run_git(root, "status", "--porcelain=v1", "--untracked-files=all"):
@@ -301,7 +301,7 @@ def validate_core_checkout(root: Path, expected_commit: str) -> None:
     actual = run_git(root, "rev-parse", "HEAD")
     if actual != expected_commit:
         fail(
-            "Locked runtime source mismatch: core-framework.lock requires "
+            "Locked runtime source mismatch: runtime-provider.lock requires "
             f"{expected_commit}, found {actual}"
         )
 
@@ -314,7 +314,7 @@ def is_within(path: Path, root: Path) -> bool:
         return False
 
 
-def external_regular_file(path: Path, source_root: Path, core_root: Path) -> Path:
+def external_regular_file(path: Path, source_root: Path, runtime_provider_root: Path) -> Path:
     if path.is_symlink():
         fail(f"Candidate input must not be a symbolic link: {path}")
     try:
@@ -323,7 +323,7 @@ def external_regular_file(path: Path, source_root: Path, core_root: Path) -> Pat
         fail(f"Candidate input is unavailable: {path}: {error}")
     if not resolved.is_file():
         fail(f"Candidate input is not a regular file: {resolved}")
-    if is_within(resolved, source_root) or is_within(resolved, core_root):
+    if is_within(resolved, source_root) or is_within(resolved, runtime_provider_root):
         fail(
             "Candidate archives and checksums must be inspected from outside both "
             f"source trees: {resolved}"
@@ -365,7 +365,7 @@ def require_external_unchanged(
 
 
 def external_runtime_directory(
-    path: Path, source_root: Path, core_root: Path, platform: str
+    path: Path, source_root: Path, runtime_provider_root: Path, platform: str
 ) -> Path:
     try:
         metadata = path.stat(follow_symlinks=False)
@@ -377,8 +377,8 @@ def external_runtime_directory(
     if (
         is_within(resolved, source_root)
         or is_within(source_root, resolved)
-        or is_within(resolved, core_root)
-        or is_within(core_root, resolved)
+        or is_within(resolved, runtime_provider_root)
+        or is_within(runtime_provider_root, resolved)
     ):
         fail(
             f"Reviewed {platform} JRE input must be separate from both source trees: "
@@ -639,7 +639,7 @@ def reject_structured_world(data: bytes, display: str) -> None:
             pending.extend(item)
 
 
-def forbidden_core_hashes(core_root: Path) -> dict[str, tuple[str, str]]:
+def forbidden_core_hashes(runtime_provider_root: Path) -> dict[str, tuple[str, str]]:
     result: dict[str, tuple[str, str]] = {}
     file_count = 0
     total_bytes = 0
@@ -650,29 +650,29 @@ def forbidden_core_hashes(core_root: Path) -> dict[str, tuple[str, str]]:
         ("tools/layered-maps/workspace/**/*", "layered world package"),
     )
     for pattern, role in patterns:
-        for path in core_root.glob(pattern):
+        for path in runtime_provider_root.glob(pattern):
             if path.is_file() and not path.is_symlink():
                 file_count += 1
                 if file_count > MAX_FORBIDDEN_CORE_FILES:
                     fail("Locked runtime forbidden-world inventory exceeds its file limit")
                 data = read_expected_file(
                     path,
-                    f"forbidden {role} source {path.relative_to(core_root).as_posix()}",
-                    core_root,
+                    f"forbidden {role} source {path.relative_to(runtime_provider_root).as_posix()}",
+                    runtime_provider_root,
                 )
                 total_bytes += len(data)
                 if total_bytes > MAX_FORBIDDEN_CORE_BYTES:
                     fail("Locked runtime forbidden-world inventory exceeds its byte limit")
                 result[digest(data)] = (
                     role,
-                    path.relative_to(core_root).as_posix(),
+                    path.relative_to(runtime_provider_root).as_posix(),
                 )
     return result
 
 
 def parse_runtime_allowlist(
     source_root: Path,
-    core_root: Path,
+    runtime_provider_root: Path,
 ) -> tuple[bytes, set[str], dict[str, str], dict[str, Path]]:
     path = source_root / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
     try:
@@ -720,7 +720,7 @@ def parse_runtime_allowlist(
             + ", ".join(missing)
         )
     definition_prefix = "server/conf/server/defs/"
-    definition_root = core_root / "server/conf/server/defs"
+    definition_root = runtime_provider_root / "server/conf/server/defs"
     if not definition_root.is_dir() or definition_root.is_symlink():
         fail("Exact provider definition root is missing or unsafe")
     provider_definitions: set[str] = set()
@@ -814,10 +814,10 @@ def read_expected_file(path: Path, label: str, root: Path) -> bytes:
 
 def copied_file_expectations(
     source_root: Path,
-    core_root: Path,
+    runtime_provider_root: Path,
     version: str,
     source_commit: str,
-    core_commit: str,
+    runtime_provider_commit: str,
     runtime_sources: dict[str, str],
     schemas: dict[str, Path],
 ) -> dict[str, bytes]:
@@ -851,13 +851,13 @@ def copied_file_expectations(
         source_root,
     )
     expected["builder-runtime/Client_Base/Open_RSC_Client.jar"] = read_expected_file(
-        core_root / "Client_Base/Open_RSC_Client.jar", "production client jar", core_root
+        runtime_provider_root / "Client_Base/Open_RSC_Client.jar", "production client jar", runtime_provider_root
     )
     expected["builder-runtime/server/core.jar"] = read_expected_file(
-        core_root / "server/core.jar", "production server jar", core_root
+        runtime_provider_root / "server/core.jar", "production server jar", runtime_provider_root
     )
     expected["builder-runtime/server/plugins.jar"] = read_expected_file(
-        core_root / "server/plugins.jar", "production plugins jar", core_root
+        runtime_provider_root / "server/plugins.jar", "production plugins jar", runtime_provider_root
     )
     expected["builder-runtime/launcher/world-builder-tools.jar"] = read_expected_file(
         source_root / "output/world-builder-tools/world-builder-tools.jar",
@@ -866,21 +866,21 @@ def copied_file_expectations(
     )
     for archive_relative, source_relative in runtime_sources.items():
         expected[archive_relative] = read_expected_file(
-            core_root / source_relative, archive_relative, core_root
+            runtime_provider_root / source_relative, archive_relative, runtime_provider_root
         )
     for archive_relative, source_path in schemas.items():
         expected[archive_relative] = read_expected_file(
             source_path, archive_relative, source_root
         )
     expected["PLAYER-ASSET-SOURCES.txt"] = read_expected_file(
-        core_root / "release/player/ASSET-SOURCES.txt",
+        runtime_provider_root / "release/player/ASSET-SOURCES.txt",
         "PLAYER-ASSET-SOURCES.txt",
-        core_root,
+        runtime_provider_root,
     )
     expected["EDITOR-ICON-CREDITS.txt"] = read_expected_file(
-        core_root / "dev/myworld/assets/ui/world-editor/CREDITS.md",
+        runtime_provider_root / "dev/myworld/assets/ui/world-editor/CREDITS.md",
         "EDITOR-ICON-CREDITS.txt",
-        core_root,
+        runtime_provider_root,
     )
     package_readme = read_expected_file(
         source_root / "release/world-builder-v2/README.txt",
@@ -897,7 +897,7 @@ def copied_file_expectations(
             "@SOURCE_COMMIT@", source_commit
         )
         + updater_readme
-        + f"\nCore-Framework runtime commit: {core_commit}\n"
+        + f"\nRuntime provider commit: {runtime_provider_commit}\n"
     ).encode("utf-8")
     return expected
 
@@ -1111,7 +1111,7 @@ def validate_identity(
     data: bytes,
     version: str,
     source_commit: str,
-    core_commit: str,
+    runtime_provider_commit: str,
     display: str,
 ) -> None:
     try:
@@ -1133,7 +1133,7 @@ def validate_identity(
         "legacyWorkspaceMigration": False,
         "version": version,
         "sourceCommit": source_commit,
-        "coreSourceCommit": core_commit,
+        "runtimeProviderCommit": runtime_provider_commit,
     }
     if identity != expected:
         fail(f"Release identity does not exactly match the candidate inputs: {display}")
@@ -1217,7 +1217,7 @@ def validate_archive(
     platform: str,
     version: str,
     source_commit: str,
-    core_commit: str,
+    runtime_provider_commit: str,
     allowlist_bytes: bytes,
     allowed_runtime: set[str],
     forbidden_hashes: dict[str, tuple[str, str]],
@@ -1351,10 +1351,10 @@ def validate_archive(
         fail(f"VERSION.txt mismatch: {path.name}")
     if text_entry(files, "SOURCE-COMMIT.txt", path.name) != source_commit + "\n":
         fail(f"SOURCE-COMMIT.txt mismatch: {path.name}")
-    if text_entry(files, "CORE-SOURCE-COMMIT.txt", path.name) != core_commit + "\n":
-        fail(f"CORE-SOURCE-COMMIT.txt mismatch: {path.name}")
+    if text_entry(files, "RUNTIME-PROVIDER-COMMIT.txt", path.name) != runtime_provider_commit + "\n":
+        fail(f"RUNTIME-PROVIDER-COMMIT.txt mismatch: {path.name}")
     validate_identity(
-        files["RELEASE-IDENTITY.json"], version, source_commit, core_commit, path.name
+        files["RELEASE-IDENTITY.json"], version, source_commit, runtime_provider_commit, path.name
     )
     validate_runtime_capability(
         files[
@@ -1457,7 +1457,7 @@ def parse_arguments(arguments: Iterable[str]) -> argparse.Namespace:
         description="Inspect real World Builder 2 archives outside both source trees."
     )
     parser.add_argument("--source-root", required=True, type=Path)
-    parser.add_argument("--core-framework", required=True, type=Path)
+    parser.add_argument("--runtime-provider", required=True, type=Path)
     parser.add_argument("--linux-jre", required=True, type=Path)
     parser.add_argument("--windows-jre", required=True, type=Path)
     parser.add_argument("--version", required=True)
@@ -1472,18 +1472,18 @@ def main(arguments: Iterable[str]) -> int:
     if not VERSION_PATTERN.fullmatch(options.version):
         fail("--version must be canonical semantic v2 release syntax")
     source_root = options.source_root.resolve(strict=True)
-    core_root = options.core_framework.resolve(strict=True)
-    if source_root == core_root or is_within(core_root, source_root) or is_within(source_root, core_root):
+    runtime_provider_root = options.runtime_provider.resolve(strict=True)
+    if source_root == runtime_provider_root or is_within(runtime_provider_root, source_root) or is_within(source_root, runtime_provider_root):
         fail("World Editor and locked runtime source trees must be separate")
     source_commit = validate_source_checkout(source_root)
-    core_commit = read_locked_core_commit(source_root)
-    validate_core_checkout(core_root, core_commit)
+    runtime_provider_commit = read_locked_runtime_provider_commit(source_root)
+    validate_runtime_provider_checkout(runtime_provider_root, runtime_provider_commit)
 
     linux_jre = external_runtime_directory(
-        options.linux_jre, source_root, core_root, "Linux"
+        options.linux_jre, source_root, runtime_provider_root, "Linux"
     )
     windows_jre = external_runtime_directory(
-        options.windows_jre, source_root, core_root, "Windows"
+        options.windows_jre, source_root, runtime_provider_root, "Windows"
     )
     if (
         linux_jre == windows_jre
@@ -1493,9 +1493,9 @@ def main(arguments: Iterable[str]) -> int:
     ):
         fail("Reviewed Linux and Windows JRE inputs must be separate trees")
 
-    linux = external_regular_file(options.linux_archive, source_root, core_root)
-    windows = external_regular_file(options.windows_archive, source_root, core_root)
-    checksums = external_regular_file(options.checksums, source_root, core_root)
+    linux = external_regular_file(options.linux_archive, source_root, runtime_provider_root)
+    windows = external_regular_file(options.windows_archive, source_root, runtime_provider_root)
+    checksums = external_regular_file(options.checksums, source_root, runtime_provider_root)
     for artifact in (linux, windows, checksums):
         if is_within(artifact, linux_jre) or is_within(artifact, windows_jre):
             fail("Candidate artifacts and checksums must be outside reviewed JRE trees")
@@ -1527,14 +1527,14 @@ def main(arguments: Iterable[str]) -> int:
         allowed_runtime,
         runtime_sources,
         schemas,
-    ) = parse_runtime_allowlist(source_root, core_root)
-    forbidden_hashes = forbidden_core_hashes(core_root)
+    ) = parse_runtime_allowlist(source_root, runtime_provider_root)
+    forbidden_hashes = forbidden_core_hashes(runtime_provider_root)
     copied_files = copied_file_expectations(
         source_root,
-        core_root,
+        runtime_provider_root,
         options.version,
         source_commit,
-        core_commit,
+        runtime_provider_commit,
         runtime_sources,
         schemas,
     )
@@ -1545,7 +1545,7 @@ def main(arguments: Iterable[str]) -> int:
             "linux",
             options.version,
             source_commit,
-            core_commit,
+            runtime_provider_commit,
             allowlist_bytes,
             allowed_runtime,
             forbidden_hashes,
@@ -1558,7 +1558,7 @@ def main(arguments: Iterable[str]) -> int:
             "windows",
             options.version,
             source_commit,
-            core_commit,
+            runtime_provider_commit,
             allowlist_bytes,
             allowed_runtime,
             forbidden_hashes,
@@ -1570,7 +1570,7 @@ def main(arguments: Iterable[str]) -> int:
         fail("Reviewed Linux JRE input changed during candidate inspection")
     if inventory_runtime_tree(windows_jre, "Windows") != windows_jre_inventory:
         fail("Reviewed Windows JRE input changed during candidate inspection")
-    reloaded_allowlist = parse_runtime_allowlist(source_root, core_root)
+    reloaded_allowlist = parse_runtime_allowlist(source_root, runtime_provider_root)
     if reloaded_allowlist[:3] != (
         allowlist_bytes,
         allowed_runtime,
@@ -1579,18 +1579,18 @@ def main(arguments: Iterable[str]) -> int:
         fail("World Editor release inputs changed during candidate inspection")
     reloaded_copies = copied_file_expectations(
         source_root,
-        core_root,
+        runtime_provider_root,
         options.version,
         source_commit,
-        core_commit,
+        runtime_provider_commit,
         runtime_sources,
         schemas,
     )
-    if reloaded_copies != copied_files or forbidden_core_hashes(core_root) != forbidden_hashes:
+    if reloaded_copies != copied_files or forbidden_core_hashes(runtime_provider_root) != forbidden_hashes:
         fail("Exact source or forbidden-world evidence changed during inspection")
     if validate_source_checkout(source_root) != source_commit:
         fail("World Editor source commit changed during candidate inspection")
-    validate_core_checkout(core_root, core_commit)
+    validate_runtime_provider_checkout(runtime_provider_root, runtime_provider_commit)
 
     evidence = {
         "schemaVersion": 1,
@@ -1600,7 +1600,7 @@ def main(arguments: Iterable[str]) -> int:
         "releaseGateChanged": False,
         "version": options.version,
         "sourceCommit": source_commit,
-        "coreSourceCommit": core_commit,
+        "runtimeProviderCommit": runtime_provider_commit,
         "checksumsFile": checksums.name,
         "checksumsSha256": digest(checksum_data),
         "inspectorSha256": digest(Path(__file__).resolve().read_bytes()),
@@ -1639,10 +1639,10 @@ def main(arguments: Iterable[str]) -> int:
     )
     final_copies = copied_file_expectations(
         source_root,
-        core_root,
+        runtime_provider_root,
         options.version,
         source_commit,
-        core_commit,
+        runtime_provider_commit,
         runtime_sources,
         schemas,
     )
@@ -1654,7 +1654,7 @@ def main(arguments: Iterable[str]) -> int:
         fail("Reviewed Windows JRE input changed after candidate inspection")
     if validate_source_checkout(source_root) != source_commit:
         fail("World Editor source commit changed after candidate inspection")
-    validate_core_checkout(core_root, core_commit)
+    validate_runtime_provider_checkout(runtime_provider_root, runtime_provider_commit)
     json.dump(evidence, sys.stdout, indent=2, sort_keys=True)
     sys.stdout.write("\n")
     return 0

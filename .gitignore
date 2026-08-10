@@ -1,5 +1,7 @@
 /output/
+# Retained local pre-separation dependency snapshot; no tooling may use it.
 /.core-framework/
+/.runtime-provider/
 /.idea/
 /.vscode/
 *.class

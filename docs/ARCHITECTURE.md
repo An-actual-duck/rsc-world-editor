@@ -18,11 +18,12 @@ The repository is divided into four layers:
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
-- The Core-Framework revision in `core-framework.lock` supplies a frozen
+- The independent runtime-provider revision in `runtime-provider.lock` supplies a frozen
   compiled client/server runtime, integrated editor implementation, and one
   supported adapter source. It is an external generic build/runtime dependency,
   not this product's identity or target content and not part of this
-  repository's manager/worker system.
+  repository's manager/worker system. Runtime source is developed in the
+  separate `rsc-world-editor-runtime` repository rather than Core-Framework.
 
 ## Durable and replaceable state
 
@@ -119,7 +120,7 @@ There is deliberately no force-import path.
 The editor spans client and server code, so duplicating the full game source in
 this repository would create the same drift this repository is intended to
 prevent. Instead, releases use the exact dependency revision already selected
-in `core-framework.lock`. The release build refuses a different revision, and
+in `runtime-provider.lock`. The release build refuses a different revision, and
 dependency-update/release checks verify its published capability, required
 runtime surfaces, and protocol. Neither CI nor the World Editor manager searches for newer upstream work;
 changing the pin is a separate, explicitly assigned task.

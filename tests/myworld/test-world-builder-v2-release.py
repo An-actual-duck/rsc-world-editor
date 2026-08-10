@@ -158,7 +158,7 @@ def make_fixture(
         SOURCE_ROOT / "release/updater-v2", standalone / "release/updater-v2"
     )
     (standalone / "scripts").mkdir()
-    shutil.copy2(SOURCE_ROOT / "scripts/check-core-parity.sh", standalone / "scripts/check-core-parity.sh")
+    shutil.copy2(SOURCE_ROOT / "scripts/check-runtime-provider-parity.sh", standalone / "scripts/check-runtime-provider-parity.sh")
     shutil.copy2(SOURCE_ROOT / "LICENSE", standalone / "LICENSE")
     write(standalone / ".gitignore", "/output/\n")
 
@@ -316,15 +316,15 @@ def make_fixture(
             core / "scripts/build-client.sh",
             "#!/usr/bin/env bash\n"
             "set -euo pipefail\n"
-            "core_root=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
+            "runtime_provider_root=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")/..\" && pwd)\"\n"
             "[[ \"${SPOILED_MILK_RELEASE_BUILD:-0}\" == 1 ]] || {\n"
             "  printf 'release marker environment was not enabled\\n' >&2\n"
             "  exit 31\n"
             "}\n"
-            "marker_dir=\"$core_root/output/release-marker-fixture\"\n"
+            "marker_dir=\"$runtime_provider_root/output/release-marker-fixture\"\n"
             "mkdir -p \"$marker_dir\"\n"
             "printf 'release-build=true\\n' > \"$marker_dir/spoiled-milk-release-build.marker\"\n"
-            "jar uf \"$core_root/Client_Base/Open_RSC_Client.jar\" "
+            "jar uf \"$runtime_provider_root/Client_Base/Open_RSC_Client.jar\" "
             "-C \"$marker_dir\" spoiled-milk-release-build.marker\n",
         )
         write(core / "scripts/download-lwjgl.sh", "#!/usr/bin/env bash\nexit 0\n")
@@ -340,12 +340,12 @@ def make_fixture(
         ):
             executable.chmod(0o755)
 
-    core_commit = initialize_repository(core, "Create pinned Core fixture")
+    runtime_provider_commit = initialize_repository(core, "Create pinned Core fixture")
     write(
-        standalone / "core-framework.lock",
+        standalone / "runtime-provider.lock",
         "# Test runtime source.\n"
-        "CORE_REPOSITORY=https://example.invalid/core.git\n"
-        f"CORE_COMMIT={core_commit}\n",
+        "RUNTIME_PROVIDER_REPOSITORY=https://example.invalid/core.git\n"
+        f"RUNTIME_PROVIDER_COMMIT={runtime_provider_commit}\n",
     )
     standalone_commit = initialize_repository(
         standalone, "Create standalone release fixture"
@@ -404,7 +404,7 @@ def run_packager(
         str(PACKAGER),
         "--version",
         VERSION,
-        "--core-framework",
+        "--runtime-provider",
         str(core),
         "--linux-jre",
         str(linux_runtime),
@@ -641,7 +641,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     str(INSPECTOR),
                     "--source-root",
                     str(standalone),
-                    "--core-framework",
+                    "--runtime-provider",
                     str(fixture[1]),
                     "--linux-jre",
                     str(fixture[3]),
@@ -873,7 +873,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             write(core / "dirty.txt", "not a release input\n")
             dirty_core = run_packager(*fixture)
             self.assertNotEqual(0, dirty_core.returncode)
-            self.assertIn("Core-Framework release checkout must be clean", dirty_core.stderr)
+            self.assertIn("Runtime provider release checkout must be clean", dirty_core.stderr)
 
         with tempfile.TemporaryDirectory(prefix="world-builder-v2-core-commit-") as temp:
             fixture = make_fixture(Path(temp), release_ready=True)
@@ -885,7 +885,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             wrong_core = run_packager(*fixture)
 
             self.assertNotEqual(0, wrong_core.returncode)
-            self.assertIn("Core-Framework must be at locked commit", wrong_core.stderr)
+            self.assertIn("Runtime provider must be at locked commit", wrong_core.stderr)
 
     def test_packager_rejects_wrong_runtime_and_content_disguised_as_allowed_assets(
         self,
@@ -951,7 +951,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertNotIn("spoiled-milk-package", packager_source)
 
             source_commit = git(standalone, "rev-parse", "HEAD")
-            core_commit = git(core, "rev-parse", "HEAD")
+            runtime_provider_commit = git(core, "rev-parse", "HEAD")
             output = standalone / "output/releases/world-builder-v2" / VERSION
             linux_archive = output / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip"
             windows_archive = output / f"{PRODUCT_ID}-{VERSION_NUMBER}-windows-x64.zip"
@@ -988,7 +988,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         prefix + "PACKAGE-MANIFEST.sha256",
                         prefix + "VERSION.txt",
                         prefix + "SOURCE-COMMIT.txt",
-                        prefix + "CORE-SOURCE-COMMIT.txt",
+                        prefix + "RUNTIME-PROVIDER-COMMIT.txt",
                         prefix + "LICENSE",
                         prefix + "ASSET-SOURCES.txt",
                         prefix + "RUNTIME-ASSET-ALLOWLIST.txt",
@@ -1081,8 +1081,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         archive.read(prefix + "SOURCE-COMMIT.txt").decode(),
                     )
                     self.assertEqual(
-                        f"{core_commit}\n",
-                        archive.read(prefix + "CORE-SOURCE-COMMIT.txt").decode(),
+                        f"{runtime_provider_commit}\n",
+                        archive.read(prefix + "RUNTIME-PROVIDER-COMMIT.txt").decode(),
                     )
                     identity = json.loads(
                         archive.read(prefix + "RELEASE-IDENTITY.json").decode()
@@ -1103,7 +1103,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         f"{PRODUCT_ID}-{VERSION_NUMBER}", identity["releaseTag"]
                     )
                     self.assertEqual(source_commit, identity["sourceCommit"])
-                    self.assertEqual(core_commit, identity["coreSourceCommit"])
+                    self.assertEqual(runtime_provider_commit, identity["runtimeProviderCommit"])
 
                     manifest = archive.read(prefix + "PACKAGE-MANIFEST.sha256").decode()
                     manifest_paths = {
