@@ -56,7 +56,7 @@ java -jar output/world-builder-tools/world-builder-tools.jar launch-adaptive \
 On first use, this command performs bounded read-only discovery. If the path is
 a supported server root, it offers to adopt a complete layered map or copy and
 losslessly convert a complete packed map. If no server evidence exists, it
-offers a canonical standalone empty project at layer `0`, coordinate `0,0`.
+offers a canonical standalone empty project at layer `0`, coordinate `120,648`.
 Recognizable but incomplete, malformed, unsupported, changing, or ambiguous
 server evidence is blocked; it is never treated as an empty world.
 

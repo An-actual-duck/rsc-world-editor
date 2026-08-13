@@ -282,7 +282,7 @@ live or public server.
 | --- | --- | --- | --- |
 | Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
 | Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Standalone empty: layer 0/origin 0,0, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
+| Standalone empty: layer 0/start 120,648, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
 | No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
 | Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
 | Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
@@ -335,7 +335,8 @@ server-owned comparison scope must not change between before and after.
 1. Put a separate complete candidate folder in an ordinary empty parent with
    no recognizable server. Launch natively and confirm it clearly offers a
    standalone empty project, not a guessed or bundled map.
-2. Confirm it opens at layer 0, origin 0,0 with structural void. Author the
+2. Confirm it opens at layer 0, coordinate 120,648 with structural void
+   available in every direction. Author the
    first terrain/floor and one wall or placement, check collision, save, close,
    reopen, and confirm the authored state remains.
 3. Export the saved standalone project. Confirm Import, Undo, and Recovery each

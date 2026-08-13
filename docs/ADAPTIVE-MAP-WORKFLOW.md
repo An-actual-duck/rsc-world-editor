@@ -45,8 +45,9 @@ must make compatible RSC world creation approachable:
 
 World Builder also works without a server. If it is launched from a directory
 that contains no recognizable server or map, it creates a standalone empty
-project at coordinate `0,0` on layer `0`. Saving creates a normal layered map
-package. Import/install is unavailable because that project has no target.
+project at the familiar coordinate `120,648` on layer `0`. Saving creates a
+normal layered map package. Import/install is unavailable because that project
+has no target.
 
 “Any server” means any compatible RSC server that implements the documented
 capability contract or matches a repository-owned layout adapter. World
@@ -64,7 +65,8 @@ server binary safely.
 - The release contains application/runtime assets but no terrain, world
   package, or static NPC, scenery, boundary, or ground-item placements.
 - A missing server/map outside a recognizable server root starts a standalone
-  empty project at layer `0`, coordinate `0,0`.
+  empty project at layer `0`, coordinate `120,648`, centered within generated
+  structural void terrain.
 - Standalone saving and export work normally; import/install fails clearly and
   before any filesystem mutation.
 - Target-backed import requires compatible layered-loader server and client
@@ -256,8 +258,10 @@ project. Its first launch:
 1. clearly labels the project **Standalone — no server attached**;
 2. creates a generated empty signed-layered baseline with world space
    `global`, layer `0`, no placements, and only the canonical void coverage
-   needed for the editor to address coordinate `0,0`;
-3. starts the Builder camera/player at `0,0` on layer `0`;
+   needed for the editor to address the familiar Lumbridge coordinate
+   `120,648` with resident terrain in every direction;
+3. starts the Builder camera/player at `120,648` on layer `0` while keeping the
+   generated world completely empty;
 4. uses the versioned default Builder definition/rendering catalog;
 5. materializes and validates terrain sectors as the creator authors them;
 6. saves and exports a normal complete layered package; and
@@ -675,16 +679,18 @@ tests, and product approval. There is never a generic force flag.
 1. Confirm that no recognizable target is selected and label the origin
    `standalone-empty`.
 2. Allocate a project UUID and stage `empty-world-v1.json` binding layer `0`,
-   origin `0,0`, the empty generator, and default catalog/runtime hashes.
+   the familiar Lumbridge coordinate `120,648`, the empty generator, and
+   default catalog/runtime hashes.
 3. Generate a canonical signed-layered baseline with no authored terrain or
    placements beyond minimal void addressability required by the runtime.
-   The single `global` sector at level `0`, sector `0,0` consists only of the
+   The single `global` sector at level `0`, sector `2,13`, contains that point
+   away from every sector edge and consists only of the
    repeated ten-byte tile record `0,1,8,0,0,0,0,0,0,0`: elevation `0`, ground
    texture `1`, ground overlay `8`, and zero roof, wall, and diagonal values.
    The default catalog therefore includes one-based overlay definition ID `7`
    as well as the deliberately supported authoring IDs.
 4. Validate it, copy it to working state, and prepare an isolated runtime whose
-   initial editor location is exactly layer `0`, coordinate `0,0`.
+   initial editor location is exactly layer `0`, coordinate `120,648`.
 5. Publish the project and registry atomically.
 6. On save, materialize changed sectors/placements and validate a standard
    layered package. Export behaves normally.
@@ -693,8 +699,8 @@ tests, and product approval. There is never a generic force flag.
 
 This requires the runtime/package contract to support authoring from canonical
 void. If the current schema requires at least one sector, the generator MAY
-create exactly one canonical void sector containing `0,0`; it remains generated
-structural state, not a shipped map.
+create exactly one canonical void sector containing `120,648`; it remains
+generated structural state, not a shipped map.
 
 ### Import/install
 
@@ -887,7 +893,7 @@ proposed schema numbers after adaptive contracts are final.
 | Existing test | Required change |
 | --- | --- |
 | `test-world-builder-discovery.py` | Replace fixed `myworld.conf`, six files, and one layout with descriptor/fallback, ambiguity, packed/layered, all placements/definitions, unsupported-server, no-server, and drift fixtures. |
-| `test-world-builder-runtime-preparation.py` | Test target-layered adoption, packed conversion baseline, standalone empty layer 0/origin 0,0, project registry, content-neutral runtime, generated-state confinement, and target preservation. |
+| `test-world-builder-runtime-preparation.py` | Test target-layered adoption, packed conversion baseline, standalone empty layer 0/start 120,648, project registry, content-neutral runtime, generated-state confinement, and target preservation. |
 | `test-world-builder-supervision.py` | Add selected-project/origin/capability/detached cases; retain loopback, source verification, locking, journal, and orderly shutdown. |
 | `test-world-builder-export.py` | Replace fixed five-file output with deterministic complete layered exports for adopted, converted, and empty origins. |
 | `test-world-builder-import.py` | Generalize destination/config/marker behavior through mutation profiles; add standalone immediate refusal while retaining exact preview, confirmation, offline, drift, backups, receipts, injected failure, rollback, undo, changed-after, Windows paths, and no-force tests. |
@@ -922,7 +928,7 @@ explicit recovery after injected rollback failure.
 | `WorldBuilderRuntimePreparer.java` | Stage adopted, converted, or generated-empty layered baselines; create isolated project working runtime; never copy release world data. |
 | `WorldBuilderCanonicalVoidTerrain.java`, `WorldBuilderEmptyWorldGenerator.java`, `WorldBuilderLayeredTerrainDraftJournal.java` | Share the exact pinned-runtime `global` void-sector bytes between initial empty generation and later sector growth. |
 | `WorldBuilderSourceSnapshot.java` | Verify complete immutable original, baseline, compatibility, and conversion evidence. |
-| `WorldBuilderProcessSupervisor.java` | Run one selected layered project, start empty mode at layer 0/origin 0,0, retain loopback/process/source locks, confine generated state. |
+| `WorldBuilderProcessSupervisor.java` | Run one selected layered project, start empty mode at layer 0 and the content-neutral Lumbridge coordinate 120,648, retain loopback/process/source locks, confine generated state. |
 | `WorldBuilderConfigWriter.java` | Render only adapter-approved isolated and target profiles; retain duplicate-key and exact semantic verification. |
 | `WorldBuilderExporter.java`, `WorldBuilderExportBundle.java`, `WorldBuilderExportManifest.java` | Preserve historical readers; export complete generic layered projects with lineage. |
 | `WorldBuilderImporter.java`, `WorldBuilderTargetOfflineLease.java` | Keep transaction engine; consume bounded adapter server/client mutation and offline plans; reject standalone before target access. |
@@ -1234,7 +1240,7 @@ project bytes before and after. Required coverage includes:
   definitions/capabilities, links/path attacks, and two-pass drift;
 - exact deterministic terrain/placement conversion and every loss/unknown
   blocker;
-- adopted, converted, and empty project creation; layer 0/origin 0,0; multiple
+- adopted, converted, and empty project creation; layer 0/start 120,648; multiple
   projects; registry interruption; source corruption; portability; detached
   state; save/reopen; and generated-state confinement;
 - no-world release canaries and updater durable-path attacks;
@@ -1260,7 +1266,7 @@ Use disposable copies, never a live/public server:
 - code review and automated package/launcher coverage for the other platform;
 - simple conversion report, editor launch, save, close, reopen, and target byte
   comparison;
-- empty project opening at layer 0/origin 0,0, authoring first terrain,
+- empty project opening at layer 0/start 120,648, authoring first terrain,
   save/reopen/export, and Import refusal;
 - multiple project selection, complete-folder movement, server update, and
   detached behavior;
@@ -1289,7 +1295,8 @@ than capture or judge screenshots themselves.
 - **AC-06:** The editor always opens a layered working package derived from the
   selected origin, never a release-owned world.
 - **AC-07:** With no recognizable server/map, first launch opens a labelled
-  standalone empty project at layer 0, coordinate 0,0, with no authored world.
+  standalone empty project at layer 0, coordinate 120,648, centered within
+  generated structural void and with no authored world.
 - **AC-08:** Saving an empty project creates a valid package/export; Import and
   Undo fail before target access.
 - **AC-09:** Source snapshots are complete/immutable, working state is isolated,
@@ -1345,8 +1352,9 @@ The product owner approved this document on 2026-08-01 after confirming that:
 - target installation requires compatible layered-loader server/client code
   and the administrator distributes matching player content; and
 - launching without a recognizable server/map creates a standalone empty
-  project at layer `0`, coordinate `0,0`, whose import and undo paths are
-  disabled.
+  project at layer `0`, coordinate `120,648`, whose import and undo paths are
+  disabled. The owner requested this familiar, centered start correction on
+  2026-08-13 after native candidate testing exposed the old coordinate edge.
 
 This approval does not approve a dependency change, release-gate change, tag,
 publication, deployment, live-server work, or implementation outside the
