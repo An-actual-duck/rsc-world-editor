@@ -58,6 +58,13 @@ a supported server root, it offers to adopt a complete layered map or copy and
 losslessly convert a complete packed map. If no server evidence exists, it
 offers a canonical standalone empty project at layer `0`, coordinate `120,648`,
 centered on a generated 3-by-3 visibility seed with floor color and overlay `0`.
+The standalone authoring catalog is generated during project staging from the
+exact verified definition files in that packaged runtime. It contains only
+numeric IDs: XML array positions for tiles, boundaries, and scenery; effective
+base-plus-custom array positions for NPCs; and sorted explicit base/custom item
+IDs. It does not bundle a map, placement, name, or creator content. The catalog
+bytes and runtime bytes are independently inventoried and bound into immutable
+project evidence.
 Recognizable but incomplete, malformed, unsupported, changing, or ambiguous
 server evidence is blocked; it is never treated as an empty world.
 
@@ -180,6 +187,12 @@ For a standalone project, omit `--target-root`. A target-backed project may
 still be edited in isolation after the original target moves or drifts, but it
 is reported detached and cannot later be installed until the exact compatible
 target is supplied and verified.
+
+Existing standalone projects retain their immutable catalog and remain on their
+original compatibility contract. They are never silently rewritten from a
+newer application runtime. Create a separate standalone project to adopt a new
+packaged definition catalog, then explicitly move creator-owned edits through a
+reviewed export workflow when compatibility has been established.
 
 Application updates use the same command with `--validate-only`. That mode
 verifies the selected project and optional target evidence without refreshing

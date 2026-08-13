@@ -177,7 +177,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			PreparedOrigin prepared;
 			if ("standalone-empty".equals(origin)) {
 				WorldBuilderEmptyWorldGenerator.Result empty =
-					WorldBuilderEmptyWorldGenerator.generate(stage, runtimeSha256);
+					WorldBuilderEmptyWorldGenerator.generate(
+						stage, runtimeSha256, sourceRuntime);
 				prepared = PreparedOrigin.empty(empty);
 			} else {
 				prepared = prepareTargetOrigin(
@@ -535,6 +536,26 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
 			WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(
 				projectTarget, definitionPath);
+		String definitionHash = WorldBuilderHashes.sha256(
+			projectTarget.requiredFile(definitionPath));
+		if (!definitionHash.equals(string(fingerprints, "definitionsSha256"))) {
+			throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, definitionPath,
+				"Project definition fingerprint does not match immutable source evidence.",
+				"Restore the complete project from a trusted backup.");
+		}
+		if ("standalone-empty".equals(string(manifest, "origin"))) {
+			Map<String,Object> standalone = object(
+				manifest.get("standalone"), "standalone");
+			if (!WorldBuilderEmptyWorldGenerator.GENERATOR_ID.equals(
+					string(standalone, "generatorId"))
+				|| !definitions.catalogId.equals(string(standalone, "catalogId"))
+				|| !WorldBuilderEmptyWorldGenerator.RUNTIME_ID.equals(
+					string(standalone, "runtimeId"))) {
+				throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, PROJECT_FILE,
+					"Standalone project identity does not match its immutable catalog/runtime evidence.",
+					"Restore the complete project; do not replace its catalog silently.");
+			}
+		}
 		WorldBuilderGenericLayeredPackage baseline =
 			WorldBuilderGenericLayeredPackage.inspect(projectTarget,
 				BASELINE_DIRECTORY, "baseline", definitions);

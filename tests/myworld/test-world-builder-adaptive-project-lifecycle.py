@@ -91,6 +91,12 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def canonical_hash(value: dict) -> str:
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
 def runtime_allowlist_records() -> tuple[tuple[str, str, str], ...]:
     records = []
     for raw in RUNTIME_ALLOWLIST.read_text(encoding="utf-8").splitlines():
@@ -602,6 +608,49 @@ public final class AdaptiveProjectSupervisorHarness {
             path.parent.mkdir(parents=True, exist_ok=True)
             if path.name in EMPTY_LANGUAGE_BUNDLES:
                 path.write_bytes(b"")
+            elif path.name == "TileDef.xml":
+                path.write_text(
+                    "<TileDef-array>"
+                    + "".join("<TileDef><colour>0</colour></TileDef>" for _ in range(10))
+                    + "</TileDef-array>\n",
+                    encoding="utf-8",
+                )
+            elif path.name == "DoorDef.xml":
+                path.write_text(
+                    "<DoorDef-array>"
+                    + "".join("<DoorDef><name>wall</name></DoorDef>" for _ in range(3))
+                    + "</DoorDef-array>\n",
+                    encoding="utf-8",
+                )
+            elif path.name == "GameObjectDef.xml":
+                path.write_text(
+                    "<GameObjectDef-array>"
+                    + "".join(
+                        "<GameObjectDef><name>fixture</name></GameObjectDef>"
+                        for _ in range(4)
+                    )
+                    + "</GameObjectDef-array>\n",
+                    encoding="utf-8",
+                )
+            elif path.name == "NpcDefs.json":
+                write_json(
+                    path,
+                    {"npcs": [{"id": 0, "name": "base-0"}, {"id": 1, "name": "base-1"}]},
+                )
+            elif path.name == "NpcDefsCustom.json":
+                write_json(path, {"npcs": [{"id": 12, "name": "custom-12"}]})
+            elif path.name == "NpcDefsMyWorld.json":
+                write_json(path, {"npcs": [{"id": 99, "name": "inactive-world"}]})
+            elif path.name == "NpcDefsPatch18.json":
+                write_json(path, {"npcs": [{"id": 100, "name": "inactive-patch"}]})
+            elif path.name == "ItemDefs.json":
+                write_json(path, {"item": [{"id": 0}, {"id": 7}]})
+            elif path.name == "ItemDefsCustom.json":
+                write_json(path, {"items": [{"id": 42}]})
+            elif path.name == "ItemDefsPatch18.json":
+                write_json(path, {"items": [{"id": 99}]})
+            elif path.name == "ItemDefsMyWorld.json":
+                write_json(path, {"items": [{"id": 100}]})
             elif path.suffix == ".jar":
                 with zipfile.ZipFile(path, "w") as archive:
                     entry = zipfile.ZipInfo(
@@ -914,6 +963,137 @@ public final class FakeAdaptiveClient {
         declaration["sha256"] = sha256(terrain)
         write_json(manifest_path, manifest)
 
+    @staticmethod
+    def place_representative_definitions(project: Path) -> dict:
+        manifest_path = project / "working/layered-world/package/manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declaration = manifest["placementSets"][0]
+        placement_path = manifest_path.parent / declaration["path"]
+        placement = json.loads(placement_path.read_text(encoding="utf-8"))
+        placement["boundaries"] = [
+            {
+                "boundaryId": 1,
+                "direction": 0,
+                "placementId": "boundary-1",
+                "position": {"x": 119, "y": 648},
+            }
+        ]
+        placement["groundItems"] = [
+            {
+                "amount": 1,
+                "itemId": 42,
+                "placementId": "ground-item-1",
+                "position": {"x": 120, "y": 648},
+                "respawnSeconds": 30,
+            }
+        ]
+        placement["npcs"] = [
+            {
+                "npcId": 2,
+                "placementId": "npc-1",
+                "roamBounds": {
+                    "maximum": {"x": 121, "y": 649},
+                    "minimum": {"x": 120, "y": 648},
+                },
+                "start": {"x": 120, "y": 648},
+            }
+        ]
+        placement["scenery"] = [
+            {
+                "direction": 2,
+                "placementId": "scenery-1",
+                "position": {"x": 121, "y": 648},
+                "sceneryId": 3,
+            }
+        ]
+        write_json(placement_path, placement)
+        declaration["sha256"] = sha256(placement_path)
+        write_json(manifest_path, manifest)
+        return placement
+
+    @staticmethod
+    def rewrite_as_legacy_standalone(installation: Path, project: Path) -> None:
+        catalog_path = project / "source/runtime/default-definition-catalog.json"
+        catalog = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-definition-catalog",
+            "catalogId": "world-builder-empty-default-v1",
+            "tiles": [0, 7],
+            "boundaries": [],
+            "scenery": [],
+            "npcs": [],
+            "groundItems": [],
+        }
+        write_json(catalog_path, catalog)
+        catalog_hash = sha256(catalog_path)
+        for evidence in (
+            project / "working/runtime/server/evidence/adaptive-definitions.json",
+            project / "working/runtime/client/evidence/adaptive-definitions.json",
+        ):
+            evidence.write_bytes(catalog_path.read_bytes())
+
+        runtime_path = project / "source/runtime/default-runtime-evidence.json"
+        runtime = json.loads(runtime_path.read_text(encoding="utf-8"))
+        runtime["definitionCatalogId"] = catalog["catalogId"]
+        runtime["definitionCatalogSha256"] = catalog_hash
+        write_json(runtime_path, runtime)
+        runtime_hash = sha256(runtime_path)
+
+        descriptor_path = project / "source/original/empty-world-v1.json"
+        descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        descriptor["catalog"] = {
+            "catalogId": catalog["catalogId"],
+            "sha256": catalog_hash,
+        }
+        descriptor["runtime"]["sha256"] = runtime_hash
+        write_json(descriptor_path, descriptor)
+        descriptor_hash = sha256(descriptor_path)
+
+        snapshot_path = project / "source/snapshot-manifest.json"
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        snapshot["originDescriptor"]["sha256"] = descriptor_hash
+        for record in snapshot["originalFiles"]:
+            if record["role"] == "empty-origin":
+                record["size"] = descriptor_path.stat().st_size
+                record["sha256"] = descriptor_hash
+        for record in snapshot["definitionRuntimeFiles"]:
+            if record["role"] == "default-definition-catalog":
+                record["size"] = catalog_path.stat().st_size
+                record["sha256"] = catalog_hash
+            elif record["role"] == "default-runtime-evidence":
+                record["size"] = runtime_path.stat().st_size
+                record["sha256"] = runtime_hash
+        snapshot["sourceFingerprintSha256"] = "0" * 64
+        snapshot["sourceFingerprintSha256"] = canonical_hash(snapshot)
+        write_json(snapshot_path, snapshot)
+
+        manifest_path = project / "project.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["standalone"]["catalogId"] = catalog["catalogId"]
+        manifest["fingerprints"]["definitionsSha256"] = catalog_hash
+        manifest["fingerprints"]["sourceSha256"] = snapshot["sourceFingerprintSha256"]
+        manifest["projectFingerprintSha256"] = "0" * 64
+        manifest["projectFingerprintSha256"] = canonical_hash(manifest)
+        write_json(manifest_path, manifest)
+        manifest_hash = sha256(manifest_path)
+
+        registry_path = installation / "project-registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        record = next(
+            value
+            for value in registry["projects"]
+            if value["projectId"] == manifest["projectId"]
+        )
+        record["manifestSha256"] = manifest_hash
+        registry["registryFingerprintSha256"] = "0" * 64
+        registry["registryFingerprintSha256"] = canonical_hash(registry)
+        write_json(registry_path, registry)
+
+        active_path = installation / "active-project.json"
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        active["manifestSha256"] = manifest_hash
+        write_json(active_path, active)
+
     def assert_canonical_empty_package(self, package: Path) -> None:
         manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
         self.assertEqual(
@@ -1069,7 +1249,11 @@ public final class FakeAdaptiveClient {
                     project / "source/runtime/default-definition-catalog.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual([0, 7], catalog["tiles"])
+            self.assertEqual(list(range(10)), catalog["tiles"])
+            self.assertEqual([0, 1, 2], catalog["boundaries"])
+            self.assertEqual([0, 1, 2, 3], catalog["scenery"])
+            self.assertEqual([0, 1, 2], catalog["npcs"])
+            self.assertEqual([0, 7, 42], catalog["groundItems"])
 
             self.change_working_terrain(project)
             unsaved = self.run_cli(
@@ -1162,6 +1346,200 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, undo_result.returncode)
             self.assertIn("NO_TARGET", undo_result.stderr)
             self.assertFalse(missing_target.exists())
+
+    def test_standalone_runtime_catalog_persists_all_placement_families(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-placement-catalog-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            runtime_before = tree_bytes(runtime)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Placement lifecycle", 43842
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source_before = tree_bytes(project / "source")
+            catalog_path = project / "source/runtime/default-definition-catalog.json"
+            catalog_hash = sha256(catalog_path)
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            self.assertEqual("world-builder-runtime-default-v1", catalog["catalogId"])
+            self.assertEqual(list(range(10)), catalog["tiles"])
+            self.assertEqual([0, 1, 2], catalog["boundaries"])
+            self.assertEqual([0, 1, 2, 3], catalog["scenery"])
+            self.assertEqual([0, 1, 2], catalog["npcs"])
+            self.assertEqual([0, 7, 42], catalog["groundItems"])
+
+            snapshot = json.loads(
+                (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
+            )
+            catalog_record = next(
+                record
+                for record in snapshot["definitionRuntimeFiles"]
+                if record["role"] == "default-definition-catalog"
+            )
+            self.assertEqual(catalog_hash, catalog_record["sha256"])
+            project_manifest = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                catalog_hash, project_manifest["fingerprints"]["definitionsSha256"]
+            )
+            runtime_evidence = json.loads(
+                (project / "source/runtime/default-runtime-evidence.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(catalog_hash, runtime_evidence["definitionCatalogSha256"])
+            for evidence in (
+                project / "working/runtime/server/evidence/adaptive-definitions.json",
+                project / "working/runtime/client/evidence/adaptive-definitions.json",
+            ):
+                self.assertEqual(catalog_path.read_bytes(), evidence.read_bytes())
+
+            expected = self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            supervised = self.run_supervision(project)
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            reopened = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            export_root = Path(json.loads(exported.stdout)["exportDirectory"])
+            exported_manifest = json.loads(
+                (export_root / "manifest.json").read_text(encoding="utf-8")
+            )
+            definitions_runtime = hashlib.sha256(
+                (catalog_hash + "\0" + project_manifest["fingerprints"]["runtimeSha256"] + "\0")
+                .encode("utf-8")
+            ).hexdigest()
+            self.assertEqual(
+                definitions_runtime,
+                exported_manifest["lineage"]["definitionsRuntimeSha256"],
+            )
+            exported_placement = json.loads(
+                (
+                    export_root / "package/placements/global/lp0.json"
+                ).read_text(encoding="utf-8")
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(expected[family], exported_placement[family])
+            validation = json.loads(
+                (export_root / "validation-report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(1, validation["boundaryCount"])
+            self.assertEqual(1, validation["groundItemCount"])
+            self.assertEqual(1, validation["npcCount"])
+            self.assertEqual(1, validation["sceneryCount"])
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(runtime_before, tree_bytes(runtime))
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_standalone_catalog_rejects_malformed_definition_shapes(self):
+        mutations = {
+            "wrong-xml-root": lambda runtime: (
+                runtime / "server/conf/server/defs/DoorDef.xml"
+            ).write_text(
+                "<NotDoorDef-array><DoorDef/></NotDoorDef-array>\n",
+                encoding="utf-8",
+            ),
+            "wrong-json-root": lambda runtime: write_json(
+                runtime / "server/conf/server/defs/NpcDefsCustom.json",
+                {"notNpcs": [{"id": 12}]},
+            ),
+            "missing-explicit-id": lambda runtime: write_json(
+                runtime / "server/conf/server/defs/ItemDefsCustom.json",
+                {"items": [{"name": "missing-id"}]},
+            ),
+        }
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-placement-catalog-invalid-"
+        ) as temp:
+            base = Path(temp)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            target_before = tree_bytes(target)
+            report = base / "report.json"
+            self.discover(target, report)
+            for index, (label, mutate) in enumerate(mutations.items()):
+                with self.subTest(label=label):
+                    installation = base / label / "World Builder 2"
+                    installation.mkdir(parents=True)
+                    runtime = self.make_runtime(installation)
+                    mutate(runtime)
+                    refused, _ = self.create_project(
+                        installation,
+                        runtime,
+                        target,
+                        report,
+                        "Invalid catalog fixture",
+                        43850 + index,
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("DEFINITION_MISMATCH", refused.stderr)
+                    self.assertFalse(
+                        (installation / "project-registry.json").exists()
+                    )
+                    self.assertEqual(target_before, tree_bytes(target))
+
+    def test_existing_legacy_standalone_catalog_reopens_without_silent_migration(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-legacy-catalog-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Legacy catalog", 43843
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.rewrite_as_legacy_standalone(installation, project)
+            source_before = tree_bytes(project / "source")
+            target_before = tree_bytes(target)
+
+            reopened = self.run_cli(
+                "open-project",
+                "--installation-root",
+                installation,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            legacy = json.loads(
+                (
+                    project / "source/runtime/default-definition-catalog.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual("world-builder-empty-default-v1", legacy["catalogId"])
+            self.assertEqual([], legacy["scenery"])
+
+            self.place_representative_definitions(project)
+            refused = self.run_cli("save-project", "--project", project)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("DEFINITION_MISMATCH", refused.stderr)
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
 
     def test_native_runtime_bundles_preserve_bounded_empty_fallbacks(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-native-runtime-assets-") as temp:
