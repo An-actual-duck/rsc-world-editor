@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 INSPECTOR = ROOT / "scripts/inspect-world-builder-v2-candidate.py"
 FOCUSED_SUITE = ROOT / "scripts/test-world-builder-v2-candidate.sh"
+NATIVE_PROOF = ROOT / "tests/myworld/test-world-builder-native-runtime-integration.py"
 PENDING_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
@@ -716,10 +717,17 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")
         self.assertIn('python3 "$ROOT_DIR/$relative" -v </dev/null', text)
+        self.assertIn("test-world-builder-native-runtime-integration.py", text)
         self.assertIn("test-world-builder-supervision.py", text)
         self.assertIn("test-world-builder-adaptive-transactions.py", text)
         self.assertIn("test-world-builder-ai-workspaces.py", text)
         self.assertIn("test-world-builder-v2-updater.py", text)
+
+        native = NATIVE_PROOF.read_text(encoding="utf-8")
+        self.assertIn("defaultAdaptiveClientCommand(project)", native)
+        self.assertIn("ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true", native)
+        self.assertIn("Adaptive World Builder binding accepted", native)
+        self.assertNotIn("NoUiClient", native)
 
     def test_candidate_inputs_inside_either_source_tree_are_refused(self) -> None:
         inside = self.fixture.source / LINUX_NAME

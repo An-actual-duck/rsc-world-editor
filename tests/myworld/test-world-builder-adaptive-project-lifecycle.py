@@ -955,6 +955,7 @@ public final class FakeAdaptiveClient {
             ).read_text(encoding="utf-8")
             self.assertIn("server_bind_address: 127.0.0.1\n", isolated_config)
             self.assertIn("custom_landscape: false\n", isolated_config)
+            self.assertIn("want_sync_scene_baseline: true\n", isolated_config)
             self.assertIn("want_discord_bot: false\n", isolated_config)
             self.assertNotIn("unbound_fixture_setting", isolated_config)
 
