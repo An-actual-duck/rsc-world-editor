@@ -154,6 +154,42 @@ must run the actual packaged client through authenticated binding and native
 readiness. This correction does not accept a candidate, alter the runtime lock,
 or open `RELEASE-READY`; all final evidence remains **PENDING**.
 
+### Pending standalone start-coordinate provider correction
+
+The repository-owned standalone generator now binds its empty project to
+`global`, layer `0`, coordinate `120,648`, with one generated sector at
+`2,13` and the exact centered 3-by-3 visibility seed. Temporary lifecycle
+fixtures prove deterministic generation, save/reopen, source and target
+preservation, and the no-target import/undo boundary.
+
+The exact locked runtime provider at
+`ff9da0aa3d712993f4f06648dc397bdd9062eabc` is not compatible with that start.
+Its `AdaptiveWorldBuilderRuntimeIdentity.validateConfiguredIdentities()`
+hard-refuses every `standalone-empty` identity whose initial coordinate is not
+`0,0`. A real packaged-client/server run therefore exits before readiness with
+`Standalone empty mode must begin at global layer 0, coordinate 0,0`.
+
+This branch must not weaken its generated package or substitute `0,0`. Before
+another candidate can be built, separately authorized runtime-provider work
+must:
+
+1. retain strict adaptive activation, `global` world space, layer `0`, and the
+   existing bounded `0..32767` coordinate checks;
+2. accept the exactly bound standalone initial coordinate instead of requiring
+   literal `0,0`;
+3. prove the configured coordinate is covered by the validated native layered
+   terrain before an editable session starts;
+4. preserve target-backed starts, normal production profiles, native terrain
+   readiness, binding identities, and all legacy-client behavior; and
+5. add real client/server coverage for `120,648` using only sector `2,13`,
+   including authentication, player load, adaptive binding, native readiness,
+   clean shutdown, and no legacy terrain fallback.
+
+Only an authorized, published provider SHA may then be reviewed and advanced
+through `runtime-provider.lock`. Until that happens, standalone native launch
+and AC-07 are **BLOCKED**, while every owner and release gate remains
+**PENDING**.
+
 ## Required immutable inputs
 
 - a clean World Editor manager checkout on the exact published `origin/main`
@@ -282,7 +318,7 @@ live or public server.
 | --- | --- | --- | --- |
 | Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
 | Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
+| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures; exact pinned runtime refuses the start | BLOCKED on provider correction | BLOCKED |
 | No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
 | Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
 | Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
@@ -371,7 +407,7 @@ row below needs exact evidence and no unresolved failure.
 | AC-04 lossless packed conversion and placement parity | Automated PASS — fixture; owner report pending | PENDING |
 | AC-05 unsupported/unrepresentable refusal | Automated PASS — focused suites | PENDING |
 | AC-06 selected working project is the only edited world | Automated PASS — fixture; owner report pending | PENDING |
-| AC-07 canonical standalone structural void | Automated PASS — fixture and no-UI runtime; owner report pending | PENDING |
+| AC-07 canonical standalone structural void | Fixture PASS; exact pinned runtime refuses the bound 120,648 start before readiness | BLOCKED |
 | AC-08 standalone save/export and target-operation refusal | Automated PASS — fixture; owner report pending | PENDING |
 | AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated PASS — fixture and scoped inventories; owner report pending | PENDING |
 | AC-10 multiple/portable/detached projects | Automated PASS — focused suite; owner report pending | PENDING |
