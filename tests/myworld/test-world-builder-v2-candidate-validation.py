@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 INSPECTOR = ROOT / "scripts/inspect-world-builder-v2-candidate.py"
 FOCUSED_SUITE = ROOT / "scripts/test-world-builder-v2-candidate.sh"
+NATIVE_PROOF = ROOT / "tests/myworld/test-world-builder-native-runtime-integration.py"
 PENDING_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
@@ -109,6 +110,15 @@ REQUIRED_DATABASE_PATCHES = (
     "2023_02_01_former_names.sql",
     "2026_05_14_add_summoning_skill.sql",
     "2026_08_03_add_blessing_skill.sql",
+)
+REQUIRED_DATABASE_QUERIES = (
+    ("mysql", "bank_presets.xml"),
+    ("mysql", "item.xml"),
+    ("mysql", "player.xml"),
+    ("sqlite", "bank_presets.xml"),
+    ("sqlite", "item.xml"),
+    ("sqlite", "patches.xml"),
+    ("sqlite", "player.xml"),
 )
 RUNTIME_CONFIGURATION = (
     b"server_bind_address: 127.0.0.1\n"
@@ -212,6 +222,7 @@ class CandidateFixture:
         plugin_world_payload: bool = False,
         capability: bytes = CAPABILITY,
         include_native_runtime_records: bool = True,
+        include_inherited_query_records: bool = True,
         include_definition_records: bool = True,
         include_locs_record: bool = False,
         include_generated_key_record: bool = False,
@@ -268,6 +279,10 @@ class CandidateFixture:
             core_paths[f"server/database/sqlite/patches/{name}"] = (
                 b"-- fixture runtime migration\n"
             )
+        for namespace, name in REQUIRED_DATABASE_QUERIES:
+            core_paths[f"server/database/{namespace}/queries/{name}"] = (
+                b"<queries/>\n"
+            )
         for relative, data in core_paths.items():
             path = self.core / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -284,6 +299,12 @@ class CandidateFixture:
                 f"server/database/sqlite/patches/{name}\t"
                 f"server/database/sqlite/patches/{name}\truntime-database-contract\n"
                 for name in REQUIRED_DATABASE_PATCHES
+            ) + "".join(
+                f"server/database/{namespace}/queries/{name}\t"
+                f"server/database/{namespace}/queries/{name}\t"
+                "runtime-database-contract\n"
+                for namespace, name in REQUIRED_DATABASE_QUERIES
+                if namespace != "mysql" or include_inherited_query_records
             )
         definition_records = (
             "".join(
@@ -617,6 +638,19 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertIn("missing required native server assets", result.stderr)
             self.assertIn("CustomMessages_en_UK.properties", result.stderr)
 
+        with tempfile.TemporaryDirectory(
+            prefix="candidate-inherited-query-contract-"
+        ) as temp:
+            fixture = CandidateFixture(
+                Path(temp), include_inherited_query_records=False
+            )
+
+            result = fixture.run()
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing required native server assets", result.stderr)
+            self.assertIn("server/database/mysql/queries/player.xml", result.stderr)
+
     def test_inspector_requires_neutral_definitions_and_excludes_locs(self) -> None:
         with tempfile.TemporaryDirectory(prefix="candidate-definition-closure-") as temp:
             fixture = CandidateFixture(
@@ -683,10 +717,17 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")
         self.assertIn('python3 "$ROOT_DIR/$relative" -v </dev/null', text)
+        self.assertIn("test-world-builder-native-runtime-integration.py", text)
         self.assertIn("test-world-builder-supervision.py", text)
         self.assertIn("test-world-builder-adaptive-transactions.py", text)
         self.assertIn("test-world-builder-ai-workspaces.py", text)
         self.assertIn("test-world-builder-v2-updater.py", text)
+
+        native = NATIVE_PROOF.read_text(encoding="utf-8")
+        self.assertIn("defaultAdaptiveClientCommand(project)", native)
+        self.assertIn("ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true", native)
+        self.assertIn("Adaptive World Builder binding accepted", native)
+        self.assertNotIn("NoUiClient", native)
 
     def test_candidate_inputs_inside_either_source_tree_are_refused(self) -> None:
         inside = self.fixture.source / LINUX_NAME

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in, no-UI startup proof for an exact packaged adaptive runtime."""
+"""Opt-in packaged-client authentication proof for an adaptive runtime."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ import socket
 import sqlite3
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -45,6 +46,15 @@ REQUIRED_DATABASE_PATCHES = {
     "2023_02_01_former_names.sql",
     "2026_05_14_add_summoning_skill.sql",
     "2026_08_03_add_blessing_skill.sql",
+}
+REQUIRED_DATABASE_QUERIES = {
+    ("mysql", "bank_presets.xml"),
+    ("mysql", "item.xml"),
+    ("mysql", "player.xml"),
+    ("sqlite", "bank_presets.xml"),
+    ("sqlite", "item.xml"),
+    ("sqlite", "patches.xml"),
+    ("sqlite", "player.xml"),
 }
 DEFINITION_PREFIX = "server/conf/server/defs/"
 TOOLS_ALLOWLIST_RESOURCE = (
@@ -137,9 +147,16 @@ def choose_port() -> int:
     raise AssertionError("Unable to reserve a bounded loopback test port")
 
 
+NATIVE_INPUTS_AVAILABLE = bool(RUNTIME_TEXT and PROVIDER_TEXT)
+NATIVE_DISPLAY_AVAILABLE = not sys.platform.startswith("linux") or bool(
+    os.environ.get("DISPLAY", "")
+)
+
+
 @unittest.skipUnless(
-    RUNTIME_TEXT and PROVIDER_TEXT,
-    f"set {RUNTIME_ENV} and {PROVIDER_ENV} for the exact native runtime check",
+    NATIVE_INPUTS_AVAILABLE and NATIVE_DISPLAY_AVAILABLE,
+    f"set {RUNTIME_ENV}, {PROVIDER_ENV}, and DISPLAY on Linux for the exact "
+    "packaged OpenGL client runtime check",
 )
 class NativeRuntimeIntegrationTest(unittest.TestCase):
     @classmethod
@@ -172,6 +189,13 @@ class NativeRuntimeIntegrationTest(unittest.TestCase):
                 "runtime-configuration",
             )
             for name in REQUIRED_LANGUAGE_BUNDLES
+        } | {
+            (
+                f"server/database/{namespace}/queries/{name}",
+                f"server/database/{namespace}/queries/{name}",
+                "runtime-database-contract",
+            )
+            for namespace, name in REQUIRED_DATABASE_QUERIES
         } | {
             (
                 f"server/database/sqlite/patches/{name}",
@@ -341,7 +365,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class NativeAdaptiveServerHarness {
@@ -351,13 +375,14 @@ public final class NativeAdaptiveServerHarness {
 
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(args[0]);
-        String classes = args[1];
         List<String> server =
             WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
-        List<String> client = Arrays.asList(
-            server.get(0), "-cp", classes,
-            "com.openrsc.worldbuilder.NativeAdaptiveServerHarness$NoUiClient",
-            project.toString());
+        List<String> client = new ArrayList<String>(
+            WorldBuilderProcessSupervisor.defaultAdaptiveClientCommand(project));
+        int jarArgument = client.indexOf("-jar");
+        require(jarArgument > 0, "packaged client jar launch command");
+        client.add(jarArgument,
+            "-Dopenrsc.worldBuilderAutomatedExitOnReady=true");
         int exit = new WorldBuilderProcessSupervisor().superviseAdaptiveWithCommands(
             project, server, client, 180000L);
         require(exit == 0, "native adaptive supervision exit " + exit);
@@ -371,13 +396,7 @@ public final class NativeAdaptiveServerHarness {
         require(receipt.contains("\"clientExit\": 0"), "client clean exit receipt");
         require(receipt.contains("\"serverFailedFirst\": false"),
             "server remained ready through client exit");
-        System.out.println("native-adaptive-server-readiness-shutdown-ok");
-    }
-
-    public static final class NoUiClient {
-        public static void main(String[] args) throws Exception {
-            Thread.sleep(1000L);
-        }
+        System.out.println("native-adaptive-client-auth-binding-readiness-ok");
     }
 }
 '''.strip()
@@ -423,9 +442,11 @@ public final class NativeAdaptiveServerHarness {
             timeout=240,
         )
 
-    def test_exact_server_reaches_readiness_applies_migrations_and_shuts_down(self) -> None:
+    def test_exact_client_authenticates_binds_reaches_native_readiness_and_shuts_down(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory(
-            prefix="world-builder-native-server-integration-"
+            prefix="world-builder-native-client-integration-"
         ) as temp:
             base = Path(temp)
             target = base / "ordinary-parent"
@@ -495,7 +516,6 @@ public final class NativeAdaptiveServerHarness {
                     classpath,
                     "com.openrsc.worldbuilder.NativeAdaptiveServerHarness",
                     str(project),
-                    str(self.classes),
                 ],
                 cwd=ROOT,
                 text=True,
@@ -514,15 +534,46 @@ public final class NativeAdaptiveServerHarness {
                 supervised.stdout + supervised.stderr + "\n" + log_text[-12000:],
             )
             self.assertIn(
-                "native-adaptive-server-readiness-shutdown-ok", supervised.stdout
+                "native-adaptive-client-auth-binding-readiness-ok", supervised.stdout
+            )
+            client_log = project / "logs/client.log"
+            client_runtime_log = project / "logs/client-runtime.log"
+            client_text = "\n".join(
+                path.read_text(encoding="utf-8", errors="replace")
+                if path.is_file()
+                else f"<{path.name} missing>"
+                for path in (client_log, client_runtime_log)
+            )
+            self.assertIn("Login details for Builder", log_text)
+            self.assertIn(
+                "Adaptive World Builder binding accepted for authenticated player Builder",
+                log_text,
+            )
+            self.assertIn(
+                "ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true "
+                "initialRegion=true binding=true",
+                client_text,
+            )
+            self.assertIn(
+                "ADAPTIVE_WORLD_BUILDER_AUTOMATED_EXIT status=0", client_text
             )
             for fatal in (
                 "MissingResourceException",
                 "PatchApplicationException",
                 "Unable to apply database patches",
                 "Exception starting server with a configuration file",
+                "Unable to register",
+                "NullPointerException",
+                "SocketTimeoutException",
+                "Read timed out",
+                "timed out",
+                "Login exception",
+                "World Builder could not start.",
             ):
-                self.assertNotIn(fatal, log_text)
+                self.assertNotIn(
+                    fatal.casefold(), (log_text + "\n" + client_text).casefold()
+                )
+            self.assertNotIn("retrying", client_text.casefold())
             verified = self.run_cli(
                 "open-project",
                 "--installation-root",

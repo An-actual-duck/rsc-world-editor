@@ -274,6 +274,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("max_players", "1");
 		values.put("max_players_per_ip", "1");
 		values.put("want_packet_register", "false");
+		values.put("want_sync_scene_baseline", "true");
 		values.put("allow_in_game_world_editor", "true");
 		values.put("is_localhost_restricted", "true");
 		values.put("want_pcap_logging", "false");

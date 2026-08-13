@@ -58,6 +58,15 @@ REQUIRED_DATABASE_PATCHES = (
     "2026_05_14_add_summoning_skill.sql",
     "2026_08_03_add_blessing_skill.sql",
 )
+REQUIRED_DATABASE_QUERIES = (
+    ("mysql", "bank_presets.xml"),
+    ("mysql", "item.xml"),
+    ("mysql", "player.xml"),
+    ("sqlite", "bank_presets.xml"),
+    ("sqlite", "item.xml"),
+    ("sqlite", "patches.xml"),
+    ("sqlite", "player.xml"),
+)
 ADAPTIVE_CAPABILITY = (
     json.dumps(
         {
@@ -429,6 +438,31 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
+    def test_runtime_allowlist_has_exact_inherited_mysql_query_closure(self) -> None:
+        allowlist = SOURCE_ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+        records = {
+            tuple(line.split("\t"))
+            for line in allowlist.read_text(encoding="utf-8").splitlines()
+            if line and not line.startswith("#")
+        }
+        mysql_query_records = {
+            record
+            for record in records
+            if record[0].startswith("server/database/mysql/queries/")
+            or record[1].startswith("server/database/mysql/queries/")
+        }
+        self.assertEqual(
+            {
+                (
+                    f"server/database/mysql/queries/{name}",
+                    f"server/database/mysql/queries/{name}",
+                    "runtime-database-contract",
+                )
+                for name in ("bank_presets.xml", "item.xml", "player.xml")
+            },
+            mysql_query_records,
+        )
+
     def test_packager_requires_neutral_definition_closure_and_excludes_locs(
         self,
     ) -> None:
@@ -509,6 +543,36 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             allowlist_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
             git(standalone, "add", str(allowlist_path.relative_to(standalone)))
             git(standalone, "commit", "-m", "Omit native language fixture")
+            git(
+                standalone,
+                "update-ref",
+                "refs/remotes/origin/main",
+                git(standalone, "rev-parse", "HEAD"),
+            )
+
+            result = run_packager(*fixture)
+
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("missing required native server assets", result.stderr)
+            self.assertIn(missing, result.stderr)
+
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-inherited-query-contract-"
+        ) as temp:
+            fixture = make_fixture(Path(temp), release_ready=True)
+            standalone = fixture[0]
+            allowlist_path = (
+                standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+            )
+            missing = "server/database/mysql/queries/player.xml"
+            lines = [
+                line
+                for line in allowlist_path.read_text(encoding="utf-8").splitlines()
+                if missing not in line
+            ]
+            allowlist_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            git(standalone, "add", str(allowlist_path.relative_to(standalone)))
+            git(standalone, "commit", "-m", "Omit inherited login query fixture")
             git(
                 standalone,
                 "update-ref",
@@ -1009,6 +1073,11 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         + "builder-runtime/server/conf/server/languages/"
                         + bundle
                         for bundle in REQUIRED_LANGUAGE_BUNDLES
+                    )
+                    required.update(
+                        prefix
+                        + f"builder-runtime/server/database/{namespace}/queries/{name}"
+                        for namespace, name in REQUIRED_DATABASE_QUERIES
                     )
                     required.update(
                         prefix
