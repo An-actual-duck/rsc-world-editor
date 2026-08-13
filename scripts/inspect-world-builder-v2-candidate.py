@@ -213,6 +213,17 @@ REQUIRED_NATIVE_RUNTIME_RECORDS = {
     )
 } | {
     (
+        f"server/database/{namespace}/queries/{name}",
+        f"server/database/{namespace}/queries/{name}",
+        "runtime-database-contract",
+    )
+    for namespace, names in (
+        ("mysql", ("bank_presets.xml", "item.xml", "player.xml")),
+        ("sqlite", ("bank_presets.xml", "item.xml", "patches.xml", "player.xml")),
+    )
+    for name in names
+} | {
+    (
         f"server/database/sqlite/patches/{name}",
         f"server/database/sqlite/patches/{name}",
         "runtime-database-contract",

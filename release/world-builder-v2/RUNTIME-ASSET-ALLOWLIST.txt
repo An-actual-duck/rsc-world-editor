@@ -94,6 +94,9 @@ server/conf/server/words.list	server/conf/server/words.list	runtime-configuratio
 server/conf/server/wordsJag.txt	server/conf/server/wordsJag.txt	runtime-configuration
 server/conf/world-builder/adaptive-runtime-capability-v1.json	server/conf/world-builder/adaptive-runtime-capability-v1.json	runtime-capability
 server/database/sql_queries.xsd	server/database/sql_queries.xsd	runtime-database-contract
+server/database/mysql/queries/bank_presets.xml	server/database/mysql/queries/bank_presets.xml	runtime-database-contract
+server/database/mysql/queries/item.xml	server/database/mysql/queries/item.xml	runtime-database-contract
+server/database/mysql/queries/player.xml	server/database/mysql/queries/player.xml	runtime-database-contract
 server/database/sqlite/queries/bank_presets.xml	server/database/sqlite/queries/bank_presets.xml	runtime-database-contract
 server/database/sqlite/queries/item.xml	server/database/sqlite/queries/item.xml	runtime-database-contract
 server/database/sqlite/queries/patches.xml	server/database/sqlite/queries/patches.xml	runtime-database-contract

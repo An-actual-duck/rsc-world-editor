@@ -67,14 +67,20 @@ is optional when the reviewed `java` is already on `PATH`:
 WORLD_BUILDER_NATIVE_RUNTIME_ROOT=/path/to/fresh/builder-runtime \
 WORLD_BUILDER_EXACT_RUNTIME_PROVIDER=/path/to/clean-exact-locked-runtime-provider \
 WORLD_BUILDER_NATIVE_JAVA=/path/to/reviewed-java \
+DISPLAY=:0 \
 python3 tests/myworld/test-world-builder-native-runtime-integration.py -v
 ```
 
-The runtime allowlist must be the runtime directory's sibling. The proof uses
-no editor UI: it creates a standalone-empty project, starts the real server,
-waits for readiness, requests orderly shutdown, verifies the post-run save,
-database migrations and project-local PEM generation, and proves the packaged
-runtime, exact provider, and target outside the installation stayed unchanged.
+The runtime allowlist must be the runtime directory's sibling. On Linux this
+proof requires an explicit usable `DISPLAY`; routine headless CI skips instead
+of substituting a no-UI client. It creates a standalone-empty project, starts
+the packaged server and OpenGL client, authenticates the isolated Builder,
+accepts the adaptive binding and native terrain, and uses the client's
+automated-exit-on-ready test property for noninteractive orderly shutdown. It
+also verifies the post-run save, database migrations and project-local PEM
+generation, rejects login/query-registration exceptions and retries, and
+proves the packaged runtime, exact provider, and target outside the
+installation stayed unchanged. No screenshot or visual acceptance is claimed.
 It closes test stdin so preview-cancellation fixtures cannot become interactive
 confirmation prompts, and reports rather than hides an unavailable native
 PowerShell run. Final real archives are inspected separately from outside both

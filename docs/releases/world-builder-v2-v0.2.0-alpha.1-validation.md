@@ -134,6 +134,26 @@ reviewed, locked through separate work, rebuilt, independently inspected, and
 launched natively. The owner report, every final status, and the release
 decision remain **PENDING**. No limitation, gate, or release is accepted.
 
+### Rejected fresh candidate package closure
+
+A later fresh restricted candidate built from published World Editor commit
+`d7332f671f836287e609abb962652a3cf57fa810` and locked runtime
+`ff9da0aa3d712993f4f06648dc397bdd9062eabc` reached `LoginPacketHandler` with
+the packaged OpenGL client, but then timed out. The packaged server repeatedly
+threw a null-pointer exception in `MySqlGameDatabase.queryLoadPlayerData`
+because the inherited private MySQL query set had no
+`player.getPlayerByUsername` registration. The package contained the complete
+SQLite query XML set, but `SqliteGameDatabase` inherits player loading from a
+superclass that initializes its own private `DatabaseType.MYSQL` query set.
+
+That fresh candidate is rejected. Its archives, checksum values, and any prior
+candidate hashes must not be reused or promoted. The package contract now must
+carry only the content-neutral inherited MySQL query closure
+`bank_presets.xml`, `item.xml`, and `player.xml`, and the extracted native test
+must run the actual packaged client through authenticated binding and native
+readiness. This correction does not accept a candidate, alter the runtime lock,
+or open `RELEASE-READY`; all final evidence remains **PENDING**.
+
 ## Required immutable inputs
 
 - a clean World Editor manager checkout on the exact published `origin/main`
