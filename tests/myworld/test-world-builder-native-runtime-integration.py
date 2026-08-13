@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Opt-in, no-UI startup proof for an exact packaged adaptive runtime."""
+"""Opt-in packaged-client authentication proof for an adaptive runtime."""
 
 from __future__ import annotations
 
@@ -375,7 +375,6 @@ public final class NativeAdaptiveServerHarness {
 
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(args[0]);
-        String classes = args[1];
         List<String> server =
             WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
         List<String> client = new ArrayList<String>(
@@ -447,7 +446,7 @@ public final class NativeAdaptiveServerHarness {
         self,
     ) -> None:
         with tempfile.TemporaryDirectory(
-            prefix="world-builder-native-server-integration-"
+            prefix="world-builder-native-client-integration-"
         ) as temp:
             base = Path(temp)
             target = base / "ordinary-parent"
@@ -517,7 +516,6 @@ public final class NativeAdaptiveServerHarness {
                     classpath,
                     "com.openrsc.worldbuilder.NativeAdaptiveServerHarness",
                     str(project),
-                    str(self.classes),
                 ],
                 cwd=ROOT,
                 text=True,
@@ -568,6 +566,7 @@ public final class NativeAdaptiveServerHarness {
                 "NullPointerException",
                 "SocketTimeoutException",
                 "Read timed out",
+                "timed out",
                 "Login exception",
                 "World Builder could not start.",
             ):
