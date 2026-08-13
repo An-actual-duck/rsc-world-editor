@@ -682,7 +682,13 @@ tests, and product approval. There is never a generic force flag.
    `standalone-empty`.
 2. Allocate a project UUID and stage `empty-world-v1.json` binding layer `0`,
    the familiar Lumbridge coordinate `120,648`, the empty generator, and
-   default catalog/runtime hashes.
+   default catalog/runtime hashes. Generate the content-neutral authoring
+   catalog from the exact verified definition inputs copied from the selected
+   packaged runtime: array indices for tiles, boundaries, and scenery; the
+   base-plus-custom append order for NPCs; and explicit base/custom item IDs.
+   Disabled MyWorld overrides and patch-only replacement metadata do not create
+   IDs. The catalog carries only sorted numeric IDs, while the immutable source
+   snapshot and runtime inventory bind the exact input bytes.
 3. Generate a canonical signed-layered baseline with no creator-authored
    terrain or placements beyond minimal runtime addressability and visibility.
    The single `global` sector at level `0`, sector `2,13`, contains that point
@@ -701,6 +707,12 @@ tests, and product approval. There is never a generic force flag.
    layered package. Export behaves normally.
 7. Import and undo inspect `origin` first and fail with `NO_TARGET` before any
    target path is resolved or lock is acquired.
+
+Existing standalone projects keep their immutable, versioned catalog and are
+not silently migrated or rewritten when application runtime definitions change.
+A user who intentionally adopts a newer catalog creates a separate project and
+uses an explicit reviewed export/migration workflow. Target-backed projects
+continue to use only their discovered server/client catalog evidence.
 
 This requires the runtime/package contract to support authoring from canonical
 void. If the current schema requires at least one sector, the generator MAY

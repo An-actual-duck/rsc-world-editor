@@ -5,14 +5,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /** Generates the canonical structural void used by standalone empty projects. */
 final class WorldBuilderEmptyWorldGenerator {
 	static final String GENERATOR_ID = "empty-world-v1";
-	static final String CATALOG_ID = "world-builder-empty-default-v1";
+	static final String LEGACY_CATALOG_ID = "world-builder-empty-default-v1";
+	static final String CATALOG_ID = "world-builder-runtime-default-v1";
 	static final String RUNTIME_ID = "world-builder-empty-runtime-v1";
 	static final String DESCRIPTOR_PATH = "source/original/empty-world-v1.json";
 	static final String CATALOG_PATH =
@@ -34,21 +34,13 @@ final class WorldBuilderEmptyWorldGenerator {
 	private WorldBuilderEmptyWorldGenerator() {
 	}
 
-	static Result generate(Path projectRoot, String applicationRuntimeSha256)
+	static Result generate(Path projectRoot, String applicationRuntimeSha256,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime)
 		throws IOException, WorldBuilderContractException {
 		Path catalogPath = projectRoot.resolve(CATALOG_PATH);
 		Files.createDirectories(catalogPath.getParent());
-		Map<String,Object> catalog = new LinkedHashMap<String,Object>();
-		catalog.put("schemaVersion", Long.valueOf(1L));
-		catalog.put("manifestType", "world-builder-definition-catalog");
-		catalog.put("catalogId", CATALOG_ID);
-		catalog.put("tiles", Arrays.<Object>asList(
-			Long.valueOf(0L), Long.valueOf(
-				WorldBuilderCanonicalVoidTerrain.GROUND_OVERLAY_DEFINITION_ID)));
-		catalog.put("boundaries", new ArrayList<Object>());
-		catalog.put("scenery", new ArrayList<Object>());
-		catalog.put("npcs", new ArrayList<Object>());
-		catalog.put("groundItems", new ArrayList<Object>());
+		Map<String,Object> catalog =
+			WorldBuilderStandaloneDefinitionCatalog.generate(sourceRuntime, CATALOG_ID);
 		writeJson(catalogPath, catalog);
 		String catalogSha256 = WorldBuilderHashes.sha256(catalogPath);
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
@@ -181,6 +173,11 @@ final class WorldBuilderEmptyWorldGenerator {
 		WorldBuilderGenericLayeredPackage layered)
 		throws WorldBuilderContractException {
 		Map<String,Object> descriptor = target.readObject(DESCRIPTOR_PATH);
+		if (!GENERATOR_ID.equals(descriptor.get("generatorId"))) {
+			throw problem(DESCRIPTOR_PATH,
+				"Standalone generator identity is unsupported.",
+				"Restore a project created by the supported empty-world generator.");
+		}
 		Map<String,Object> initial = object(
 			descriptor.get("initialLocation"), DESCRIPTOR_PATH, "initialLocation");
 		int level = signedInteger(initial, "level", DESCRIPTOR_PATH);
@@ -188,6 +185,36 @@ final class WorldBuilderEmptyWorldGenerator {
 		int y = signedInteger(initial, "y", DESCRIPTOR_PATH);
 
 		Map<String,Object> runtime = target.readObject(RUNTIME_PATH);
+		if (!RUNTIME_ID.equals(runtime.get("runtimeId"))) {
+			throw problem(RUNTIME_PATH,
+				"Standalone runtime evidence identity is unsupported.",
+				"Restore the complete immutable standalone source evidence.");
+		}
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(target, CATALOG_PATH);
+		if (!(CATALOG_ID.equals(definitions.catalogId)
+			|| LEGACY_CATALOG_ID.equals(definitions.catalogId))) {
+			throw problem(CATALOG_PATH,
+				"Standalone definition catalog identity is unsupported.",
+				"Keep the project's original supported catalog; do not replace it silently.");
+		}
+		WorldBuilderReadOnlyTarget.FileState catalogState =
+			target.requiredState("default-definition-catalog", CATALOG_PATH);
+		Map<String,Object> descriptorCatalog = object(
+			descriptor.get("catalog"), DESCRIPTOR_PATH, "catalog");
+		Map<String,Object> descriptorRuntime = object(
+			descriptor.get("runtime"), DESCRIPTOR_PATH, "runtime");
+		if (!definitions.catalogId.equals(descriptorCatalog.get("catalogId"))
+			|| !catalogState.sha256.equals(descriptorCatalog.get("sha256"))
+			|| !RUNTIME_ID.equals(descriptorRuntime.get("runtimeId"))
+			|| !target.requiredState("default-runtime-evidence", RUNTIME_PATH)
+				.sha256.equals(descriptorRuntime.get("sha256"))
+			|| !definitions.catalogId.equals(runtime.get("definitionCatalogId"))
+			|| !catalogState.sha256.equals(runtime.get("definitionCatalogSha256"))) {
+			throw problem(DESCRIPTOR_PATH,
+				"Standalone catalog/runtime evidence identities disagree.",
+				"Restore the complete immutable standalone source evidence.");
+		}
 		Map<String,Object> authoring = object(
 			runtime.get("authoring"), RUNTIME_PATH, "authoring");
 		if (signedInteger(authoring, "initialLayer", RUNTIME_PATH) != level

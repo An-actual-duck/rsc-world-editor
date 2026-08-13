@@ -1000,6 +1000,20 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			return root.resolve("Client_Base")
 				.resolve(relative.substring("client/".length()));
 		}
+
+		Path verifiedSourcePath(String relative)
+			throws IOException, WorldBuilderContractException {
+			Entry expected = entries.get(relative);
+			Path path = sourcePath(relative);
+			Path verified = requireFile(path, relative);
+			if (expected == null || Files.size(verified) != expected.size
+				|| !expected.sha256.equals(WorldBuilderHashes.sha256(verified))) {
+				throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, relative,
+					"Application runtime definition changed during project preparation.",
+					"Retry from one stable exact candidate runtime.");
+			}
+			return verified;
+		}
 	}
 
 	static final class RuntimeEvidence {
