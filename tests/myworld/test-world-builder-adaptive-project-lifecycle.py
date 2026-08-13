@@ -744,7 +744,9 @@ public final class FakeAdaptiveClient {
                     "standalone initial floor overlay");
             }
         }
-        payload[1] ^= 1;
+        // Simulate an authored elevation edit without changing the generated
+        // visibility seed's floor color/overlay identity.
+        payload[0] ^= 1;
         Files.write(terrain, payload);
         Path manifestPath = packageRoot.resolve("manifest.json");
         String manifest = new String(Files.readAllBytes(manifestPath),
