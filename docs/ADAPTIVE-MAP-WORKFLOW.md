@@ -257,11 +257,11 @@ project. Its first launch:
 
 1. clearly labels the project **Standalone — no server attached**;
 2. creates a generated empty signed-layered baseline with world space
-   `global`, layer `0`, no placements, and only the canonical void coverage
-   needed for the editor to address the familiar Lumbridge coordinate
-   `120,648` with resident terrain in every direction;
-3. starts the Builder camera/player at `120,648` on layer `0` while keeping the
-   generated world completely empty;
+   `global`, layer `0`, no placements, and canonical void coverage around the
+   familiar Lumbridge coordinate `120,648`, plus an exact centered 3-by-3
+   visibility seed whose floor color and overlay are both `0`;
+3. starts the Builder camera/player at `120,648` on layer `0` without bundled
+   map content or creator-authored terrain;
 4. uses the versioned default Builder definition/rendering catalog;
 5. materializes and validates terrain sectors as the creator authors them;
 6. saves and exports a normal complete layered package; and
@@ -269,8 +269,10 @@ project. Its first launch:
    target server.
 
 The empty baseline is generated inside the project. Its map bytes MUST NOT be
-stored in or copied from the release archive. Canonical void means “nothing
-authored”; it is not sample terrain or creator content.
+stored in or copied from the release archive. Except for the neutral 3-by-3
+visibility seed needed to keep the start from being obscured by the skybox,
+canonical void means “nothing authored”; neither form is sample terrain or
+creator content.
 
 A recognizable server with a missing, invalid, or ambiguous configured map is
 different from a directory with no server. It MUST show the compatibility
@@ -681,12 +683,15 @@ tests, and product approval. There is never a generic force flag.
 2. Allocate a project UUID and stage `empty-world-v1.json` binding layer `0`,
    the familiar Lumbridge coordinate `120,648`, the empty generator, and
    default catalog/runtime hashes.
-3. Generate a canonical signed-layered baseline with no authored terrain or
-   placements beyond minimal void addressability required by the runtime.
+3. Generate a canonical signed-layered baseline with no creator-authored
+   terrain or placements beyond minimal runtime addressability and visibility.
    The single `global` sector at level `0`, sector `2,13`, contains that point
-   away from every sector edge and consists only of the
-   repeated ten-byte tile record `0,1,8,0,0,0,0,0,0,0`: elevation `0`, ground
-   texture `1`, ground overlay `8`, and zero roof, wall, and diagonal values.
+   away from every sector edge. All but nine tiles use the repeated ten-byte
+   structural-void record `0,1,8,0,0,0,0,0,0,0`: elevation `0`, ground color
+   `1`, ground overlay `8`, and zero roof, wall, and diagonal values. The exact
+   centered 3-by-3 tiles spanning `x=119..121`, `y=647..649` instead use
+   `0,0,0,0,0,0,0,0,0,0`, giving ground color `0` and overlay `0` while
+   retaining zero elevation, roof, wall, and diagonal values.
    The default catalog therefore includes one-based overlay definition ID `7`
    as well as the deliberately supported authoring IDs.
 4. Validate it, copy it to working state, and prepare an isolated runtime whose
@@ -699,8 +704,9 @@ tests, and product approval. There is never a generic force flag.
 
 This requires the runtime/package contract to support authoring from canonical
 void. If the current schema requires at least one sector, the generator MAY
-create exactly one canonical void sector containing `120,648`; it remains
-generated structural state, not a shipped map.
+create exactly one generated sector containing `120,648`, with canonical void
+outside the exact visibility seed; it remains generated structural state, not
+a shipped map.
 
 ### Import/install
 
@@ -1296,7 +1302,8 @@ than capture or judge screenshots themselves.
   selected origin, never a release-owned world.
 - **AC-07:** With no recognizable server/map, first launch opens a labelled
   standalone empty project at layer 0, coordinate 120,648, centered within
-  generated structural void and with no authored world.
+  generated structural void, with the exact neutral 3-by-3 visibility seed and
+  no creator-authored world.
 - **AC-08:** Saving an empty project creates a valid package/export; Import and
   Undo fail before target access.
 - **AC-09:** Source snapshots are complete/immutable, working state is isolated,

@@ -282,7 +282,7 @@ live or public server.
 | --- | --- | --- | --- |
 | Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
 | Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Standalone empty: layer 0/start 120,648, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
+| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures and no-UI runtime | PENDING | PENDING |
 | No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
 | Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
 | Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
@@ -336,9 +336,9 @@ server-owned comparison scope must not change between before and after.
    no recognizable server. Launch natively and confirm it clearly offers a
    standalone empty project, not a guessed or bundled map.
 2. Confirm it opens at layer 0, coordinate 120,648 with structural void
-   available in every direction. Author the
-   first terrain/floor and one wall or placement, check collision, save, close,
-   reopen, and confirm the authored state remains.
+   available in every direction and a visible centered 3-by-3 floor seed.
+   Extend or replace that seed and author one wall or placement, check
+   collision, save, close, reopen, and confirm the authored state remains.
 3. Export the saved standalone project. Confirm Import, Undo, and Recovery each
    refuse with `NO_TARGET` without asking for or accessing a server path.
 

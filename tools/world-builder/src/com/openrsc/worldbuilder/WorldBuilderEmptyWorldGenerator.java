@@ -23,6 +23,8 @@ final class WorldBuilderEmptyWorldGenerator {
 	static final int INITIAL_Y = 648;
 	static final int INITIAL_SECTOR_X = Math.floorDiv(INITIAL_X, 48);
 	static final int INITIAL_SECTOR_Y = Math.floorDiv(INITIAL_Y, 48);
+	static final int INITIAL_LOCAL_X = Math.floorMod(INITIAL_X, 48);
+	static final int INITIAL_LOCAL_Y = Math.floorMod(INITIAL_Y, 48);
 	private static final String PACKAGE_PATH = "source/layered-baseline/package";
 	private static final String PACKAGE_ID = "world-builder.empty-world-v1";
 	private static final String PACKAGE_VERSION = "1.0.0";
@@ -109,7 +111,8 @@ final class WorldBuilderEmptyWorldGenerator {
 		Path placements = packageRoot.resolve("placements/global/lp0.json");
 		Files.createDirectories(terrain.getParent());
 		Files.createDirectories(placements.getParent());
-		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sector());
+		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
+			INITIAL_LOCAL_X, INITIAL_LOCAL_Y));
 
 		Map<String,Object> placement = new LinkedHashMap<String,Object>();
 		placement.put("schemaVersion", Long.valueOf(3L));
