@@ -154,7 +154,7 @@ must run the actual packaged client through authenticated binding and native
 readiness. This correction does not accept a candidate, alter the runtime lock,
 or open `RELEASE-READY`; all final evidence remains **PENDING**.
 
-### Pending standalone start-coordinate provider correction
+### Standalone start-coordinate provider correction completed
 
 The repository-owned standalone generator now binds its empty project to
 `global`, layer `0`, coordinate `120,648`, with one generated sector at
@@ -162,33 +162,29 @@ The repository-owned standalone generator now binds its empty project to
 fixtures prove deterministic generation, save/reopen, source and target
 preservation, and the no-target import/undo boundary.
 
-The exact locked runtime provider at
-`ff9da0aa3d712993f4f06648dc397bdd9062eabc` is not compatible with that start.
-Its `AdaptiveWorldBuilderRuntimeIdentity.validateConfiguredIdentities()`
-hard-refuses every `standalone-empty` identity whose initial coordinate is not
-`0,0`. A real packaged-client/server run therefore exits before readiness with
-`Standalone empty mode must begin at global layer 0, coordinate 0,0`.
+The independent runtime provider correction was reviewed, merged, and
+published at `b14dcaccd1487a4ea6e8414ed8fa71a160c83929`, then adopted through
+`runtime-provider.lock`. Its exact built server/client integration passed at
+`120,648` with authenticated Builder login, player initialization, adaptive
+binding, native terrain readiness, no legacy terrain fallback, and clean
+shutdown. The provider now:
 
-This branch must not weaken its generated package or substitute `0,0`. Before
-another candidate can be built, separately authorized runtime-provider work
-must:
-
-1. retain strict adaptive activation, `global` world space, layer `0`, and the
+1. retains strict adaptive activation, `global` world space, layer `0`, and the
    existing bounded `0..32767` coordinate checks;
-2. accept the exactly bound standalone initial coordinate instead of requiring
+2. accepts the exactly bound standalone initial coordinate instead of requiring
    literal `0,0`;
-3. prove the configured coordinate is covered by the validated native layered
+3. proves the configured coordinate is covered by the validated native layered
    terrain before an editable session starts;
-4. preserve target-backed starts, normal production profiles, native terrain
+4. preserves target-backed starts, normal production profiles, native terrain
    readiness, binding identities, and all legacy-client behavior; and
-5. add real client/server coverage for `120,648` using only sector `2,13`,
+5. adds real client/server coverage for `120,648` using only sector `2,13`,
    including authentication, player load, adaptive binding, native readiness,
    clean shutdown, and no legacy terrain fallback.
 
-Only an authorized, published provider SHA may then be reviewed and advanced
-through `runtime-provider.lock`. Until that happens, standalone native launch
-and AC-07 are **BLOCKED**, while every owner and release gate remains
-**PENDING**.
+The World Editor parity check and complete suite pass against that exact
+detached provider revision. A fresh restricted candidate and its packaged
+client/server test are still required; no older candidate archive or hash may
+be reused. Owner validation and every release gate remain **PENDING**.
 
 ## Required immutable inputs
 
@@ -318,7 +314,7 @@ live or public server.
 | --- | --- | --- | --- |
 | Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
 | Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures; exact pinned runtime refuses the start | BLOCKED on provider correction | BLOCKED |
+| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures and exact-provider built integration | PENDING fresh packaged candidate and owner validation | PENDING |
 | No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
 | Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
 | Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
@@ -407,7 +403,7 @@ row below needs exact evidence and no unresolved failure.
 | AC-04 lossless packed conversion and placement parity | Automated PASS — fixture; owner report pending | PENDING |
 | AC-05 unsupported/unrepresentable refusal | Automated PASS — focused suites | PENDING |
 | AC-06 selected working project is the only edited world | Automated PASS — fixture; owner report pending | PENDING |
-| AC-07 canonical standalone structural void | Fixture PASS; exact pinned runtime refuses the bound 120,648 start before readiness | BLOCKED |
+| AC-07 canonical standalone structural void | Fixture and exact-provider built integration PASS; fresh packaged candidate and owner report pending | PENDING |
 | AC-08 standalone save/export and target-operation refusal | Automated PASS — fixture; owner report pending | PENDING |
 | AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated PASS — fixture and scoped inventories; owner report pending | PENDING |
 | AC-10 multiple/portable/detached projects | Automated PASS — focused suite; owner report pending | PENDING |
@@ -416,7 +412,7 @@ row below needs exact evidence and no unresolved failure.
 | AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | Automated PASS — 31-case Phase 6 suite; owner report pending | PENDING |
 | AC-14 no implicit server rebase/install | Automated PASS — focused and updater suites | PENDING |
 | AC-15 updater durable preservation and v1 isolation | Linux automated PASS; PowerShell static PASS and native execution unavailable | PENDING |
-| AC-16 complete automated and owner-native candidate validation | Focused and archive automation PASS; full suite and owner report pending | PENDING |
+| AC-16 complete automated and owner-native candidate validation | Full exact-provider suite PASS; fresh candidate inspection, packaged runtime test, and owner report pending | PENDING |
 | AC-17 accurate simple workflow and compatibility documentation | Final documentation review | PENDING |
 
 This worksheet becomes an accepted validation record only after the exact
