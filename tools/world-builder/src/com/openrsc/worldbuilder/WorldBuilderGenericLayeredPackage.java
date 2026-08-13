@@ -43,6 +43,7 @@ final class WorldBuilderGenericLayeredPackage {
 	final List<String> placementSemantics;
 	final List<String> placementIdentities;
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
+	private final Set<String> terrainCoverage;
 
 	private WorldBuilderGenericLayeredPackage(
 		String packageId,
@@ -63,7 +64,8 @@ final class WorldBuilderGenericLayeredPackage {
 		long sceneryCount,
 		List<String> placementSemantics,
 		List<String> placementIdentities,
-		List<WorldBuilderReadOnlyTarget.FileState> files) {
+		List<WorldBuilderReadOnlyTarget.FileState> files,
+		Set<String> terrainCoverage) {
 		this.packageId = packageId;
 		this.packageVersion = packageVersion;
 		this.worldSpace = worldSpace;
@@ -86,6 +88,29 @@ final class WorldBuilderGenericLayeredPackage {
 			new ArrayList<String>(placementIdentities));
 		this.files = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files));
+		this.terrainCoverage = Collections.unmodifiableSet(
+			new HashSet<String>(terrainCoverage));
+	}
+
+	WorldBuilderGenericLayeredPackage withInitialLocation(
+		int level, int x, int y, String evidencePath)
+		throws WorldBuilderContractException {
+		if (x < 0 || x > 32767 || y < 0 || y > 32767) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, evidencePath,
+				"Standalone initial coordinates are outside the client carrier range.",
+				"Choose generated terrain and a start coordinate within 0..32767.");
+		}
+		if (!terrainCoverage.contains(coordinateKey(
+			level, Math.floorDiv(x, 48), Math.floorDiv(y, 48)))) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, evidencePath,
+				"Standalone initial coordinates are not covered by generated terrain.",
+				"Generate canonical void terrain containing the configured start coordinate.");
+		}
+		return new WorldBuilderGenericLayeredPackage(packageId, packageVersion,
+			worldSpace, fingerprintSha256, nativeInventorySha256, manifestSha256,
+			level, x, y, levelCount, terrainCount, placementSetCount,
+			boundaryCount, groundItemCount, npcCount, sceneryCount,
+			placementSemantics, placementIdentities, files, terrainCoverage);
 	}
 
 	static WorldBuilderGenericLayeredPackage inspect(
@@ -307,7 +332,8 @@ final class WorldBuilderGenericLayeredPackage {
 			WorldBuilderHashes.hex(nativeDigest.digest()), manifestState.sha256,
 			initialLevel.intValue(), initialX.intValue(), initialY.intValue(), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
-			npcs, scenery, placementSemantics, placementIdentities, files);
+			npcs, scenery, placementSemantics, placementIdentities, files,
+			terrainCoverage);
 	}
 
 	private static PlacementCounts validatePlacements(

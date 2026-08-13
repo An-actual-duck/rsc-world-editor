@@ -18,6 +18,13 @@ final class WorldBuilderEmptyWorldGenerator {
 	static final String CATALOG_PATH =
 		"source/runtime/default-definition-catalog.json";
 	static final String RUNTIME_PATH = "source/runtime/default-runtime-evidence.json";
+	static final int INITIAL_LEVEL = 0;
+	static final int INITIAL_X = 120;
+	static final int INITIAL_Y = 648;
+	static final int INITIAL_SECTOR_X = Math.floorDiv(INITIAL_X, 48);
+	static final int INITIAL_SECTOR_Y = Math.floorDiv(INITIAL_Y, 48);
+	static final int INITIAL_LOCAL_X = Math.floorMod(INITIAL_X, 48);
+	static final int INITIAL_LOCAL_Y = Math.floorMod(INITIAL_Y, 48);
 	private static final String PACKAGE_PATH = "source/layered-baseline/package";
 	private static final String PACKAGE_ID = "world-builder.empty-world-v1";
 	private static final String PACKAGE_VERSION = "1.0.0";
@@ -57,9 +64,9 @@ final class WorldBuilderEmptyWorldGenerator {
 		runtime.put("definitionCatalogId", CATALOG_ID);
 		runtime.put("definitionCatalogSha256", catalogSha256);
 		Map<String,Object> authoring = new LinkedHashMap<String,Object>();
-		authoring.put("initialLayer", Long.valueOf(0L));
-		authoring.put("initialX", Long.valueOf(0L));
-		authoring.put("initialY", Long.valueOf(0L));
+		authoring.put("initialLayer", Long.valueOf(INITIAL_LEVEL));
+		authoring.put("initialX", Long.valueOf(INITIAL_X));
+		authoring.put("initialY", Long.valueOf(INITIAL_Y));
 		authoring.put("createFromVoid", Boolean.TRUE);
 		runtime.put("authoring", authoring);
 		writeJson(runtimePath, runtime);
@@ -74,9 +81,9 @@ final class WorldBuilderEmptyWorldGenerator {
 		descriptor.put("generatorId", GENERATOR_ID);
 		descriptor.put("coordinateModel", "signed-layered-v1");
 		Map<String,Object> initial = new LinkedHashMap<String,Object>();
-		initial.put("level", Long.valueOf(0L));
-		initial.put("x", Long.valueOf(0L));
-		initial.put("y", Long.valueOf(0L));
+		initial.put("level", Long.valueOf(INITIAL_LEVEL));
+		initial.put("x", Long.valueOf(INITIAL_X));
+		initial.put("y", Long.valueOf(INITIAL_Y));
 		descriptor.put("initialLocation", initial);
 		Map<String,Object> catalogIdentity = new LinkedHashMap<String,Object>();
 		catalogIdentity.put("catalogId", CATALOG_ID);
@@ -98,11 +105,14 @@ final class WorldBuilderEmptyWorldGenerator {
 		Path projectRoot, Path packageRoot,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
 		throws IOException, WorldBuilderContractException {
-		Path terrain = packageRoot.resolve("terrain/global/lp0/xp0-yp0.raw");
+		String terrainRelative = terrainPath(
+			INITIAL_LEVEL, INITIAL_SECTOR_X, INITIAL_SECTOR_Y);
+		Path terrain = packageRoot.resolve(terrainRelative);
 		Path placements = packageRoot.resolve("placements/global/lp0.json");
 		Files.createDirectories(terrain.getParent());
 		Files.createDirectories(placements.getParent());
-		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sector());
+		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
+			INITIAL_LOCAL_X, INITIAL_LOCAL_Y));
 
 		Map<String,Object> placement = new LinkedHashMap<String,Object>();
 		placement.put("schemaVersion", Long.valueOf(3L));
@@ -133,7 +143,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		manifest.put("worldSpaces", spaces);
 		ArrayList<Object> levels = new ArrayList<Object>();
 		Map<String,Object> level = new LinkedHashMap<String,Object>();
-		level.put("level", Long.valueOf(0L));
+		level.put("level", Long.valueOf(INITIAL_LEVEL));
 		level.put("name", "Empty Layer 0");
 		level.put("role", "empty-origin");
 		level.put("worldSpace", WORLD_SPACE);
@@ -142,10 +152,10 @@ final class WorldBuilderEmptyWorldGenerator {
 		ArrayList<Object> sectors = new ArrayList<Object>();
 		Map<String,Object> sector = new LinkedHashMap<String,Object>();
 		sector.put("encoding", "raw-layered-sector-v1");
-		sector.put("level", Long.valueOf(0L));
-		sector.put("path", "terrain/global/lp0/xp0-yp0.raw");
-		sector.put("sectorX", Long.valueOf(0L));
-		sector.put("sectorY", Long.valueOf(0L));
+		sector.put("level", Long.valueOf(INITIAL_LEVEL));
+		sector.put("path", terrainRelative);
+		sector.put("sectorX", Long.valueOf(INITIAL_SECTOR_X));
+		sector.put("sectorY", Long.valueOf(INITIAL_SECTOR_Y));
 		sector.put("sha256", WorldBuilderHashes.sha256(terrain));
 		sector.put("worldSpace", WORLD_SPACE);
 		sectors.add(sector);
@@ -164,6 +174,68 @@ final class WorldBuilderEmptyWorldGenerator {
 		return WorldBuilderGenericLayeredPackage.inspect(
 			WorldBuilderReadOnlyTarget.open(projectRoot), PACKAGE_PATH,
 			"standalone-empty", definitions);
+	}
+
+	static WorldBuilderGenericLayeredPackage bindInitialLocation(
+		WorldBuilderReadOnlyTarget target,
+		WorldBuilderGenericLayeredPackage layered)
+		throws WorldBuilderContractException {
+		Map<String,Object> descriptor = target.readObject(DESCRIPTOR_PATH);
+		Map<String,Object> initial = object(
+			descriptor.get("initialLocation"), DESCRIPTOR_PATH, "initialLocation");
+		int level = signedInteger(initial, "level", DESCRIPTOR_PATH);
+		int x = signedInteger(initial, "x", DESCRIPTOR_PATH);
+		int y = signedInteger(initial, "y", DESCRIPTOR_PATH);
+
+		Map<String,Object> runtime = target.readObject(RUNTIME_PATH);
+		Map<String,Object> authoring = object(
+			runtime.get("authoring"), RUNTIME_PATH, "authoring");
+		if (signedInteger(authoring, "initialLayer", RUNTIME_PATH) != level
+			|| signedInteger(authoring, "initialX", RUNTIME_PATH) != x
+			|| signedInteger(authoring, "initialY", RUNTIME_PATH) != y
+			|| !Boolean.TRUE.equals(authoring.get("createFromVoid"))) {
+			throw problem(RUNTIME_PATH,
+				"Standalone descriptor and authoring start metadata disagree.",
+				"Restore the complete immutable standalone source evidence.");
+		}
+		return layered.withInitialLocation(level, x, y, DESCRIPTOR_PATH);
+	}
+
+	private static String terrainPath(int level, int sectorX, int sectorY) {
+		return "terrain/" + WORLD_SPACE
+			+ "/l" + WorldBuilderLayeredPackage.signedToken(level)
+			+ "/x" + WorldBuilderLayeredPackage.signedToken(sectorX)
+			+ "-y" + WorldBuilderLayeredPackage.signedToken(sectorY) + ".raw";
+	}
+
+	@SuppressWarnings("unchecked")
+	private static Map<String,Object> object(
+		Object raw, String path, String label)
+		throws WorldBuilderContractException {
+		if (!(raw instanceof Map)) {
+			throw problem(path, "Standalone " + label + " is not an object.",
+				"Restore the complete immutable standalone source evidence.");
+		}
+		return (Map<String,Object>)raw;
+	}
+
+	private static int signedInteger(Map<String,Object> value, String key, String path)
+		throws WorldBuilderContractException {
+		Object raw = value.get(key);
+		if (!(raw instanceof Long)
+			|| ((Long)raw).longValue() < Integer.MIN_VALUE
+			|| ((Long)raw).longValue() > Integer.MAX_VALUE) {
+			throw problem(path,
+				"Standalone initial-location field is not a signed integer: " + key + ".",
+				"Restore the complete immutable standalone source evidence.");
+		}
+		return (int)((Long)raw).longValue();
+	}
+
+	private static WorldBuilderContractException problem(
+		String path, String message, String nextStep) {
+		return WorldBuilderReadOnlyTarget.problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, path, message, nextStep);
 	}
 
 	private static void writeJson(Path path, Map<String,Object> value)

@@ -203,6 +203,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderGenericLayeredPackage stagedWorking =
 				WorldBuilderGenericLayeredPackage.inspect(stagedTarget,
 					WORKING_PACKAGE_DIRECTORY, "working", stagedDefinitions);
+			if ("standalone-empty".equals(origin)) {
+				stagedWorking = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
+					stagedTarget, stagedWorking);
+			}
 			WorldBuilderAdaptiveRuntimePreparer.prepare(stage, sourceRuntime,
 				snapshot, origin, port);
 			writeRuntimeMetadata(stage, projectId, origin, runtimeSha256, port,
@@ -534,6 +538,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderGenericLayeredPackage baseline =
 			WorldBuilderGenericLayeredPackage.inspect(projectTarget,
 				BASELINE_DIRECTORY, "baseline", definitions);
+		if ("standalone-empty".equals(string(manifest, "origin"))) {
+			baseline = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
+				projectTarget, baseline);
+		}
 		if (!baseline.fingerprintSha256.equals(
 			string(fingerprints, "layeredBaselineSha256"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, BASELINE_DIRECTORY,
@@ -543,6 +551,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderGenericLayeredPackage working =
 			WorldBuilderGenericLayeredPackage.inspect(projectTarget,
 				WORKING_PACKAGE_DIRECTORY, "working", definitions);
+		if ("standalone-empty".equals(string(manifest, "origin"))) {
+			working = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
+				projectTarget, working);
+		}
 		if (requireWorkingFingerprint && !working.fingerprintSha256.equals(
 			string(fingerprints, "workingSha256"))) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,

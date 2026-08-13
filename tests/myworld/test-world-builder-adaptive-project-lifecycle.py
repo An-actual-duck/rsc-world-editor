@@ -23,6 +23,22 @@ RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt
 RUNTIME_ALLOWLIST_RESOURCE = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
 CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
+VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+STANDALONE_INITIAL_LOCATION = {"level": 0, "x": 120, "y": 648}
+
+
+def standalone_seed_sector() -> bytes:
+    result = bytearray(CANONICAL_VOID_SECTOR)
+    center_x = STANDALONE_INITIAL_LOCATION["x"] % 48
+    center_y = STANDALONE_INITIAL_LOCATION["y"] % 48
+    for local_x in range(center_x - 1, center_x + 2):
+        for local_y in range(center_y - 1, center_y + 2):
+            offset = (local_x * 48 + local_y) * 10
+            result[offset : offset + 10] = VISIBLE_FLOOR_TILE
+    return bytes(result)
+
+
+STANDALONE_SEED_SECTOR = standalone_seed_sector()
 REQUIRED_LANGUAGE_BUNDLES = (
     "AuthenticMessages_en_UK.properties",
     "AuthenticMessages_en_UK_female.properties",
@@ -274,6 +290,20 @@ public final class AdaptiveProjectSupervisorHarness {
             require(contains(productionServer,
                 "-Dopenrsc.worldBuilderControlDirectory="
                     + project.resolve("run/world-builder")), "server control");
+            if ("standalone-empty".equals(expectedOrigin)) {
+                require(contains(productionServer,
+                    "-Dopenrsc.worldBuilderInitialWorldSpace=global"),
+                    "standalone initial world space");
+                require(contains(productionServer,
+                    "-Dopenrsc.worldBuilderInitialLevel=0"),
+                    "standalone initial level");
+                require(contains(productionServer,
+                    "-Dopenrsc.worldBuilderInitialX=120"),
+                    "standalone initial x");
+                require(contains(productionServer,
+                    "-Dopenrsc.worldBuilderInitialY=648"),
+                    "standalone initial y");
+            }
             require(contains(productionClient,
                 "-Dopenrsc.worldBuilderRuntimeBindingFile="
                     + project.resolve("run/world-builder/runtime-binding.properties")),
@@ -701,14 +731,27 @@ public final class FakeAdaptiveClient {
         require(Files.isRegularFile(Paths.get(System.getProperty(
             "openrsc.worldBuilderAssetEvidenceFile"))), "client assets");
         Path packageRoot = project.resolve("working/layered-world/package");
-        Path terrain = packageRoot.resolve("terrain/global/lp0/xp0-yp0.raw");
+        Path terrain = packageRoot.resolve("terrain/global/lp0/xp2-yp13.raw");
         byte[] payload = Files.readAllBytes(terrain);
-        payload[1] ^= 1;
+        for (int localX = 22; localX <= 26; localX++) {
+            for (int localY = 22; localY <= 26; localY++) {
+                int offset = (localX * 48 + localY) * 10;
+                boolean seed = localX >= 23 && localX <= 25
+                    && localY >= 23 && localY <= 25;
+                require((payload[offset + 1] & 0xff) == (seed ? 0 : 1),
+                    "standalone initial floor color");
+                require((payload[offset + 2] & 0xff) == (seed ? 0 : 8),
+                    "standalone initial floor overlay");
+            }
+        }
+        // Simulate an authored elevation edit without changing the generated
+        // visibility seed's floor color/overlay identity.
+        payload[0] ^= 1;
         Files.write(terrain, payload);
         Path manifestPath = packageRoot.resolve("manifest.json");
         String manifest = new String(Files.readAllBytes(manifestPath),
             StandardCharsets.UTF_8);
-        String terrainDeclaration = "\"path\": \"terrain/global/lp0/xp0-yp0.raw\"";
+        String terrainDeclaration = "\"path\": \"terrain/global/lp0/xp2-yp13.raw\"";
         int declaration = manifest.indexOf(terrainDeclaration);
         int hashStart = manifest.indexOf("\"sha256\": \"", declaration)
             + "\"sha256\": \"".length();
@@ -886,9 +929,9 @@ public final class FakeAdaptiveClient {
             {
                 "encoding": "raw-layered-sector-v1",
                 "level": 0,
-                "path": "terrain/global/lp0/xp0-yp0.raw",
-                "sectorX": 0,
-                "sectorY": 0,
+                "path": "terrain/global/lp0/xp2-yp13.raw",
+                "sectorX": 2,
+                "sectorY": 13,
                 "worldSpace": "global",
             },
             {key: sector[key] for key in (
@@ -896,8 +939,22 @@ public final class FakeAdaptiveClient {
             )},
         )
         terrain = package / sector["path"]
-        self.assertEqual(CANONICAL_VOID_SECTOR, terrain.read_bytes())
+        payload = terrain.read_bytes()
+        self.assertEqual(STANDALONE_SEED_SECTOR, payload)
         self.assertEqual(sha256(terrain), sector["sha256"])
+        minimum_x = sector["sectorX"] * 48
+        minimum_y = sector["sectorY"] * 48
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["x"] - minimum_x, 23)
+        self.assertGreaterEqual(
+            minimum_x + 47 - STANDALONE_INITIAL_LOCATION["x"], 23
+        )
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["y"] - minimum_y, 23)
+        self.assertGreaterEqual(
+            minimum_y + 47 - STANDALONE_INITIAL_LOCATION["y"], 23
+        )
+        tiles = [payload[offset : offset + 10] for offset in range(0, len(payload), 10)]
+        self.assertEqual(9, tiles.count(VISIBLE_FLOOR_TILE))
+        self.assertEqual(48 * 48 - 9, tiles.count(CANONICAL_VOID_TILE))
 
         self.assertEqual(1, len(manifest["placementSets"]))
         placement_set = manifest["placementSets"][0]
@@ -973,7 +1030,34 @@ public final class FakeAdaptiveClient {
                 )
             )
             self.assertEqual(
-                {"level": 0, "x": 0, "y": 0}, descriptor["initialLocation"]
+                STANDALONE_INITIAL_LOCATION, descriptor["initialLocation"]
+            )
+            runtime_evidence = json.loads(
+                (
+                    project / "source/runtime/default-runtime-evidence.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                {
+                    "createFromVoid": True,
+                    "initialLayer": STANDALONE_INITIAL_LOCATION["level"],
+                    "initialX": STANDALONE_INITIAL_LOCATION["x"],
+                    "initialY": STANDALONE_INITIAL_LOCATION["y"],
+                },
+                runtime_evidence["authoring"],
+            )
+            runtime_metadata = json.loads(
+                (project / "working/runtime/runtime.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["level"],
+                runtime_metadata["initialLayer"],
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["x"], runtime_metadata["initialX"]
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["y"], runtime_metadata["initialY"]
             )
             package = project / "working/layered-world/package"
             self.assert_canonical_empty_package(
