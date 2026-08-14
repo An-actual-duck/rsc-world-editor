@@ -1,0 +1,5 @@
+World Builder 2 v0.2.0-alpha.1 adaptive production packaging accepted on 2026-08-14.
+Validated World Editor commit: aaab273663e96683bb0eeab773c7df7921e8cfd2
+Validated runtime-provider commit: a2d00ee389761732ce5c8ffca07f430133aca4f5
+Validation record: docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md
+Production archives must be rebuilt from the clean published gate commit; candidate archives are evidence only.

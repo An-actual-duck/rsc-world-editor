@@ -1,420 +1,182 @@
-# World Builder 2 v0.2.0-alpha.1 adaptive validation — PENDING
+# World Builder 2 v0.2.0-alpha.1 adaptive validation — ACCEPTED
 
-This is the Phase 7 candidate worksheet, not an accepted validation record.
-No candidate has been accepted, and this file does not authorize production
-packaging, tagging, publication, deployment, or creation of
-`release/world-builder-v2/RELEASE-READY`. The historical v0.1.0-alpha.1 record
-is unchanged and does not approve this adaptive design.
+This record accepts one exact restricted pre-gate candidate as the validation
+basis for World Builder 2 v0.2.0-alpha.1. It opens production packaging through
+`release/world-builder-v2/RELEASE-READY`; it does not promote or reuse the
+candidate archives. Production archives must be rebuilt from the later clean,
+published gate commit and receive their own hashes.
 
-## Gate state
+## Acceptance
 
-- Status: **PENDING — NOT RELEASE READY**
-- Restricted pre-gate candidate World Editor commit:
-  `b05b16fd744f410a7e95e601f5f8f8d42ea2ce6b`
-- Locked runtime commit:
-  `0dd7aabb1eb599b2082ae44503ce42cf589b00fd`
-- Restricted pre-gate Linux candidate SHA-256:
-  `4fd6949addebd87dbd9920d80d2c3e7fdb64a602cc820e32acf54635371e5c80`
-- Restricted pre-gate Windows candidate SHA-256:
-  `0f7a4ff742cbbb83213be204bdaed51f3f627753d8bd270f94aa3359a3cf6b17`
-- Restricted pre-gate `SHA256SUMS.txt` SHA-256:
-  `d6658e36f401dc286d5362e4ab056dc05d5e28152fe74d82531619b06d8d9c24`
-- Reviewed Linux JRE inventory SHA-256:
-  `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e`
-- Reviewed Windows JRE inventory SHA-256:
-  `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967`
-- Owner-native report: **PENDING**
-- Accepted limitations: **NONE ACCEPTED**
-- Release decision and accepting manager/owner: **PENDING**
+- Status: **ACCEPTED — RELEASE READY**
+- Accepted on: **2026-08-14**
+- Accepted by: **project owner**, with manager verification of the recorded
+  automated evidence
+- Restricted candidate World Editor commit:
+  `aaab273663e96683bb0eeab773c7df7921e8cfd2`
+- Locked runtime-provider commit:
+  `a2d00ee389761732ce5c8ffca07f430133aca4f5`
+- Version: `v0.2.0-alpha.1`
+- Product identity: `rsc-world-editor-v2`
+- Install root: complete top-level `World Builder 2/` directory
+- World-source identity: `target-adaptive-v1`
+- Owner decision: **ACCEPT THIS EXACT CANDIDATE**
 
-Every `PENDING` field must be replaced with exact evidence for one candidate.
-An unavailable check stays explicitly unavailable; it is never inferred from
-another platform, an older release, a fixture archive, or a different runtime
-checkout.
+The accepted scope is the adaptive, content-neutral World Builder foundation:
+drop-in target discovery, isolated projects, layered adoption, packed
+conversion, standalone-empty authoring, all four placement families, export,
+explicit transactional import, recovery, and undo. It bundles no target map,
+terrain, static placements, creator project, or user state.
 
-The candidate source now contains the production project-local adaptive launch
-path rather than the earlier intentional `LOADER_INCOMPATIBLE` stub. That makes
-the owner checklist executable; it does not satisfy it. Native visual/edit/save/
-reopen evidence, `releaseReady`, and the release decision remain PENDING.
+## Exact candidate artifacts
 
-## Automated evidence for the restricted candidate
+The restricted artifacts were rebuilt fresh after the canonical placement-save
+runtime correction. Every earlier candidate and hash is rejected historical
+evidence and must never be promoted or reused.
 
-Automated archive inspection passed on 2026-08-09 for the exact candidate
-commit and locked runtime above. This evidence does not accept the candidate:
-the official record reports `releaseReady: false`,
-`releaseGateChanged: false`, and status
-`automated-archive-inspection-passed`.
+| Artifact | SHA-256 |
+| --- | --- |
+| `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `70805f788c277de826945f62913ceafab3cc07bad72a5f832461c71d01aa5c01` |
+| `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `dbf52cf3169393343b6ccddf1adaa3e3dbb204e5c55dded2eccfb80b3e58c243` |
+| `SHA256SUMS.txt` | `45762359d1a86588909b49d8f19ed5b7c85750ca6c62a29eaffebe1837933eb3` |
+| `candidate-archive-inspection.json` | `b1078ace7f1d3ea0906e9607dcd471e9e606ec913158afae745ef3eeeda45d1e` |
 
-- Official `candidate-archive-inspection.json` SHA-256:
-  `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41`.
-  It passed clean-published-source, exact locked runtime, external artifact,
-  outer checksum, safe-root, exact application allowlist, exhaustive manifest,
-  content-neutral world/creator scan, empty Builder seed, dual-platform Java
-  17 metadata, exact reviewed JRE bytes/modes, Linux launcher modes, and
-  production runtime identity/capability assertions.
+Independent inspection reported
+`automated-archive-inspection-passed`. As designed for a restricted pre-gate
+inspection, its evidence fields remained `releaseReady: false` and
+`releaseGateChanged: false`; those fields prove the inspector did not accept or
+open the release gate on its own. The owner decision recorded here is the
+separate acceptance step.
 
-The remaining hashes in this subsection are retained as prior-candidate
-baseline evidence only. They are not acceptance evidence for the rejected
-`b05b16f`/`0dd7aab` candidate and must be replaced by exact reruns after the
-provider login correction is separately authorized and locked.
+| Platform | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Files |
+| --- | --- | --- | ---: |
+| Linux x64 | `f12aa7414135ed1b069a5467b66b63ce7a02da6ae76c9233eabfa67fe23c6f2d` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 400 |
+| Windows x64 | `539e9e915c6d8a96315ee20bbaee8073843df064d1b5992f2523430d11592252` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 458 |
 
-- Independent `ai1-independent-archive-audit.7U11Fn.json` SHA-256:
-  `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86`.
-  It confirmed 98 exact allowlist records, the exact 42-file neutral definition
-  closure, byte equality with the locked provider, and absence of
-  `defs/locs`, terrain, placements, user/project/workspace state, and shared
-  PEM keys. It also confirmed the packaged Windows launcher byte-for-byte
-  against source and reviewed its adaptive target/runtime/identity control
-  flow without executing Windows.
-- Extracted Linux no-UI real-runtime integration log SHA-256:
-  `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c`.
-  The test passed standalone-empty discovery and creation, real server
-  readiness, database migrations, orderly shutdown, post-run save/reopen,
-  project-local key/log handling, and immutable package/provider/target checks
-  using the candidate's bundled Temurin 17 runtime.
-- Validation-record test log SHA-256:
-  `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27`.
-  It records a clean diff check, all 21 candidate-validation tests, all four
-  product-generation tests, project-independence validation, and all 17
-  adaptive-contract tests passing.
-- Focused candidate-suite log SHA-256:
-  `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289`.
-  It records 166 passing tests plus project-independence validation across
-  discovery, conversion, project lifecycle, supervision, Phase 6
-  transactions, packaging, updater, product-generation, and workspace
-  contracts. The exact-runtime test and five native PowerShell tests were
-  explicitly skipped because their reviewed local inputs were unavailable;
-  they are not claimed by this log.
-- Independent immutable-input inventory digests before and after validation
-  matched exactly:
-  `3e75f4af8b81851ca79f256415b2bb6832e5440f22dd9b6d5d9468781490baf6`
-  for the locked provider working tree,
-  `fc6632d6d7e32e3aad9cc8ff876e5d0c05ae954d7077c3cfc6b10abf706ff650`
-  for the physical Linux JRE tree, and
-  `e800e14cfaaa4370065277a9dc7c0f7007fd58ad8dadb8ed22540fb47eeb8a1d`
-  for the physical Windows JRE tree. File counts, byte counts, directory and
-  link counts, modes, and aggregate digests were unchanged. The candidate
-  archive and checksum hashes also matched their pre-validation values.
+The inspector script SHA-256 was
+`d2b9a2a3ca09cdd2228972b500eb394799e76e9c42c7e111ec1db376b097dbd8`.
+Inspection verified exact clean published sources, the exact lock, sole safe
+archive root, exhaustive manifests, reviewed JRE bytes and modes, launcher
+modes, application allowlists, production runtime identity, content-neutral
+default catalogs, an empty Builder seed, and absence of world, creator,
+credential, log, project, backup, receipt, and downloaded state.
 
-Still pending are owner-native layered and standalone edit/save/reopen,
-owner software/OpenGL visual review, disposable-target import/undo/recovery,
-and manager candidate acceptance. Native Windows application execution is not
-required by the current owner decision and was not performed or claimed;
-native PowerShell updater execution remains unclaimed. No limitation or
-release decision has been accepted.
+## Automated evidence
 
-### Confirmed owner-native launch blocker
+| Check | Result | Evidence SHA-256 |
+| --- | --- | --- |
+| `git diff --check` | PASS | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `./scripts/test-world-builder-v2-candidate.sh` | PASS | `9598fca182f325f2abfe9c5243c7f4d1aea587c69754970cbb6a0a53559ea3b4` |
+| `./scripts/test.sh` | PASS | `f281b4bbf2a5f1b42423dd36816868c9691c7deb10c5154be973b014078c8cee` |
+| Exact extracted packaged client/server integration | PASS in 16.084 seconds | `62f2111392c27aa79ac99c1d4b262e363ef58f1e8a19f8927f671567a8594211` |
 
-The locked provider now correctly avoids the missing legacy landscape archive:
-the extracted Linux candidate starts its server and OpenGL client and remains
-alive without attempting a legacy terrain read. It still cannot reach owner
-visual/edit validation because the automatic Builder login times out before
-authentication.
+The focused and full suites passed against the exact locked provider. Five
+native PowerShell execution cases were explicitly skipped because `pwsh` was
+unavailable; their static transaction and launcher coverage passed. The real
+packaged Linux integration used the candidate's bundled Java runtime and
+proved authenticated Builder binding, native terrain and placement readiness,
+save/reopen behavior, and clean client/server shutdown.
 
-The client emits a complete custom login frame whose two-byte length is 278
-bytes. On each attempt, the provider's undecided protocol decoder logs
-`Buffer readable bytes: 278 len: 1` followed by
-`Buffer readable bytes: 276 len: 0`. It has consumed the high length byte
-`0x01` as a one-byte legacy frame length and then consumed the actual login
-opcode `0x00` as a zero-length frame. The login handler is never reached.
-The isolated Builder credential is a valid project-owned 20-byte regular file
-at mode `0600`, the account provisioner reports success, and no credential is
-included in this record.
+## Owner-native report
 
-World Editor must not weaken the login or adaptive binding contracts and must
-not patch or copy the provider. The locked runtime provider must classify complete
-two-byte custom login frames before destructive legacy-frame parsing while an
-incoming connection is still undecided. Exact requirements and regression
-coverage are in
-[`RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md`](../RUNTIME-PROVIDER-ADAPTIVE-LOGIN-CORRECTION.md).
+The owner checklist requested report text, not screenshots. The owner supplied
+the following textual results.
 
-This blocker invalidates no recorded automated archive evidence, but it blocks
-owner acceptance and release readiness until an authorized provider SHA is
-reviewed, locked through separate work, rebuilt, independently inspected, and
-launched natively. The owner report, every final status, and the release
-decision remain **PENDING**. No limitation, gate, or release is accepted.
+### Compatible layered target
 
-### Rejected fresh candidate package closure
+- Disposable target:
+  `/tmp/rsc-world-editor-phase7-canonical-owner-layered.x2qItk`
+- Project: `5f86a3e2-7934-48b2-8820-4637e40ed8d3`
+- All 14 server-owned files stayed byte-identical through discovery, editing,
+  save, reopen, software rendering, and OpenGL rendering.
+- Existing scenery ID 20 at `(5,5)` and newly placed scenery ID 21 at `(4,3)`
+  saved in canonical order and both reappeared after reopen.
+- Default OpenGL and explicit software rendering were visually accepted.
+- Client and server exited cleanly.
 
-A later fresh restricted candidate built from published World Editor commit
-`d7332f671f836287e609abb962652a3cf57fa810` and locked runtime
-`ff9da0aa3d712993f4f06648dc397bdd9062eabc` reached `LoginPacketHandler` with
-the packaged OpenGL client, but then timed out. The packaged server repeatedly
-threw a null-pointer exception in `MySqlGameDatabase.queryLoadPlayerData`
-because the inherited private MySQL query set had no
-`player.getPlayerByUsername` registration. The package contained the complete
-SQLite query XML set, but `SqliteGameDatabase` inherits player loading from a
-superclass that initializes its own private `DatabaseType.MYSQL` query set.
+### Import, undo, and transaction safety
 
-That fresh candidate is rejected. Its archives, checksum values, and any prior
-candidate hashes must not be reused or promoted. The package contract now must
-carry only the content-neutral inherited MySQL query closure
-`bank_presets.xml`, `item.xml`, and `player.xml`, and the extracted native test
-must run the actual packaged client through authenticated binding and native
-readiness. This correction does not accept a candidate, alter the runtime lock,
-or open `RELEASE-READY`; all final evidence remains **PENDING**.
+- Import transaction: `8f3d796a-a620-46cf-9358-d4fef7666b94`.
+- The exact server/client package was installed and verified with a seven-file
+  receipt, backup, offline process/port evidence, and matching content identity.
+- Recovery correctly refused because the completed import had no
+  `RECOVERY_REQUIRED` state.
+- Undo transaction: `47bde609-f5d7-4e14-9336-94e0af34d5ac`.
+- Undo restored the exact original 14-file inventory and removed all installed
+  package roots. Automated coverage separately exercises injected rollback and
+  recovery boundaries.
 
-### Standalone start-coordinate provider correction completed
+### Compatible packed target
 
-The repository-owned standalone generator now binds its empty project to
-`global`, layer `0`, coordinate `120,648`, with one generated sector at
-`2,13` and the exact centered 3-by-3 visibility seed. Temporary lifecycle
-fixtures prove deterministic generation, save/reopen, source and target
-preservation, and the no-target import/undo boundary.
+- Disposable target:
+  `/tmp/rsc-world-editor-phase7-canonical-owner-packed.53HOIB`
+- Project: `67c651a3-dac8-45ac-81ee-082c824c3de8`
+- All 22 server-owned files remained byte-identical across discovery,
+  conversion, editing, save, and reopen.
+- The owner confirmed the edit persisted and both processes exited cleanly.
 
-The independent runtime provider correction was reviewed, merged, and
-published at `b14dcaccd1487a4ea6e8414ed8fa71a160c83929`, then adopted through
-`runtime-provider.lock`. Its exact built server/client integration passed at
-`120,648` with authenticated Builder login, player initialization, adaptive
-binding, native terrain readiness, no legacy terrain fallback, and clean
-shutdown. The provider now:
+### Standalone empty project
 
-1. retains strict adaptive activation, `global` world space, layer `0`, and the
-   existing bounded `0..32767` coordinate checks;
-2. accepts the exactly bound standalone initial coordinate instead of requiring
-   literal `0,0`;
-3. proves the configured coordinate is covered by the validated native layered
-   terrain before an editable session starts;
-4. preserves target-backed starts, normal production profiles, native terrain
-   readiness, binding identities, and all legacy-client behavior; and
-5. adds real client/server coverage for `120,648` using only sector `2,13`,
-   including authentication, player load, adaptive binding, native readiness,
-   clean shutdown, and no legacy terrain fallback.
+- Disposable parent:
+  `/tmp/rsc-world-editor-phase7-canonical-owner-standalone.WiAaX7`
+- Project: `351336bb-7f5e-470d-bb80-5ba7ed0543a8`
+- The empty parent gained only `World Builder 2`.
+- Start position was exactly `(120,648)`, level 0, sector `2,13`, with the exact
+  centered 3-by-3 zero-color/zero-overlay visibility seed and nine non-void
+  tiles.
+- Terrain editing and scenery placement persisted through save and reopen.
+- Standalone export succeeded with export fingerprint
+  `54c86a5e99d7c55420168762915bc4e299a8fcc0d81c5629276d448a36ab4d70`
+  and package fingerprint
+  `94666ee6c9305b260da5d6c25dde2566c529595b0e5f36e0c95db7e3c6632fc5`.
+- Import, Undo, and Recovery each returned `NO_TARGET` before target access.
 
-The World Editor parity check and complete suite pass against that exact
-detached provider revision. A fresh restricted candidate and its packaged
-client/server test are still required; no older candidate archive or hash may
-be reused. Owner validation and every release gate remain **PENDING**.
-
-## Required immutable inputs
-
-- a clean World Editor manager checkout on the exact published `origin/main`
-  commit represented inside both candidate archives;
-- a separate clean runtime checkout at the exact commit in
-  `runtime-provider.lock`, without fetching, advancing, or substituting a newer
-  provider revision during release preparation;
-- reviewed Linux x64 and Windows x64 JRE 17+ directories, including legal
-  notices, plus the exact LWJGL 3.3.4 Linux/Windows native inputs required by
-  the packager;
-- Linux and Windows candidate archives and `SHA256SUMS.txt` copied to a review
-  directory outside both source trees; and
-- a reviewed `pwsh` executable for native PowerShell transaction execution if
-  that execution is to be claimed. Static PowerShell/launcher coverage does
-  not count as native PowerShell execution.
-
-The owner has accepted Java behavior plus automated and code-review coverage
-for the Windows launcher; a native Windows-host application launch is not a
-release prerequisite. Any unavailable PowerShell execution must still be
-recorded honestly.
-
-## Automated candidate commands
-
-Run from clean, published manager `main`. Store console logs and the generated
-JSON outside the repository and record their hashes below.
-
-```bash
-git diff --check
-./scripts/test-world-builder-v2-candidate.sh
-./scripts/test.sh
-
-./scripts/ai-manager.sh candidate \
-  --version v0.2.0-alpha.1 \
-  --runtime-provider /path/to/clean-exact-locked-runtime \
-  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
-  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
-  --assets-cleared
-
-# Copy the three files from output/candidates/world-builder-v2/v0.2.0-alpha.1/
-# to /outside-sources/ before inspection.
-
-./scripts/inspect-world-builder-v2-candidate.py \
-  --source-root /path/to/clean-published-rsc-world-editor \
-  --runtime-provider /path/to/clean-exact-locked-runtime \
-  --linux-jre /path/to/reviewed-temurin-17-linux-x64-jre \
-  --windows-jre /path/to/reviewed-temurin-17-windows-x64-jre \
-  --version v0.2.0-alpha.1 \
-  --linux-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip \
-  --windows-archive /outside-sources/rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip \
-  --checksums /outside-sources/SHA256SUMS.txt \
-  > /outside-sources/candidate-archive-inspection.json
-```
-
-The candidate route fails unless the gate marker is absent and every real
-production build, provenance, runtime, no-world, and archive check passes. It
-cannot use the fixture-only `--skip-build` path and writes only restricted
-pre-gate artifacts. The inspector fails unless the source is clean published
-`main`, the runtime is clean at the exact lock, the reviewed JRE trees remain
-stable, and all three artifact inputs are outside both source trees. Its JSON
-binds the two outer hashes and manifests to both source commits and the complete
-dereferenced JRE file/directory inventories, bytes, and relevant modes. It also
-repeats safe-root, no-link/special-mode, case/path, exhaustive-manifest,
-application-allowlist, exact Linux launcher mode, copied-source, renamed
-world/creator content, empty database seed, runtime identity, JRE metadata, and
-production-marker checks.
-Even on success it reports `releaseReady: false`, `releaseGateChanged: false`,
-and the still-pending owner/manager evidence; it cannot authorize a release.
-
-### Command evidence
-
-| Check | Exact command/input | Result | Log/evidence SHA-256 |
-| --- | --- | --- | --- |
-| Whitespace | `git diff --check` | PASS | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
-| Validation-record regression set | candidate-validation, product-generation, independence, and adaptive-contract tests | PRIOR BASELINE — exact corrected-candidate rerun required | `108df76b4fd4891c0c44bc3d33909eb8f859d9d8095a254636fa454dbf9c2a27` |
-| Focused candidate suites | `./scripts/test-world-builder-v2-candidate.sh` | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
-| Full repository suite | `./scripts/test.sh` | PENDING | PENDING |
-| Restricted real pre-gate build | `./scripts/ai-manager.sh candidate ...` | PASS — restricted artifacts only; acceptance pending | `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41` |
-| External archive inspection | `inspect-world-builder-v2-candidate.py` command above | PASS — automated only; acceptance pending | `b27635328f62362628849c7f6ace95ca1ab60547389d108f38af601a470dfd41` |
-| Linux updater success/refusal/install-failure/rollback | focused suite and exact candidate fixture | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
-| PowerShell updater transaction execution | `WORLD_BUILDER_PWSH=...` focused/full suite | PRIOR BASELINE UNAVAILABLE — native execution not claimed | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` records all five explicit skips |
-| Windows updater/launcher Java and static control flow | exact archive/source comparison and static review; no Windows execution | PRIOR BASELINE — exact corrected-candidate static rerun required | `69ca6dc86dae8c4115923ffa00409256252d78946ece453abf9c5effacd6ea86` |
-| Phase 6 layered/packed import, rollback, recovery, undo | focused transaction suite | PRIOR BASELINE — exact corrected-candidate rerun required | `0627a421457759874dbd009a577ceb48dc47554af73ba353ee852ec863137289` |
-| Adaptive project-local launch, lock/readiness/failure cleanup, clean save/reopen | extracted candidate no-UI real-runtime integration | PRIOR BASELINE — native login now fails on the rejected candidate | `86ae0a3edf69e5e1dd0af1b111fce6c607740cc7477c340db74012259796628c` |
-
-Fixture archives prove rejection and transaction behavior; only the external
-inspection row may be used as evidence for the final candidate archive hashes.
-The accepted values remain pre-gate validation hashes. Production archives
-must be rebuilt after a later accepted-record/gate commit on newly published
-`main`; record those production hashes separately and never promote these
-pre-gate files in place.
-
-## Archive and package results
-
-Copy these values exactly from the passing inspection JSON and independently
-retain the outer `SHA256SUMS.txt`.
-
-| Platform | Archive | Outer SHA-256 | Inner manifest SHA-256 | Reviewed JRE inventory SHA-256 | Manifested files | Result |
-| --- | --- | --- | --- | --- | --- | --- |
-| Linux x64 | `rsc-world-editor-v2-0.2.0-alpha.1-linux-x64.zip` | `4fd6949addebd87dbd9920d80d2c3e7fdb64a602cc820e32acf54635371e5c80` | `f06bd1f5bca564c9f3914a865622798fb7291fb5ee87b01e9941eecf4d2d1468` | `56e02eae89660c0d7baef03b276f2c8f6ef1749d79403c074dc41ea8f3403c9e` | 397 | AUTOMATED PASS — acceptance pending |
-| Windows x64 | `rsc-world-editor-v2-0.2.0-alpha.1-windows-x64.zip` | `0f7a4ff742cbbb83213be204bdaed51f3f627753d8bd270f94aa3359a3cf6b17` | `2fd8151e3fb5841e90752781ccaaca313cc91ca40888c302c89b6559dc5e3440` | `9aaf15bca3b380b3b9099d3097182d85cbc83003d57d0844c8fc36f7c25b2967` | 455 | AUTOMATED PASS — acceptance pending |
-
-Required automated archive review statements below are **PASS** for these exact
-restricted artifacts; owner validation and candidate acceptance remain
-**PENDING**:
-
-- both archives have the sole root `World Builder 2/`;
-- archive names, identity, version, source commits, platform runtime, inner
-  manifest, and outer checksums agree exactly;
-- no terrain, packed map, static placements, active layered package, project,
-  registry/selection, export, backup, receipt, diagnostics, settings,
-  credentials, logs, PID, downloaded state, or renamed equivalent is present;
-- the Builder database seed contains no terrain/placement, player/account,
-  log, security, generated-operational, or unknown non-static rows; and
-- the packaged launch/import/recovery/undo/update scripts and copied runtime
-  assets equal their exact clean source inputs; and
-- the complete packaged JRE inventories/bytes/relevant modes equal the reviewed
-  JRE trees, with every Linux production shell launcher at mode `0755` and no
-  special/setuid bits.
-
-## Compatibility matrix
-
-All target work uses disposable copies. Nothing here authorizes touching a
-live or public server.
-
-| Scenario | Automated evidence | Owner/native evidence | Final status |
-| --- | --- | --- | --- |
-| Compatible layered target: discover/adopt/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Compatible packed target: discover/convert/parity/save/reopen, target unchanged | PASS — temporary fixtures | PENDING | PENDING |
-| Standalone empty: layer 0/start 120,648, exact 3x3 visibility seed, first authoring/save/reopen/export | PASS — temporary fixtures and exact-provider built integration | PENDING fresh packaged candidate and owner validation | PENDING |
-| No server versus recognizable broken/unsupported/ambiguous server | PASS — adversarial discovery fixtures | Owner report if encountered | PENDING |
-| Multiple projects, moved folder, detached target, no implicit rebase | PASS — temporary fixtures | PENDING | PENDING |
-| Software/OpenGL terrain, levels, collision, and all four placement families | PASS — data, definition, and placement contracts only | PENDING visual review | PENDING |
-| Exact import preview/apply/verify/client distribution/undo | PASS — temporary fixtures | PENDING | PENDING |
-| Interrupted import/undo rollback and explicit recovery | PASS — injected-failure fixtures | PENDING | PENDING |
-| Linux update success, incompatibility, installation failure, rollback | PASS — automated fixtures | PENDING | PENDING |
-| Windows launcher | PASS — Java/static and exact archive/source coverage | Native host not required | PENDING |
-| PowerShell updater | PASS — static coverage; native execution UNAVAILABLE and unclaimed | Native host not required | PENDING |
-
-## Owner checklist — report text, not screenshots
-
-Use disposable copies and report each numbered item as PASS or FAIL with a
-short observation. Do not use a live/public server, and do not send
-screenshots for AI judgment.
-
-For every target byte comparison below, inventory all server-owned content
-while excluding the complete top-level `World Builder 2/` directory and
-everything beneath it. Do not exclude individual files inside that directory
-or any other target content. The installation/project directory is expected to
-change as projects, receipts, backups, and recovery state are created; the
-server-owned comparison scope must not change between before and after.
-
-### A. Target-backed projects
-
-1. Put the complete candidate folder directly inside one disposable compatible
-   layered target. Record the server-owned target inventory using the exclusion
-   above, launch natively, and
-   confirm discovery names that target's active map rather than release-owned
-   content. Create the adopted project.
-2. Repeat first creation with one disposable supported packed target. Confirm
-   the conversion report is understandable and that creation completes without
-   changing the target.
-3. Open at least one target-backed project in software mode and OpenGL mode.
-   Check terrain/floors, levels, collision, boundaries, scenery, NPCs, and
-   ground items. Make a small unmistakable terrain and placement edit, save,
-   close, reopen, and confirm the edit remains in the isolated project.
-4. Confirm both server-owned target inventories remain byte-identical after
-   discovery, creation, editing, saving, closing, and reopening.
-5. With the selected disposable target fully offline, run Import preview.
-   Confirm the exact server/client destinations, activation, backup, receipt,
-   and player-distribution identity are understandable. Type `IMPORT`, verify
-   success, and test the imported result only on that disposable target.
-6. Stop the disposable target again, run Undo preview, type `UNDO`, and confirm
-   the pre-import server-owned target inventory is restored exactly. If a
-   deliberately interrupted disposable transaction reports `RECOVERY_REQUIRED`, preserve
-   its artifacts, run Recovery, and report the verified result.
-
-### B. Standalone empty project
-
-1. Put a separate complete candidate folder in an ordinary empty parent with
-   no recognizable server. Launch natively and confirm it clearly offers a
-   standalone empty project, not a guessed or bundled map.
-2. Confirm it opens at layer 0, coordinate 120,648 with structural void
-   available in every direction and a visible centered 3-by-3 floor seed.
-   Extend or replace that seed and author one wall or placement, check
-   collision, save, close, reopen, and confirm the authored state remains.
-3. Export the saved standalone project. Confirm Import, Undo, and Recovery each
-   refuse with `NO_TARGET` without asking for or accessing a server path.
-
-### C. Owner report
-
-```text
-Candidate commit:
-Linux archive SHA-256:
-Native platform/runtime:
-Layered adoption A1-A6: PASS/FAIL + notes
-Packed conversion A1-A6: PASS/FAIL + notes
-Standalone B1-B3: PASS/FAIL + notes
-Software/OpenGL and save/reopen: PASS/FAIL + notes
-Import/Undo/Recovery: PASS/FAIL + notes
-Server-owned target byte comparisons (complete `World Builder 2/` excluded): PASS/FAIL + method
-Accepted limitations: none / exact text
-Release acceptance: NOT YET / ACCEPT THIS EXACT CANDIDATE
-```
-
-## Final acceptance audit
-
-Before a manager can separately decide whether to create `RELEASE-READY`, every
-row below needs exact evidence and no unresolved failure.
+## Compatibility and acceptance matrix
 
 | Contract | Evidence | Status |
 | --- | --- | --- |
-| AC-01 no release-owned world or creator data | Automated PASS — external inspection JSON and hashes; acceptance pending | PENDING |
-| AC-02 adaptive parent-root discovery on both launcher paths | Automated PASS — focused suites; owner native target pending | PENDING |
-| AC-03 layered adoption | Automated PASS — fixture; owner report pending | PENDING |
-| AC-04 lossless packed conversion and placement parity | Automated PASS — fixture; owner report pending | PENDING |
-| AC-05 unsupported/unrepresentable refusal | Automated PASS — focused suites | PENDING |
-| AC-06 selected working project is the only edited world | Automated PASS — fixture; owner report pending | PENDING |
-| AC-07 canonical standalone structural void | Fixture and exact-provider built integration PASS; fresh packaged candidate and owner report pending | PENDING |
-| AC-08 standalone save/export and target-operation refusal | Automated PASS — fixture; owner report pending | PENDING |
-| AC-09 immutable source, isolated save/reopen, unchanged server-owned target outside complete `World Builder 2/` | Automated PASS — fixture and scoped inventories; owner report pending | PENDING |
-| AC-10 multiple/portable/detached projects | Automated PASS — focused suite; owner report pending | PENDING |
-| AC-11 deterministic complete export and lineage | Automated PASS — Phase 6 suite | PENDING |
-| AC-12 exact server/client import capability and distribution identity | Automated PASS — Phase 6 suite; owner report pending | PENDING |
-| AC-13 preview/offline/drift/backup/receipt/rollback/recovery/undo/no-force | Automated PASS — 31-case Phase 6 suite; owner report pending | PENDING |
-| AC-14 no implicit server rebase/install | Automated PASS — focused and updater suites | PENDING |
-| AC-15 updater durable preservation and v1 isolation | Linux automated PASS; PowerShell static PASS and native execution unavailable | PENDING |
-| AC-16 complete automated and owner-native candidate validation | Full exact-provider suite PASS; fresh candidate inspection, packaged runtime test, and owner report pending | PENDING |
-| AC-17 accurate simple workflow and compatibility documentation | Final documentation review | PENDING |
+| AC-01 no release-owned world or creator data | External archive inspection | PASS |
+| AC-02 adaptive parent-root discovery | Automated and owner-native target/empty fixtures | PASS |
+| AC-03 layered adoption | Byte-identical target plus save/reopen report | PASS |
+| AC-04 lossless packed conversion and placement parity | Automated parity plus owner save/reopen report | PASS |
+| AC-05 unsupported or unrepresentable input refuses | Adversarial discovery/conversion suites | PASS |
+| AC-06 selected working project is the sole edited world | Project isolation and immutable-target evidence | PASS |
+| AC-07 canonical standalone structural void | Exact `(120,648)`/sector `2,13`/3-by-3 evidence | PASS |
+| AC-08 standalone save/export and target-operation refusal | Owner report and no-target checks | PASS |
+| AC-09 immutable source and isolated save/reopen | Layered and packed target inventories | PASS |
+| AC-10 multiple, portable, and detached projects | Focused lifecycle suite | PASS |
+| AC-11 deterministic complete export and lineage | Phase 6 suite and standalone export | PASS |
+| AC-12 exact server/client distribution identity | Verified import receipt and parity | PASS |
+| AC-13 preview/offline/drift/backup/rollback/recovery/undo/no-force | 31-case suite and owner import/undo | PASS |
+| AC-14 no implicit server rebase or install | Focused lifecycle/updater suites | PASS |
+| AC-15 updater preservation and v1 isolation | Linux execution and Windows/PowerShell static review | PASS with accepted platform limitation |
+| AC-16 complete automated and owner-native candidate validation | Exact archives, native integration, and owner report | PASS |
+| AC-17 accurate workflow and compatibility documentation | Final acceptance documentation review | PASS |
 
-This worksheet becomes an accepted validation record only after the exact
-candidate fields, evidence hashes, owner report, limitations, and decision are
-filled deliberately. Merely committing the worksheet never opens the gate.
+## Accepted limitations and follow-up
+
+- Easy drop-in custom wall and floor material packs are **not implemented in
+  this release**. Their approved design remains in
+  `docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md` for the next development release.
+- A native Windows application launch was not performed and was not required
+  by the owner because the Windows and Linux scripts are Java launch
+  intermediaries. Windows archive, Java, launcher, and static control-flow
+  review passed.
+- Native PowerShell updater execution was unavailable and is not claimed.
+  Static PowerShell transaction coverage passed.
+- The software renderer opened in windowed mode rather than the usual
+  fullscreen presentation; the owner accepted its visuals and behavior.
+
+These limitations do not weaken map isolation, fail-closed compatibility,
+transaction safety, archive neutrality, or the exact locked-provider contract.
+They are accepted for v0.2.0-alpha.1 and must remain visible in release notes.
+
+## Production rule
+
+The candidate archives listed above are validation evidence only. They must not
+be copied, renamed, uploaded, or promoted as production release files.
+Production archives must be rebuilt after this accepted record and
+`RELEASE-READY` are committed and published on clean `main`, using runtime
+provider `a2d00ee389761732ce5c8ffca07f430133aca4f5` and the reviewed JRE inputs.
+The rebuilt production files require a fresh integrity check and their own
+published SHA-256 values.

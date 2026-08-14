@@ -10,9 +10,9 @@ world-source identity `target-adaptive-v1`, and package assets under
 `release/world-builder-v2/`. The historical pre-adaptive alpha validation in
 [`world-builder-v2-v0.1.0-alpha.1-validation.md`](releases/world-builder-v2-v0.1.0-alpha.1-validation.md)
 remains unchanged historical evidence; it does not approve the adaptive
-package design. The new
-[`v0.2.0-alpha.1 adaptive validation worksheet`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md)
-is explicitly pending and is not release authorization.
+package design. The
+[`v0.2.0-alpha.1 adaptive validation record`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md)
+was accepted on 2026-08-14 and authorizes a fresh production rebuild.
 
 ## Release gate
 
@@ -25,10 +25,9 @@ Repository readiness is audited with:
 
 `./scripts/ai-manager.sh release` delegates to the v2 packager only when
 `release/world-builder-v2/RELEASE-READY` contains a deliberately accepted
-candidate record. That marker is currently absent. Phase 4 owner-native
-validation and the Phase 7 candidate-validation record still block adaptive
-release readiness. Phase 6 transactions are implemented, but that does not
-open or replace the missing release gate.
+candidate record. The adaptive v0.2.0-alpha.1 gate is open. The restricted
+candidate archives remain validation evidence only; production packaging must
+rebuild from clean published `main` with the exact locked runtime.
 
 The dependency checkout used for packaging must already be clean and at the
 exact commit in `runtime-provider.lock`. Packaging never checks for a newer

@@ -32,8 +32,9 @@ workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel. That historical alpha does not make the adaptive v2 design release
-ready; its new release gate remains closed.
+v1 channel. The adaptive v0.2.0-alpha.1 candidate was accepted on 2026-08-14;
+production artifacts are rebuilt from its published gate commit rather than
+promoted from the restricted validation archives.
 
 ## Repository status
 
@@ -82,10 +83,10 @@ See [Automatic updates](docs/AUTO-UPDATES.md) for the exact safety boundary.
 
 The complete legacy instructions are maintained in
 [`release/world-builder/README.txt`](release/world-builder/README.txt).
-World Builder 2's in-progress instructions are kept separately in
+World Builder 2's instructions are kept separately in
 [`release/world-builder-v2/README.txt`](release/world-builder-v2/README.txt).
 
-The adaptive v2 product contract, once its remaining gates pass, is:
+The adaptive v2 product contract is:
 
 1. Put the complete `World Builder 2` folder directly inside a compatible
    game/server root and launch it.
@@ -161,25 +162,23 @@ conversion, and the adaptive project lifecycle, are merged on published `main`
 at `dac388a32aa41754a49341e3ddcc8cc196389ab4`. The lifecycle can atomically
 create, select, move, validate, save, and reopen target-layered,
 converted-packed, and standalone-empty projects without target writes. The
-generic Phase 4 runtime capability is now pinned; owner-run native visual,
-edit/save, and reopen validation remains pending. Phase 5 implements the
+generic Phase 4 runtime capability is pinned and owner-run native visual,
+edit/save, and reopen validation passed. Phase 5 implements the
 content-neutral package identity, exact no-world runtime allowlist, and durable
 Linux/Windows update boundary. Phase 6 implements deterministic complete
 export, compiled server/client mutation plans, offline preview/import, durable
 backups and receipts, verified rollback/recovery, changed-after refusal, and
-exact undo for adopted and converted projects. Phase 4 owner-native validation
-and the Phase 7 release-validation record still block adaptive release
-readiness; the release gate remains closed. Phase 7's repeatable automated and
-owner-report fields are prepared in the explicitly pending
-[v0.2.0-alpha.1 adaptive validation worksheet](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md);
-the worksheet is not release acceptance. A guarded manager candidate command
-can make real, isolated pre-gate archives for that validation without opening
-the marker or producing promotable release artifacts; production archives are
-rebuilt only after a later accepted gate commit.
+exact undo for adopted and converted projects. Phase 7 archive,
+packaged-runtime, transaction, and owner-native validation passed for the exact
+candidate recorded in the accepted
+[v0.2.0-alpha.1 adaptive validation record](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
+The release gate is open. Restricted candidate files remain evidence only;
+production archives are rebuilt from the later clean published gate commit.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor
-Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md).
+Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md). Custom material packs are
+not implemented in v0.2.0-alpha.1 and remain planned for a later release.
 
 ## License
 

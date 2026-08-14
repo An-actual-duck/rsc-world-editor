@@ -18,10 +18,9 @@ creation, UUID project lifecycle, content-neutral packaging, and durable update
 preservation are implemented. Phase 6 complete export, compiled target import,
 verified rollback/recovery, changed-after refusal, and exact undo are also
 implemented. The generic Phase 4 client/server capability is published and
-pinned, but owner-run native visual/edit/save/reopen validation has not yet
-accepted the release-launch path. A new public adaptive archive must not be
-published until that validation and a new candidate acceptance record are
-complete.
+pinned. Exact archive, packaged-runtime, transaction, and owner-run native
+visual/edit/save/reopen validation passed, and the v0.2.0-alpha.1 candidate was
+accepted on 2026-08-14.
 
 INSTALLATION
 ------------
@@ -52,7 +51,7 @@ these results:
 - a compatible layered map is copied into an isolated project unchanged;
 - a supported packed map is copied and converted deterministically;
 - no recognizable server creates a labelled standalone empty project at layer
-  0, coordinate 0,0; or
+  0, coordinate 120,648 with a centered 3-by-3 visibility seed; or
 - an ambiguous, malformed, partially recognized, or unsupported server stops
   with a compatibility report and no project or target change.
 
@@ -76,8 +75,9 @@ canonical-void authoring, all placement families, isolated runtime binding, and
 verified copy-on-write save. Native adaptive launch now runs only the selected
 UUID project's independent server/client copies, layered working package,
 credential, control state, logs, and database. It never resolves the target
-during launch or save. Adopted and standalone visual/edit/save/reopen acceptance
-is still owner-run and PENDING, so this candidate does not open the release gate.
+during launch or save. Adopted, converted, and standalone visual/edit/save/
+reopen acceptance passed for the exact candidate named in the
+v0.2.0-alpha.1 validation record.
 
 AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or
@@ -176,8 +176,9 @@ REQUIREMENTS AND LIMITS
   compatible client/map identity reported by each successful Import.
 - World Editor v1 remains frozen with separate identity, update channel,
   install folder, workspace, and artifacts.
-- Release readiness still requires Phase 4 owner validation, complete Phase 7
-  automated/native candidate validation, archive inspection, and an exact
-  accepted candidate record.
+- Easy drop-in custom wall and floor material packs are not implemented in
+  v0.2.0-alpha.1; their approved design remains planned for a later release.
+- Native Windows application and PowerShell updater execution were not claimed;
+  Windows archive, Java, launcher, and static transaction review passed.
 
 Release source commit: @SOURCE_COMMIT@

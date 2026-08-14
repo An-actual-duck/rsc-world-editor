@@ -16,12 +16,16 @@ V2_PACKAGER = ROOT / "scripts" / "package-world-builder-v2-release.sh"
 
 
 class WorldBuilderProductGenerationTest(unittest.TestCase):
-    def test_product_lines_are_distinct_and_adaptive_v2_is_not_release_ready(
+    def test_product_lines_are_distinct_and_adaptive_v2_gate_is_exact(
         self,
     ) -> None:
         self.assertTrue((LEGACY / "README.txt").is_file())
         self.assertTrue((V2 / "README.txt").is_file())
-        self.assertFalse((V2 / "RELEASE-READY").exists())
+        gate = (V2 / "RELEASE-READY").read_text(encoding="utf-8")
+        self.assertIn("v0.2.0-alpha.1 adaptive production packaging accepted", gate)
+        self.assertIn("aaab273663e96683bb0eeab773c7df7921e8cfd2", gate)
+        self.assertIn("a2d00ee389761732ce5c8ffca07f430133aca4f5", gate)
+        self.assertIn("candidate archives are evidence only", gate)
 
         v2_readme = (V2 / "README.txt").read_text(encoding="utf-8")
         v2_start_sh = (V2 / "Start World Builder.sh").read_text(encoding="utf-8")

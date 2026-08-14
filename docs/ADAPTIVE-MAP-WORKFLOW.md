@@ -1211,21 +1211,20 @@ target.
 - Add a new adaptive release validation record without changing historical
   evidence.
 
-Phase 7 preparation now uses the explicitly pending
-[`v0.2.0-alpha.1 adaptive validation worksheet`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md),
-the focused candidate suite, and an external-archive inspector. The worksheet
-does not accept a candidate or open `RELEASE-READY`; exact real-artifact and
-owner-native evidence must replace every pending field first. The guarded
+Phase 7 used the now accepted
+[`v0.2.0-alpha.1 adaptive validation record`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md),
+the focused candidate suite, and an external-archive inspector. Exact
+real-artifact and owner-native evidence opened `RELEASE-READY` on 2026-08-14.
+The guarded
 manager candidate route performs the real pinned builds into an isolated
 pre-gate output, while the inspector binds both artifacts to the complete
 reviewed Linux/Windows JRE inventories and executable-mode state. Pre-gate
 hashes are validation evidence only; production archives are rebuilt after a
 later accepted gate commit.
 
-The candidate implementation now includes the production project-local native
-launch path. This removes the intentional `LOADER_INCOMPATIBLE` launch stub; it
-does not fill any worksheet evidence, accept owner-native behavior, change
-`releaseReady: false`, create `RELEASE-READY`, or authorize publication.
+The candidate implementation includes the production project-local native
+launch path. The inspector itself retained `releaseReady: false` and did not
+change the gate; the later exact owner/manager acceptance record opened it.
 
 Gate: every acceptance criterion has evidence. Release-gate opening, tag,
 publication, and deployment remain separate manager decisions.

@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 INSPECTOR = ROOT / "scripts/inspect-world-builder-v2-candidate.py"
 FOCUSED_SUITE = ROOT / "scripts/test-world-builder-v2-candidate.sh"
 NATIVE_PROOF = ROOT / "tests/myworld/test-world-builder-native-runtime-integration.py"
-PENDING_RECORD = (
+VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 VERSION = "v0.2.0-alpha.1"
@@ -701,18 +701,19 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertIn("project-only generated state", result.stderr)
             self.assertIn("server/client.pem", result.stderr)
 
-    def test_pending_worksheet_cannot_be_mistaken_for_release_acceptance(self) -> None:
-        text = PENDING_RECORD.read_text(encoding="utf-8")
-        self.assertIn("PENDING — NOT RELEASE READY", text)
-        self.assertIn("does not authorize production\npackaging", text)
-        self.assertIn("output/candidates/world-builder-v2", text)
+    def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
+        text = VALIDATION_RECORD.read_text(encoding="utf-8")
+        self.assertIn("ACCEPTED — RELEASE READY", text)
+        self.assertIn("aaab273663e96683bb0eeab773c7df7921e8cfd2", text)
+        self.assertIn("a2d00ee389761732ce5c8ffca07f430133aca4f5", text)
         self.assertIn("complete top-level `World Builder 2/` directory", text)
-        self.assertIn("Production archives\nmust be rebuilt", text)
+        self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("report text, not screenshots", text)
         self.assertIn("releaseReady: false", text)
         self.assertIn("AC-17", text)
-        self.assertNotIn("Accepted on", text)
-        self.assertFalse((ROOT / "release/world-builder-v2/RELEASE-READY").exists())
+        self.assertIn("Accepted on", text)
+        self.assertIn("custom wall and floor material packs are **not implemented", text)
+        self.assertTrue((ROOT / "release/world-builder-v2/RELEASE-READY").is_file())
 
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")

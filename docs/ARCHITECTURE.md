@@ -164,9 +164,9 @@ runtime/default-catalog allowlist, no-world archive validation, and durable
 Linux/Windows updater boundary. Phase 6 supplies complete adaptive export,
 compiled mutation profiles, exact preview/import, durable receipt/backup
 authority, reverse rollback, explicit recovery, changed-after refusal, and
-exact undo for layered and packed-origin projects. Owner-native Phase 4
-validation and Phase 7 release validation still keep the adaptive release gate
-closed.
+exact undo for layered and packed-origin projects. Owner-native Phase 4 and
+Phase 7 release validation passed for v0.2.0-alpha.1, opening its production
+packaging gate while preserving the rebuild-after-acceptance rule.
 
 ## Planned custom materials
 
