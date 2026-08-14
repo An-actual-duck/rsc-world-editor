@@ -109,8 +109,8 @@ build or explicitly assigned dependency audit requires it:
 ./scripts/checkout-runtime-provider.sh
 ```
 
-For an explicitly assigned dependency-update task, verify that it is the
-expected revision and that its adaptive capability and protocol match:
+For an in-scope runtime integration, verify that it is the expected revision
+and that its adaptive capability and protocol match:
 
 ```bash
 ./scripts/check-runtime-provider-parity.sh .runtime-provider
@@ -118,11 +118,11 @@ expected revision and that its adaptive capability and protocol match:
 
 Do not run collaboration scripts inside the disposable checkout. Provider work
 uses `/home/justin/rsc-world-editor-runtime` and its own workers; dependency
-consumption here uses only the detached exact lock. Fetching a locked object
-does not authorize updating the lock.
+consumption here uses only the detached exact lock.
 
-Only when the user explicitly assigns a dependency-update task, adopt the
-exact external commit and durable runtime provider ref they selected with:
+When an assigned World Builder objective includes runtime work, the product
+manager may adopt the exact tested commit it published on the durable runtime
+provider ref with:
 
 ```bash
 ./scripts/sync-from-runtime-provider.sh \
@@ -133,6 +133,11 @@ exact external commit and durable runtime provider ref they selected with:
 ./scripts/test.sh
 git diff --check
 ```
+
+`./scripts/product-manager.sh adopt-runtime` performs that complete bounded
+selection, materialization, parity, full-test, commit, and publication cycle.
+The owner does not need to relay the SHA or issue a second lock prompt for
+runtime work already inside the active objective.
 
 Review the dependency and protocol diff before committing. The adoption
 command refuses dirty providers, requires the exact commit at the named remote

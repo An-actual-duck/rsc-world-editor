@@ -166,7 +166,9 @@ compiled mutation profiles, exact preview/import, durable receipt/backup
 authority, reverse rollback, explicit recovery, changed-after refusal, and
 exact undo for layered and packed-origin projects. Owner-native Phase 4 and
 Phase 7 release validation passed for v0.2.0-alpha.1, opening its production
-packaging gate while preserving the rebuild-after-acceptance rule.
+packaging gate while preserving the rebuild-after-acceptance rule. Publication
+consumed that version-bound gate; development `main` is closed for the next
+release while the immutable release tag retains the accepted marker.
 
 ## Planned custom materials
 

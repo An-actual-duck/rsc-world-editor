@@ -713,7 +713,8 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertIn("AC-17", text)
         self.assertIn("Accepted on", text)
         self.assertIn("custom wall and floor material packs are **not implemented", text)
-        self.assertTrue((ROOT / "release/world-builder-v2/RELEASE-READY").is_file())
+        self.assertIn("Post-publication gate state", text)
+        self.assertFalse((ROOT / "release/world-builder-v2/RELEASE-READY").exists())
 
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")

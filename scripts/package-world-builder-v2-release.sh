@@ -310,6 +310,9 @@ if [[ "$CANDIDATE_BUILD" == true ]]; then
 		|| fail "Pre-gate candidate packaging is forbidden after the World Builder 2 release gate is opened"
 elif [[ "$SKIP_BUILD" != true && ! -f "$PACKAGE_ASSETS/RELEASE-READY" ]]; then
 	fail "World Builder 2 public packaging remains locked until final cross-platform release validation is accepted"
+elif [[ "$SKIP_BUILD" != true ]]; then
+	"$ROOT_DIR/scripts/validate-world-builder-v2-release-gate.sh" "$VERSION" \
+		|| fail "World Builder 2 release gate validation failed"
 fi
 [[ -f "$ICON_CREDITS" ]] || fail "World editor icon credits are missing"
 if grep -Eiq 'pending confirmation|pending;|not release-ready' "$ICON_CREDITS"; then

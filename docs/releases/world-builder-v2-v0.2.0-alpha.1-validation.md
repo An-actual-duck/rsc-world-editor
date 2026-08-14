@@ -180,3 +180,11 @@ Production archives must be rebuilt after this accepted record and
 provider `a2d00ee389761732ce5c8ffca07f430133aca4f5` and the reviewed JRE inputs.
 The rebuilt production files require a fresh integrity check and their own
 published SHA-256 values.
+
+## Post-publication gate state
+
+The production release was published from gate commit
+`916eacb8e0beeacc16802a1c021907f0f866a3ff` as tag
+`rsc-world-editor-v2-0.2.0-alpha.1`. That immutable tag retains the accepted
+marker. Later development `main` consumes/removes the marker so no subsequent
+change or version can reuse this acceptance.

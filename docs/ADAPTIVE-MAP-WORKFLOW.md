@@ -91,8 +91,9 @@ preflight for the checkout role. It MUST also:
 4. put required client, server, loader, protocol, or in-game editor changes in
    the separately managed `rsc-world-editor-runtime` repository and publish
    them there; consume them only as an exact
-   dependency commit after a separately authorized `runtime-provider.lock`
-   update, without taking over that project's manager, workers, or branches;
+   dependency commit through the product manager's in-scope
+   `runtime-provider.lock` integration, without combining repositories or
+   involving Core;
 5. preserve source-snapshot verification, offline-target checks, exact preview
    and confirmation, drift detection, backups, receipts, post-write
    verification, partial-failure rollback, changed-after-import protection,
@@ -1086,9 +1087,9 @@ In the separately managed `rsc-world-editor-runtime` repository:
 - provide bounded loader activation/configuration and offline contracts.
 
 Gate: external runtime tests and owner validation pass and the exact commit is
-published. Only a separately authorized World Editor dependency-update task
-may advance `runtime-provider.lock`; this repository never edits or manages the
-external project's checkout, branches, or workers, and never edits
+published. The product manager may then advance `runtime-provider.lock` as part
+of the active cross-repository objective; runtime source remains owned and
+developed in its independent manager/workers, and no step edits
 `.runtime-provider/` in place.
 
 Implementation record: the automated runtime portion is published and pinned
@@ -1215,7 +1216,8 @@ Phase 7 used the now accepted
 [`v0.2.0-alpha.1 adaptive validation record`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md),
 the focused candidate suite, and an external-archive inspector. Exact
 real-artifact and owner-native evidence opened `RELEASE-READY` on 2026-08-14.
-The guarded
+The production release consumed that gate; it remains in the release tag and
+is deliberately absent from later development `main`. The guarded
 manager candidate route performs the real pinned builds into an isolated
 pre-gate output, while the inspector binds both artifacts to the complete
 reviewed Linux/Windows JRE inventories and executable-mode state. Pre-gate

@@ -34,9 +34,10 @@ Before working on any phase:
 3. Treat `.runtime-provider/` only as the clean detached checkout named by
    `runtime-provider.lock`. Do not develop in it, modify it, fetch in it, or use
    it as a source worktree.
-4. Do not advance `runtime-provider.lock` unless the manager explicitly assigns
-   an exact published runtime-provider commit in a separate dependency-update
-   task.
+4. Runtime implementation remains in the independent runtime repository. When
+   this material objective requires it, the product manager may publish the
+   tested runtime work and advance `runtime-provider.lock` to that exact commit
+   as a normal integration step.
 5. Do not change `release/world-builder/`, the v1 updater, v1 identities, or v1
    schemas. World Builder 2 materials MUST NOT cross-update or migrate v1.
 6. Preserve the source snapshot, offline-target, exact preview and
@@ -583,7 +584,7 @@ before any lock update is considered.
 
 ### Phase 2: Adopt the exact upstream runtime
 
-Manager-only, separately authorized work:
+Product-manager integration work within the authorized material objective:
 
 - select the exact published runtime-provider commit;
 - advance `runtime-provider.lock` to only that commit;

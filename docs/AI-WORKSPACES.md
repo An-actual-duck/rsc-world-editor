@@ -1,161 +1,159 @@
-# Manager and Worker AI Workflow
+# Product manager and optional worker workflow
 
-RSC World Editor separates stable folders from temporary task branches. A
-folder is an AI seat, not a category of work.
+RSC World Editor uses one product manager across two independent repositories.
+Repository separation protects provenance and release boundaries; it does not
+require the owner to act as a courier between two AI management layers.
 
 ```text
-/home/justin/rsc-world-editor       manager AI; main only
-/home/justin/rsc-world-editor-ai-1  neutral worker slot
-/home/justin/rsc-world-editor-ai-2  neutral worker slot
-/home/justin/rsc-world-editor-ai-3  neutral worker slot
+/home/justin/rsc-world-editor               product/Editor manager
+/home/justin/rsc-world-editor-ai-1          optional Editor implementation worker
+/home/justin/rsc-world-editor-ai-2..-ai-3   dormant Editor overflow/review slots
+
+/home/justin/rsc-world-editor-runtime       independent runtime manager
+/home/justin/rsc-world-editor-runtime-ai-1  normal runtime implementation worker
+/home/justin/rsc-world-editor-runtime-ai-2..-ai-3 optional runtime overflow slots
 ```
 
-The standalone repository is managed independently from Spoiled Milk. Its
-manager and workers observe only this repository, its `origin` remote, and the
-`rsc-world-editor-ai-*` worktrees. `runtime-provider.lock` names a frozen runtime
-dependency; it is not an instruction to monitor Spoiled Milk or its workers.
-The collaboration scripts also reject invocation from any current directory
-outside this repository's registered manager/worker worktrees.
+Core-Framework and Spoiled Milk are outside this workflow. Do not inspect or
+operate their managers, workers, branches, releases, deployments, or live data.
+The ignored `.runtime-provider/` directory is only the exact detached build
+dependency recorded by `runtime-provider.lock`; never run collaboration tools
+inside it.
 
-Do not run collaboration scripts inside `.runtime-provider`, follow its nested
-`AGENTS.md`, or report activity from `/home/justin/Core-Framework`. Runtime work
-is managed separately at `/home/justin/rsc-world-editor-runtime` with workers
-`/home/justin/rsc-world-editor-runtime-ai-1` through `-ai-3`. A Spoiled Milk
-commit, worker handoff, merge, or release is never a World Editor dependency
-signal.
+## Normal interaction
 
-## First-time setup
+The owner describes the desired outcome and may freely add, remove, or revise
+details while work is active. The product manager:
 
-From the manager checkout:
+1. classifies each change as Editor-owned, runtime-owned, or cross-repository;
+2. handles small Editor changes directly or assigns substantial Editor work to
+   Editor AI-1;
+3. assigns client/server work to runtime AI-1 through the runtime manager;
+4. follows up with workers as the scope evolves;
+5. reviews exact READY handoffs, runs appropriate tests, merges, publishes, and
+   recycles the slots; and
+6. adopts an in-scope published runtime commit into the Editor lock without
+   requiring the owner to relay a SHA or issue a second authorization.
+
+READY is a review state, not a prohibition on further changes. If the owner
+adds a related requirement after handoff, the manager reactivates or follows up
+on the same coherent task. A new branch is needed only for unrelated work, an
+independent release boundary, or a diff that would become unsafe to review.
+
+## Editor implementation choices
+
+Small documentation, repository-management, dependency-integration, and
+localized Editor changes may be completed by the manager. Meaningful direct
+implementation uses a short-lived manager topic branch when isolation is
+helpful.
+
+Use Editor AI-1 when work is substantial enough that independent implementation
+and manager review add value, especially for UI, project schemas, discovery,
+conversion, import/export, updater, or packaging changes. AI-2 and AI-3 are
+overflow capacity, not required participants. Leaving them detached and IDLE
+is the normal state.
+
+To assign an Editor worker:
 
 ```bash
-./scripts/ai-workspace.sh init 3
+./scripts/ai-workspace.sh start ai-1 feat/descriptive-task
+```
+
+The worker checkpoints during iteration and hands off once:
+
+```bash
+./scripts/ai-workspace.sh checkpoint -m "Checkpoint coherent task"
+./scripts/ai-workspace.sh handoff -m "Finish coherent task"
+```
+
+The manager reviews and completes integration:
+
+```bash
 ./scripts/ai-manager.sh status
-```
-
-The command creates three persistent detached worktrees beside the manager
-checkout. Idle slots may lag behind `main`; starting a task always branches
-from the current fetched `origin/main`.
-
-## Normal task cycle
-
-The manager activates one slot with a descriptive topic branch:
-
-```bash
-./scripts/ai-workspace.sh start ai-1 feat/example-task
-```
-
-Open `/home/justin/rsc-world-editor-ai-1` in the worker AI session. The worker
-can plan, discuss, implement, and test normally. The scripts manage Git state;
-they do not operate the AI.
-
-At useful milestones the worker commits and pushes a durable checkpoint:
-
-```bash
-./scripts/ai-workspace.sh checkpoint -m "Checkpoint example task"
-```
-
-When the exact commit is complete and tested:
-
-```bash
-./scripts/ai-workspace.sh handoff -m "Finish example task"
-```
-
-The manager reviews the complete diff and integrates only the recorded READY
-tip:
-
-```bash
-./scripts/ai-manager.sh status
-git log --oneline main..feat/example-task
-git diff main...feat/example-task
-./scripts/ai-manager.sh merge feat/example-task
+git diff main...feat/descriptive-task
+./scripts/ai-manager.sh merge feat/descriptive-task
 ./scripts/test.sh
 git push origin main
 ./scripts/ai-workspace.sh recycle ai-1
 ```
 
-Recycling is allowed only after the exact handoff commit is contained in both
-local and published `main`. It removes the completed temporary branch and
-returns the folder to detached IDLE state.
+## Cross-repository runtime work
 
-## Long-running and conversational work
+Runtime implementation remains in the independent runtime repository. The
+product manager may operate its manager and workers from their correct
+registered worktrees; it never edits `.runtime-provider` as source and never
+imports Core.
 
-A worker does not need a new authorization for every related question,
-iteration, or private test. Keep the slot ACTIVE while the work remains under
-one coherent umbrella. Checkpoint repeatedly and create a READY handoff only
-when manager review is useful.
+One cross-repository feature assignment normally authorizes this entire cycle:
 
-A new branch is needed when the assignment materially changes, when independent
-review/release boundaries matter, or when the existing work has been merged.
+1. activate runtime AI-1 on a descriptive branch;
+2. revise its prompt as related details change;
+3. inspect and test the exact READY handoff;
+4. merge and publish runtime `main`;
+5. select that exact published commit in `runtime-provider.lock`;
+6. materialize the detached dependency, run parity and the Editor full suite;
+7. commit and publish the bounded Editor integration; and
+8. continue or merge any associated Editor-owned feature work.
 
-## Recovery
+The owner need not provide a correction prompt, relay the commit hash, or say
+“advance the lock” between those steps. The manager reports the resulting exact
+runtime and Editor commits. A separate instruction is needed only when the
+runtime update is unrelated to the assigned objective.
 
-If a worker session closes or leaves confusing state, preserve it before
-cleanup:
-
-```bash
-./scripts/ai-manager.sh rescue ai-2 -m "Rescue abandoned work"
-```
-
-Rescue creates a named branch when necessary, commits tracked and untracked
-files, and pushes the exact result. Do not use stash, hard reset, clean, or
-worktree deletion to make the problem disappear.
-
-## External pull requests
-
-External contributors work in their own clones and username-namespaced topic
-branches. After confirming the pull request's exact full commit and remote
-branch, the manager can import it into an idle slot without merging:
+The combined status and adoption helper is:
 
 ```bash
-./scripts/ai-manager.sh collect-contributor ai-3 username/fix/example FULL_40_CHARACTER_COMMIT
+./scripts/product-manager.sh status
+./scripts/product-manager.sh adopt-runtime
 ```
 
-Review and test the collected branch like an internal handoff. Collection
-never grants the contributor authority over `main`, releases, or the pinned
-external runtime dependency.
+`adopt-runtime` selects only the clean published runtime manager `main`, updates
+only the lock/protocol inputs, materializes the lock, runs parity and the full
+Editor suite, then commits and publishes the bounded integration. An optional
+full SHA may be supplied as an additional guard. It refuses an open release
+gate or unrelated dirty Editor state.
 
-## Explicit dependency synchronization
+## Recovery and exact handoffs
 
-Dependency synchronization is exceptional manager work, never a background
-responsibility. Perform it only when the user explicitly assigns that task in
-the World Editor project. When authorized, use this bounded sequence:
-
-1. Receive the exact tested commit published by the independent runtime
-   manager on `refs/heads/main`; never source it from Core-Framework.
-2. In this manager checkout, adopt that exact clean published runtime without
-   copying repository-owned source from the provider.
-3. Review the bounded lock/protocol diff, run
-   `./scripts/check-runtime-provider-parity.sh`, and run `./scripts/test.sh`.
-4. Publish this repository's tested `main`. The provider ref is immutable
-   dependency provenance, not a worker branch for this manager to operate.
-
-Do not transplant an external topic branch into this repository, copy its
-World Builder source paths, or coordinate the other project's task lifecycle.
-The selected published commit is only a versioned runtime input; this
-repository retains its own history, backlog, workers, releases, and product
-identity.
-
-## Release boundary
+One AI session per worktree remains absolute. Most historical friction came
+from two sessions editing the same AI-1 folder, not from the repository split.
+If a session disappears or ownership becomes unclear, stop writers and rescue
+before cleanup:
 
 ```bash
-./scripts/ai-manager.sh release-check
+./scripts/ai-manager.sh rescue ai-1 -m "Rescue abandoned work"
 ```
 
-The manager gate requires clean published `main`, no ambiguous worktrees or
-stashes, and exact remote backups for active work. The legacy v1.1.0 line is
-frozen. World Builder 2 production packaging is enabled only by the reviewed
-`release/world-builder-v2/RELEASE-READY` marker. `ai-manager.sh release` first
-applies the manager gate, then delegates to the separate v2 packager. Packaging
-enforces the already-pinned clean runtime-provider revision, records both
-repository commits in release provenance, and never searches for or adopts
-upstream changes.
+Never use stash, hard reset, clean, forced checkout, or worktree deletion to
+erase ambiguous work. Exact READY commits and remote checkpoints remain useful
+because they make ownership and review deterministic; they no longer require
+the owner to manually shuttle information between managers.
 
-Before the marker exists, the manager may use `ai-manager.sh candidate` solely
-to create real Phase 7 validation archives. This restricted route applies the
-same manager gate, exact dependency, production build, provenance, native, and
-archive checks; refuses fixture builds and an open marker; and writes only to
-`output/candidates/`. It does not create the marker, tag, upload, publish, or
-deploy. Candidate archives are never promoted in place: after acceptance and a
-published gate commit, production archives are rebuilt with
-`ai-manager.sh release`.
+## Risk-based verification
+
+- Documentation and narrow low-risk changes: focused tests plus
+  `git diff --check` may be sufficient.
+- Behavioral features: relevant focused suites plus the full repository suite
+  before publishing.
+- Runtime-lock, schema, transaction, import/export, updater, packaging, or broad
+  integration changes: parity where applicable and the full suite.
+- Candidate acceptance and releases: every documented release check, full
+  suite, owner validation where required, and fresh production artifacts.
+
+The manager reports what ran, what was unavailable, and any accepted limits.
+
+## Release gates
+
+An accepted gate is version-bound and valid only at the exact published commit
+that records it. The production packager validates its schema, release version,
+runtime commit, validation record, and Git gate commit. Candidate archives are
+evidence only and are never promoted.
+
+After the release is published, remove `release/world-builder-v2/RELEASE-READY`
+from development `main`. The immutable release tag retains the gate and
+accepted record; later feature work begins with a closed gate and cannot reuse
+the prior acceptance.
+
+Release/tag/upload, deployment, real user-target mutation, live-server action,
+and destructive data/history operations remain explicit authorization
+boundaries unless already requested in the active objective.

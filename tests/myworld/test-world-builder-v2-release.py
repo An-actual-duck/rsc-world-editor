@@ -159,15 +159,17 @@ def make_fixture(
             root / "release/world-builder-v2",
         )
         marker = root / "release/world-builder-v2/RELEASE-READY"
-        if release_ready:
-            write(marker, "accepted fixture\n")
-        elif marker.exists():
+        if marker.exists():
             marker.unlink()
     shutil.copytree(
         SOURCE_ROOT / "release/updater-v2", standalone / "release/updater-v2"
     )
     (standalone / "scripts").mkdir()
     shutil.copy2(SOURCE_ROOT / "scripts/check-runtime-provider-parity.sh", standalone / "scripts/check-runtime-provider-parity.sh")
+    shutil.copy2(
+        SOURCE_ROOT / "scripts/validate-world-builder-v2-release-gate.sh",
+        standalone / "scripts/validate-world-builder-v2-release-gate.sh",
+    )
     shutil.copy2(SOURCE_ROOT / "LICENSE", standalone / "LICENSE")
     write(standalone / ".gitignore", "/output/\n")
 
@@ -356,6 +358,33 @@ def make_fixture(
         "RUNTIME_PROVIDER_REPOSITORY=https://example.invalid/core.git\n"
         f"RUNTIME_PROVIDER_COMMIT={runtime_provider_commit}\n",
     )
+    if release_ready:
+        validated_editor_commit = "0" * 40
+        validation_record = (
+            "docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md"
+        )
+        write(
+            standalone / validation_record,
+            "# Fixture validation — ACCEPTED — RELEASE READY\n\n"
+            f"Version: {VERSION}\n"
+            f"Validated Editor: {validated_editor_commit}\n"
+            f"Runtime: {runtime_provider_commit}\n",
+        )
+        write(
+            standalone / "release/world-builder-v2/RELEASE-READY",
+            json.dumps(
+                {
+                    "schemaVersion": 1,
+                    "manifestType": "world-builder-v2-release-gate",
+                    "releaseVersion": VERSION,
+                    "validatedEditorCommit": validated_editor_commit,
+                    "runtimeProviderCommit": runtime_provider_commit,
+                    "validationRecord": validation_record,
+                },
+                sort_keys=True,
+            )
+            + "\n",
+        )
     standalone_commit = initialize_repository(
         standalone, "Create standalone release fixture"
     )

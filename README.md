@@ -127,15 +127,20 @@ revision and verify its adaptive runtime contract:
 ./scripts/check-runtime-provider-parity.sh .runtime-provider
 ```
 
-The World Editor manager does not monitor or operate Spoiled Milk branches,
-workers, or releases. Only when the user explicitly assigns an exact published
-runtime-provider commit should the dependency lock be updated with:
+The World Editor product manager never monitors or operates Spoiled Milk
+branches, workers, or releases. When an assigned World Builder objective
+includes runtime work, the manager may select the exact tested commit it
+publishes from the independent runtime repository and update the dependency
+without asking the owner to relay the SHA:
 
 ```bash
 ./scripts/sync-from-runtime-provider.sh \
   /path/to/clean-runtime-provider \
   refs/heads/main
 ```
+
+For the complete verified and published integration, use
+`./scripts/product-manager.sh adopt-runtime`.
 
 Maintainer development uses one manager checkout and reusable neutral worker
 worktrees. Initialize or inspect that workflow with:
@@ -172,8 +177,10 @@ exact undo for adopted and converted projects. Phase 7 archive,
 packaged-runtime, transaction, and owner-native validation passed for the exact
 candidate recorded in the accepted
 [v0.2.0-alpha.1 adaptive validation record](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
-The release gate is open. Restricted candidate files remain evidence only;
-production archives are rebuilt from the later clean published gate commit.
+The release was published from its exact gate commit. Development `main` has
+consumed and closed that gate so later changes cannot reuse the acceptance;
+the immutable release tag retains it. Restricted candidate files remain
+evidence only.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor

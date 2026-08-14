@@ -21,6 +21,9 @@ def main() -> None:
     )
     manager = (ROOT / "scripts/ai-manager.sh").read_text(encoding="utf-8")
     workspace = (ROOT / "scripts/ai-workspace.sh").read_text(encoding="utf-8")
+    product_manager = (ROOT / "scripts/product-manager.sh").read_text(
+        encoding="utf-8"
+    )
     checkout = (ROOT / "scripts/checkout-runtime-provider.sh").read_text(
         encoding="utf-8"
     )
@@ -36,10 +39,10 @@ def main() -> None:
     normalized_development = " ".join(development.split())
 
     for required in (
-        "manage only the `rsc-world-editor` Git",
-        "Never run `.runtime-provider/scripts/ai-manager.sh`",
-        "does not create a World Editor task",
-        "only when the user explicitly assigns a dependency-update task",
+        "product-level manager",
+        "Never run collaboration scripts inside `.runtime-provider`",
+        "Activity in Spoiled Milk does not create a World Editor task",
+        "The user does not need to relay correction prompts",
         "Never activate, inspect, or collect `/home/justin/Core-Framework-ai-*`",
         "`/home/justin/rsc-world-editor-runtime`",
     ):
@@ -53,7 +56,7 @@ def main() -> None:
         "World Editor manager still treats Spoiled Milk advancement as routine work",
     )
     require(
-        "Do not run collaboration scripts inside `.runtime-provider`" in workspace_docs,
+        "never run collaboration tools\ninside it" in workspace_docs,
         "workspace documentation does not isolate the dependency checkout",
     )
     require(
@@ -112,6 +115,16 @@ def main() -> None:
         and "No World Builder-owned source was copied" in sync,
         "dependency adoption can still overwrite World Builder-owned source",
     )
+    require(
+        "adopt-runtime" in product_manager
+        and "./scripts/check-runtime-provider-parity.sh .runtime-provider"
+        in product_manager
+        and "./scripts/test.sh" in product_manager
+        and "git push origin main" in product_manager
+        and "/home/justin/Core-Framework" not in product_manager
+        and "Core-Framework-ai-" not in product_manager,
+        "product manager does not provide bounded independent runtime adoption",
+    )
     for explicit_tool in (
         ROOT / "scripts/check-runtime-provider-parity.sh",
         ROOT / "scripts/sync-from-runtime-provider.sh",
@@ -133,6 +146,7 @@ def main() -> None:
     for script_name, source in (
         ("ai-manager.sh", manager),
         ("ai-workspace.sh", workspace),
+        ("product-manager.sh", product_manager),
     ):
         require(
             "/home/justin/Core-Framework" not in source

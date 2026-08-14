@@ -25,9 +25,17 @@ Repository readiness is audited with:
 
 `./scripts/ai-manager.sh release` delegates to the v2 packager only when
 `release/world-builder-v2/RELEASE-READY` contains a deliberately accepted
-candidate record. The adaptive v0.2.0-alpha.1 gate is open. The restricted
-candidate archives remain validation evidence only; production packaging must
-rebuild from clean published `main` with the exact locked runtime.
+candidate record. The adaptive v0.2.0-alpha.1 gate was consumed by its
+published release and is closed again on development `main`; its release tag
+retains the historical marker. Restricted candidate archives remain validation
+evidence only.
+
+New gates use the strict `world-builder-v2-release-gate` JSON schema. The gate
+must name the requested version, exact validated Editor candidate, exact locked
+runtime, and accepted record under `docs/releases/`. The packager also requires
+the gate to have been added or refreshed in the exact production source commit.
+Any later commit makes it stale. After successful publication, remove the gate
+from development `main` so the next release starts closed.
 
 The dependency checkout used for packaging must already be clean and at the
 exact commit in `runtime-provider.lock`. Packaging never checks for a newer
