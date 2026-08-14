@@ -4,13 +4,13 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Phases 0-6 and project-local native supervision are implemented; the Phase 4 adaptive runtime provider is implemented and pinned, with owner native validation still pending |
-| Product/release readiness | NOT READY; Phase 4 owner validation and the Phase 7 candidate-validation record remain gated |
+| Status | Phases 0-7 are implemented; the adaptive v0.2.0-alpha.1 release completed owner-native validation and was published |
+| Product/release readiness | Released foundation; the next production release gate is deliberately closed |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
-| Repository reviewed | Phase 3 published state `dac388a32aa41754a49341e3ddcc8cc196389ab4` |
-| Pinned adaptive runtime | `56acea6c7a77f96ed50d394c314a1de264fcb3aa` via the independent provider's canonical `refs/heads/main` |
+| Repository reviewed | Implemented history through the accepted adaptive v0.2.0-alpha.1 release and later published management updates |
+| Pinned adaptive runtime | The exact independent provider commit in `runtime-provider.lock` |
 
 Approval establishes this document as the implementation plan. It does not by
 itself authorize a dependency update, release-gate change, migration of user
@@ -211,7 +211,8 @@ The first adaptive release does not include:
 - reverse conversion of edited layered maps back to legacy packed maps;
 - automatic attachment/import of a standalone empty project to a server;
 - structure selection, prefab packaging, or copy/paste commands—the project
-  model MUST leave room for those future features, but they are later work;
+  model leaves room for the later goals recorded in
+  [`WORLD-BUILDER-2-PRODUCT-GOALS.md`](WORLD-BUILDER-2-PRODUCT-GOALS.md);
 - automatic player-client distribution; or
 - implementation of the separate custom-materials plan.
 

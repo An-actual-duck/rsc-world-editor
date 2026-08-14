@@ -4,14 +4,23 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved design and implementation guide; implementation has not started |
+| Status | Approved baseline design; implementation has not started and portable sharing identity requires revision |
 | Approved | 2026-08-01 |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
-| Foundation | [`ADAPTIVE-MAP-WORKFLOW.md`](ADAPTIVE-MAP-WORKFLOW.md) must be implemented first |
+| Foundation | The implemented adaptive project/export/import foundation in [`ADAPTIVE-MAP-WORKFLOW.md`](ADAPTIVE-MAP-WORKFLOW.md) |
 | Distribution decision | Server owners distribute the matching client and material pack to players |
 | Authoring decision | Versioned safe presets; no raw definition flags |
 | Image decision | PNG input, explicit crop/resize review, 64-by-64 default, 128-by-128 opt-in |
+
+The later [product goals and readiness](WORLD-BUILDER-2-PRODUCT-GOALS.md)
+adds creator-to-creator sharing as an intended outcome. The ingest,
+normalization, safe-preset, project, and transaction design below remains the
+approved baseline. Before implementation, its pack identity and allocation
+sections must be revised so a portable `namespace + slug + preset` identity is
+bound to canonical pixels and can be translated safely to destination-local
+numeric IDs. The current collision refusal is safe but does not by itself make
+independently created packs composable.
 
 This document is the source of truth for the first custom-materials increment.
 It is intentionally prescriptive so a future maintainer or AI session can
@@ -52,9 +61,10 @@ Before working on any phase:
 
 Runtime support cannot be completed solely in this repository. Client,
 server, protocol, and in-game editor changes MUST land in the external runtime
-provider first.
-Only a later, explicitly authorized manager task may select that exact commit
-and advance the lock. Editing `.runtime-provider/` is never a substitute.
+provider first. When this approved product objective is implemented, the
+product manager may select the exact tested runtime commit and advance the lock
+as its normal integration step. Editing `.runtime-provider/` is never a
+substitute.
 
 ## Approved product scope
 
@@ -335,6 +345,13 @@ content and every inventoried canonical image. No project path, display target
 locator, timestamp, host name, or platform separator participates.
 
 ### Stable automatic ID allocation
+
+The allocation below describes stable numeric mapping inside one project and
+its inherited source pack. Numeric IDs are runtime/storage details, not the
+portable creator-facing identity. Before implementation, this section must be
+extended with the share-safe namespace identity and destination translation
+required by the product goals document. Until then, independently allocated
+packs remain collision-refused rather than automatically merged.
 
 The exact runtime exposes a versioned capability document containing:
 

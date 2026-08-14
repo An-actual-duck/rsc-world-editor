@@ -122,8 +122,10 @@ this repository would create the same drift this repository is intended to
 prevent. Instead, releases use the exact dependency revision already selected
 in `runtime-provider.lock`. The release build refuses a different revision, and
 dependency-update/release checks verify its published capability, required
-runtime surfaces, and protocol. Neither CI nor the World Editor manager searches for newer upstream work;
-changing the pin is a separate, explicitly assigned task.
+runtime surfaces, and protocol. CI and ordinary builds never search for newer
+provider work. When an assigned product objective includes runtime work, the
+product manager may publish the tested independent runtime commit and adopt it
+through the bounded lock/parity/full-suite workflow.
 
 ## Product-generation boundary
 
@@ -156,10 +158,10 @@ immediate standalone import/undo refusal. The Linux and Windows v2 launchers
 now use adaptive parent-target discovery instead of a fixed config or packaged
 world.
 
-The exact locked runtime now supplies the separately reviewed Phase 4 generic
+The exact locked runtime supplies the separately reviewed Phase 4 generic
 layered-loader, authoring, placement, isolation, and copy-on-write capability.
 Owner-run adopted-project and standalone-empty visual/edit/save/reopen
-validation remains pending. Phase 5 supplies the generic identity, exact
+validation passed for the accepted adaptive release. Phase 5 supplies the generic identity, exact
 runtime/default-catalog allowlist, no-world archive validation, and durable
 Linux/Windows updater boundary. Phase 6 supplies complete adaptive export,
 compiled mutation profiles, exact preview/import, durable receipt/backup
@@ -180,3 +182,13 @@ transaction foundation above. It does not modify the frozen v1 workflow or
 patch the base texture archive. See [World Builder 2 Custom Wall and Floor
 Materials](WORLD-BUILDER-2-CUSTOM-MATERIALS.md) for the normative implementation
 plan, phase gates, tests, and acceptance criteria.
+
+## Living product direction
+
+The next intended product outcomes—detached camera control, a quiescent Builder
+runtime, immediate paint previews, relative elevation, line and house tools,
+share-safe creator content, broader conversion assistance, region
+copy/cut/paste, and exportable snapshots—are assessed in [World Builder 2
+Product Goals and Readiness](WORLD-BUILDER-2-PRODUCT-GOALS.md). That living
+document records direction and dependencies without authorizing implementation
+or changing the released adaptive contracts described here.

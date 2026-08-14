@@ -187,6 +187,14 @@ is documented in [World Builder 2 Custom Wall and Floor
 Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md). Custom material packs are
 not implemented in v0.2.0-alpha.1 and remain planned for a later release.
 
+The living direction for editor-quality tools, a detached and quiescent Build
+mode, fluid terrain strokes, relative elevation, lines and house tools,
+share-safe creator materials, broader legacy conversion, region
+copy/cut/paste, and exportable snapshots is recorded in [World Builder 2
+Product Goals and Readiness](docs/WORLD-BUILDER-2-PRODUCT-GOALS.md). That
+document assesses the current foundation and does not itself start
+implementation work.
+
 ## License
 
 The source is provided under the GNU Affero General Public License, version 3.
