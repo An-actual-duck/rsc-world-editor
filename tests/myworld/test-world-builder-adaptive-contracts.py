@@ -684,6 +684,125 @@ def import_receipt() -> dict:
     }
 
 
+def region_selection() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-region-selection",
+        "worldSpace": "global",
+        "markers": [
+            {"marker": 1, "x": 0, "y": 0},
+            {"marker": 2, "x": 1, "y": 0},
+            {"marker": 3, "x": 0, "y": 1},
+        ],
+        "levels": [0],
+        "selectionFingerprintSha256": HASH_A,
+    }
+
+
+def region_snapshot() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-region-snapshot",
+        "snapshotId": HASH_A,
+        "name": "Fixture region",
+        "worldSpace": "global",
+        "anchor": {"level": 0, "x": 0, "y": 0},
+        "polygon": [
+            {"marker": 1, "xOffset": 0, "yOffset": 0},
+            {"marker": 2, "xOffset": 1, "yOffset": 0},
+            {"marker": 3, "xOffset": 0, "yOffset": 1},
+        ],
+        "levels": [
+            {
+                "levelOffset": 0,
+                "tiles": [
+                    {
+                        "xOffset": 0,
+                        "yOffset": 0,
+                        "elevation": 0,
+                        "groundTexture": 1,
+                        "groundOverlay": 8,
+                        "roofTexture": 0,
+                        "verticalWall": 0,
+                        "horizontalWall": 0,
+                        "diagonalWall": 0,
+                        "canonicalVoid": True,
+                    }
+                ],
+            }
+        ],
+        "placements": {
+            "boundaries": [], "groundItems": [], "npcs": [], "scenery": []
+        },
+        "footprintBoundaryReports": [],
+        "catalog": {"catalogId": "catalog-v1", "sha256": HASH_B},
+        "sourceEvidence": {
+            "projectId": PROJECT_ID,
+            "packageSchemaId": "layered-world-package-v1",
+            "coordinateModel": "signed-layered-v1",
+            "workingSha256": HASH_C,
+            "runtimeSha256": HASH_D,
+        },
+        "dependencies": [
+            {
+                "kind": "definition-catalog",
+                "family": "catalog",
+                "logicalId": "catalog:catalog-v1",
+                "numericId": -1,
+                "catalogId": "catalog-v1",
+                "contentSha256": HASH_B,
+                "resolution": "catalog",
+                "bundled": False,
+            }
+        ],
+        "snapshotFingerprintSha256": HASH_A,
+    }
+
+
+def region_bundle() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-region-bundle",
+        "formatId": "portable-region-bundle-v1",
+        "snapshotId": HASH_A,
+        "files": [
+            {"role": "snapshot", "relativePath": "snapshot.json", "size": 2, "sha256": HASH_B}
+        ],
+        "bundleFingerprintSha256": HASH_C,
+    }
+
+
+def region_compatibility() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-region-compatibility-report",
+        "snapshotId": HASH_A,
+        "projectId": PROJECT_ID,
+        "compatible": True,
+        "issues": [],
+        "reportFingerprintSha256": HASH_B,
+    }
+
+
+def region_operation_plan() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-region-operation-plan",
+        "operation": "paste",
+        "snapshotId": HASH_A,
+        "projectId": PROJECT_ID,
+        "workingBeforeSha256": HASH_B,
+        "destinationAnchor": {"level": 0, "x": 0, "y": 0},
+        "files": [
+            {"relativePath": "manifest.json", "beforeSha256": HASH_C, "afterSha256": HASH_D}
+        ],
+        "collisions": [],
+        "overwriteRequired": False,
+        "blocked": False,
+        "planFingerprintSha256": HASH_A,
+    }
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -710,6 +829,19 @@ SCHEMA_CONTRACTS = {
     "export-manifest-v2.schema.json": (2, "world-builder-adaptive-export"),
     "target-mutation-plan-v1.schema.json": (1, "world-builder-target-mutation-plan"),
     "import-receipt-v3.schema.json": (3, "world-builder-adaptive-import-receipt"),
+    "region-selection-v1.schema.json": (1, "world-builder-region-selection"),
+    "region-snapshot-v1.schema.json": (1, "world-builder-region-snapshot"),
+    "region-bundle-manifest-v1.schema.json": (1, "world-builder-region-bundle"),
+    "region-compatibility-report-v1.schema.json": (1, "world-builder-region-compatibility-report"),
+    "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),
+}
+
+REGION_SCHEMA_VECTORS = {
+    "world-builder-region-selection": region_selection,
+    "world-builder-region-snapshot": region_snapshot,
+    "world-builder-region-bundle": region_bundle,
+    "world-builder-region-compatibility-report": region_compatibility,
+    "world-builder-region-operation-plan": region_operation_plan,
 }
 
 
@@ -879,6 +1011,7 @@ class AdaptiveContractTests(unittest.TestCase):
         factories_by_type = {
             factory()["manifestType"]: factory for factory in VALID_CONTRACTS.values()
         }
+        factories_by_type.update(REGION_SCHEMA_VECTORS)
         for name, (_, manifest_type) in SCHEMA_CONTRACTS.items():
             with self.subTest(schema=name):
                 schema = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))

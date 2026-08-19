@@ -42,6 +42,25 @@ final class WorldBuilderRegionSnapshotService {
 	private static final long MAX_BUNDLE_BYTES = 32L * 1024L * 1024L;
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
 	private static final long ZIP_TIME = 315532800000L;
+	private final Observer observer;
+
+	interface Observer {
+		void observe(String milestone, Path project) throws Exception;
+	}
+
+	private static final Observer NO_OP_OBSERVER = new Observer() {
+		@Override public void observe(String milestone, Path project) {
+			// Production region operations do not inject failures.
+		}
+	};
+
+	WorldBuilderRegionSnapshotService() {
+		this(NO_OP_OBSERVER);
+	}
+
+	WorldBuilderRegionSnapshotService(Observer observer) {
+		this.observer = observer == null ? NO_OP_OBSERVER : observer;
+	}
 
 	String copy(Path project, Path selectionPath, String name)
 		throws IOException, WorldBuilderContractException {
@@ -69,7 +88,7 @@ final class WorldBuilderRegionSnapshotService {
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-cut-preview")) {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, false);
+				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Capture capture = capture(verified, readSelection(selectionPath), name);
 			LibraryRecord library = publishToLibrary(root, capture.snapshot);
 			PreparedMutation prepared = prepareCut(verified, capture.snapshot);
@@ -113,7 +132,7 @@ final class WorldBuilderRegionSnapshotService {
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-export")) {
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Bundle bundle = loadLibrary(root, snapshotId);
-			Path output = safeNewOutput(requestedOutput);
+			Path output = safeNewOutput(requestedOutput, root);
 			Path stage = output.resolveSibling("." + output.getFileName().toString()
 				+ ".staging-" + UUID.randomUUID().toString());
 			try {
@@ -202,9 +221,13 @@ final class WorldBuilderRegionSnapshotService {
 					"Region operation confirmation does not bind the current exact plan.",
 					"Generate a fresh preview and enter its exact confirmation text.");
 			}
-			publishWorkingPackage(project, prepared.stage);
+			boolean published = false;
 			boolean saved = false;
 			try {
+				observer.observe("before-package-publication", project);
+				publishWorkingPackage(project, prepared.stage);
+				published = true;
+				observer.observe("package-published", project);
 				WorldBuilderAdaptiveProjectLifecycle.ProjectResult result =
 					new WorldBuilderAdaptiveProjectLifecycle().saveAfterSupervisedRun(project);
 				saved = true;
@@ -217,12 +240,15 @@ final class WorldBuilderRegionSnapshotService {
 				output.put("worldModified", Boolean.TRUE);
 				return WorldBuilderJsonDocuments.pretty(output);
 			} catch (Exception failure) {
-				if (!saved) rollbackWorkingPublication(project, failure);
+				if (published && !saved) rollbackWorkingPublication(project, failure);
 				if (failure instanceof IOException) throw (IOException)failure;
 				if (failure instanceof WorldBuilderContractException) {
 					throw (WorldBuilderContractException)failure;
 				}
-				throw new IOException("Region publication failed", failure);
+				throw new IOException("Region publication failed: "
+					+ failure.getMessage(), failure);
+			} finally {
+				if (!published) prepared.discard();
 			}
 		}
 	}
@@ -323,7 +349,13 @@ final class WorldBuilderRegionSnapshotService {
 				verified.definitions.catalogId);
 		}
 		for (String family : placementFamilies()) sortCanonical(list(placements, family));
-		Collections.sort(reports, canonicalComparator());
+		Collections.sort(reports, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				Map<String,Object> a = map(left), b = map(right);
+				return (text(a, "family") + "\u0000" + text(a, "placementId"))
+					.compareTo(text(b, "family") + "\u0000" + text(b, "placementId"));
+			}
+		});
 		root.put("placements", placements);
 		root.put("footprintBoundaryReports", reports);
 		Map<String,Object> catalog = new LinkedHashMap<String,Object>();
@@ -599,6 +631,16 @@ final class WorldBuilderRegionSnapshotService {
 		WorldBuilderRegionContracts.Snapshot snapshot)
 		throws WorldBuilderContractException {
 		List<Object> issues = new ArrayList<Object>();
+		Map<String,Object> source = map(snapshot.root.get("sourceEvidence"));
+		if (!snapshot.worldSpace.equals(verified.working.worldSpace)) {
+			issues.add(issue("world-space-mismatch", snapshot.worldSpace,
+				"Snapshot and project static world spaces differ."));
+		}
+		if (!"layered-world-package-v1".equals(text(source, "packageSchemaId"))
+			|| !"signed-layered-v1".equals(text(source, "coordinateModel"))) {
+			issues.add(issue("package-contract-mismatch", text(source, "packageSchemaId"),
+				"Snapshot package schema or coordinate model is unsupported."));
+		}
 		Map<String,Object> catalog = map(snapshot.root.get("catalog"));
 		String projectCatalogHash = fingerprint(verified.manifest, "definitionsSha256");
 		if (!verified.definitions.catalogId.equals(text(catalog, "catalogId"))
@@ -735,7 +777,7 @@ final class WorldBuilderRegionSnapshotService {
 
 	private LibraryRecord publishBundle(Path project, Bundle bundle)
 		throws IOException, WorldBuilderContractException {
-		Path library = library(project);
+		Path library = library(project, true);
 		String name = bundle.snapshot.id + BUNDLE_EXTENSION;
 		Path destination = library.resolve(name);
 		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
@@ -783,7 +825,7 @@ final class WorldBuilderRegionSnapshotService {
 
 	private static Path requireLibraryFile(Path project, String snapshotId)
 		throws IOException, WorldBuilderContractException {
-		Path library = library(project);
+		Path library = library(project, false);
 		Path path = library.resolve(snapshotId + BUNDLE_EXTENSION).normalize();
 		if (!path.getParent().equals(library)
 			|| !Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
@@ -795,7 +837,7 @@ final class WorldBuilderRegionSnapshotService {
 		return path;
 	}
 
-	private static Path library(Path project)
+	private static Path library(Path project, boolean create)
 		throws IOException, WorldBuilderContractException {
 		Path root = project.toAbsolutePath().normalize();
 		Path library = root.resolve(LIBRARY).normalize();
@@ -803,17 +845,38 @@ final class WorldBuilderRegionSnapshotService {
 			LIBRARY, "Snapshot library path escaped the project.",
 			"Restore the canonical project-local library path.");
 		Path parent = library.getParent();
-		if (!Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(parent);
+		if (create && !Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) {
+			Files.createDirectory(parent);
+		}
 		if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(parent)) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
 			LIBRARY, "Snapshot library parent is linked or not a directory.",
 			"Restore one real project-local snapshot-library directory.");
-		if (!Files.exists(library, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(library);
+		if (create && !Files.exists(library, LinkOption.NOFOLLOW_LINKS)) {
+			Files.createDirectory(library);
+		}
 		if (!Files.isDirectory(library, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(library) || !library.toRealPath().startsWith(root.toRealPath())) {
 			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, LIBRARY,
 				"Snapshot library is linked, missing, or outside the project.",
 				"Restore one real contained project-local library.");
+		}
+		int count = 0;
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(library)) {
+			for (Path entry : entries) {
+				if (++count > 1024) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
+					"Snapshot library exceeds 1,024 entries.",
+					"Move reviewed bundles to a separate archive before adding more.");
+				String name = entry.getFileName().toString();
+				if (!name.matches("[0-9a-f]{64}\\.wbr")
+					|| !Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(entry)) throw problem(
+					WorldBuilderErrorCodes.UNSAFE_PATH, LIBRARY,
+					"Snapshot library contains an unsafe or untracked entry: " + name + ".",
+					"Keep only content-addressed regular .wbr bundles in library v1.");
+				rejectHardLink(entry, LIBRARY + "/" + name);
+			}
 		}
 		return library;
 	}
@@ -907,17 +970,13 @@ final class WorldBuilderRegionSnapshotService {
 	}
 
 	private static Map<String,Object> readJson(byte[] bytes, String label)
-		throws IOException, WorldBuilderContractException {
-		Path temporary = Files.createTempFile("world-builder-region-json-", ".json");
+		throws WorldBuilderContractException {
 		try {
-			Files.write(temporary, bytes);
-			return WorldBuilderJsonDocuments.readObject(temporary);
+			return WorldBuilderJsonDocuments.readObject(bytes, label);
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw problem(WorldBuilderErrorCodes.MALFORMED_JSON, label,
 				"Region bundle JSON is malformed.",
 				"Use canonical bounded UTF-8 region contract JSON.", malformed);
-		} finally {
-			Files.deleteIfExists(temporary);
 		}
 	}
 
@@ -1061,11 +1120,15 @@ final class WorldBuilderRegionSnapshotService {
 		return path;
 	}
 
-	private static Path safeNewOutput(Path requested)
+	private static Path safeNewOutput(Path requested, Path project)
 		throws IOException, WorldBuilderContractException {
 		if (requested == null) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "output",
 			"Region export output path is absent.", "Choose a new .wbr output path.");
 		Path output = requested.toAbsolutePath().normalize();
+		if (output.startsWith(project.toAbsolutePath().normalize())) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, "output",
+			"Region export output cannot be inside the adaptive project.",
+			"Choose a separate creator-owned export directory.");
 		if (!output.getFileName().toString().endsWith(BUNDLE_EXTENSION)
 			|| Files.exists(output, LinkOption.NOFOLLOW_LINKS)) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "output",

@@ -195,6 +195,13 @@ Product Goals and Readiness](docs/WORLD-BUILDER-2-PRODUCT-GOALS.md). That
 document assesses the current foundation and does not itself start
 implementation work.
 
+The Editor-owned copy/cut/paste foundation is specified in [World Builder 2
+Region Snapshots v1](docs/WORLD-BUILDER-2-REGION-SNAPSHOTS.md). It implements
+strict ordered-polygon snapshots, safe project-local bundle import/export,
+compatibility and collision plans, and atomic isolated-project cut/paste.
+In-game markers, ghost rendering, runtime transactions, and durable undo remain
+separate runtime-provider work and are not claimed by this foundation.
+
 ## License
 
 The source is provided under the GNU Affero General Public License, version 3.

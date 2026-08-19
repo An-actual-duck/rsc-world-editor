@@ -210,9 +210,10 @@ The first adaptive release does not include:
 - automatic project rebase/merge after a server update;
 - reverse conversion of edited layered maps back to legacy packed maps;
 - automatic attachment/import of a standalone empty project to a server;
-- structure selection, prefab packaging, or copy/paste commands—the project
-  model leaves room for the later goals recorded in
-  [`WORLD-BUILDER-2-PRODUCT-GOALS.md`](WORLD-BUILDER-2-PRODUCT-GOALS.md);
+- in-game structure markers, ghost previews, authoritative region packets, or
+  durable interactive undo. The later Editor-owned ordered-polygon, portable
+  bundle, library, and isolated cut/paste foundation is specified in
+  [`WORLD-BUILDER-2-REGION-SNAPSHOTS.md`](WORLD-BUILDER-2-REGION-SNAPSHOTS.md);
 - automatic player-client distribution; or
 - implementation of the separate custom-materials plan.
 

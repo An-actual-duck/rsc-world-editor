@@ -93,10 +93,21 @@ final class WorldBuilderRegionContracts {
 		}
 		if (relative.get(0).x != 0 || relative.get(0).y != 0) invalid(op,
 			"Snapshot marker 1 must be the zero-offset paste anchor.");
-		Geometry.create(relative, op);
+		Geometry relativeGeometry = Geometry.create(relative, op);
+		if ((long)relativeGeometry.width * relativeGeometry.height
+			> MAX_TILES * 4L) invalid(op,
+			"Snapshot polygon bounding inventory exceeds its bounded search area.");
+		Set<String> expectedTiles = new HashSet<String>();
+		for (int x = relativeGeometry.minimumX; x <= relativeGeometry.maximumX; x++) {
+			for (int y = relativeGeometry.minimumY; y <= relativeGeometry.maximumY; y++) {
+				if (relativeGeometry.owns(x, y)) expectedTiles.add(x + ":" + y);
+			}
+		}
+		if (expectedTiles.isEmpty()) invalid(op, "Snapshot polygon owns no tile centers.");
 		List<?> levels = array(root.get("levels"), op, "levels", 1, MAX_LEVELS);
 		int tileCount = 0;
 		Integer previousLevel = null;
+		Set<Integer> levelOffsets = new HashSet<Integer>();
 		for (Object raw : levels) {
 			Map<String,Object> level = object(raw, op, "snapshot level");
 			exact(level, op, "levelOffset", "tiles");
@@ -104,8 +115,10 @@ final class WorldBuilderRegionContracts {
 			if (previousLevel != null && previousLevel.intValue() >= offset) invalid(op,
 				"Snapshot level offsets must be unique and ascending.");
 			previousLevel = Integer.valueOf(offset);
+			levelOffsets.add(Integer.valueOf(offset));
 			List<?> tiles = array(level.get("tiles"), op, "tiles", 1, MAX_TILES);
 			String previousTile = null;
+			Set<String> actualTiles = new HashSet<String>();
 			for (Object rawTile : tiles) {
 				Map<String,Object> tile = object(rawTile, op, "tile");
 				exact(tile, op, "xOffset", "yOffset", "elevation", "groundTexture",
@@ -119,18 +132,27 @@ final class WorldBuilderRegionContracts {
 					if (value < 0L || value > 255L) invalid(op,
 						"Snapshot byte terrain field is outside 0..255.");
 				}
-				signed(tile, "diagonalWall", op); bool(tile, "canonicalVoid", op);
+				signed(tile, "diagonalWall", op);
+				boolean canonicalVoid = bool(tile, "canonicalVoid", op);
+				if (canonicalVoid != isCanonicalVoid(tile, op)) invalid(op,
+					"Snapshot canonical-void flag disagrees with exact terrain fields.");
 				String key = ordered(x) + ":" + ordered(y);
 				if (previousTile != null && previousTile.compareTo(key) >= 0) invalid(op,
 					"Snapshot tiles are duplicated or not canonically ordered.");
 				previousTile = key;
+				actualTiles.add(x + ":" + y);
 				if (++tileCount > MAX_TILES) invalid(op,
 					"Snapshot exceeds its total tile limit.");
 			}
+			if (!actualTiles.equals(expectedTiles)) invalid(op,
+				"Every snapshot level must contain exactly the polygon-owned tiles.");
 		}
 		Map<String,Object> placements = object(root.get("placements"), op, "placements");
 		exact(placements, op, "boundaries", "groundItems", "npcs", "scenery");
 		int placementCount = 0;
+		Set<String> placementIds = new HashSet<String>();
+		Set<String> expectedReports = new HashSet<String>();
+		Set<String> requiredDefinitions = new HashSet<String>();
 		for (String family : Arrays.asList("boundaries", "groundItems", "npcs", "scenery")) {
 			List<?> records = array(placements.get(family), op, family, 0, MAX_PLACEMENTS);
 			String previous = null;
@@ -143,6 +165,18 @@ final class WorldBuilderRegionContracts {
 				if (++placementCount > MAX_PLACEMENTS) invalid(op,
 					"Snapshot exceeds its total placement limit.");
 				validatePlacementRecord(family, record, op);
+				String placementId = identifier(record, "placementId", op);
+				if (!placementIds.add(placementId)) invalid(op,
+					"Snapshot placement IDs must be unique across all families.");
+				int levelOffset = signed(record, "levelOffset", op);
+				if (!levelOffsets.contains(Integer.valueOf(levelOffset))) invalid(op,
+					"Snapshot placement references a level offset absent from terrain.");
+				Point owner = placementOwner(family, record, op);
+				if (!relativeGeometry.owns(owner.x, owner.y)) invalid(op,
+					"Snapshot placement owner lies outside the selection polygon.");
+				expectedReports.add(singular(family) + "\u0000" + placementId);
+				requiredDefinitions.add(singular(family) + ":"
+					+ placementDefinitionId(family, record, op));
 			}
 		}
 		List<?> reports = array(root.get("footprintBoundaryReports"), op,
@@ -163,7 +197,11 @@ final class WorldBuilderRegionContracts {
 			if (previousReport != null && previousReport.compareTo(key) >= 0) invalid(op,
 				"Footprint reports are duplicated or not canonically ordered.");
 			previousReport = key;
+			if (!expectedReports.remove(key)) invalid(op,
+				"Footprint report does not bind one captured placement.");
 		}
+		if (!expectedReports.isEmpty()) invalid(op,
+			"Every captured placement requires one footprint-boundary report.");
 		Map<String,Object> catalog = object(root.get("catalog"), op, "catalog");
 		exact(catalog, op, "catalogId", "sha256");
 		identifier(catalog, "catalogId", op); hash(catalog, "sha256", op);
@@ -173,7 +211,9 @@ final class WorldBuilderRegionContracts {
 		uuid(source, "projectId", op); identifier(source, "packageSchemaId", op);
 		identifier(source, "coordinateModel", op); hash(source, "workingSha256", op);
 		hash(source, "runtimeSha256", op);
-		validateDependencies(root.get("dependencies"), op);
+		validateDependencies(root.get("dependencies"), op,
+			string(catalog, "catalogId", op), string(catalog, "sha256", op),
+			requiredDefinitions);
 		requireDualFingerprint(root, "snapshotId", "snapshotFingerprintSha256", op);
 		if (!id.equals(string(root, "snapshotFingerprintSha256", op))) invalid(op,
 			"Snapshot ID and content fingerprint must match.");
@@ -213,11 +253,16 @@ final class WorldBuilderRegionContracts {
 		List<?> issues = array(root.get("issues"), op, "issues", 0, 1024);
 		if (compatible != issues.isEmpty()) invalid(op,
 			"Compatibility state and issue inventory disagree.");
+		String previousIssue = null;
 		for (Object raw : issues) {
 			Map<String,Object> issue = object(raw, op, "compatibility issue");
 			exact(issue, op, "code", "dependency", "message");
 			identifier(issue, "code", op); text(issue, "dependency", op, 0, 256);
 			text(issue, "message", op, 1, 512);
+			String canonical = canonical(issue);
+			if (previousIssue != null && previousIssue.compareTo(canonical) >= 0) invalid(op,
+				"Compatibility issues are duplicated or not canonically ordered.");
+			previousIssue = canonical;
 		}
 		requireFingerprint(root, "reportFingerprintSha256", op);
 	}
@@ -238,7 +283,7 @@ final class WorldBuilderRegionContracts {
 			"destinationAnchor");
 		exact(anchor, op, "level", "x", "y");
 		signed(anchor, "level", op); signed(anchor, "x", op); signed(anchor, "y", op);
-		List<?> files = array(root.get("files"), op, "files", 1, 1024);
+		List<?> files = array(root.get("files"), op, "files", 0, 1024);
 		String previous = null;
 		for (Object raw : files) {
 			Map<String,Object> file = object(raw, op, "planned file");
@@ -250,12 +295,18 @@ final class WorldBuilderRegionContracts {
 			previous = path;
 		}
 		List<?> collisions = array(root.get("collisions"), op, "collisions", 0, 65536);
+		String previousCollision = null;
 		for (Object raw : collisions) {
 			Map<String,Object> collision = object(raw, op, "collision");
 			exact(collision, op, "kind", "level", "x", "y", "detail");
 			identifier(collision, "kind", op); signed(collision, "level", op);
 			signed(collision, "x", op); signed(collision, "y", op);
 			text(collision, "detail", op, 1, 256);
+			String canonical = canonical(collision);
+			if (previousCollision != null
+				&& previousCollision.compareTo(canonical) >= 0) invalid(op,
+				"Collision records are duplicated or not canonically ordered.");
+			previousCollision = canonical;
 		}
 		boolean overwrite = bool(root, "overwriteRequired", op);
 		boolean blocked = bool(root, "blocked", op);
@@ -285,10 +336,13 @@ final class WorldBuilderRegionContracts {
 		return value;
 	}
 
-	private static void validateDependencies(Object raw, String op)
+	private static void validateDependencies(Object raw, String op,
+		String catalogId, String catalogHash, Set<String> requiredDefinitions)
 		throws WorldBuilderContractException {
 		List<?> values = array(raw, op, "dependencies", 1, MAX_DEPENDENCIES);
 		String previous = null;
+		boolean catalogSeen = false;
+		Set<String> definitionsSeen = new HashSet<String>();
 		for (Object value : values) {
 			Map<String,Object> dependency = object(value, op, "dependency");
 			exact(dependency, op, "kind", "family", "logicalId", "numericId",
@@ -312,12 +366,45 @@ final class WorldBuilderRegionContracts {
 				"Dependency resolution is unsupported.");
 			if (bool(dependency, "bundled", op)) invalid(op,
 				"Region snapshot v1 cannot bundle executable or custom dependencies.");
+			String dependencyCatalog = string(dependency, "catalogId", op);
+			if (!catalogId.equals(dependencyCatalog)) invalid(op,
+				"Dependency catalog identity disagrees with snapshot catalog evidence.");
+			if ("definition-catalog".equals(kind)) {
+				if (catalogSeen || !"catalog".equals(family) || numeric != -1L
+					|| !("catalog:" + catalogId).equals(
+						string(dependency, "logicalId", op))
+					|| !catalogHash.equals(content) || !"catalog".equals(resolution)) {
+					invalid(op, "Definition-catalog dependency is incomplete or duplicated.");
+				}
+				catalogSeen = true;
+			} else if ("definition".equals(kind)) {
+				String expected = family + ":" + numeric;
+				if (!("catalog:" + catalogId + ":" + expected).equals(
+						string(dependency, "logicalId", op))
+					|| numeric < 0L || !content.isEmpty()
+					|| !"catalog".equals(resolution)
+					|| !definitionsSeen.add(expected)) invalid(op,
+					"Definition dependency identity or resolution is inconsistent.");
+			} else if (numeric != -1L || !content.isEmpty()
+				|| !"unsupported".equals(resolution)) {
+				invalid(op, "Future material/sprite dependency must fail closed as unsupported.");
+			}
 			String key = kind + "\u0000" + family + "\u0000"
 				+ string(dependency, "logicalId", op);
 			if (previous != null && previous.compareTo(key) >= 0) invalid(op,
 				"Dependencies are duplicated or not canonically ordered.");
 			previous = key;
 		}
+		if (!catalogSeen || !definitionsSeen.equals(requiredDefinitions)) invalid(op,
+			"Snapshot dependency inventory does not exactly cover captured definitions.");
+	}
+
+	private static int placementDefinitionId(String family,
+		Map<String,Object> record, String op) throws WorldBuilderContractException {
+		if ("boundaries".equals(family)) return nonnegative(record, "boundaryId", op);
+		if ("groundItems".equals(family)) return nonnegative(record, "itemId", op);
+		if ("npcs".equals(family)) return nonnegative(record, "npcId", op);
+		return nonnegative(record, "sceneryId", op);
 	}
 
 	private static void validatePlacementRecord(String family,
@@ -339,7 +426,14 @@ final class WorldBuilderRegionContracts {
 			nonnegative(record, "npcId", op); pointOffset(record.get("start"), op);
 			Map<String,Object> bounds = object(record.get("roamBounds"), op, "roamBounds");
 			exact(bounds, op, "minimum", "maximum");
-			pointOffset(bounds.get("minimum"), op); pointOffset(bounds.get("maximum"), op);
+			Point start = offsetPoint(record.get("start"), op);
+			Point minimum = offsetPoint(bounds.get("minimum"), op);
+			Point maximum = offsetPoint(bounds.get("maximum"), op);
+			if (minimum.x > start.x || start.x > maximum.x
+				|| minimum.y > start.y || start.y > maximum.y
+				|| (long)maximum.x - minimum.x > 128L
+				|| (long)maximum.y - minimum.y > 128L) invalid(op,
+				"Snapshot NPC roam bounds are invalid or exceed 128 tiles.");
 		} else if ("scenery".equals(family)) {
 			exact(record, op, "levelOffset", "placementId", "sceneryId", "direction",
 				"position");
@@ -351,9 +445,39 @@ final class WorldBuilderRegionContracts {
 
 	private static void pointOffset(Object raw, String op)
 		throws WorldBuilderContractException {
+		offsetPoint(raw, op);
+	}
+
+	private static Point offsetPoint(Object raw, String op)
+		throws WorldBuilderContractException {
 		Map<String,Object> point = object(raw, op, "point offset");
 		exact(point, op, "xOffset", "yOffset");
-		signed(point, "xOffset", op); signed(point, "yOffset", op);
+		return new Point(signed(point, "xOffset", op), signed(point, "yOffset", op));
+	}
+
+	private static Point placementOwner(String family, Map<String,Object> record,
+		String op) throws WorldBuilderContractException {
+		return offsetPoint(record.get("npcs".equals(family) ? "start" : "position"), op);
+	}
+
+	private static String singular(String family) {
+		if ("boundaries".equals(family)) return "boundary";
+		if ("groundItems".equals(family)) return "ground-item";
+		if ("npcs".equals(family)) return "npc";
+		if ("scenery".equals(family)) return "scenery";
+		throw new AssertionError(family);
+	}
+
+	private static boolean isCanonicalVoid(Map<String,Object> tile, String op)
+		throws WorldBuilderContractException {
+		byte[] expected = WorldBuilderCanonicalVoidTerrain.tile();
+		return integer(tile, "elevation", op) == (expected[0] & 0xff)
+			&& integer(tile, "groundTexture", op) == (expected[1] & 0xff)
+			&& integer(tile, "groundOverlay", op) == (expected[2] & 0xff)
+			&& integer(tile, "roofTexture", op) == (expected[3] & 0xff)
+			&& integer(tile, "verticalWall", op) == (expected[4] & 0xff)
+			&& integer(tile, "horizontalWall", op) == (expected[5] & 0xff)
+			&& integer(tile, "diagonalWall", op) == 0L;
 	}
 
 	private static void identity(Map<String,Object> root, String type, String op)
@@ -565,17 +689,22 @@ final class WorldBuilderRegionContracts {
 			throws WorldBuilderContractException {
 			int minX = Integer.MAX_VALUE, maxX = Integer.MIN_VALUE;
 			int minY = Integer.MAX_VALUE, maxY = Integer.MIN_VALUE;
+			for (int index = 0; index < points.size(); index++) {
+				Point a = points.get(index);
+				minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x);
+				minY = Math.min(minY, a.y); maxY = Math.max(maxY, a.y);
+			}
+			if ((long)maxX - minX > 4096L || (long)maxY - minY > 4096L) {
+				invalid(op, "Selection polygon is degenerate or exceeds 4,096 tiles per axis.");
+			}
 			long area = 0L;
 			for (int index = 0; index < points.size(); index++) {
 				Point a = points.get(index);
 				Point b = points.get((index + 1) % points.size());
-				minX = Math.min(minX, a.x); maxX = Math.max(maxX, a.x);
-				minY = Math.min(minY, a.y); maxY = Math.max(maxY, a.y);
-				area += (long)a.x * b.y - (long)b.x * a.y;
+				area += ((long)a.x - minX) * ((long)b.y - minY)
+					- ((long)b.x - minX) * ((long)a.y - minY);
 			}
-			if (area == 0L || (long)maxX - minX > 4096L || (long)maxY - minY > 4096L) {
-				invalid(op, "Selection polygon is degenerate or exceeds 4,096 tiles per axis.");
-			}
+			if (area == 0L) invalid(op, "Selection polygon is degenerate.");
 			for (int first = 0; first < points.size(); first++) {
 				int firstNext = (first + 1) % points.size();
 				for (int second = first + 1; second < points.size(); second++) {

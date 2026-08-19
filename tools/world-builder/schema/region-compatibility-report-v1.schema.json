@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/region-compatibility-report-v1.schema.json",
+  "title": "World Builder region compatibility report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "snapshotId", "projectId", "compatible", "issues", "reportFingerprintSha256"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-region-compatibility-report"},
+    "snapshotId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+    "compatible": {"type": "boolean"},
+    "issues": {
+      "type": "array", "maxItems": 1024,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["code", "dependency", "message"],
+        "properties": {
+          "code": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "dependency": {"type": "string", "maxLength": 256},
+          "message": {"type": "string", "minLength": 1, "maxLength": 512}
+        }
+      }
+    },
+    "reportFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  }
+}

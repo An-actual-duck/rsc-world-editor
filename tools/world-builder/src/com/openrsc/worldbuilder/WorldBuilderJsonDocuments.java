@@ -30,8 +30,16 @@ final class WorldBuilderJsonDocuments {
 			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
 		}
 		byte[] bytes = readBounded(path);
+		return readObject(bytes, path.toString());
+	}
+
+	static Map<String,Object> readObject(byte[] bytes, String label)
+		throws WorldBuilderDiscoveryException {
 		if (bytes.length < 2) {
-			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
+			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + label);
+		}
+		if (bytes.length > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + label);
 		}
 		String text;
 		try {
@@ -40,11 +48,11 @@ final class WorldBuilderJsonDocuments {
 				.onUnmappableCharacter(CodingErrorAction.REPORT)
 				.decode(ByteBuffer.wrap(bytes)).toString();
 		} catch (CharacterCodingException invalidUtf8) {
-			throw new WorldBuilderDiscoveryException("JSON file is not valid UTF-8: " + path);
+			throw new WorldBuilderDiscoveryException("JSON file is not valid UTF-8: " + label);
 		}
-		Object parsed = new Parser(text, path.toString()).parse();
+		Object parsed = new Parser(text, label).parse();
 		if (!(parsed instanceof Map)) {
-			throw new WorldBuilderDiscoveryException("JSON document root must be an object: " + path);
+			throw new WorldBuilderDiscoveryException("JSON document root must be an object: " + label);
 		}
 		@SuppressWarnings("unchecked") Map<String,Object> object = (Map<String,Object>)parsed;
 		return object;
