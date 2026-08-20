@@ -562,7 +562,7 @@ final class WorldBuilderRegionSnapshotService {
 							Map<String,Object> occupied = map(occupiedRaw);
 							Point occupiedOwner = owner(occupiedFamily, occupied);
 							if (!destination.owns(occupiedOwner.x, occupiedOwner.y)
-								&& occupiedOwner.x == point.x && occupiedOwner.y == point.y) {
+								&& represents(occupiedFamily, occupied, point)) {
 								collisions.add(collision("incoming-footprint-occupied",
 									targetLevel, point.x, point.y, "Incoming "
 										+ singularFamily(family) + " footprint overlaps preserved "
@@ -1461,6 +1461,27 @@ final class WorldBuilderRegionSnapshotService {
 		Map<String,Object> record, WorldBuilderRegionContracts.Geometry geometry) {
 		for (Point point : footprint(family, record)) {
 			if (geometry.owns(point.x, point.y)) return true;
+		}
+		return false;
+	}
+
+	private static boolean represents(String family, Map<String,Object> record,
+		Point point) {
+		Point origin = owner(family, record);
+		if (origin.x == point.x && origin.y == point.y) return true;
+		if ("boundaries".equals(family)) {
+			int direction = integer(record, "direction");
+			int[] dx = {0, 1, 0, -1};
+			int[] dy = {-1, 0, 1, 0};
+			return (long)origin.x + dx[direction] == point.x
+				&& (long)origin.y + dy[direction] == point.y;
+		}
+		if ("npcs".equals(family)) {
+			Map<String,Object> bounds = map(record.get("roamBounds"));
+			Point minimum = point(bounds.get("minimum"));
+			Point maximum = point(bounds.get("maximum"));
+			return minimum.x <= point.x && point.x <= maximum.x
+				&& minimum.y <= point.y && point.y <= maximum.y;
 		}
 		return false;
 	}
