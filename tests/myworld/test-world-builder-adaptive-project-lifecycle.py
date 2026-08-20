@@ -2601,6 +2601,38 @@ public final class FakeAdaptiveClient {
             for junk in junk_entries:
                 junk.unlink()
 
+            library_directory = second / "snapshot-library/v1"
+            capacity_fillers = []
+            filler_index = 0
+            entries_needed = 1024 - len(list(library_directory.glob("*.wbr")))
+            while len(capacity_fillers) < entries_needed:
+                identity = hashlib.sha256(
+                    f"capacity-filler-{filler_index}".encode("ascii")
+                ).hexdigest()
+                filler_index += 1
+                filler = library_directory / f"{identity}.wbr"
+                if filler.exists():
+                    continue
+                filler.write_bytes(b"x")
+                capacity_fillers.append(filler)
+            capacity_bundle = base / "capacity-new.wbr"
+            shutil.copy2(first_export, capacity_bundle)
+            self.rewrite_region_bundle(
+                capacity_bundle,
+                lambda snapshot: snapshot.__setitem__(
+                    "name", "Distinct snapshot at library capacity"
+                ),
+            )
+            library_at_capacity = tree_bytes(library_directory)
+            capacity_refused = self.run_cli(
+                "region-import", "--project", second, "--bundle", capacity_bundle
+            )
+            self.assertEqual(3, capacity_refused.returncode, capacity_refused.stderr)
+            self.assertIn("INVENTORY_LIMIT_EXCEEDED", capacity_refused.stderr)
+            self.assertEqual(library_at_capacity, tree_bytes(library_directory))
+            for filler in capacity_fillers:
+                filler.unlink()
+
             canonical_bytes = canonical_library.read_bytes()
             canonical_library.write_bytes(canonical_bytes[:-1] + b"x")
             tampered = self.run_cli(

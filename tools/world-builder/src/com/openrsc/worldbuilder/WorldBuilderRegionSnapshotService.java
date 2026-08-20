@@ -45,7 +45,8 @@ final class WorldBuilderRegionSnapshotService {
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
 	private static final long MAX_REPRESENTED_FOOTPRINT_TILES = 1_000_000L;
 	private static final int MAX_SPATIAL_INDEX_ENTRIES = 1_000_000;
-	private static final int MAX_LIBRARY_DIRECTORY_ENTRIES = 1025;
+	private static final int MAX_LIBRARY_ENTRIES = 1024;
+	private static final int MAX_LIBRARY_DIRECTORY_ENTRIES = MAX_LIBRARY_ENTRIES + 1;
 	private static final int MAX_RECOVERY_DIRECTORY_ENTRIES =
 		WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES;
 	private static final long MAX_RECOVERY_TREE_BYTES = 512L * 1024L * 1024L;
@@ -954,6 +955,7 @@ final class WorldBuilderRegionSnapshotService {
 			return new LibraryRecord(LIBRARY + "/" + name,
 				WorldBuilderHashes.sha256(verified), false);
 		}
+		requireLibraryCapacity(library);
 		String bundleHash = WorldBuilderHashes.sha256(bundle.bytes);
 		Path stage = library.resolve("." + name + ".staging-" + bundleHash);
 		try {
@@ -974,6 +976,19 @@ final class WorldBuilderRegionSnapshotService {
 			"Preserve the library and request filesystem recovery.");
 		return new LibraryRecord(LIBRARY + "/" + name,
 			bundleHash, true);
+	}
+
+	private static void requireLibraryCapacity(Path library)
+		throws IOException, WorldBuilderContractException {
+		int entries = 0;
+		try (DirectoryStream<Path> inventory = Files.newDirectoryStream(library)) {
+			for (Path ignored : inventory) {
+				if (++entries >= MAX_LIBRARY_ENTRIES) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
+					"Snapshot library has reached its 1,024-entry capacity.",
+					"Archive reviewed bundles outside the project before adding another.");
+			}
+		}
 	}
 
 	private Bundle loadLibrary(Path project, String snapshotId)
@@ -1038,7 +1053,7 @@ final class WorldBuilderRegionSnapshotService {
 		int count = 0;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(library)) {
 			for (Path entry : entries) {
-				if (++count > 1024) throw problem(
+				if (++count > MAX_LIBRARY_ENTRIES) throw problem(
 					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
 					"Snapshot library exceeds 1,024 entries.",
 					"Move reviewed bundles to a separate archive before adding more.");
