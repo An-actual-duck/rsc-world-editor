@@ -246,6 +246,11 @@ Boundary/NPC crossing footprints participate in blocking coverage and occupied-
 content collision checks. A forced region transaction journal recovers the last
 provably complete package/manifest state after interruption and refuses
 ambiguous artifacts.
+Rollback cleanup uses an atomic quarantine transition, and normal reopen,
+launch, and save retry exact cleanup, including partial quarantine deletion and
+orphan journal writes. Region libraries bound every existing bundle before any
+content comparison. Aggregate footprint, spatial-index, and candidate-scan
+limits keep adversarial NPC roam inventories bounded without tile expansion.
 
 This is not yet the packaged in-game selection experience. Ordered marker UI,
 ghost previews, runtime-authoritative transactions, and durable interactive

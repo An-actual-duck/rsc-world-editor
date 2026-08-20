@@ -618,6 +618,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Create the first project or restore the complete projects directory.");
 		}
 		Path registryLock = projects.resolve(".registry.lock");
+		WorldBuilderRegionSnapshotService.recoverProjects(projects);
 		try (FileChannel channel = updateAttachmentState
 			? openLock(registryLock) : openExistingLock(registryLock)) {
 			FileLock lock = tryLock(channel);
@@ -687,6 +688,11 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
 		String id = requireUuid(projectId);
 		Path projects = install.resolve(PROJECTS_DIRECTORY);
+		Path selectedProject = projects.resolve(id);
+		if (Files.isDirectory(selectedProject, LinkOption.NOFOLLOW_LINKS)
+			&& !Files.isSymbolicLink(selectedProject)) {
+			WorldBuilderRegionSnapshotService.recoverProject(selectedProject);
+		}
 		Path lockPath = projects.resolve(".registry.lock");
 		try (FileChannel channel = openLock(lockPath)) {
 			FileLock lock = tryLock(channel);
@@ -744,6 +750,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Adaptive projects directory is missing or unsafe.",
 				"Create a project or restore the complete projects directory.");
 		}
+		WorldBuilderRegionSnapshotService.recoverProjects(projects);
 		try (FileChannel channel = openExistingLock(
 			projects.resolve(".registry.lock"))) {
 			FileLock lock = tryLock(channel);
@@ -778,14 +785,21 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			WorldBuilderRegionSnapshotService.recoverRegionTransaction(project);
 			return saveWithRunLockHeld(project);
 		}
 	}
 
 	ProjectResult saveAfterSupervisedRun(Path requestedProject)
 		throws IOException, WorldBuilderContractException {
-		return saveWithRunLockHeld(
-			realDirectory(requestedProject, "adaptive project"));
+		Path project = realDirectory(requestedProject, "adaptive project");
+		WorldBuilderRegionSnapshotService.recoverRegionTransaction(project);
+		return saveWithRunLockHeld(project);
+	}
+
+	ProjectResult saveAfterRegionPublication(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		return saveWithRunLockHeld(realDirectory(requestedProject, "adaptive project"));
 	}
 
 	private ProjectResult saveWithRunLockHeld(Path project)

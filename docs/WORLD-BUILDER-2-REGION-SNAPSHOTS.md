@@ -193,6 +193,13 @@ The staged package, rollback package, project-manifest save, and cleanup are
 ordered by a forced transaction journal. Re-entry recovers only when exact tree
 and working fingerprints prove the complete before or after state; any other
 artifact combination is retained and refused as ambiguous.
+Cleanup first atomically renames the old rollback tree to a journal-derived
+quarantine. Once the live tree and project manifest prove the complete after
+state, that quarantine is disposable even if an earlier deletion stopped
+mid-tree. Orphan atomic-journal writes are bounded and adopted or discarded
+only when their immutable transaction identity agrees. Ordinary project open,
+selection, launch, and save run this recovery before validating or using the
+working package.
 
 ## Paste contract
 
@@ -223,6 +230,12 @@ authority. Non-void terrain or destination-owned placements set
 `PASTE <plan-sha256>`; an overwrite requires the separate literal
 `OVERWRITE <plan-sha256>`. There is no force, partial, merge, clipping,
 rotation, mirroring, or selective-family mode.
+
+Represented footprint work is rectangle- and sector-based. Snapshot and
+destination inventories each have an explicit aggregate one-million-tile
+footprint budget, the 48-by-48 spatial index has a one-million-entry budget,
+and cumulative candidate scans are bounded. NPC roam rectangles are never
+expanded into in-memory point lists or repeatedly compared tile-by-placement.
 
 Overwrite clears placements owned by the destination polygon before restoring
 the complete snapshot. Content outside that ownership polygon is preserved.
@@ -277,6 +290,8 @@ levels, all four placement families, footprint reports, deterministic bundle
 round trips, archive canonicalization, import without world mutation,
 traversal/extra-entry refusal, dependency incompatibility, collision/overwrite
 previews, crossing footprints, extreme coordinates, symlinked export ancestors,
+aggregate footprint refusal, oversized/tampered library entries, ordinary
+open/save/launch recovery, partial cleanup and journal-write/delete recovery,
 every publication recovery milestone, same-project four-family Copy/Paste,
 canonical cut voiding, exact paste restoration, and source/target preservation.
 Runtime marker/ghost/undo UX remains explicitly

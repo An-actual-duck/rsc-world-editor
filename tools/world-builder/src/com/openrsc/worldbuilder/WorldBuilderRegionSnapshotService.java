@@ -40,8 +40,11 @@ final class WorldBuilderRegionSnapshotService {
 	private static final String LIBRARY = "snapshot-library/v1";
 	private static final String BUNDLE_EXTENSION = ".wbr";
 	private static final String TRANSACTION = "working/layered-world/.region-transaction-v1.json";
+	private static final String JOURNAL_TEMP_PREFIX = ".region-transaction-v1.json.new-";
 	private static final long MAX_BUNDLE_BYTES = 32L * 1024L * 1024L;
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
+	private static final long MAX_REPRESENTED_FOOTPRINT_TILES = 1_000_000L;
+	private static final int MAX_SPATIAL_INDEX_ENTRIES = 1_000_000;
 	private static final long ZIP_TIME = 315532800000L;
 	private final Observer observer;
 
@@ -61,6 +64,38 @@ final class WorldBuilderRegionSnapshotService {
 
 	WorldBuilderRegionSnapshotService(Observer observer) {
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
+	}
+
+	static void recoverProject(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		Path project = requestedProject.toAbsolutePath().normalize();
+		Path recoveryRoot = project.resolve("working/layered-world");
+		if (!Files.isDirectory(recoveryRoot, LinkOption.NOFOLLOW_LINKS)
+			|| !hasRegionRecoveryArtifact(recoveryRoot)) return;
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, "region-recovery")) {
+			recoverRegionTransaction(project);
+		}
+	}
+
+	static void recoverProjects(Path projects)
+		throws IOException, WorldBuilderContractException {
+		int count = 0;
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(projects)) {
+			for (Path project : entries) {
+				if (!Files.isDirectory(project, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(project)) continue;
+				if (++count > WorldBuilderContractLimits.MAX_PROJECTS) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "projects",
+					"Adaptive project recovery inventory exceeds its bound.",
+					"Reduce the project inventory before ordinary reopen.");
+				Path parent = project.resolve("working/layered-world");
+				if (Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+					&& hasRegionRecoveryArtifact(parent)) {
+					recoverProject(project);
+				}
+			}
+		}
 	}
 
 	String copy(Path project, Path selectionPath, String name)
@@ -242,7 +277,8 @@ final class WorldBuilderRegionSnapshotService {
 				published = true;
 				observer.observe("package-published", project);
 				WorldBuilderAdaptiveProjectLifecycle.ProjectResult result =
-					new WorldBuilderAdaptiveProjectLifecycle().saveAfterSupervisedRun(project);
+					new WorldBuilderAdaptiveProjectLifecycle()
+						.saveAfterRegionPublication(project);
 				saved = true;
 				transaction.phase("manifest-saved");
 				observer.observe("project-manifest-saved", project);
@@ -296,6 +332,7 @@ final class WorldBuilderRegionSnapshotService {
 				"Choose one short creator-facing snapshot name.");
 		}
 		PackageState state = PackageState.read(verified.projectRoot, PACKAGE);
+		requirePackageFootprintBudget(state.placements, "source package");
 		if (!selection.worldSpace.equals(state.worldSpace)) {
 			throw problem(WorldBuilderErrorCodes.MAP_MISMATCH, "selection",
 				"Selection world space does not match the working package.",
@@ -488,6 +525,8 @@ final class WorldBuilderRegionSnapshotService {
 				"incompatible-dependency", "Snapshot dependencies are incompatible.");
 		}
 		PackageState live = PackageState.read(verified.projectRoot, PACKAGE);
+		requirePackageFootprintBudget(live.placements, "destination package");
+		requireFootprintBudget(map(snapshot.root.get("placements")), "incoming snapshot");
 		WorldBuilderRegionContracts.Geometry destination = translatedGeometry(snapshot, x, y);
 		Set<Integer> destinationLevels = new HashSet<Integer>();
 		boolean blocked = false;
@@ -498,8 +537,8 @@ final class WorldBuilderRegionSnapshotService {
 				integer(levelRecord, "levelOffset"), "paste level");
 			destinationLevels.add(Integer.valueOf(targetLevel));
 			if (!live.levels.contains(Integer.valueOf(targetLevel))) {
-				collisions.add(collision("unavailable-level", targetLevel, x, y,
-					"Destination level is absent from the working package."));
+				addCollision(collisions, "unavailable-level", targetLevel, x, y,
+					"Destination level is absent from the working package.");
 				blocked = true;
 				continue;
 			}
@@ -509,16 +548,17 @@ final class WorldBuilderRegionSnapshotService {
 				int targetY = checkedAdd(y, integer(tile, "yOffset"), "paste y");
 				byte[] existing = live.tile(targetLevel, targetX, targetY);
 				if (existing == null) {
-					collisions.add(collision("unavailable-terrain", targetLevel,
-						targetX, targetY, "Destination tile has no declared terrain sector."));
+					addCollision(collisions, "unavailable-terrain", targetLevel,
+						targetX, targetY, "Destination tile has no declared terrain sector.");
 					blocked = true;
 				} else if (!Arrays.equals(existing, WorldBuilderCanonicalVoidTerrain.tile())) {
-					collisions.add(collision("non-void-terrain", targetLevel,
-						targetX, targetY, "Destination tile is not canonical structural void."));
+					addCollision(collisions, "non-void-terrain", targetLevel,
+						targetX, targetY, "Destination tile is not canonical structural void.");
 					overwrite = true;
 				}
 			}
 		}
+		SpatialIndex preserved = new SpatialIndex();
 		for (Integer targetLevel : destinationLevels) {
 			Map<String,Object> payload = live.placements.get(targetLevel);
 			if (payload == null) continue;
@@ -527,17 +567,21 @@ final class WorldBuilderRegionSnapshotService {
 					Map<String,Object> record = map(raw);
 					Point owner = owner(family, record);
 					if (destination.owns(owner.x, owner.y)) {
-						collisions.add(collision("occupied-" + singularFamily(family),
+						addCollision(collisions, "occupied-" + singularFamily(family),
 							targetLevel.intValue(), owner.x, owner.y,
-							"Destination selection owns an existing placement."));
+							"Destination selection owns an existing placement.");
 						overwrite = true;
 					} else if (("boundaries".equals(family) || "npcs".equals(family))
 						&& footprintIntersects(family, record, destination)) {
-						collisions.add(collision("represented-" + singularFamily(family)
+						addCollision(collisions, "represented-" + singularFamily(family)
 							+ "-crossing", targetLevel.intValue(), owner.x, owner.y,
-							"A preserved placement anchored outside the destination has a "
-								+ "represented footprint crossing into it."));
+							"Preserved " + singularFamily(family) + " "
+								+ text(record, "placementId")
+								+ " is anchored outside but represented inside the destination.");
 						blocked = true;
+					}
+					if (!destination.owns(owner.x, owner.y)) {
+						preserved.add(targetLevel.intValue(), family, record);
 					}
 				}
 			}
@@ -548,29 +592,23 @@ final class WorldBuilderRegionSnapshotService {
 				Map<String,Object> absolute = absolutePlacement(family, map(raw), x, y);
 				int targetLevel = checkedAdd(level,
 					integer(map(raw), "levelOffset"), "incoming footprint level");
-				for (Point point : footprint(family, absolute)) {
-					if (live.tile(targetLevel, point.x, point.y) == null) {
-						collisions.add(collision("incoming-footprint-unavailable", targetLevel,
-							point.x, point.y, "Incoming " + singularFamily(family)
-								+ " footprint extends beyond declared terrain coverage."));
+				Footprint incomingFootprint = footprint(family, absolute);
+				Point unavailable = live.firstUnavailable(targetLevel, incomingFootprint);
+				if (unavailable != null) {
+						addCollision(collisions, "incoming-footprint-unavailable", targetLevel,
+							unavailable.x, unavailable.y, "Incoming " + singularFamily(family)
+								+ " footprint extends beyond declared terrain coverage.");
 						blocked = true;
-					}
-					Map<String,Object> payload = live.placements.get(Integer.valueOf(targetLevel));
-					if (payload == null) continue;
-					for (String occupiedFamily : placementFamilies()) {
-						for (Object occupiedRaw : list(payload, occupiedFamily)) {
-							Map<String,Object> occupied = map(occupiedRaw);
-							Point occupiedOwner = owner(occupiedFamily, occupied);
-							if (!destination.owns(occupiedOwner.x, occupiedOwner.y)
-								&& represents(occupiedFamily, occupied, point)) {
-								collisions.add(collision("incoming-footprint-occupied",
-									targetLevel, point.x, point.y, "Incoming "
-										+ singularFamily(family) + " footprint overlaps preserved "
-										+ singularFamily(occupiedFamily) + " content."));
-								blocked = true;
-							}
-						}
-					}
+				}
+				for (PlacementRef occupied : preserved.query(targetLevel, incomingFootprint)) {
+					if (!incomingFootprint.intersects(occupied.footprint)) continue;
+					Point overlap = incomingFootprint.firstIntersection(occupied.footprint);
+					addCollision(collisions, "incoming-footprint-occupied", targetLevel,
+						overlap.x, overlap.y, "Incoming " + singularFamily(family)
+							+ " footprint overlaps preserved "
+							+ singularFamily(occupied.family) + " "
+							+ occupied.placementId + ".");
+					blocked = true;
 				}
 			}
 		}
@@ -905,13 +943,12 @@ final class WorldBuilderRegionSnapshotService {
 		Path destination = library.resolve(name);
 		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 			Path verified = requireLibraryFile(project, bundle.snapshot.id);
-			byte[] existing = Files.readAllBytes(verified);
-			if (!Arrays.equals(existing, bundle.bytes)) throw problem(
+			if (!fileEquals(verified, bundle.bytes)) throw problem(
 				WorldBuilderErrorCodes.INVENTORY_DUPLICATE, LIBRARY + "/" + name,
 				"Snapshot ID already exists with different bundle bytes.",
 				"Preserve the existing library entry and investigate the collision.");
 			return new LibraryRecord(LIBRARY + "/" + name,
-				WorldBuilderHashes.sha256(existing), false);
+				WorldBuilderHashes.sha256(verified), false);
 		}
 		String bundleHash = WorldBuilderHashes.sha256(bundle.bytes);
 		Path stage = library.resolve("." + name + ".staging-" + bundleHash);
@@ -960,6 +997,10 @@ final class WorldBuilderRegionSnapshotService {
 			"Snapshot library entry is missing, linked, or escaped.",
 			"Restore one real content-addressed .wbr file.");
 		rejectHardLink(path, LIBRARY + "/" + path.getFileName());
+		if (Files.size(path) < 1L || Files.size(path) > MAX_BUNDLE_BYTES) throw problem(
+			WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, LIBRARY,
+			"Snapshot library entry size is outside its bound.",
+			"Restore one canonical bundle no larger than 32 MiB.");
 		return path;
 	}
 
@@ -1005,6 +1046,11 @@ final class WorldBuilderRegionSnapshotService {
 					"Snapshot library contains an unsafe or untracked entry: " + name + ".",
 					"Keep only content-addressed regular .wbr bundles in library v1.");
 				rejectHardLink(entry, LIBRARY + "/" + name);
+				long size = Files.size(entry);
+				if (size < 1L || size > MAX_BUNDLE_BYTES) throw problem(
+					WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, LIBRARY + "/" + name,
+					"Snapshot library entry size is outside its bound.",
+					"Remove the oversized entry only after preserving recovery evidence.");
 			}
 		}
 		return library;
@@ -1025,7 +1071,7 @@ final class WorldBuilderRegionSnapshotService {
 			String expectedHash = name.substring(name.length() - 64);
 			if (!Files.isRegularFile(stage, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(stage) || !expectedHash.equals(
-					WorldBuilderHashes.sha256(stage))) throw problem(
+					WorldBuilderHashes.sha256(stage)) || Files.size(stage) > MAX_BUNDLE_BYTES) throw problem(
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
 				"Snapshot publication stage does not match its durable identity.",
 				"Preserve the stage and library; recovery refuses ambiguous bytes.");
@@ -1033,7 +1079,8 @@ final class WorldBuilderRegionSnapshotService {
 			if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 				if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)
 					|| Files.isSymbolicLink(destination)
-					|| !Arrays.equals(Files.readAllBytes(stage), Files.readAllBytes(destination))) {
+					|| Files.size(destination) > MAX_BUNDLE_BYTES
+					|| !filesEqual(stage, destination, MAX_BUNDLE_BYTES)) {
 					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
 						"Staged and published snapshot identities disagree.",
 						"Preserve both files; recovery refuses an identity collision.");
@@ -1231,14 +1278,20 @@ final class WorldBuilderRegionSnapshotService {
 		}
 	}
 
-	private static void completeWorkingPublication(Path project,
+	private void completeWorkingPublication(Path project,
 		RegionTransaction transaction)
-		throws IOException {
-		deleteTree(rollbackPath(project));
-		WorldBuilderAdaptiveDurability.forceDirectory(
-			project.resolve("working/layered-world"));
+		throws Exception {
+		Path cleanup = transaction.armCleanup();
+		Files.move(rollbackPath(project), cleanup, StandardCopyOption.ATOMIC_MOVE);
+		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
+		observer.observe("rollback-quarantined", project);
+		deleteTree(cleanup);
+		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
+		observer.observe("cleanup-tree-deleted", project);
 		transaction.phase("cleanup-complete");
+		observer.observe("before-journal-delete", project);
 		RegionTransaction.remove(project);
+		observer.observe("journal-deleted", project);
 	}
 
 	private static Path rollbackPath(Path project) {
@@ -1379,6 +1432,60 @@ final class WorldBuilderRegionSnapshotService {
 		return output.toByteArray();
 	}
 
+	private static boolean fileEquals(Path path, byte[] expected) throws IOException {
+		if (Files.size(path) != expected.length || expected.length > MAX_BUNDLE_BYTES) {
+			return false;
+		}
+		try (InputStream input = Files.newInputStream(path)) {
+			byte[] buffer = new byte[8192];
+			for (int offset = 0; offset < expected.length;) {
+				int wanted = Math.min(buffer.length, expected.length - offset);
+				int read = readChunk(input, buffer, wanted);
+				if (read != wanted) return false;
+				for (int index = 0; index < wanted; index++) {
+					if (buffer[index] != expected[offset + index]) return false;
+				}
+				offset += wanted;
+			}
+			return input.read() < 0;
+		}
+	}
+
+	private static boolean filesEqual(Path first, Path second, long maximum)
+		throws IOException {
+		long size = Files.size(first);
+		if (size < 0L || size > maximum || Files.size(second) != size) return false;
+		try (InputStream left = Files.newInputStream(first);
+			InputStream right = Files.newInputStream(second)) {
+			byte[] leftBuffer = new byte[8192];
+			byte[] rightBuffer = new byte[8192];
+			long compared = 0L;
+			while (compared < size) {
+				int wanted = (int)Math.min(leftBuffer.length, size - compared);
+				int leftRead = readChunk(left, leftBuffer, wanted);
+				int rightRead = readChunk(right, rightBuffer, wanted);
+				if (leftRead != wanted || rightRead != wanted) return false;
+				for (int index = 0; index < wanted; index++) {
+					if (leftBuffer[index] != rightBuffer[index]) return false;
+				}
+				compared += wanted;
+			}
+			return left.read() < 0 && right.read() < 0;
+		}
+	}
+
+	private static int readChunk(InputStream input, byte[] buffer, int wanted)
+		throws IOException {
+		int offset = 0;
+		while (offset < wanted) {
+			int read = input.read(buffer, offset, wanted - offset);
+			if (read < 0) break;
+			if (read == 0) continue;
+			offset += read;
+		}
+		return offset;
+	}
+
 	private static WorldBuilderContractException unsafeBundle(String message) {
 		return problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, "bundle", message,
 			"Use a strict two-entry portable-region-bundle-v1 archive.");
@@ -1437,21 +1544,10 @@ final class WorldBuilderRegionSnapshotService {
 
 	private static boolean crossesBoundary(String family, Map<String,Object> record,
 		WorldBuilderRegionContracts.Geometry geometry) {
-		Point origin = owner(family, record);
-		if ("boundaries".equals(family)) {
-			int direction = integer(record, "direction");
-			int[] dx = {0, 1, 0, -1};
-			int[] dy = {-1, 0, 1, 0};
-			return !geometry.owns(origin.x + dx[direction], origin.y + dy[direction]);
-		}
-		if ("npcs".equals(family)) {
-			Map<String,Object> bounds = map(record.get("roamBounds"));
-			Point minimum = point(bounds.get("minimum"));
-			Point maximum = point(bounds.get("maximum"));
-			for (long x = minimum.x; x <= (long)maximum.x; x++) {
-				for (long y = minimum.y; y <= (long)maximum.y; y++) {
-					if (!geometry.owns((int)x, (int)y)) return true;
-				}
+		Footprint footprint = footprint(family, record);
+		for (long x = footprint.minimumX; x <= (long)footprint.maximumX; x++) {
+			for (long y = footprint.minimumY; y <= (long)footprint.maximumY; y++) {
+				if (!geometry.owns((int)x, (int)y)) return true;
 			}
 		}
 		return false;
@@ -1459,59 +1555,73 @@ final class WorldBuilderRegionSnapshotService {
 
 	private static boolean footprintIntersects(String family,
 		Map<String,Object> record, WorldBuilderRegionContracts.Geometry geometry) {
-		for (Point point : footprint(family, record)) {
-			if (geometry.owns(point.x, point.y)) return true;
-		}
-		return false;
+		return footprint(family, record).intersects(geometry);
 	}
 
-	private static boolean represents(String family, Map<String,Object> record,
-		Point point) {
+	private static Footprint footprint(String family, Map<String,Object> record) {
 		Point origin = owner(family, record);
-		if (origin.x == point.x && origin.y == point.y) return true;
 		if ("boundaries".equals(family)) {
 			int direction = integer(record, "direction");
 			int[] dx = {0, 1, 0, -1};
 			int[] dy = {-1, 0, 1, 0};
-			return (long)origin.x + dx[direction] == point.x
-				&& (long)origin.y + dy[direction] == point.y;
+			long adjacentX = (long)origin.x + dx[direction];
+			long adjacentY = (long)origin.y + dy[direction];
+			if (adjacentX < Integer.MIN_VALUE || adjacentX > Integer.MAX_VALUE
+				|| adjacentY < Integer.MIN_VALUE || adjacentY > Integer.MAX_VALUE) {
+				return new Footprint(origin.x, origin.x, origin.y, origin.y);
+			}
+			return new Footprint(Math.min(origin.x, (int)adjacentX),
+				Math.max(origin.x, (int)adjacentX), Math.min(origin.y, (int)adjacentY),
+				Math.max(origin.y, (int)adjacentY));
 		}
 		if ("npcs".equals(family)) {
 			Map<String,Object> bounds = map(record.get("roamBounds"));
 			Point minimum = point(bounds.get("minimum"));
 			Point maximum = point(bounds.get("maximum"));
-			return minimum.x <= point.x && point.x <= maximum.x
-				&& minimum.y <= point.y && point.y <= maximum.y;
+			return new Footprint(minimum.x, maximum.x, minimum.y, maximum.y);
 		}
-		return false;
+		return new Footprint(origin.x, origin.x, origin.y, origin.y);
 	}
 
-	private static List<Point> footprint(String family, Map<String,Object> record) {
-		List<Point> result = new ArrayList<Point>();
-		Point origin = owner(family, record);
-		result.add(origin);
-		if ("boundaries".equals(family)) {
-			int direction = integer(record, "direction");
-			int[] dx = {0, 1, 0, -1};
-			int[] dy = {-1, 0, 1, 0};
-			long x = (long)origin.x + dx[direction];
-			long y = (long)origin.y + dy[direction];
-			if (x >= Integer.MIN_VALUE && x <= Integer.MAX_VALUE
-				&& y >= Integer.MIN_VALUE && y <= Integer.MAX_VALUE) {
-				result.add(new Point((int)x, (int)y));
-			}
-		} else if ("npcs".equals(family)) {
-			Map<String,Object> bounds = map(record.get("roamBounds"));
-			Point minimum = point(bounds.get("minimum"));
-			Point maximum = point(bounds.get("maximum"));
-			result.clear();
-			for (long x = minimum.x; x <= (long)maximum.x; x++) {
-				for (long y = minimum.y; y <= (long)maximum.y; y++) {
-					result.add(new Point((int)x, (int)y));
-				}
+	private static void requirePackageFootprintBudget(
+		Map<Integer,Map<String,Object>> placements,
+		String label) throws WorldBuilderContractException {
+		long total = 0L;
+		for (Map<String,Object> payload : placements.values()) {
+			total = addFootprintBudget(payload, total, label);
+		}
+	}
+
+	private static void requireFootprintBudget(Map<String,Object> placements,
+		String label) throws WorldBuilderContractException {
+		addFootprintBudget(placements, 0L, label);
+	}
+
+	private static long addFootprintBudget(Map<String,Object> placements, long total,
+		String label) throws WorldBuilderContractException {
+		for (String family : placementFamilies()) {
+			for (Object raw : list(placements, family)) {
+				total += representedArea(family, map(raw));
+				if (total > MAX_REPRESENTED_FOOTPRINT_TILES) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placements",
+					"Aggregate represented footprint work exceeds 1,000,000 tiles in "
+						+ label + ".",
+					"Reduce NPC roam footprints or placement count before preview.");
 			}
 		}
-		return result;
+		return total;
+	}
+
+	private static long representedArea(String family, Map<String,Object> record) {
+		if ("boundaries".equals(family)) return 2L;
+		if (!"npcs".equals(family)) return 1L;
+		Map<String,Object> bounds = map(record.get("roamBounds"));
+		Map<String,Object> minimum = map(bounds.get("minimum"));
+		Map<String,Object> maximum = map(bounds.get("maximum"));
+		String xKey = minimum.containsKey("x") ? "x" : "xOffset";
+		String yKey = minimum.containsKey("y") ? "y" : "yOffset";
+		return ((long)integer(maximum, xKey) - integer(minimum, xKey) + 1L)
+			* ((long)integer(maximum, yKey) - integer(minimum, yKey) + 1L);
 	}
 
 	private static String footprintDetail(String family, boolean crossing) {
@@ -1739,6 +1849,15 @@ final class WorldBuilderRegionSnapshotService {
 		});
 	}
 
+	private static void addCollision(List<Object> collisions, String kind, int level,
+		int x, int y, String detail) throws WorldBuilderContractException {
+		if (collisions.size() >= WorldBuilderRegionContracts.MAX_PLACEMENTS) throw problem(
+			WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "collisions",
+			"Region collision preview exceeds 65,536 represented records.",
+			"Reduce the destination region or occupied footprint density.");
+		collisions.add(collision(kind, level, x, y, detail));
+	}
+
 	private static WorldBuilderContractException problem(String code, String path,
 		String message, String nextStep) {
 		return new WorldBuilderContractException(code, OPERATION, path, false,
@@ -1751,13 +1870,15 @@ final class WorldBuilderRegionSnapshotService {
 			message, nextStep, cause);
 	}
 
-	private static void recoverRegionTransaction(Path project)
+	static void recoverRegionTransaction(Path project)
 		throws IOException, WorldBuilderContractException {
 		Path journal = project.resolve(TRANSACTION);
 		Path parent = project.resolve("working/layered-world");
 		Path rollback = rollbackPath(project);
+		recoverJournalTemps(project, journal, parent);
 		if (!Files.exists(journal, LinkOption.NOFOLLOW_LINKS)) {
-			if (Files.exists(rollback, LinkOption.NOFOLLOW_LINKS)) throw problem(
+			if (Files.exists(rollback, LinkOption.NOFOLLOW_LINKS)
+				|| hasRegionRecoveryArtifact(parent)) throw problem(
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED, PACKAGE,
 				"Region rollback package exists without its durable transaction journal.",
 				"Preserve every region artifact; the last complete state is ambiguous.");
@@ -1778,7 +1899,7 @@ final class WorldBuilderRegionSnapshotService {
 				malformed);
 		}
 		Set<String> expected = new HashSet<String>(Arrays.asList("schemaVersion", "phase",
-			"stageName", "failedName", "beforeTreeSha256", "afterTreeSha256",
+			"stageName", "failedName", "cleanupName", "beforeTreeSha256", "afterTreeSha256",
 			"beforeWorkingSha256", "afterWorkingSha256"));
 		String stageName = value.get("stageName") instanceof String
 			? (String)value.get("stageName") : "";
@@ -1797,6 +1918,14 @@ final class WorldBuilderRegionSnapshotService {
 				"Preserve every artifact; recovery refuses escaped authority.");
 		}
 		Path failed = failedName.isEmpty() ? null : parent.resolve(failedName);
+		String cleanupName = value.get("cleanupName") instanceof String
+			? (String)value.get("cleanupName") : "";
+		if (!cleanupName.isEmpty()
+			&& !cleanupName.matches("\\.region-cleanup-[0-9a-f]{64}")) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Region transaction cleanup path is invalid.",
+			"Preserve every artifact; recovery refuses escaped authority.");
+		Path cleanup = cleanupName.isEmpty() ? null : parent.resolve(cleanupName);
 		String beforeTree = requiredHash(value, "beforeTreeSha256");
 		String afterTree = requiredHash(value, "afterTreeSha256");
 		String beforeWorking = requiredHash(value, "beforeWorkingSha256");
@@ -1809,6 +1938,8 @@ final class WorldBuilderRegionSnapshotService {
 		boolean rollbackAbsent = !Files.exists(rollback, LinkOption.NOFOLLOW_LINKS);
 		boolean stageAbsent = !Files.exists(stage, LinkOption.NOFOLLOW_LINKS);
 		boolean failedAfter = failed != null && treeEquals(failed, afterTree);
+		boolean cleanupPresent = cleanup != null
+			&& Files.exists(cleanup, LinkOption.NOFOLLOW_LINKS);
 		if (liveBefore && stageAfter && rollbackAbsent) {
 			deleteTree(stage); RegionTransaction.remove(project); return;
 		}
@@ -1828,9 +1959,12 @@ final class WorldBuilderRegionSnapshotService {
 				deleteTree(displaced); RegionTransaction.remove(project); return;
 			}
 			if (afterWorking.equals(manifestWorking)) {
-				deleteTree(rollback); WorldBuilderAdaptiveDurability.forceDirectory(parent);
-				RegionTransaction.remove(project); return;
+				finishAfterState(project, value, parent, rollback, null); return;
 			}
+		}
+		if (liveAfter && stageAbsent && rollbackAbsent && cleanupPresent
+			&& afterWorking.equals(projectManifestWorking(project))) {
+			finishAfterState(project, value, parent, null, cleanup); return;
 		}
 		if (!Files.exists(live, LinkOption.NOFOLLOW_LINKS) && rollbackBefore
 			&& stageAbsent && failedAfter) {
@@ -1848,6 +1982,109 @@ final class WorldBuilderRegionSnapshotService {
 		throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
 			"Region transaction artifacts do not prove one complete before or after state.",
 			"Preserve the journal, staged package, rollback package, live package, and manifest; do not force cleanup.");
+	}
+
+	private static void finishAfterState(Path project, Map<String,Object> value,
+		Path parent, Path rollback, Path existingCleanup)
+		throws IOException, WorldBuilderContractException {
+		RegionTransaction transaction = new RegionTransaction(project, value);
+		Path cleanup = existingCleanup;
+		if (cleanup == null) {
+			cleanup = transaction.armCleanup();
+			if (rollback == null || !Files.isDirectory(rollback, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(rollback)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Recorded rollback authority is missing or unsafe during finalization.",
+				"Preserve every artifact; recovery refuses cleanup ambiguity.");
+			Files.move(rollback, cleanup, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		}
+		requireRealDirectory(cleanup, "cleanup quarantine");
+		deleteTree(cleanup);
+		WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		transaction.phase("cleanup-complete");
+		RegionTransaction.remove(project);
+	}
+
+	private static void recoverJournalTemps(Path project, Path journal, Path parent)
+		throws IOException, WorldBuilderContractException {
+		List<Path> temporary = new ArrayList<Path>();
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
+			for (Path entry : entries) {
+				String name = entry.getFileName().toString();
+				if (name.startsWith(JOURNAL_TEMP_PREFIX)) temporary.add(entry);
+			}
+		}
+		if (temporary.isEmpty()) return;
+		if (temporary.size() != 1) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Multiple orphan region journal writes make publication authority ambiguous.",
+			"Preserve every journal file and request exact recovery.");
+		Path candidate = temporary.get(0);
+		String name = candidate.getFileName().toString();
+		if (!name.matches("\\.region-transaction-v1\\.json\\.new-[0-9a-f]{64}")
+			|| !Files.isRegularFile(candidate, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(candidate)
+			|| Files.size(candidate) > WorldBuilderContractLimits.MAX_JSON_BYTES
+			|| !name.substring(JOURNAL_TEMP_PREFIX.length()).equals(
+				WorldBuilderHashes.sha256(candidate))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Orphan region journal write is oversized, linked, or has the wrong identity.",
+			"Preserve the orphan file; recovery refuses unproved journal bytes.");
+		Map<String,Object> candidateValue;
+		try {
+			candidateValue = WorldBuilderJsonDocuments.readObject(candidate);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Orphan region journal write is malformed.",
+				"Preserve the orphan file; recovery refuses malformed authority.", malformed);
+		}
+		if (!Files.exists(journal, LinkOption.NOFOLLOW_LINKS)) {
+			Files.move(candidate, journal, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+			return;
+		}
+		Map<String,Object> current;
+		try {
+			current = WorldBuilderJsonDocuments.readObject(journal);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Published region journal is malformed beside an orphan write.",
+				"Preserve both journal files and request exact recovery.", malformed);
+		}
+		for (String key : Arrays.asList("schemaVersion", "stageName",
+			"beforeTreeSha256", "afterTreeSha256", "beforeWorkingSha256",
+			"afterWorkingSha256")) {
+			if (!java.util.Objects.equals(current.get(key), candidateValue.get(key))) {
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+					"Published and orphan region journals identify different transactions.",
+					"Preserve both journal files; recovery refuses ambiguity.");
+			}
+		}
+		Files.delete(candidate);
+		WorldBuilderAdaptiveDurability.forceDirectory(parent);
+	}
+
+	private static boolean hasRegionRecoveryArtifact(Path parent) throws IOException {
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
+			for (Path entry : entries) {
+				String name = entry.getFileName().toString();
+				if (name.equals(".region-transaction-v1.json")
+					|| name.startsWith(".region-stage-") || name.startsWith(".region-failed-")
+					|| name.startsWith(".region-cleanup-")
+					|| name.startsWith(JOURNAL_TEMP_PREFIX)) return true;
+			}
+		}
+		return false;
+	}
+
+	private static void requireRealDirectory(Path path, String label)
+		throws IOException, WorldBuilderContractException {
+		if (!Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Region " + label + " is linked or not a real directory.",
+			"Preserve every artifact; recovery refuses unsafe cleanup.");
 	}
 
 	private static String requiredHash(Map<String,Object> value, String key)
@@ -1906,6 +2143,7 @@ final class WorldBuilderRegionSnapshotService {
 			value.put("schemaVersion", Long.valueOf(1L)); value.put("phase", "prepared");
 			value.put("stageName", prepared.stage.getFileName().toString());
 			value.put("failedName", "");
+			value.put("cleanupName", "");
 			value.put("beforeTreeSha256", treeFingerprint(project.resolve(PACKAGE)));
 			value.put("afterTreeSha256", treeFingerprint(prepared.stage));
 			value.put("beforeWorkingSha256", beforeWorking);
@@ -1919,14 +2157,25 @@ final class WorldBuilderRegionSnapshotService {
 			value.put("failedName", failedName); phase("rolling-back");
 			return project.resolve("working/layered-world").resolve(failedName);
 		}
+		Path armCleanup() throws IOException {
+			String cleanupName = ".region-cleanup-"
+				+ (String)value.get("beforeTreeSha256");
+			value.put("cleanupName", cleanupName); phase("cleaning-up");
+			return project.resolve("working/layered-world").resolve(cleanupName);
+		}
 		void write() throws IOException {
 			Path destination = project.resolve(TRANSACTION);
-			Path temporary = destination.resolveSibling("." + destination.getFileName()
-				+ ".new-" + UUID.randomUUID());
-			Files.write(temporary, WorldBuilderJsonDocuments.pretty(value)
-				.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+			byte[] bytes = WorldBuilderJsonDocuments.pretty(value)
+				.getBytes(StandardCharsets.UTF_8);
+			Path temporary = destination.resolveSibling(JOURNAL_TEMP_PREFIX
+				+ WorldBuilderHashes.sha256(bytes));
+			Files.write(temporary, bytes, StandardOpenOption.CREATE_NEW,
 				StandardOpenOption.WRITE);
 			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			if (String.valueOf(value.get("phase")).equals(System.getProperty(
+				"worldbuilder.region.testJournalWriteFailurePhase", ""))) {
+				throw new IOException("injected region journal write failure");
+			}
 			try {
 				Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
 					StandardCopyOption.REPLACE_EXISTING);
@@ -1937,6 +2186,10 @@ final class WorldBuilderRegionSnapshotService {
 		}
 		static void remove(Path project) throws IOException {
 			Path journal = project.resolve(TRANSACTION);
+			if (Boolean.parseBoolean(System.getProperty(
+				"worldbuilder.region.testJournalDeleteFailure", "false"))) {
+				throw new IOException("injected region journal delete failure");
+			}
 			Files.deleteIfExists(journal);
 			WorldBuilderAdaptiveDurability.forceDirectory(journal.getParent());
 		}
@@ -1986,6 +2239,144 @@ final class WorldBuilderRegionSnapshotService {
 	private static final class Point {
 		final int x; final int y;
 		Point(int x, int y) { this.x = x; this.y = y; }
+	}
+
+	private static final class Footprint {
+		final int minimumX, maximumX, minimumY, maximumY;
+		Footprint(int minimumX, int maximumX, int minimumY, int maximumY) {
+			this.minimumX = minimumX; this.maximumX = maximumX;
+			this.minimumY = minimumY; this.maximumY = maximumY;
+		}
+		long area() {
+			return ((long)maximumX - minimumX + 1L)
+				* ((long)maximumY - minimumY + 1L);
+		}
+		boolean intersects(Footprint other) {
+			return minimumX <= other.maximumX && other.minimumX <= maximumX
+				&& minimumY <= other.maximumY && other.minimumY <= maximumY;
+		}
+		Point firstIntersection(Footprint other) {
+			return new Point(Math.max(minimumX, other.minimumX),
+				Math.max(minimumY, other.minimumY));
+		}
+		boolean contains(Point point) {
+			return minimumX <= point.x && point.x <= maximumX
+				&& minimumY <= point.y && point.y <= maximumY;
+		}
+		boolean intersects(WorldBuilderRegionContracts.Geometry geometry) {
+			if (maximumX < geometry.minimumX || geometry.maximumX < minimumX
+				|| maximumY < geometry.minimumY || geometry.maximumY < minimumY) return false;
+			for (Point corner : Arrays.asList(new Point(minimumX, minimumY),
+				new Point(minimumX, maximumY), new Point(maximumX, minimumY),
+				new Point(maximumX, maximumY))) {
+				if (geometry.owns(corner.x, corner.y)) return true;
+			}
+			for (WorldBuilderRegionContracts.Point raw : geometry.points) {
+				Point point = new Point(raw.x, raw.y);
+				if (contains(point)) return true;
+			}
+			for (int index = 0; index < geometry.points.size(); index++) {
+				WorldBuilderRegionContracts.Point a = geometry.points.get(index);
+				WorldBuilderRegionContracts.Point b = geometry.points.get(
+					(index + 1) % geometry.points.size());
+				if (segmentIntersectsRectangle(a.x, a.y, b.x, b.y, this)) return true;
+			}
+			return false;
+		}
+	}
+
+	private static boolean segmentIntersectsRectangle(int ax, int ay, int bx, int by,
+		Footprint rectangle) {
+		if (rectangle.contains(new Point(ax, ay)) || rectangle.contains(new Point(bx, by))) {
+			return true;
+		}
+		return segmentsIntersect(ax, ay, bx, by, rectangle.minimumX, rectangle.minimumY,
+			rectangle.maximumX, rectangle.minimumY)
+			|| segmentsIntersect(ax, ay, bx, by, rectangle.maximumX, rectangle.minimumY,
+				rectangle.maximumX, rectangle.maximumY)
+			|| segmentsIntersect(ax, ay, bx, by, rectangle.maximumX, rectangle.maximumY,
+				rectangle.minimumX, rectangle.maximumY)
+			|| segmentsIntersect(ax, ay, bx, by, rectangle.minimumX, rectangle.maximumY,
+				rectangle.minimumX, rectangle.minimumY);
+	}
+
+	private static boolean segmentsIntersect(int ax, int ay, int bx, int by,
+		int cx, int cy, int dx, int dy) {
+		long abC = cross(ax, ay, bx, by, cx, cy);
+		long abD = cross(ax, ay, bx, by, dx, dy);
+		long cdA = cross(cx, cy, dx, dy, ax, ay);
+		long cdB = cross(cx, cy, dx, dy, bx, by);
+		return (abC == 0L && between(ax, bx, cx) && between(ay, by, cy))
+			|| (abD == 0L && between(ax, bx, dx) && between(ay, by, dy))
+			|| (cdA == 0L && between(cx, dx, ax) && between(cy, dy, ay))
+			|| (cdB == 0L && between(cx, dx, bx) && between(cy, dy, by))
+			|| (abC < 0L) != (abD < 0L) && (cdA < 0L) != (cdB < 0L);
+	}
+
+	private static long cross(int ax, int ay, int bx, int by, int px, int py) {
+		return ((long)bx - ax) * ((long)py - ay)
+			- ((long)by - ay) * ((long)px - ax);
+	}
+
+	private static boolean between(int first, int second, int value) {
+		return Math.min(first, second) <= value && value <= Math.max(first, second);
+	}
+
+	private static final class PlacementRef {
+		final String family;
+		final String placementId;
+		final Footprint footprint;
+		PlacementRef(String family, Map<String,Object> record) {
+			this.family = family; this.placementId = text(record, "placementId");
+			this.footprint = footprint(family, record);
+		}
+	}
+
+	private static final class SpatialIndex {
+		final Map<String,List<PlacementRef>> cells =
+			new HashMap<String,List<PlacementRef>>();
+		int entries;
+		long queryScans;
+		void add(int level, String family, Map<String,Object> record)
+			throws WorldBuilderContractException {
+			PlacementRef reference = new PlacementRef(family, record);
+			for (long cellX = Math.floorDiv(reference.footprint.minimumX, 48);
+				cellX <= (long)Math.floorDiv(reference.footprint.maximumX, 48); cellX++) {
+				for (long cellY = Math.floorDiv(reference.footprint.minimumY, 48);
+					cellY <= (long)Math.floorDiv(reference.footprint.maximumY, 48); cellY++) {
+					if (++entries > MAX_SPATIAL_INDEX_ENTRIES) throw problem(
+						WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placements",
+						"Represented-footprint spatial index exceeds 1,000,000 entries.",
+						"Reduce destination placement or NPC roam inventory.");
+					String key = level + ":" + cellX + ":" + cellY;
+					List<PlacementRef> values = cells.get(key);
+					if (values == null) {
+						values = new ArrayList<PlacementRef>(); cells.put(key, values);
+					}
+					values.add(reference);
+				}
+			}
+		}
+		Set<PlacementRef> query(int level, Footprint footprint)
+			throws WorldBuilderContractException {
+			Set<PlacementRef> result = new HashSet<PlacementRef>();
+			for (long cellX = Math.floorDiv(footprint.minimumX, 48);
+				cellX <= (long)Math.floorDiv(footprint.maximumX, 48); cellX++) {
+				for (long cellY = Math.floorDiv(footprint.minimumY, 48);
+					cellY <= (long)Math.floorDiv(footprint.maximumY, 48); cellY++) {
+					List<PlacementRef> values = cells.get(level + ":" + cellX + ":" + cellY);
+					if (values == null) continue;
+					for (PlacementRef value : values) {
+						if (++queryScans > MAX_REPRESENTED_FOOTPRINT_TILES) throw problem(
+							WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placements",
+							"Represented-footprint collision candidates exceed their bound.",
+							"Reduce overlapping destination footprint density.");
+						result.add(value);
+					}
+				}
+			}
+			return result;
+		}
 	}
 
 	private static final class Dependency implements Comparable<Dependency> {
@@ -2097,6 +2488,20 @@ final class WorldBuilderRegionSnapshotService {
 			int offset = (Math.floorMod(x, 48) * 48 + Math.floorMod(y, 48)) * 10;
 			System.arraycopy(value, 0, sector.bytes, offset, 10);
 			return true;
+		}
+
+		Point firstUnavailable(int level, Footprint footprint) {
+			for (long sectorX = Math.floorDiv(footprint.minimumX, 48);
+				sectorX <= (long)Math.floorDiv(footprint.maximumX, 48); sectorX++) {
+				for (long sectorY = Math.floorDiv(footprint.minimumY, 48);
+					sectorY <= (long)Math.floorDiv(footprint.maximumY, 48); sectorY++) {
+					if (sectors.containsKey(key(level, (int)sectorX, (int)sectorY))) continue;
+					long firstX = Math.max((long)footprint.minimumX, sectorX * 48L);
+					long firstY = Math.max((long)footprint.minimumY, sectorY * 48L);
+					return new Point((int)firstX, (int)firstY);
+				}
+			}
+			return null;
 		}
 
 		String writeAndValidate(
