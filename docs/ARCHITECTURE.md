@@ -192,3 +192,10 @@ copy/cut/paste, and exportable snapshots—are assessed in [World Builder 2
 Product Goals and Readiness](WORLD-BUILDER-2-PRODUCT-GOALS.md). That living
 document records direction and dependencies without authorizing implementation
 or changing the released adaptive contracts described here.
+
+The implemented Editor boundary for ordered polygon selection, portable
+non-executable bundles, dependency reports, collision plans, and project-local
+copy/cut/paste is normative in [World Builder 2 Region Snapshots
+v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md). Runtime marker packets, ghost previews,
+authoritative interactive transactions, and persistent undo/redo are still an
+independent runtime capability.

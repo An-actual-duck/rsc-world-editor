@@ -227,6 +227,65 @@ public final class AdaptiveProjectFailureHarness {
             capture_output=True,
             text=True,
         )
+        region_harness = (
+            Path(cls.compile_temp.name)
+            / "harness/com/openrsc/worldbuilder/RegionOperationFailureHarness.java"
+        )
+        region_harness.write_text(
+            r"""
+package com.openrsc.worldbuilder;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public final class RegionOperationFailureHarness {
+    public static void main(String[] args) throws Exception {
+        final String milestone = args[4];
+        if ("journal-write-failed".equals(milestone)) {
+            System.setProperty("worldbuilder.region.testJournalWriteFailurePhase", "manifest-saved");
+        }
+        if ("journal-delete-failed".equals(milestone)) {
+            System.setProperty("worldbuilder.region.testJournalDeleteFailure", "true");
+        }
+        WorldBuilderRegionSnapshotService.Observer observer =
+            new WorldBuilderRegionSnapshotService.Observer() {
+                @Override public void observe(String current, Path project) throws Exception {
+                    if ("failed-quarantined".equals(milestone)
+                        && "package-published".equals(current)) {
+                        throw new Exception("injected failure before rollback cleanup");
+                    }
+                    if (milestone.equals(current)) {
+                        throw new Exception("injected region failure at " + current);
+                    }
+                }
+            };
+        try {
+            new WorldBuilderRegionSnapshotService(observer).applyCut(
+                Paths.get(args[0]), args[1], args[2], args[3]);
+            System.exit(0);
+        } catch (WorldBuilderContractException expected) {
+            System.err.println(expected.code() + ": " + expected.getMessage());
+            System.exit(3);
+        } catch (Exception expected) {
+            System.err.println("INJECTED: " + expected.getMessage());
+            System.exit(4);
+        }
+    }
+}
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(region_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         supervisor_harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/AdaptiveProjectSupervisorHarness.java"
@@ -951,6 +1010,21 @@ public final class FakeAdaptiveClient {
             timeout=20,
         )
 
+    def run_region_failure(
+        self, project: Path, snapshot: str, plan: str, confirmation: str, milestone: str
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.RegionOperationFailureHarness",
+                str(project), snapshot, plan, confirmation, milestone,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            timeout=20,
+        )
+
     @staticmethod
     def change_working_terrain(project: Path) -> None:
         manifest_path = project / "working/layered-world/package/manifest.json"
@@ -967,7 +1041,9 @@ public final class FakeAdaptiveClient {
     def place_representative_definitions(project: Path) -> dict:
         manifest_path = project / "working/layered-world/package/manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        declaration = manifest["placementSets"][0]
+        declaration = next(
+            value for value in manifest["placementSets"] if value["level"] == 0
+        )
         placement_path = manifest_path.parent / declaration["path"]
         placement = json.loads(placement_path.read_text(encoding="utf-8"))
         placement["boundaries"] = [
@@ -1010,6 +1086,138 @@ public final class FakeAdaptiveClient {
         declaration["sha256"] = sha256(placement_path)
         write_json(manifest_path, manifest)
         return placement
+
+    @staticmethod
+    def add_empty_level(project: Path, level: int) -> None:
+        """Add one content-identical signed level using canonical package order."""
+        manifest_path = project / "working/layered-world/package/manifest.json"
+        package = manifest_path.parent
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        source_terrain = package / manifest["terrainSectors"][0]["path"]
+        token = f"m{-level}" if level < 0 else f"p{level}"
+        terrain_relative = f"terrain/global/l{token}/xp2-yp13.raw"
+        terrain_path = package / terrain_relative
+        terrain_path.parent.mkdir(parents=True)
+        terrain_path.write_bytes(source_terrain.read_bytes())
+        placement_relative = f"placements/global/l{token}.json"
+        placement_path = package / placement_relative
+        placement = {
+            "schemaVersion": 3,
+            "encoding": "layered-world-placements-v3",
+            "worldSpace": "global",
+            "level": level,
+            "boundaries": [],
+            "groundItems": [],
+            "npcs": [],
+            "scenery": [],
+        }
+        write_json(placement_path, placement)
+        manifest["levels"].append(
+            {
+                "level": level,
+                "name": f"Level {level}",
+                "role": f"level-{token}",
+                "worldSpace": "global",
+            }
+        )
+        manifest["levels"].sort(key=lambda value: value["level"])
+        manifest["terrainSectors"].append(
+            {
+                "encoding": "raw-layered-sector-v1",
+                "level": level,
+                "path": terrain_relative,
+                "sectorX": 2,
+                "sectorY": 13,
+                "sha256": sha256(terrain_path),
+                "worldSpace": "global",
+            }
+        )
+        manifest["terrainSectors"].sort(
+            key=lambda value: (value["level"], value["sectorX"], value["sectorY"])
+        )
+        manifest["placementSets"].append(
+            {
+                "encoding": "layered-world-placements-v3",
+                "id": f"region-fixture-level-{token}",
+                "level": level,
+                "path": placement_relative,
+                "sha256": sha256(placement_path),
+                "worldSpace": "global",
+            }
+        )
+        manifest["placementSets"].sort(key=lambda value: value["level"])
+        write_json(manifest_path, manifest)
+
+    @staticmethod
+    def write_region_selection(
+        path: Path, markers: list[tuple[int, int]], levels: list[int]
+    ) -> dict:
+        selection = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-region-selection",
+            "worldSpace": "global",
+            "markers": [
+                {"marker": index, "x": x, "y": y}
+                for index, (x, y) in enumerate(markers, start=1)
+            ],
+            "levels": levels,
+            "selectionFingerprintSha256": "0" * 64,
+        }
+        selection["selectionFingerprintSha256"] = canonical_hash(selection)
+        write_json(path, selection)
+        return selection
+
+    @staticmethod
+    def selected_tile_bytes(package: Path, x: int, y: int, level: int = 0) -> bytes:
+        manifest = json.loads(
+            (package / "manifest.json").read_text(encoding="utf-8")
+        )
+        declaration = next(
+            value
+            for value in manifest["terrainSectors"]
+            if value["level"] == level
+            and value["sectorX"] == x // 48
+            and value["sectorY"] == y // 48
+        )
+        sector = (package / declaration["path"]).read_bytes()
+        offset = ((x % 48) * 48 + (y % 48)) * 10
+        return sector[offset : offset + 10]
+
+    @staticmethod
+    def rewrite_region_bundle(bundle: Path, mutate) -> None:
+        with zipfile.ZipFile(bundle, "r") as archive:
+            snapshot = json.loads(archive.read("snapshot.json"))
+        mutate(snapshot)
+        snapshot["snapshotId"] = "0" * 64
+        snapshot["snapshotFingerprintSha256"] = "0" * 64
+        snapshot_hash = canonical_hash(snapshot)
+        snapshot["snapshotId"] = snapshot_hash
+        snapshot["snapshotFingerprintSha256"] = snapshot_hash
+        snapshot_bytes = (
+            json.dumps(snapshot, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        manifest = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-region-bundle",
+            "formatId": "portable-region-bundle-v1",
+            "snapshotId": snapshot_hash,
+            "files": [
+                {
+                    "role": "snapshot",
+                    "relativePath": "snapshot.json",
+                    "size": len(snapshot_bytes),
+                    "sha256": hashlib.sha256(snapshot_bytes).hexdigest(),
+                }
+            ],
+            "bundleFingerprintSha256": "0" * 64,
+        }
+        manifest["bundleFingerprintSha256"] = canonical_hash(manifest)
+        manifest_bytes = (
+            json.dumps(manifest, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+        ).encode("utf-8")
+        with zipfile.ZipFile(bundle, "w", compression=zipfile.ZIP_STORED) as archive:
+            archive.writestr("manifest.json", manifest_bytes)
+            archive.writestr("snapshot.json", snapshot_bytes)
 
     @staticmethod
     def rewrite_as_legacy_standalone(installation: Path, project: Path) -> None:
@@ -1450,6 +1658,1198 @@ public final class FakeAdaptiveClient {
             self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertEqual(runtime_before, tree_bytes(runtime))
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_region_copy_cut_paste_round_trip_is_exact_and_project_local(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-round-trip-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Region round trip", 43860
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.add_empty_level(project, -1)
+            expected_placements = self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            package = project / "working/layered-world/package"
+            package_before = tree_bytes(package)
+            source_before = tree_bytes(project / "source")
+            target_before = tree_bytes(target)
+            project_manifest_before = (project / "project.json").read_bytes()
+
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection,
+                [(119, 648), (121, 648), (121, 649), (119, 649)],
+                [-1, 0],
+            )
+            copied = self.run_cli(
+                "region-copy",
+                "--project",
+                project,
+                "--selection",
+                selection,
+                "--name",
+                "Portable structure",
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            copy_result = json.loads(copied.stdout)
+            self.assertFalse(copy_result["worldModified"])
+            self.assertEqual(12, copy_result["tileCount"])
+            self.assertEqual(4, copy_result["placementCount"])
+            self.assertTrue(
+                any(
+                    value["family"] == "boundary"
+                    and value["crossesBoundary"]
+                    for value in copy_result["footprintBoundaryReports"]
+                )
+            )
+            self.assertEqual(package_before, tree_bytes(package))
+            self.assertEqual(project_manifest_before, (project / "project.json").read_bytes())
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
+
+            bundle = project / copy_result["libraryRelativePath"]
+            self.assertTrue(bundle.is_file())
+            self.assertNotIn(str(base).encode("utf-8"), bundle.read_bytes())
+            with zipfile.ZipFile(bundle, "r") as archive:
+                self.assertEqual(
+                    ["manifest.json", "snapshot.json"], archive.namelist()
+                )
+                snapshot = json.loads(archive.read("snapshot.json"))
+            self.assertEqual(copy_result["snapshotId"], snapshot["snapshotId"])
+            self.assertEqual("global", snapshot["worldSpace"])
+            self.assertEqual(
+                {0, 1}, {value["levelOffset"] for value in snapshot["levels"]}
+            )
+            self.assertEqual(
+                {
+                    "boundaries": 1,
+                    "groundItems": 1,
+                    "npcs": 1,
+                    "scenery": 1,
+                },
+                {key: len(value) for key, value in snapshot["placements"].items()},
+            )
+            self.assertTrue(
+                any(
+                    dependency["kind"] == "definition-catalog"
+                    for dependency in snapshot["dependencies"]
+                )
+            )
+            self.assertTrue(all(not value["bundled"] for value in snapshot["dependencies"]))
+
+            copied_again = self.run_cli(
+                "region-copy",
+                "--project",
+                project,
+                "--selection",
+                selection,
+                "--name",
+                "Portable structure",
+            )
+            self.assertEqual(0, copied_again.returncode, copied_again.stderr)
+            second = json.loads(copied_again.stdout)
+            self.assertEqual(copy_result["snapshotId"], second["snapshotId"])
+            self.assertEqual(copy_result["bundleSha256"], second["bundleSha256"])
+            self.assertFalse(second["libraryEntryCreated"])
+
+            library_stage = bundle.with_name(
+                "." + bundle.name + ".staging-" + copy_result["bundleSha256"]
+            )
+            os.link(bundle, library_stage)
+            recovered_published = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Portable structure"
+            )
+            self.assertEqual(0, recovered_published.returncode, recovered_published.stderr)
+            self.assertFalse(library_stage.exists())
+            self.assertEqual(1, bundle.stat().st_nlink)
+            bundle.rename(library_stage)
+            recovered_staged = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Portable structure"
+            )
+            self.assertEqual(0, recovered_staged.returncode, recovered_staged.stderr)
+            self.assertFalse(library_stage.exists())
+            self.assertTrue(bundle.is_file())
+            self.assertTrue(json.loads(recovered_staged.stdout)["libraryEntryCreated"])
+
+            cut_preview = self.run_cli(
+                "region-cut-preview",
+                "--project",
+                project,
+                "--selection",
+                selection,
+                "--name",
+                "Portable structure",
+            )
+            self.assertEqual(0, cut_preview.returncode, cut_preview.stderr)
+            cut = json.loads(cut_preview.stdout)
+            plan = cut["operationPlan"]
+            self.assertFalse(plan["blocked"])
+            self.assertFalse(plan["overwriteRequired"])
+            plan_hash = plan["planFingerprintSha256"]
+
+            refused = self.run_cli(
+                "region-cut-apply",
+                "--project",
+                project,
+                "--snapshot",
+                copy_result["snapshotId"],
+                "--expected-plan",
+                plan_hash,
+                "--confirm",
+                "CUT stale",
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(package_before, tree_bytes(package))
+            self.assertTrue(bundle.is_file())
+
+            injected = self.run_region_failure(
+                project,
+                copy_result["snapshotId"],
+                plan_hash,
+                "CUT " + plan_hash,
+                "package-published",
+            )
+            self.assertEqual(4, injected.returncode, injected.stderr)
+            self.assertIn("Region publication failed", injected.stderr)
+            self.assertEqual(package_before, tree_bytes(package))
+            self.assertEqual(
+                project_manifest_before, (project / "project.json").read_bytes()
+            )
+            self.assertFalse(
+                (project / "working/layered-world/.region-original-v1").exists()
+            )
+            self.assertFalse(
+                list((project / "working/layered-world").glob(".region-stage-*"))
+            )
+            self.assertTrue(bundle.is_file())
+
+            cut_apply = self.run_cli(
+                "region-cut-apply",
+                "--project",
+                project,
+                "--snapshot",
+                copy_result["snapshotId"],
+                "--expected-plan",
+                plan_hash,
+                "--confirm",
+                "CUT " + plan_hash,
+            )
+            self.assertEqual(0, cut_apply.returncode, cut_apply.stderr)
+            void_tile = bytes([0, 1, 8, 0, 0, 0, 0, 0, 0, 0])
+            for level in (-1, 0):
+                for x in range(119, 122):
+                    for y in range(648, 650):
+                        self.assertEqual(
+                            void_tile,
+                            self.selected_tile_bytes(package, x, y, level),
+                        )
+            cut_placements = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual([], cut_placements[family])
+            self.assertTrue(bundle.is_file())
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
+
+            paste_preview = self.run_cli(
+                "region-paste-preview",
+                "--project",
+                project,
+                "--snapshot",
+                copy_result["snapshotId"],
+                "--level",
+                "-1",
+                "--x",
+                "119",
+                "--y",
+                "648",
+            )
+            self.assertEqual(0, paste_preview.returncode, paste_preview.stderr)
+            paste = json.loads(paste_preview.stdout)
+            self.assertTrue(paste["compatibilityReport"]["compatible"])
+            self.assertEqual([], paste["operationPlan"]["collisions"])
+            paste_hash = paste["operationPlan"]["planFingerprintSha256"]
+            paste_apply = self.run_cli(
+                "region-paste-apply",
+                "--project",
+                project,
+                "--snapshot",
+                copy_result["snapshotId"],
+                "--level",
+                "-1",
+                "--x",
+                "119",
+                "--y",
+                "648",
+                "--expected-plan",
+                paste_hash,
+                "--confirm",
+                "PASTE " + paste_hash,
+            )
+            self.assertEqual(0, paste_apply.returncode, paste_apply.stderr)
+            self.assertEqual(package_before, tree_bytes(package))
+            restored = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(expected_placements[family], restored[family])
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_region_collision_preview_overwrite_and_unavailable_terrain_fail_closed(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-collision-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Collision preview", 43861
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            package = project / "working/layered-world/package"
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection,
+                [(119, 647), (121, 647), (121, 649), (119, 649)],
+                [0],
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Terrain only"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            before = tree_bytes(package)
+
+            preview = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "120", "--y", "647"
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)["operationPlan"]
+            self.assertFalse(plan["blocked"])
+            self.assertTrue(plan["overwriteRequired"])
+            self.assertTrue(
+                any(value["kind"] == "non-void-terrain" for value in plan["collisions"])
+            )
+            plan_hash = plan["planFingerprintSha256"]
+            refused = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "120", "--y", "647",
+                "--expected-plan", plan_hash, "--confirm", "PASTE " + plan_hash
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(before, tree_bytes(package))
+            applied = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "120", "--y", "647",
+                "--expected-plan", plan_hash, "--confirm", "OVERWRITE " + plan_hash
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+
+            after = tree_bytes(package)
+            unavailable = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "2000", "--y", "2000"
+            )
+            self.assertEqual(0, unavailable.returncode, unavailable.stderr)
+            unavailable_plan = json.loads(unavailable.stdout)["operationPlan"]
+            self.assertTrue(unavailable_plan["blocked"])
+            self.assertEqual([], unavailable_plan["files"])
+            self.assertTrue(
+                any(value["kind"] == "unavailable-terrain" for value in unavailable_plan["collisions"])
+            )
+            self.assertEqual(after, tree_bytes(package))
+            extreme = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot",
+                snapshot_id, "--level", "2147483647", "--x", "2147483647",
+                "--y", "2147483647"
+            )
+            self.assertEqual(3, extreme.returncode, extreme.stderr)
+            self.assertIn("signed 32-bit range", extreme.stderr)
+            self.assertEqual(after, tree_bytes(package))
+
+    def test_region_copy_pastes_all_placement_families_with_local_id_mapping(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-copy-paste-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Copy and paste", 43865
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source = self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Copy with provenance"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            package = project / "working/layered-world/package"
+            source_before = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            preview = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648"
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)["operationPlan"]
+            self.assertFalse(plan["blocked"])
+            mappings = plan["placementIdMappings"]
+            self.assertEqual(
+                {"boundary", "ground-item", "npc", "scenery"},
+                {value["family"] for value in mappings},
+            )
+            self.assertEqual(4, len(mappings))
+            self.assertTrue(
+                all(value["sourcePlacementId"] != value["destinationPlacementId"]
+                    for value in mappings)
+            )
+            plan_hash = plan["planFingerprintSha256"]
+            applied = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648",
+                "--expected-plan", plan_hash, "--confirm", "PASTE " + plan_hash
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            result = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            mapping_by_source = {
+                value["sourcePlacementId"]: value["destinationPlacementId"]
+                for value in mappings
+            }
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(2, len(result[family]))
+                self.assertIn(source[family][0], result[family])
+                self.assertEqual(source_before[family][0], source[family][0])
+                self.assertIn(
+                    mapping_by_source[source[family][0]["placementId"]],
+                    {record["placementId"] for record in result[family]},
+                )
+
+    def test_region_publication_recovers_every_durable_exchange_milestone(self):
+        milestones = {
+            "staged-package-durable": "before",
+            "rollback-package-durable": "before",
+            "package-published": "before",
+            "failed-quarantined": "before",
+            "project-manifest-saved": "after",
+            "before-cleanup": "after",
+            "rollback-quarantined": "after",
+            "cleanup-tree-deleted": "after",
+            "before-journal-delete": "after",
+            "journal-write-failed": "after",
+            "journal-delete-failed": "after",
+            "journal-deleted": "after",
+            "cleanup-complete": "after",
+        }
+        for offset, (milestone, expected_state) in enumerate(milestones.items()):
+            with self.subTest(milestone=milestone), tempfile.TemporaryDirectory(
+                prefix="adaptive-region-recovery-"
+            ) as temp:
+                base = Path(temp)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                target = base / "ordinary-parent"
+                target.mkdir()
+                report = base / "report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Recovery " + milestone, 43900 + offset
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                self.place_representative_definitions(project)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                package = project / "working/layered-world/package"
+                package_before = tree_bytes(package)
+                manifest_before = (project / "project.json").read_bytes()
+                selection = base / "selection.json"
+                self.write_region_selection(
+                    selection,
+                    [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+                )
+                copied = self.run_cli(
+                    "region-copy", "--project", project, "--selection", selection,
+                    "--name", "Recovery source"
+                )
+                self.assertEqual(0, copied.returncode, copied.stderr)
+                snapshot_id = json.loads(copied.stdout)["snapshotId"]
+                preview = self.run_cli(
+                    "region-cut-preview", "--project", project,
+                    "--selection", selection, "--name", "Recovery source"
+                )
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                plan_hash = json.loads(preview.stdout)["operationPlan"][
+                    "planFingerprintSha256"
+                ]
+                interrupted = self.run_region_failure(
+                    project, snapshot_id, plan_hash, "CUT " + plan_hash, milestone
+                )
+                self.assertEqual(
+                    3 if milestone == "failed-quarantined" else 4,
+                    interrupted.returncode,
+                    interrupted.stderr,
+                )
+                if milestone in ("rollback-quarantined", "failed-quarantined"):
+                    cleanup = next(
+                        (project / "working/layered-world").glob(".region-cleanup-*")
+                    )
+                    victim = next(path for path in cleanup.rglob("*") if path.is_file())
+                    victim.unlink()
+                if milestone == "staged-package-durable":
+                    parent = project / "working/layered-world"
+                    journal_path = parent / ".region-transaction-v1.json"
+                    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+                    stage = parent / journal["stageName"]
+                    cleanup = parent / (
+                        ".region-cleanup-stage-" + journal["afterTreeSha256"]
+                    )
+                    journal["phase"] = "cleaning-up"
+                    journal["cleanupSourceName"] = stage.name
+                    journal["cleanupName"] = cleanup.name
+                    journal_path.write_text(
+                        json.dumps(journal, sort_keys=True) + "\n", encoding="utf-8"
+                    )
+                    stage.rename(cleanup)
+                    victim = next(path for path in cleanup.rglob("*") if path.is_file())
+                    victim.unlink()
+
+                recovered = self.run_cli(
+                    "open-project", "--installation-root", installation
+                )
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                self.assertFalse(
+                    (project / "working/layered-world/.region-transaction-v1.json").exists()
+                )
+                self.assertFalse(
+                    (project / "working/layered-world/.region-original-v1").exists()
+                )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-stage-*"))
+                )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-failed-*"))
+                )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-cleanup-*"))
+                )
+                if expected_state == "before":
+                    self.assertEqual(package_before, tree_bytes(package))
+                    self.assertEqual(manifest_before, (project / "project.json").read_bytes())
+                else:
+                    self.assertNotEqual(package_before, tree_bytes(package))
+                    self.assertNotEqual(manifest_before, (project / "project.json").read_bytes())
+                    placement = json.loads(
+                        (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+                    )
+                    for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                        self.assertEqual([], placement[family])
+
+    def test_ordinary_reopen_recovers_or_refuses_orphan_region_journal_writes(self):
+        for offset, scenario in enumerate(
+            ("alongside", "only", "ambiguous", "bounded-scan", "orphan-rollback")
+        ):
+            with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(
+                prefix="adaptive-region-journal-"
+            ) as temp:
+                base = Path(temp)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                target = base / "ordinary-parent"
+                target.mkdir()
+                report = base / "report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Journal " + scenario, 43920 + offset
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                self.place_representative_definitions(project)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                package_before = tree_bytes(project / "working/layered-world/package")
+                selection = base / "selection.json"
+                self.write_region_selection(
+                    selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+                )
+                copied = self.run_cli(
+                    "region-copy", "--project", project, "--selection", selection,
+                    "--name", "Journal source"
+                )
+                snapshot_id = json.loads(copied.stdout)["snapshotId"]
+                preview = self.run_cli(
+                    "region-cut-preview", "--project", project,
+                    "--selection", selection, "--name", "Journal source"
+                )
+                plan_hash = json.loads(preview.stdout)["operationPlan"][
+                    "planFingerprintSha256"
+                ]
+                interrupted = self.run_region_failure(
+                    project, snapshot_id, plan_hash, "CUT " + plan_hash,
+                    "staged-package-durable"
+                )
+                self.assertEqual(4, interrupted.returncode, interrupted.stderr)
+                journal = project / "working/layered-world/.region-transaction-v1.json"
+                journal_bytes = journal.read_bytes()
+                if scenario == "ambiguous":
+                    value = json.loads(journal_bytes)
+                    value["afterTreeSha256"] = "f" * 64
+                    candidate_bytes = (
+                        json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False) + "\n"
+                    ).encode("utf-8")
+                else:
+                    candidate_bytes = journal_bytes
+                candidate = journal.with_name(
+                    ".region-transaction-v1.json.new-"
+                    + hashlib.sha256(candidate_bytes).hexdigest()
+                )
+                candidate.write_bytes(candidate_bytes)
+                if scenario == "only":
+                    journal.unlink()
+                if scenario == "bounded-scan":
+                    for index in range(8193):
+                        (journal.parent / f"unexpected-recovery-entry-{index:05d}").touch()
+                if scenario == "orphan-rollback":
+                    candidate.unlink()
+                    journal.unlink()
+                    stage = next(journal.parent.glob(".region-stage-*"))
+                    shutil.rmtree(stage)
+                    (journal.parent / "package").rename(
+                        journal.parent / ".region-original-v1"
+                    )
+                reopened = self.run_cli(
+                    "open-project", "--installation-root", installation
+                )
+                if scenario in ("ambiguous", "bounded-scan", "orphan-rollback"):
+                    self.assertEqual(3, reopened.returncode, reopened.stderr)
+                    self.assertIn(
+                        "RECOVERY_REQUIRED" if scenario != "bounded-scan"
+                        else "INVENTORY_LIMIT_EXCEEDED",
+                        reopened.stderr,
+                    )
+                    if scenario == "orphan-rollback":
+                        self.assertTrue(
+                            (journal.parent / ".region-original-v1").exists()
+                        )
+                    else:
+                        self.assertTrue(journal.exists())
+                        self.assertTrue(candidate.exists())
+                else:
+                    self.assertEqual(0, reopened.returncode, reopened.stderr)
+                    self.assertFalse(journal.exists())
+                    self.assertFalse(candidate.exists())
+                    self.assertEqual(
+                        package_before,
+                        tree_bytes(project / "working/layered-world/package"),
+                    )
+
+    def test_normal_save_and_launch_recover_pending_region_publication(self):
+        for offset, entry_point in enumerate(("save", "launch")):
+            with self.subTest(entry_point=entry_point), tempfile.TemporaryDirectory(
+                prefix="adaptive-region-entry-recovery-"
+            ) as temp:
+                base = Path(temp)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                target = base / "ordinary-parent"
+                target.mkdir()
+                report = base / "report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Entry recovery " + entry_point, 43930 + offset
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                self.place_representative_definitions(project)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                package_before = tree_bytes(project / "working/layered-world/package")
+                selection = base / "selection.json"
+                self.write_region_selection(
+                    selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+                )
+                copied = self.run_cli(
+                    "region-copy", "--project", project, "--selection", selection,
+                    "--name", "Entry source"
+                )
+                snapshot_id = json.loads(copied.stdout)["snapshotId"]
+                preview = self.run_cli(
+                    "region-cut-preview", "--project", project,
+                    "--selection", selection, "--name", "Entry source"
+                )
+                plan_hash = json.loads(preview.stdout)["operationPlan"][
+                    "planFingerprintSha256"
+                ]
+                interrupted = self.run_region_failure(
+                    project, snapshot_id, plan_hash, "CUT " + plan_hash,
+                    "staged-package-durable"
+                )
+                self.assertEqual(4, interrupted.returncode, interrupted.stderr)
+                result = (
+                    self.run_cli("save-project", "--project", project)
+                    if entry_point == "save"
+                    else self.run_supervision(project)
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual(
+                    package_before, tree_bytes(project / "working/layered-world/package")
+                )
+                self.assertFalse(
+                    (project / "working/layered-world/.region-transaction-v1.json").exists()
+                )
+
+    def test_region_bundle_import_export_dependencies_and_traversal_are_safe(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-bundle-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            first_created, first_summary = self.create_project(
+                installation, runtime, target, report, "Bundle source", 43862
+            )
+            self.assertEqual(0, first_created.returncode, first_created.stderr)
+            first = Path(first_summary["projectRoot"])
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection,
+                [(119, 647), (121, 647), (121, 649), (119, 649)],
+                [0],
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", first, "--selection", selection,
+                "--name", "Shared terrain"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            first_export = base / "shared-a.wbr"
+            second_export = base / "shared-b.wbr"
+            for output in (first_export, second_export):
+                exported = self.run_cli(
+                    "region-export", "--project", first, "--snapshot", snapshot_id,
+                    "--output", output
+                )
+                self.assertEqual(0, exported.returncode, exported.stderr)
+            self.assertEqual(first_export.read_bytes(), second_export.read_bytes())
+            redirected = base / "redirected-into-project"
+            redirected.symlink_to(first / "exports", target_is_directory=True)
+            unsafe_export = self.run_cli(
+                "region-export", "--project", first, "--snapshot", snapshot_id,
+                "--output", redirected / "escaped.wbr"
+            )
+            self.assertEqual(3, unsafe_export.returncode, unsafe_export.stderr)
+            self.assertIn("UNSAFE_PATH", unsafe_export.stderr)
+            self.assertFalse((first / "exports/escaped.wbr").exists())
+
+            second_created, second_summary = self.create_project(
+                installation, runtime, target, report, "Bundle target", 43863
+            )
+            self.assertEqual(0, second_created.returncode, second_created.stderr)
+            second = Path(second_summary["projectRoot"])
+            second_package_before = tree_bytes(second / "working/layered-world/package")
+            imported = self.run_cli(
+                "region-import", "--project", second, "--bundle", first_export
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            import_result = json.loads(imported.stdout)
+            self.assertEqual(snapshot_id, import_result["snapshotId"])
+            self.assertTrue(import_result["compatibilityReport"]["compatible"])
+            self.assertFalse(import_result["worldModified"])
+            self.assertEqual(
+                second_package_before, tree_bytes(second / "working/layered-world/package")
+            )
+            canonical_library = second / import_result["libraryRelativePath"]
+            canonical_bytes = canonical_library.read_bytes()
+            with zipfile.ZipFile(first_export, "r") as archive:
+                manifest_bytes = archive.read("manifest.json")
+                snapshot_bytes = archive.read("snapshot.json")
+            variants = []
+            prefixed = base / "prefixed.wbr"
+            prefixed.write_bytes(b"hidden-prefix" + first_export.read_bytes())
+            variants.append(prefixed)
+            trailing = base / "trailing.wbr"
+            trailing.write_bytes(first_export.read_bytes() + b"hidden-trailer")
+            variants.append(trailing)
+            alternate = base / "alternate-zip.wbr"
+            with zipfile.ZipFile(alternate, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.comment = b"noncanonical comment"
+                snapshot_info = zipfile.ZipInfo("snapshot.json", (2025, 1, 2, 3, 4, 6))
+                snapshot_info.compress_type = zipfile.ZIP_DEFLATED
+                snapshot_info.extra = b"\x0a\x00\x01\x00x"
+                archive.writestr(snapshot_info, snapshot_bytes)
+                archive.writestr("manifest.json", manifest_bytes)
+            variants.append(alternate)
+            for variant in variants:
+                with self.subTest(canonicalized=variant.name):
+                    accepted = self.run_cli(
+                        "region-import", "--project", second, "--bundle", variant
+                    )
+                    self.assertEqual(0, accepted.returncode, accepted.stderr)
+                    self.assertFalse(json.loads(accepted.stdout)["libraryEntryCreated"])
+                    self.assertEqual(canonical_bytes, canonical_library.read_bytes())
+
+            catalog_mismatch = base / "catalog-mismatch.wbr"
+            shutil.copy2(first_export, catalog_mismatch)
+
+            def replace_catalog(snapshot):
+                old_catalog = snapshot["catalog"]["catalogId"]
+                replacement = "foreign-neutral-catalog-v1"
+                replacement_hash = "f" * 64
+                snapshot["catalog"] = {
+                    "catalogId": replacement,
+                    "sha256": replacement_hash,
+                }
+                for dependency in snapshot["dependencies"]:
+                    dependency["catalogId"] = replacement
+                    dependency["logicalId"] = dependency["logicalId"].replace(
+                        f"catalog:{old_catalog}", f"catalog:{replacement}", 1
+                    )
+                    if dependency["kind"] == "definition-catalog":
+                        dependency["contentSha256"] = replacement_hash
+                snapshot["dependencies"].sort(
+                    key=lambda value: (
+                        value["kind"], value["family"], value["logicalId"]
+                    )
+                )
+
+            self.rewrite_region_bundle(catalog_mismatch, replace_catalog)
+            mismatch_import = self.run_cli(
+                "region-import", "--project", second, "--bundle", catalog_mismatch
+            )
+            self.assertEqual(0, mismatch_import.returncode, mismatch_import.stderr)
+            mismatch_result = json.loads(mismatch_import.stdout)
+            self.assertFalse(mismatch_result["compatibilityReport"]["compatible"])
+            self.assertTrue(
+                any(
+                    issue["code"] == "catalog-mismatch"
+                    for issue in mismatch_result["compatibilityReport"]["issues"]
+                )
+            )
+            self.assertEqual(
+                second_package_before, tree_bytes(second / "working/layered-world/package")
+            )
+
+            unsupported = base / "unsupported-material.wbr"
+            shutil.copy2(first_export, unsupported)
+
+            def add_material(snapshot):
+                snapshot["dependencies"].append(
+                    {
+                        "kind": "material",
+                        "family": "floor",
+                        "logicalId": "creator.example:marble-floor-v1",
+                        "numericId": -1,
+                        "catalogId": snapshot["catalog"]["catalogId"],
+                        "contentSha256": "",
+                        "resolution": "unsupported",
+                        "bundled": False,
+                    }
+                )
+                snapshot["dependencies"].sort(
+                    key=lambda value: (
+                        value["kind"], value["family"], value["logicalId"]
+                    )
+                )
+
+            self.rewrite_region_bundle(unsupported, add_material)
+            unsupported_import = self.run_cli(
+                "region-import", "--project", second, "--bundle", unsupported
+            )
+            self.assertEqual(0, unsupported_import.returncode, unsupported_import.stderr)
+            unsupported_result = json.loads(unsupported_import.stdout)
+            self.assertFalse(unsupported_result["compatibilityReport"]["compatible"])
+            self.assertTrue(
+                any(
+                    issue["code"] == "unsupported-dependency"
+                    for issue in unsupported_result["compatibilityReport"]["issues"]
+                )
+            )
+            self.assertTrue(
+                (second / unsupported_result["libraryRelativePath"]).is_file()
+            )
+            blocked = self.run_cli(
+                "region-paste-preview", "--project", second, "--snapshot",
+                unsupported_result["snapshotId"], "--level", "0", "--x", "119",
+                "--y", "647"
+            )
+            self.assertEqual(0, blocked.returncode, blocked.stderr)
+            self.assertTrue(json.loads(blocked.stdout)["operationPlan"]["blocked"])
+            self.assertEqual(
+                second_package_before, tree_bytes(second / "working/layered-world/package")
+            )
+
+            traversal = base / "traversal.wbr"
+            with zipfile.ZipFile(traversal, "w") as archive:
+                archive.writestr("manifest.json", b"{}")
+                archive.writestr("../snapshot.json", b"{}")
+            library_before = tree_bytes(second / "snapshot-library")
+            refused = self.run_cli(
+                "region-import", "--project", second, "--bundle", traversal
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("UNSAFE_PATH", refused.stderr)
+            self.assertEqual(library_before, tree_bytes(second / "snapshot-library"))
+            self.assertFalse((base / "snapshot.json").exists())
+
+            with zipfile.ZipFile(first_export, "r") as original:
+                original_manifest = original.read("manifest.json")
+                original_snapshot = original.read("snapshot.json")
+            malformed_bundles = {}
+            extra_entry = base / "extra-executable.wbr"
+            with zipfile.ZipFile(extra_entry, "w") as archive:
+                archive.writestr("manifest.json", original_manifest)
+                archive.writestr("snapshot.json", original_snapshot)
+                archive.writestr("run.cmd", b"exit /b 0\n")
+            malformed_bundles[extra_entry] = "UNSUPPORTED_FORMAT"
+            hash_mismatch = base / "hash-mismatch.wbr"
+            with zipfile.ZipFile(hash_mismatch, "w") as archive:
+                archive.writestr("manifest.json", original_manifest)
+                archive.writestr("snapshot.json", original_snapshot + b" ")
+            malformed_bundles[hash_mismatch] = "CONTRACT"
+            for malformed, expected_error in malformed_bundles.items():
+                with self.subTest(bundle=malformed.name):
+                    library_before = tree_bytes(second / "snapshot-library")
+                    refused = self.run_cli(
+                        "region-import", "--project", second, "--bundle", malformed
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn(expected_error, refused.stderr)
+                    self.assertEqual(
+                        library_before, tree_bytes(second / "snapshot-library")
+                    )
+
+            oversized = second / "snapshot-library/v1" / (("e" * 64) + ".wbr")
+            with oversized.open("wb") as output:
+                output.seek(32 * 1024 * 1024)
+                output.write(b"x")
+            bounded = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "must-not-export.wbr"
+            )
+            self.assertEqual(3, bounded.returncode, bounded.stderr)
+            self.assertIn("CONTRACT_LIMIT_EXCEEDED", bounded.stderr)
+            oversized.unlink()
+
+            oversized_stage = second / "snapshot-library/v1" / (
+                "." + ("a" * 64) + ".wbr.staging-" + ("b" * 64)
+            )
+            with oversized_stage.open("wb") as output:
+                output.seek(32 * 1024 * 1024)
+                output.write(b"x")
+            bounded_stage = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "must-not-recover-stage.wbr"
+            )
+            self.assertEqual(3, bounded_stage.returncode, bounded_stage.stderr)
+            self.assertIn("RECOVERY_REQUIRED", bounded_stage.stderr)
+            self.assertTrue(oversized_stage.exists())
+            oversized_stage.unlink()
+
+            junk_entries = []
+            for index in range(1026):
+                junk = second / "snapshot-library/v1" / f".unexpected-{index:04d}"
+                junk.touch()
+                junk_entries.append(junk)
+            bounded_scan = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "must-not-scan-unbounded-library.wbr"
+            )
+            self.assertEqual(3, bounded_scan.returncode, bounded_scan.stderr)
+            self.assertIn("INVENTORY_LIMIT_EXCEEDED", bounded_scan.stderr)
+            for junk in junk_entries:
+                junk.unlink()
+
+            canonical_bytes = canonical_library.read_bytes()
+            canonical_library.write_bytes(canonical_bytes[:-1] + b"x")
+            tampered = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "tampered-export.wbr"
+            )
+            self.assertEqual(3, tampered.returncode, tampered.stderr)
+            self.assertFalse((base / "tampered-export.wbr").exists())
+            canonical_library.write_bytes(canonical_bytes)
+
+    def test_region_preview_blocks_external_and_incoming_crossing_footprints(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-footprints-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Footprints", 43866
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            package = project / "working/layered-world/package"
+            self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Crossing footprints"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+
+            placement_path = package / "placements/global/lp0.json"
+            placement = json.loads(placement_path.read_text(encoding="utf-8"))
+            placement["boundaries"].append(
+                {"boundaryId": 1, "direction": 1, "placementId": "outside-boundary",
+                 "position": {"x": 118, "y": 648}}
+            )
+            placement["npcs"].append(
+                {"npcId": 2, "placementId": "outside-npc",
+                 "roamBounds": {"minimum": {"x": 118, "y": 648},
+                                "maximum": {"x": 119, "y": 649}},
+                 "start": {"x": 118, "y": 648}}
+            )
+            placement["boundaries"].sort(
+                key=lambda value: (value["position"]["x"], value["position"]["y"],
+                                   value["direction"], value["placementId"])
+            )
+            placement["npcs"].sort(
+                key=lambda value: (value["start"]["x"], value["start"]["y"],
+                                   value["placementId"])
+            )
+            write_json(placement_path, placement)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            next(value for value in manifest["placementSets"] if value["level"] == 0)[
+                "sha256"
+            ] = sha256(placement_path)
+            write_json(manifest_path, manifest)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+
+            external = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "648"
+            )
+            self.assertEqual(0, external.returncode, external.stderr)
+            external_plan = json.loads(external.stdout)["operationPlan"]
+            self.assertTrue(external_plan["blocked"])
+            kinds = {value["kind"] for value in external_plan["collisions"]}
+            self.assertIn("represented-boundary-crossing", kinds)
+            self.assertIn("represented-npc-crossing", kinds)
+
+            incoming = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "624"
+            )
+            self.assertEqual(0, incoming.returncode, incoming.stderr)
+            incoming_plan = json.loads(incoming.stdout)["operationPlan"]
+            self.assertTrue(incoming_plan["blocked"])
+            self.assertTrue(any(
+                value["kind"] == "incoming-footprint-unavailable"
+                for value in incoming_plan["collisions"]
+            ))
+
+    def test_region_footprint_work_is_bounded_for_snapshot_and_destination(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-footprint-limit-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Footprint limits", 43867
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Bounded footprints"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            original_id = json.loads(copied.stdout)["snapshotId"]
+            exported_path = base / "large-footprints.wbr"
+            exported = self.run_cli(
+                "region-export", "--project", project, "--snapshot", original_id,
+                "--output", exported_path
+            )
+            self.assertEqual(0, exported.returncode, exported.stderr)
+
+            def expand_snapshot(snapshot):
+                prototype = snapshot["placements"]["npcs"][0]
+                snapshot["placements"]["npcs"] = []
+                snapshot["footprintBoundaryReports"] = [
+                    value for value in snapshot["footprintBoundaryReports"]
+                    if value["family"] != "npc"
+                ]
+                for index in range(61):
+                    npc = json.loads(json.dumps(prototype))
+                    npc["placementId"] = f"large-npc-{index:03d}"
+                    npc["roamBounds"] = {
+                        "minimum": {"xOffset": -64, "yOffset": -64},
+                        "maximum": {"xOffset": 64, "yOffset": 64},
+                    }
+                    snapshot["placements"]["npcs"].append(npc)
+                    snapshot["footprintBoundaryReports"].append(
+                        {"family": "npc", "placementId": npc["placementId"],
+                         "ownership": "anchor-point", "crossesBoundary": True,
+                         "detail": "complete roam rectangle; footprint crosses polygon"}
+                    )
+                snapshot["placements"]["npcs"].sort(
+                    key=lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
+                )
+                snapshot["footprintBoundaryReports"].sort(
+                    key=lambda value: (value["family"], value["placementId"])
+                )
+
+            self.rewrite_region_bundle(exported_path, expand_snapshot)
+            imported = self.run_cli(
+                "region-import", "--project", project, "--bundle", exported_path
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            large_id = json.loads(imported.stdout)["snapshotId"]
+            limited_snapshot = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", large_id,
+                "--level", "0", "--x", "125", "--y", "648"
+            )
+            self.assertEqual(3, limited_snapshot.returncode, limited_snapshot.stderr)
+            self.assertIn("INVENTORY_LIMIT_EXCEEDED", limited_snapshot.stderr)
+
+            package = project / "working/layered-world/package"
+            placement_path = package / "placements/global/lp0.json"
+            placement = json.loads(placement_path.read_text(encoding="utf-8"))
+            prototype = placement["npcs"][0]
+            placement["npcs"] = []
+            for index in range(435):
+                npc = json.loads(json.dumps(prototype))
+                npc["placementId"] = f"dense-npc-{index:03d}"
+                npc["start"] = {"x": 96 + index // 48, "y": 624 + index % 48}
+                npc["roamBounds"] = {
+                    "minimum": {"x": 96, "y": 624},
+                    "maximum": {"x": 143, "y": 671},
+                }
+                placement["npcs"].append(npc)
+            placement["npcs"].sort(
+                key=lambda value: (value["start"]["x"], value["start"]["y"],
+                                   value["placementId"])
+            )
+            write_json(placement_path, placement)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            next(value for value in manifest["placementSets"] if value["level"] == 0)[
+                "sha256"
+            ] = sha256(placement_path)
+            write_json(manifest_path, manifest)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            limited_destination = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", original_id,
+                "--level", "0", "--x", "125", "--y", "648"
+            )
+            self.assertEqual(3, limited_destination.returncode, limited_destination.stderr)
+            self.assertIn("INVENTORY_LIMIT_EXCEEDED", limited_destination.stderr)
+
+    def test_region_selection_geometry_and_contracts_fail_closed(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-contract-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Geometry", 43864
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            package_before = tree_bytes(project / "working/layered-world/package")
+            source_before = tree_bytes(project / "source")
+
+            cases = {
+                "self-intersecting": [(119, 647), (121, 649), (119, 649), (121, 647)],
+                "degenerate": [(119, 647), (120, 648), (121, 649)],
+                "duplicate": [(119, 647), (121, 647), (119, 647)],
+            }
+            for label, markers in cases.items():
+                with self.subTest(label=label):
+                    selection = base / f"{label}.json"
+                    self.write_region_selection(selection, markers, [0])
+                    refused = self.run_cli(
+                        "region-copy", "--project", project, "--selection",
+                        selection, "--name", label
+                    )
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("CONTRACT_VALUE_INVALID", refused.stderr)
+            stale = base / "stale.json"
+            value = self.write_region_selection(
+                stale, [(119, 647), (121, 647), (121, 649), (119, 649)], [0]
+            )
+            value["markers"][0]["x"] = 118
+            write_json(stale, value)
+            refused = self.run_cli(
+                "region-copy", "--project", project, "--selection", stale,
+                "--name", "stale"
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("fingerprint", refused.stderr.lower())
+            self.assertEqual(package_before, tree_bytes(project / "working/layered-world/package"))
+            self.assertEqual(source_before, tree_bytes(project / "source"))
 
     def test_standalone_catalog_rejects_malformed_definition_shapes(self):
         mutations = {

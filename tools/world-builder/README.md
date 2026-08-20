@@ -147,6 +147,7 @@ World Builder 2/
       working/
         layered-world/package/
         runtime/
+      snapshot-library/v1/          # content-addressed .wbr region bundles
       exports/
       backups/
       receipts/
@@ -208,6 +209,55 @@ java -jar output/world-builder-tools/world-builder-tools.jar save-project \
 Project creation, selection, open, and save use project/registry locks,
 copy-on-write publication, exact reopen verification, and rollback. They do
 not mutate a target.
+
+## Shareable region snapshots
+
+The advanced region commands implement the content-neutral Editor foundation
+in `docs/WORLD-BUILDER-2-REGION-SNAPSHOTS.md`. A strict ordered polygon uses
+marker 1 as its anchor. Copy captures exact terrain and all four placement
+families into a deterministic, non-executable `.wbr` bundle in the
+project-local content-addressed library without changing the working package.
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar region-copy \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --selection region-selection-v1.json --name 'Courtyard'
+
+java -jar output/world-builder-tools/world-builder-tools.jar region-export \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --snapshot <snapshot-sha256> --output /separate/path/courtyard.wbr
+
+java -jar output/world-builder-tools/world-builder-tools.jar region-import \
+  --project '/path/to/World Builder 2/projects/<uuid>' \
+  --bundle /separate/path/courtyard.wbr
+```
+
+Import only adds a validated bundle and emits a compatibility report. It never
+pastes. Alternate safe ZIP encodings are canonicalized before library
+publication. Cut and paste are preview/apply pairs whose apply command must repeat
+the exact current plan hash and use `CUT <hash>`, `PASTE <hash>`, or the
+separate `OVERWRITE <hash>` confirmation reported by preview. Missing terrain,
+catalog or logical dependency mismatch, stale state, malformed paths, and
+unsupported custom materials fail closed. Operations affect only the isolated
+working package; source and target data remain unchanged.
+Paste previews bind exact deterministic source-to-destination placement-ID
+mappings, including when the unchanged source already owns all four IDs.
+Boundary/NPC crossing footprints participate in blocking coverage and occupied-
+content collision checks. A forced region transaction journal recovers the last
+provably complete package/manifest state after interruption and refuses
+ambiguous artifacts.
+Every staged, failed/displaced, or rollback cleanup is journaled before an
+atomic move to its deterministic quarantine. Normal reopen, launch, and save
+retry exact before/after cleanup, including partial quarantine deletion and
+orphan journal writes. Recovery and library scans are inventory-bounded, and
+files are size-checked before hashing or comparison. Aggregate footprint,
+spatial-index, and candidate-scan
+limits keep adversarial NPC roam inventories bounded without tile expansion.
+
+This is not yet the packaged in-game selection experience. Ordered marker UI,
+ghost previews, runtime-authoritative transactions, and durable interactive
+undo/redo require the runtime-provider capability listed in the normative
+region document.
 
 ## Deterministic packed conversion
 

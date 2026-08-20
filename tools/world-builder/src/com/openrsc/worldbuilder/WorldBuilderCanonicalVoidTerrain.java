@@ -12,10 +12,14 @@ final class WorldBuilderCanonicalVoidTerrain {
 	private WorldBuilderCanonicalVoidTerrain() {
 	}
 
-	static byte[] sector() {
-		byte[] tile = new byte[] {
+	static byte[] tile() {
+		return new byte[] {
 			0, (byte)GROUND_TEXTURE, (byte)GROUND_OVERLAY, 0, 0, 0, 0, 0, 0, 0
 		};
+	}
+
+	static byte[] sector() {
+		byte[] tile = tile();
 		byte[] result = new byte[WorldBuilderRawLayeredTerrainCodec.BYTE_COUNT];
 		for (int offset = 0; offset < result.length;
 			offset += WorldBuilderRawLayeredTerrainCodec.TILE_BYTES) {

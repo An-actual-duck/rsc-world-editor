@@ -66,6 +66,7 @@ public final class WorldBuilderProcessSupervisor {
 		long readyTimeoutMillis, boolean productionCommands)
 		throws IOException, WorldBuilderContractException,
 			WorldBuilderDiscoveryException, InterruptedException {
+		WorldBuilderRegionSnapshotService.recoverProject(requestedProject);
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
 				requestedProject, true);

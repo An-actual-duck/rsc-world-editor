@@ -22,6 +22,14 @@ bound to canonical pixels and can be translated safely to destination-local
 numeric IDs. The current collision refusal is safe but does not by itself make
 independently created packs composable.
 
+Region sharing now has an implemented content-neutral dependency envelope in
+[World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
+Material and sprite logical identities can be reported there, but version 1
+deliberately marks them unsupported and bundles no payload. Custom-material
+implementation MUST extend that dependency model with an explicit compatible
+capability; it MUST NOT smuggle images or definitions into the current `.wbr`
+format or treat a numeric destination ID as portable identity.
+
 This document is the source of truth for the first custom-materials increment.
 It is intentionally prescriptive so a future maintainer or AI session can
 implement one bounded phase without rediscovering product decisions.

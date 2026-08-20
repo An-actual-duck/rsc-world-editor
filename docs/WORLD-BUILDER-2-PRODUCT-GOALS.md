@@ -387,10 +387,11 @@ The selection must define whether boundary segments lying on its edge belong
 inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
-Readiness: **foundational design required**, with a strong package foundation.
-There is no region-selection protocol today. The layered project already gives
-the feature safe project-local data, explicit levels, complete placement
-families, and canonical save validation.
+Readiness: **Editor foundation implemented; interactive runtime pending**. The
+strict ordered-polygon contract, integer tile-center/edge ownership,
+content-addressed library, and placement-footprint reports are implemented in
+[World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
+There is not yet an in-game marker protocol or selection UI.
 
 ### Copy, cut, and paste behavior
 
@@ -419,9 +420,11 @@ The first version should preserve orientation and level offsets. Rotation,
 mirroring, selective terrain/placement paste, clipping, and merge strategies
 can follow after exact untranslated paste is reliable.
 
-Readiness: **foundational design required**. This needs versioned snapshot and
-operation schemas, server-authoritative region transactions, preview packets,
-undo/redo, placement-footprint rules, and client ghost rendering.
+Readiness: **Editor foundation implemented; interactive runtime pending**.
+Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
+exact overwrite confirmation, and placement-footprint rules are implemented.
+Server-authoritative interactive transactions, preview packets, undo/redo, and
+client ghost rendering remain runtime work.
 
 ### Exportable and shareable snapshots
 
@@ -442,9 +445,11 @@ change the target automatically. Compatibility and collision checks run before
 the user can preview a paste. Unknown schema versions, dependencies, files, or
 presets fail closed.
 
-Readiness: **foundational design required**. The existing adaptive export,
-portable-path, canonical JSON, inventory, hashing, and package validators can
-be reused, which substantially lowers implementation risk.
+Readiness: **Editor foundation implemented**. Deterministic two-entry `.wbr`
+bundles, strict inventory/path validation, project-local import, independent
+export, portable logical dependencies, and incompatible-custom-content reports
+are implemented. Material/sprite payload bundling remains blocked until its
+separate capability exists.
 
 ## Recommended dependency order
 
@@ -457,8 +462,10 @@ This is a technical dependency order, not an assignment or fixed release plan:
    reconciliation, and incremental scene rebuilds.
 4. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
-5. Add ordered region selection, preview, undo/redo, and local snapshots.
-6. Add copy/cut/paste and strict snapshot import/export.
+5. Use the implemented Editor-owned ordered selection, local snapshot,
+   copy/cut/paste, and strict import/export contracts as the runtime boundary.
+6. Add runtime marker placement, ghost previews, authoritative transactions,
+   and durable undo/redo against those contracts.
 7. Use selection and snapshots to build the conversion outlier workbench and
    quick-house/prefab tools.
 8. Revise the custom-material identity model for creator-to-creator sharing,
@@ -483,8 +490,8 @@ material-sharing model that custom materials later have to replace.
 | Wider elevation / RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Foundational design required | Selection/snapshot schemas, transaction, preview and undo |
-| Exportable snapshots | Foundational design required | Portable dependency and bundle contracts |
+| Region copy/cut/paste | Editor foundation implemented | Runtime marker/ghost transaction and durable undo UX |
+| Exportable snapshots | Editor foundation implemented | Custom material/sprite payload capability |
 
 ## Decisions to settle before implementation planning
 
@@ -498,10 +505,11 @@ material-sharing model that custom materials later have to replace.
   increment, or should wider elevation be designed first?
 - What stable namespace identifies a creator/material pack, and how is it
   preserved when shared?
-- Will snapshot paste translate logical materials into destination-local IDs,
-  or will the layered terrain schema itself gain logical material references?
-- Does the first selection/snapshot version support one level or signed offsets
-  across several levels?
+- When custom materials become bundleable, will paste translate their logical
+  identities into destination-local IDs, or will layered terrain gain logical
+  material references? Snapshot v1 deliberately reports them as unsupported.
+- Snapshot v1 preserves exact orientation and signed offsets across multiple
+  selected levels; it does not rotate, mirror, clip, or selectively paste them.
 - Which outliers are safely repairable, which require manual edits, and which
   must remain hard blockers?
 - What is the smallest useful house preset: rectangle, orthogonal polygon, or

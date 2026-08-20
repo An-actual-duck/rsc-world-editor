@@ -47,6 +47,27 @@ public final class WorldBuilderCli {
 		if ("save-project".equals(args[0])) {
 			return saveProject(args);
 		}
+		if ("region-copy".equals(args[0])) {
+			return regionCopy(args, false);
+		}
+		if ("region-cut-preview".equals(args[0])) {
+			return regionCopy(args, true);
+		}
+		if ("region-cut-apply".equals(args[0])) {
+			return regionCutApply(args);
+		}
+		if ("region-import".equals(args[0])) {
+			return regionImportExport(args, true);
+		}
+		if ("region-export".equals(args[0])) {
+			return regionImportExport(args, false);
+		}
+		if ("region-paste-preview".equals(args[0])) {
+			return regionPaste(args, false);
+		}
+		if ("region-paste-apply".equals(args[0])) {
+			return regionPaste(args, true);
+		}
 		if ("run-adaptive-project".equals(args[0])) {
 			return runAdaptiveProject(args);
 		}
@@ -298,6 +319,168 @@ public final class WorldBuilderCli {
 				+ failure.getMessage());
 			return 4;
 		}
+	}
+
+	private static int regionCopy(String[] args, boolean cutPreview) {
+		Path project = null;
+		Path selection = null;
+		String name = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--project".equals(args[index]) && index + 1 < args.length
+				&& project == null) project = Paths.get(args[++index]);
+			else if ("--selection".equals(args[index]) && index + 1 < args.length
+				&& selection == null) selection = Paths.get(args[++index]);
+			else if ("--name".equals(args[index]) && index + 1 < args.length
+				&& name == null) name = args[++index];
+			else return argumentError(args[index]);
+		}
+		if (project == null || selection == null || name == null) {
+			System.err.println("ERROR: " + (cutPreview ? "region-cut-preview" : "region-copy")
+				+ " requires --project, --selection, and --name.");
+			return 2;
+		}
+		try {
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			System.out.print(cutPreview
+				? service.cutPreview(project, selection, name)
+				: service.copy(project, selection, name));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Region snapshot operation failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int regionCutApply(String[] args) {
+		Path project = null;
+		String snapshot = null;
+		String plan = null;
+		String confirm = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--project".equals(args[index]) && index + 1 < args.length
+				&& project == null) project = Paths.get(args[++index]);
+			else if ("--snapshot".equals(args[index]) && index + 1 < args.length
+				&& snapshot == null) snapshot = args[++index];
+			else if ("--expected-plan".equals(args[index]) && index + 1 < args.length
+				&& plan == null) plan = args[++index];
+			else if ("--confirm".equals(args[index]) && index + 1 < args.length
+				&& confirm == null) confirm = args[++index];
+			else return argumentError(args[index]);
+		}
+		if (project == null || snapshot == null || plan == null || confirm == null) {
+			System.err.println("ERROR: region-cut-apply requires --project, --snapshot, "
+				+ "--expected-plan, and --confirm 'CUT <plan-sha256>'.");
+			return 2;
+		}
+		try {
+			System.out.print(new WorldBuilderRegionSnapshotService().applyCut(
+				project, snapshot, plan, confirm));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Region cut failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int regionImportExport(String[] args, boolean importing) {
+		Path project = null;
+		Path bundleOrOutput = null;
+		String snapshot = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--project".equals(args[index]) && index + 1 < args.length
+				&& project == null) project = Paths.get(args[++index]);
+			else if (importing && "--bundle".equals(args[index])
+				&& index + 1 < args.length && bundleOrOutput == null) {
+				bundleOrOutput = Paths.get(args[++index]);
+			} else if (!importing && "--output".equals(args[index])
+				&& index + 1 < args.length && bundleOrOutput == null) {
+				bundleOrOutput = Paths.get(args[++index]);
+			} else if (!importing && "--snapshot".equals(args[index])
+				&& index + 1 < args.length && snapshot == null) snapshot = args[++index];
+			else return argumentError(args[index]);
+		}
+		if (project == null || bundleOrOutput == null || (!importing && snapshot == null)) {
+			System.err.println("ERROR: region-" + (importing ? "import" : "export")
+				+ " requires --project and " + (importing ? "--bundle."
+					: "--snapshot plus --output."));
+			return 2;
+		}
+		try {
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			System.out.print(importing ? service.importBundle(project, bundleOrOutput)
+				: service.exportBundle(project, snapshot, bundleOrOutput));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Region bundle operation failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int regionPaste(String[] args, boolean apply) {
+		Path project = null;
+		String snapshot = null;
+		String plan = null;
+		String confirm = null;
+		Integer level = null, x = null, y = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--project".equals(argument) && index + 1 < args.length
+				&& project == null) project = Paths.get(args[++index]);
+			else if ("--snapshot".equals(argument) && index + 1 < args.length
+				&& snapshot == null) snapshot = args[++index];
+			else if ("--level".equals(argument) && index + 1 < args.length
+				&& level == null) level = parseIntOption("--level", args[++index]);
+			else if ("--x".equals(argument) && index + 1 < args.length && x == null)
+				x = parseIntOption("--x", args[++index]);
+			else if ("--y".equals(argument) && index + 1 < args.length && y == null)
+				y = parseIntOption("--y", args[++index]);
+			else if (apply && "--expected-plan".equals(argument)
+				&& index + 1 < args.length && plan == null) plan = args[++index];
+			else if (apply && "--confirm".equals(argument)
+				&& index + 1 < args.length && confirm == null) confirm = args[++index];
+			else return argumentError(argument);
+			if (("--level".equals(argument) || "--x".equals(argument)
+				|| "--y".equals(argument)) && (level == null && "--level".equals(argument)
+				|| x == null && "--x".equals(argument)
+				|| y == null && "--y".equals(argument))) return 2;
+		}
+		if (project == null || snapshot == null || level == null || x == null || y == null
+			|| apply && (plan == null || confirm == null)) {
+			System.err.println("ERROR: region-paste-" + (apply ? "apply" : "preview")
+				+ " requires --project, --snapshot, --level, --x, and --y"
+				+ (apply ? " plus --expected-plan and --confirm." : "."));
+			return 2;
+		}
+		try {
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			System.out.print(apply
+				? service.applyPaste(project, snapshot, level.intValue(), x.intValue(),
+					y.intValue(), plan, confirm)
+				: service.pastePreview(project, snapshot, level.intValue(), x.intValue(),
+					y.intValue()));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Region paste failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int argumentError(String argument) {
+		System.err.println("ERROR: Unknown, duplicate, or incomplete argument: " + argument);
+		return 2;
 	}
 
 	private static int runAdaptiveProject(String[] args) {
@@ -1407,6 +1590,20 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli open-project --installation-root <World Builder 2>"
 			+ " [--target-root <server-root>] [--validate-only]"
 			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
+			+ "\n  WorldBuilderCli region-copy --project <projects/uuid>"
+			+ " --selection <region-selection-v1.json> --name <name>"
+			+ "\n  WorldBuilderCli region-cut-preview --project <projects/uuid>"
+			+ " --selection <region-selection-v1.json> --name <name>"
+			+ "\n  WorldBuilderCli region-cut-apply --project <projects/uuid>"
+			+ " --snapshot <sha256> --expected-plan <sha256> --confirm 'CUT <sha256>'"
+			+ "\n  WorldBuilderCli region-import --project <projects/uuid> --bundle <file.wbr>"
+			+ "\n  WorldBuilderCli region-export --project <projects/uuid>"
+			+ " --snapshot <sha256> --output <new-file.wbr>"
+			+ "\n  WorldBuilderCli region-paste-preview --project <projects/uuid>"
+			+ " --snapshot <sha256> --level <level> --x <x> --y <y>"
+			+ "\n  WorldBuilderCli region-paste-apply --project <projects/uuid>"
+			+ " --snapshot <sha256> --level <level> --x <x> --y <y>"
+			+ " --expected-plan <sha256> --confirm 'PASTE|OVERWRITE <sha256>'"
 			+ "\n  WorldBuilderCli run-adaptive-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli export-adaptive --project <projects/uuid>"
 			+ "\n  WorldBuilderCli export-active-adaptive"
