@@ -45,6 +45,10 @@ final class WorldBuilderRegionSnapshotService {
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
 	private static final long MAX_REPRESENTED_FOOTPRINT_TILES = 1_000_000L;
 	private static final int MAX_SPATIAL_INDEX_ENTRIES = 1_000_000;
+	private static final int MAX_LIBRARY_DIRECTORY_ENTRIES = 1025;
+	private static final int MAX_RECOVERY_DIRECTORY_ENTRIES =
+		WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES;
+	private static final long MAX_RECOVERY_TREE_BYTES = 512L * 1024L * 1024L;
 	private static final long ZIP_TIME = 315532800000L;
 	private final Observer observer;
 
@@ -83,12 +87,12 @@ final class WorldBuilderRegionSnapshotService {
 		int count = 0;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(projects)) {
 			for (Path project : entries) {
+				if (++count > WorldBuilderContractLimits.MAX_PROJECTS + 1) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "projects",
+					"Adaptive project directory scan exceeds its bound.",
+					"Remove unexpected project-directory entries after review.");
 				if (!Files.isDirectory(project, LinkOption.NOFOLLOW_LINKS)
 					|| Files.isSymbolicLink(project)) continue;
-				if (++count > WorldBuilderContractLimits.MAX_PROJECTS) throw problem(
-					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "projects",
-					"Adaptive project recovery inventory exceeds its bound.",
-					"Reduce the project inventory before ordinary reopen.");
 				Path parent = project.resolve("working/layered-world");
 				if (Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
 					&& hasRegionRecoveryArtifact(parent)) {
@@ -1059,19 +1063,31 @@ final class WorldBuilderRegionSnapshotService {
 	private static void recoverLibraryStages(Path library)
 		throws IOException, WorldBuilderContractException {
 		List<Path> stages = new ArrayList<Path>();
+		int count = 0;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(library)) {
 			for (Path entry : entries) {
+				if (++count > MAX_LIBRARY_DIRECTORY_ENTRIES) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
+					"Snapshot library recovery scan exceeds its bounded inventory.",
+					"Preserve and review unexpected library entries before recovery.");
 				if (entry.getFileName().toString().matches(
-					"\\.[0-9a-f]{64}\\.wbr\\.staging-[0-9a-f]{64}")) stages.add(entry);
+					"\\.[0-9a-f]{64}\\.wbr\\.staging-[0-9a-f]{64}")) {
+					if (!stages.isEmpty()) throw problem(
+						WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
+						"Multiple snapshot publication stages are ambiguous.",
+						"Preserve the library and request exact recovery.");
+					stages.add(entry);
+				}
 			}
 		}
 		for (Path stage : stages) {
 			String name = stage.getFileName().toString();
 			String snapshotId = name.substring(1, 65);
 			String expectedHash = name.substring(name.length() - 64);
-			if (!Files.isRegularFile(stage, LinkOption.NOFOLLOW_LINKS)
-				|| Files.isSymbolicLink(stage) || !expectedHash.equals(
-					WorldBuilderHashes.sha256(stage)) || Files.size(stage) > MAX_BUNDLE_BYTES) throw problem(
+			long stageSize = Files.isRegularFile(stage, LinkOption.NOFOLLOW_LINKS)
+				&& !Files.isSymbolicLink(stage) ? Files.size(stage) : -1L;
+			if (stageSize < 1L || stageSize > MAX_BUNDLE_BYTES
+				|| !expectedHash.equals(WorldBuilderHashes.sha256(stage))) throw problem(
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
 				"Snapshot publication stage does not match its durable identity.",
 				"Preserve the stage and library; recovery refuses ambiguous bytes.");
@@ -1258,7 +1274,7 @@ final class WorldBuilderRegionSnapshotService {
 		}
 	}
 
-	private static void rollbackWorkingPublication(Path project,
+	private void rollbackWorkingPublication(Path project,
 		RegionTransaction transaction, Exception original)
 		throws IOException, WorldBuilderContractException {
 		Path live = project.resolve(PACKAGE);
@@ -1268,8 +1284,9 @@ final class WorldBuilderRegionSnapshotService {
 			Files.move(live, failed, StandardCopyOption.ATOMIC_MOVE);
 			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
 			WorldBuilderAdaptiveDurability.forceDirectory(live.getParent());
-			deleteTree(failed);
-			RegionTransaction.remove(project);
+			cleanupArtifact(transaction, failed, "failed",
+				(String)transaction.value.get("afterTreeSha256"),
+				"failed-quarantined", "failed-cleanup-tree-deleted");
 		} catch (Exception rollbackFailure) {
 			rollbackFailure.addSuppressed(original);
 			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PACKAGE,
@@ -1281,17 +1298,24 @@ final class WorldBuilderRegionSnapshotService {
 	private void completeWorkingPublication(Path project,
 		RegionTransaction transaction)
 		throws Exception {
-		Path cleanup = transaction.armCleanup();
-		Files.move(rollbackPath(project), cleanup, StandardCopyOption.ATOMIC_MOVE);
+		cleanupArtifact(transaction, rollbackPath(project), "rollback",
+			(String)transaction.value.get("beforeTreeSha256"),
+			"rollback-quarantined", "cleanup-tree-deleted");
+	}
+
+	private void cleanupArtifact(RegionTransaction transaction, Path source,
+		String kind, String expectedHash, String quarantinedMilestone,
+		String deletedMilestone) throws Exception {
+		Path cleanup = transaction.armCleanup(source, kind, expectedHash);
+		moveCleanupSource(source, cleanup, expectedHash);
+		observer.observe(quarantinedMilestone, transaction.project);
+		deleteTreeBounded(cleanup);
 		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
-		observer.observe("rollback-quarantined", project);
-		deleteTree(cleanup);
-		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
-		observer.observe("cleanup-tree-deleted", project);
+		observer.observe(deletedMilestone, transaction.project);
 		transaction.phase("cleanup-complete");
-		observer.observe("before-journal-delete", project);
-		RegionTransaction.remove(project);
-		observer.observe("journal-deleted", project);
+		observer.observe("before-journal-delete", transaction.project);
+		RegionTransaction.remove(transaction.project);
+		observer.observe("journal-deleted", transaction.project);
 	}
 
 	private static Path rollbackPath(Path project) {
@@ -1319,6 +1343,7 @@ final class WorldBuilderRegionSnapshotService {
 			"package", "Working package is missing, linked, or not a directory.",
 			"Restore the complete real project-local working package.");
 		Map<String,Path> result = new TreeMap<String,Path>();
+		final long[] total = new long[] {0L};
 		java.nio.file.Files.walkFileTree(root,
 			java.util.EnumSet.noneOf(java.nio.file.FileVisitOption.class), 16,
 			new java.nio.file.SimpleFileVisitor<Path>() {
@@ -1333,6 +1358,12 @@ final class WorldBuilderRegionSnapshotService {
 						throw new IOException("unsafe package file");
 					}
 					String relative = root.relativize(file).toString().replace('\\', '/');
+					if (result.size() >= WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES
+						|| attributes.size() < 0L || attributes.size() > MAX_ENTRY_BYTES
+						|| total[0] > MAX_RECOVERY_TREE_BYTES - attributes.size()) {
+						throw new IOException("region package inventory exceeds recovery bounds");
+					}
+					total[0] += attributes.size();
 					try {
 						WorldBuilderPortablePath.require(relative, OPERATION);
 					} catch (WorldBuilderContractException unsafe) {
@@ -1346,18 +1377,65 @@ final class WorldBuilderRegionSnapshotService {
 	}
 
 	private static void deleteTree(Path root) throws IOException {
+		deleteTreeBounded(root);
+	}
+
+	private static void deleteTreeBounded(Path root) throws IOException {
 		if (root == null || !Files.exists(root, LinkOption.NOFOLLOW_LINKS)) return;
+		final int[] entries = new int[] {0};
+		final long[] total = new long[] {0L};
+		Files.walkFileTree(root,
+			java.util.EnumSet.noneOf(java.nio.file.FileVisitOption.class), 16,
+			new java.nio.file.SimpleFileVisitor<Path>() {
+				private void count(BasicFileAttributes attributes) throws IOException {
+					if (++entries[0] > MAX_RECOVERY_DIRECTORY_ENTRIES) {
+						throw new IOException("region cleanup inventory exceeds its bound");
+					}
+					long size = attributes.isRegularFile() ? attributes.size() : 0L;
+					if (attributes.isSymbolicLink() || size < 0L || size > MAX_ENTRY_BYTES
+						|| total[0] > MAX_RECOVERY_TREE_BYTES - size) {
+						throw new IOException("region cleanup entry exceeds its bound");
+					}
+					total[0] += size;
+				}
+				@Override public java.nio.file.FileVisitResult preVisitDirectory(
+					Path directory, BasicFileAttributes attributes) throws IOException {
+					count(attributes); return java.nio.file.FileVisitResult.CONTINUE;
+				}
+				@Override public java.nio.file.FileVisitResult visitFile(Path file,
+					BasicFileAttributes attributes) throws IOException {
+					count(attributes); return java.nio.file.FileVisitResult.CONTINUE;
+				}
+			});
+		final int[] deleted = new int[] {0};
 		Files.walkFileTree(root, new java.nio.file.SimpleFileVisitor<Path>() {
 			@Override public java.nio.file.FileVisitResult visitFile(Path file,
 				BasicFileAttributes attributes) throws IOException {
+				if (++deleted[0] > MAX_RECOVERY_DIRECTORY_ENTRIES) {
+					throw new IOException("region cleanup deletion exceeds its bound");
+				}
 				Files.delete(file); return java.nio.file.FileVisitResult.CONTINUE;
 			}
 			@Override public java.nio.file.FileVisitResult postVisitDirectory(
 				Path directory, IOException failure) throws IOException {
 				if (failure != null) throw failure;
+				if (++deleted[0] > MAX_RECOVERY_DIRECTORY_ENTRIES) {
+					throw new IOException("region cleanup deletion exceeds its bound");
+				}
 				Files.delete(directory); return java.nio.file.FileVisitResult.CONTINUE;
 			}
 		});
+	}
+
+	private static void moveCleanupSource(Path source, Path cleanup,
+		String expectedHash) throws IOException, WorldBuilderContractException {
+		if (Files.exists(cleanup, LinkOption.NOFOLLOW_LINKS)
+			|| !treeEquals(source, expectedHash)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Cleanup source does not match its journaled durable identity.",
+			"Preserve the transaction artifacts; recovery refuses ambiguous cleanup.");
+		Files.move(source, cleanup, StandardCopyOption.ATOMIC_MOVE);
+		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
 	}
 
 	private static Path safeExternalFile(Path requested, String label,
@@ -1899,7 +1977,8 @@ final class WorldBuilderRegionSnapshotService {
 				malformed);
 		}
 		Set<String> expected = new HashSet<String>(Arrays.asList("schemaVersion", "phase",
-			"stageName", "failedName", "cleanupName", "beforeTreeSha256", "afterTreeSha256",
+			"stageName", "failedName", "cleanupSourceName", "cleanupName",
+			"beforeTreeSha256", "afterTreeSha256",
 			"beforeWorkingSha256", "afterWorkingSha256"));
 		String stageName = value.get("stageName") instanceof String
 			? (String)value.get("stageName") : "";
@@ -1918,19 +1997,29 @@ final class WorldBuilderRegionSnapshotService {
 				"Preserve every artifact; recovery refuses escaped authority.");
 		}
 		Path failed = failedName.isEmpty() ? null : parent.resolve(failedName);
+		String cleanupSourceName = value.get("cleanupSourceName") instanceof String
+			? (String)value.get("cleanupSourceName") : "";
 		String cleanupName = value.get("cleanupName") instanceof String
 			? (String)value.get("cleanupName") : "";
-		if (!cleanupName.isEmpty()
-			&& !cleanupName.matches("\\.region-cleanup-[0-9a-f]{64}")) throw problem(
+		if (cleanupSourceName.isEmpty() != cleanupName.isEmpty()
+			|| !cleanupName.isEmpty() && !cleanupName.matches(
+				"\\.region-cleanup-(stage|failed|rollback)-[0-9a-f]{64}")) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
 			"Region transaction cleanup path is invalid.",
 			"Preserve every artifact; recovery refuses escaped authority.");
 		Path cleanup = cleanupName.isEmpty() ? null : parent.resolve(cleanupName);
+		requireExactRegionArtifacts(parent, stage, failed, rollback, cleanup);
 		String beforeTree = requiredHash(value, "beforeTreeSha256");
 		String afterTree = requiredHash(value, "afterTreeSha256");
 		String beforeWorking = requiredHash(value, "beforeWorkingSha256");
 		String afterWorking = requiredHash(value, "afterWorkingSha256");
 		Path live = project.resolve(PACKAGE);
+		if (!cleanupName.isEmpty()) {
+			resumeJournaledCleanup(project, value, parent, live, stage, failed,
+				rollback, cleanupSourceName, cleanup, beforeTree, afterTree,
+				beforeWorking, afterWorking);
+			return;
+		}
 		boolean liveBefore = treeEquals(live, beforeTree);
 		boolean liveAfter = treeEquals(live, afterTree);
 		boolean rollbackBefore = treeEquals(rollback, beforeTree);
@@ -1941,41 +2030,39 @@ final class WorldBuilderRegionSnapshotService {
 		boolean cleanupPresent = cleanup != null
 			&& Files.exists(cleanup, LinkOption.NOFOLLOW_LINKS);
 		if (liveBefore && stageAfter && rollbackAbsent) {
-			deleteTree(stage); RegionTransaction.remove(project); return;
+			finishBeforeState(project, value, stage, "stage", afterTree); return;
 		}
 		if (!Files.exists(live, LinkOption.NOFOLLOW_LINKS)
 			&& rollbackBefore && stageAfter) {
 			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
 			WorldBuilderAdaptiveDurability.forceDirectory(parent);
-			deleteTree(stage); RegionTransaction.remove(project); return;
+			finishBeforeState(project, value, stage, "stage", afterTree); return;
 		}
 		if (liveAfter && rollbackBefore && stageAbsent) {
 			String manifestWorking = projectManifestWorking(project);
 			if (beforeWorking.equals(manifestWorking)) {
-				Path displaced = parent.resolve(".region-failed-" + UUID.randomUUID());
+				RegionTransaction transaction = new RegionTransaction(project, value);
+				Path displaced = transaction.armRollback();
 				Files.move(live, displaced, StandardCopyOption.ATOMIC_MOVE);
 				Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
 				WorldBuilderAdaptiveDurability.forceDirectory(parent);
-				deleteTree(displaced); RegionTransaction.remove(project); return;
+				finishBeforeState(project, value, displaced, "failed", afterTree); return;
 			}
 			if (afterWorking.equals(manifestWorking)) {
-				finishAfterState(project, value, parent, rollback, null); return;
+				finishAfterState(project, value, parent, rollback); return;
 			}
-		}
-		if (liveAfter && stageAbsent && rollbackAbsent && cleanupPresent
-			&& afterWorking.equals(projectManifestWorking(project))) {
-			finishAfterState(project, value, parent, null, cleanup); return;
 		}
 		if (!Files.exists(live, LinkOption.NOFOLLOW_LINKS) && rollbackBefore
 			&& stageAbsent && failedAfter) {
 			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
 			WorldBuilderAdaptiveDurability.forceDirectory(parent);
-			deleteTree(failed); RegionTransaction.remove(project); return;
+			finishBeforeState(project, value, failed, "failed", afterTree); return;
 		}
 		if (liveBefore && rollbackAbsent && stageAbsent && failedAfter) {
-			deleteTree(failed); RegionTransaction.remove(project); return;
+			finishBeforeState(project, value, failed, "failed", afterTree); return;
 		}
 		if (liveAfter && rollbackAbsent && stageAbsent
+			&& (failed == null || !Files.exists(failed, LinkOption.NOFOLLOW_LINKS))
 			&& afterWorking.equals(projectManifestWorking(project))) {
 			RegionTransaction.remove(project); return;
 		}
@@ -1985,23 +2072,83 @@ final class WorldBuilderRegionSnapshotService {
 	}
 
 	private static void finishAfterState(Path project, Map<String,Object> value,
-		Path parent, Path rollback, Path existingCleanup)
+		Path parent, Path rollback)
 		throws IOException, WorldBuilderContractException {
 		RegionTransaction transaction = new RegionTransaction(project, value);
-		Path cleanup = existingCleanup;
-		if (cleanup == null) {
-			cleanup = transaction.armCleanup();
-			if (rollback == null || !Files.isDirectory(rollback, LinkOption.NOFOLLOW_LINKS)
-				|| Files.isSymbolicLink(rollback)) throw problem(
-				WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
-				"Recorded rollback authority is missing or unsafe during finalization.",
-				"Preserve every artifact; recovery refuses cleanup ambiguity.");
-			Files.move(rollback, cleanup, StandardCopyOption.ATOMIC_MOVE);
+		Path cleanup = transaction.armCleanup(rollback,
+			"rollback", (String)value.get("beforeTreeSha256"));
+		moveCleanupSource(rollback, cleanup, (String)value.get("beforeTreeSha256"));
+		requireRealDirectory(cleanup, "cleanup quarantine");
+		deleteTreeBounded(cleanup);
+		WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		transaction.phase("cleanup-complete");
+		RegionTransaction.remove(project);
+	}
+
+	private static void finishBeforeState(Path project, Map<String,Object> value,
+		Path source, String kind, String expectedHash)
+		throws IOException, WorldBuilderContractException {
+		RegionTransaction transaction = new RegionTransaction(project, value);
+		Path cleanup = transaction.armCleanup(source, kind, expectedHash);
+		moveCleanupSource(source, cleanup, expectedHash);
+		deleteTreeBounded(cleanup);
+		WorldBuilderAdaptiveDurability.forceDirectory(cleanup.getParent());
+		transaction.phase("cleanup-complete");
+		RegionTransaction.remove(project);
+	}
+
+	private static void resumeJournaledCleanup(Path project, Map<String,Object> value,
+		Path parent, Path live, Path stage, Path failed, Path rollback,
+		String sourceName, Path cleanup, String beforeTree, String afterTree,
+		String beforeWorking, String afterWorking)
+		throws IOException, WorldBuilderContractException {
+		Path source;
+		String kind;
+		String expectedHash;
+		boolean beforeState;
+		if (sourceName.equals(stage.getFileName().toString())) {
+			source = stage; kind = "stage"; expectedHash = afterTree; beforeState = true;
+		} else if (failed != null && sourceName.equals(failed.getFileName().toString())) {
+			source = failed; kind = "failed"; expectedHash = afterTree; beforeState = true;
+		} else if (sourceName.equals(rollback.getFileName().toString())) {
+			source = rollback; kind = "rollback"; expectedHash = beforeTree; beforeState = false;
+		} else throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Journaled cleanup source is not a transaction artifact.",
+			"Preserve every artifact; recovery refuses unknown cleanup authority.");
+		String expectedCleanup = ".region-cleanup-" + kind + "-" + expectedHash;
+		if (!cleanup.getFileName().toString().equals(expectedCleanup)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Journaled cleanup identity does not match its source artifact.",
+			"Preserve every artifact; recovery refuses mismatched cleanup authority.");
+		boolean sourcePresent = Files.exists(source, LinkOption.NOFOLLOW_LINKS);
+		boolean cleanupPresent = Files.exists(cleanup, LinkOption.NOFOLLOW_LINKS);
+		if (sourcePresent && cleanupPresent) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Cleanup source and quarantine both exist.",
+			"Preserve both artifacts; recovery refuses ambiguous authority.");
+		String manifestWorking = projectManifestWorking(project);
+		boolean stateProved = beforeState
+			? treeEquals(live, beforeTree) && beforeWorking.equals(manifestWorking)
+				&& !Files.exists(rollback, LinkOption.NOFOLLOW_LINKS)
+				&& ("stage".equals(kind)
+					? failed == null || !Files.exists(failed, LinkOption.NOFOLLOW_LINKS)
+					: !Files.exists(stage, LinkOption.NOFOLLOW_LINKS))
+			: treeEquals(live, afterTree) && afterWorking.equals(manifestWorking)
+				&& !Files.exists(stage, LinkOption.NOFOLLOW_LINKS)
+				&& (failed == null || !Files.exists(failed, LinkOption.NOFOLLOW_LINKS));
+		if (!stateProved) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Live package and manifest do not prove the journaled cleanup state.",
+			"Preserve every artifact; recovery refuses cleanup without a complete state.");
+		if (sourcePresent) {
+			moveCleanupSource(source, cleanup, expectedHash);
+			cleanupPresent = true;
+		}
+		if (cleanupPresent) {
+			requireRealDirectory(cleanup, "cleanup quarantine");
+			deleteTreeBounded(cleanup);
 			WorldBuilderAdaptiveDurability.forceDirectory(parent);
 		}
-		requireRealDirectory(cleanup, "cleanup quarantine");
-		deleteTree(cleanup);
-		WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		RegionTransaction transaction = new RegionTransaction(project, value);
 		transaction.phase("cleanup-complete");
 		RegionTransaction.remove(project);
 	}
@@ -2009,17 +2156,24 @@ final class WorldBuilderRegionSnapshotService {
 	private static void recoverJournalTemps(Path project, Path journal, Path parent)
 		throws IOException, WorldBuilderContractException {
 		List<Path> temporary = new ArrayList<Path>();
+		int count = 0;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
 			for (Path entry : entries) {
+				if (++count > MAX_RECOVERY_DIRECTORY_ENTRIES) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, TRANSACTION,
+					"Region recovery directory scan exceeds its bound.",
+					"Preserve and review unexpected transaction-directory entries.");
 				String name = entry.getFileName().toString();
-				if (name.startsWith(JOURNAL_TEMP_PREFIX)) temporary.add(entry);
+				if (name.startsWith(JOURNAL_TEMP_PREFIX)) {
+					if (!temporary.isEmpty()) throw problem(
+						WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+						"Multiple orphan region journal writes make publication authority ambiguous.",
+						"Preserve every journal file and request exact recovery.");
+					temporary.add(entry);
+				}
 			}
 		}
 		if (temporary.isEmpty()) return;
-		if (temporary.size() != 1) throw problem(
-			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
-			"Multiple orphan region journal writes make publication authority ambiguous.",
-			"Preserve every journal file and request exact recovery.");
 		Path candidate = temporary.get(0);
 		String name = candidate.getFileName().toString();
 		if (!name.matches("\\.region-transaction-v1\\.json\\.new-[0-9a-f]{64}")
@@ -2065,17 +2219,51 @@ final class WorldBuilderRegionSnapshotService {
 		WorldBuilderAdaptiveDurability.forceDirectory(parent);
 	}
 
-	private static boolean hasRegionRecoveryArtifact(Path parent) throws IOException {
+	private static boolean hasRegionRecoveryArtifact(Path parent)
+		throws IOException, WorldBuilderContractException {
+		int count = 0;
+		boolean found = false;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
 			for (Path entry : entries) {
+				if (++count > MAX_RECOVERY_DIRECTORY_ENTRIES) {
+					throw problem(WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, TRANSACTION,
+						"Region recovery directory scan exceeds its bound.",
+						"Preserve and review unexpected transaction-directory entries.");
+				}
 				String name = entry.getFileName().toString();
 				if (name.equals(".region-transaction-v1.json")
+					|| name.equals(".region-original-v1")
 					|| name.startsWith(".region-stage-") || name.startsWith(".region-failed-")
 					|| name.startsWith(".region-cleanup-")
-					|| name.startsWith(JOURNAL_TEMP_PREFIX)) return true;
+					|| name.startsWith(JOURNAL_TEMP_PREFIX)) found = true;
 			}
 		}
-		return false;
+		return found;
+	}
+
+	private static void requireExactRegionArtifacts(Path parent, Path stage, Path failed,
+		Path rollback, Path cleanup) throws IOException, WorldBuilderContractException {
+		int count = 0;
+		Path journal = parent.resolve(".region-transaction-v1.json");
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(parent)) {
+			for (Path entry : entries) {
+				if (++count > MAX_RECOVERY_DIRECTORY_ENTRIES) throw problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, TRANSACTION,
+					"Region transaction artifact scan exceeds its bound.",
+					"Preserve and review unexpected transaction-directory entries.");
+				String name = entry.getFileName().toString();
+				if (!name.startsWith(".region-")) continue;
+				Path normalized = entry.normalize();
+				if (normalized.equals(journal) || normalized.equals(stage)
+					|| normalized.equals(rollback)
+					|| failed != null && normalized.equals(failed)
+					|| cleanup != null && normalized.equals(cleanup)) continue;
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+					"Region transaction directory contains an unjournaled artifact: "
+						+ name + ".",
+					"Preserve every artifact; recovery refuses unbounded or ambiguous authority.");
+			}
+		}
 	}
 
 	private static void requireRealDirectory(Path path, String label)
@@ -2120,8 +2308,12 @@ final class WorldBuilderRegionSnapshotService {
 		try {
 			StringBuilder inventory = new StringBuilder();
 			for (Map.Entry<String,Path> entry : files(root).entrySet()) {
+				long size = Files.size(entry.getValue());
+				if (size < 0L || size > MAX_ENTRY_BYTES) {
+					throw new IOException("region package file exceeds its hash bound");
+				}
 				inventory.append(entry.getKey()).append('\0')
-					.append(Files.size(entry.getValue())).append('\0')
+					.append(size).append('\0')
 					.append(WorldBuilderHashes.sha256(entry.getValue())).append('\n');
 			}
 			return WorldBuilderHashes.sha256(
@@ -2143,6 +2335,7 @@ final class WorldBuilderRegionSnapshotService {
 			value.put("schemaVersion", Long.valueOf(1L)); value.put("phase", "prepared");
 			value.put("stageName", prepared.stage.getFileName().toString());
 			value.put("failedName", "");
+			value.put("cleanupSourceName", "");
 			value.put("cleanupName", "");
 			value.put("beforeTreeSha256", treeFingerprint(project.resolve(PACKAGE)));
 			value.put("afterTreeSha256", treeFingerprint(prepared.stage));
@@ -2157,9 +2350,9 @@ final class WorldBuilderRegionSnapshotService {
 			value.put("failedName", failedName); phase("rolling-back");
 			return project.resolve("working/layered-world").resolve(failedName);
 		}
-		Path armCleanup() throws IOException {
-			String cleanupName = ".region-cleanup-"
-				+ (String)value.get("beforeTreeSha256");
+		Path armCleanup(Path source, String kind, String identity) throws IOException {
+			String cleanupName = ".region-cleanup-" + kind + "-" + identity;
+			value.put("cleanupSourceName", source.getFileName().toString());
 			value.put("cleanupName", cleanupName); phase("cleaning-up");
 			return project.resolve("working/layered-world").resolve(cleanupName);
 		}

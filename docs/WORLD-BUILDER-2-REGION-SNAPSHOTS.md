@@ -193,13 +193,17 @@ The staged package, rollback package, project-manifest save, and cleanup are
 ordered by a forced transaction journal. Re-entry recovers only when exact tree
 and working fingerprints prove the complete before or after state; any other
 artifact combination is retained and refused as ambiguous.
-Cleanup first atomically renames the old rollback tree to a journal-derived
-quarantine. Once the live tree and project manifest prove the complete after
-state, that quarantine is disposable even if an earlier deletion stopped
-mid-tree. Orphan atomic-journal writes are bounded and adopted or discarded
+Cleanup intent names both its exact transaction artifact and deterministic
+quarantine before any staged, failed/displaced, or rollback tree is deleted.
+The source-to-quarantine rename is atomic; once the live tree and project
+manifest prove the complete before or after state, recovery resumes deletion
+even if an earlier attempt stopped mid-tree. No random, unjournaled displaced
+package exists. Orphan atomic-journal writes are bounded and adopted or discarded
 only when their immutable transaction identity agrees. Ordinary project open,
 selection, launch, and save run this recovery before validating or using the
-working package.
+working package. Project, recovery, cleanup-tree, and library directory scans
+have explicit inventory ceilings, and every file is size-checked before a
+recovery or library identity hash.
 
 ## Paste contract
 
@@ -290,8 +294,9 @@ levels, all four placement families, footprint reports, deterministic bundle
 round trips, archive canonicalization, import without world mutation,
 traversal/extra-entry refusal, dependency incompatibility, collision/overwrite
 previews, crossing footprints, extreme coordinates, symlinked export ancestors,
-aggregate footprint refusal, oversized/tampered library entries, ordinary
-open/save/launch recovery, partial cleanup and journal-write/delete recovery,
+aggregate footprint refusal, oversized/tampered library entries and stages,
+bounded adversarial directories, ordinary open/save/launch recovery, partial
+before/after cleanup and journal-write/delete recovery,
 every publication recovery milestone, same-project four-family Copy/Paste,
 canonical cut voiding, exact paste restoration, and source/target preservation.
 Runtime marker/ghost/undo UX remains explicitly

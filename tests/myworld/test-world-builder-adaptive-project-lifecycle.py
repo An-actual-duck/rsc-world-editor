@@ -250,6 +250,10 @@ public final class RegionOperationFailureHarness {
         WorldBuilderRegionSnapshotService.Observer observer =
             new WorldBuilderRegionSnapshotService.Observer() {
                 @Override public void observe(String current, Path project) throws Exception {
+                    if ("failed-quarantined".equals(milestone)
+                        && "package-published".equals(current)) {
+                        throw new Exception("injected failure before rollback cleanup");
+                    }
                     if (milestone.equals(current)) {
                         throw new Exception("injected region failure at " + current);
                     }
@@ -2059,6 +2063,7 @@ public final class FakeAdaptiveClient {
             "staged-package-durable": "before",
             "rollback-package-durable": "before",
             "package-published": "before",
+            "failed-quarantined": "before",
             "project-manifest-saved": "after",
             "before-cleanup": "after",
             "rollback-quarantined": "after",
@@ -2115,11 +2120,32 @@ public final class FakeAdaptiveClient {
                 interrupted = self.run_region_failure(
                     project, snapshot_id, plan_hash, "CUT " + plan_hash, milestone
                 )
-                self.assertEqual(4, interrupted.returncode, interrupted.stderr)
-                if milestone == "rollback-quarantined":
+                self.assertEqual(
+                    3 if milestone == "failed-quarantined" else 4,
+                    interrupted.returncode,
+                    interrupted.stderr,
+                )
+                if milestone in ("rollback-quarantined", "failed-quarantined"):
                     cleanup = next(
                         (project / "working/layered-world").glob(".region-cleanup-*")
                     )
+                    victim = next(path for path in cleanup.rglob("*") if path.is_file())
+                    victim.unlink()
+                if milestone == "staged-package-durable":
+                    parent = project / "working/layered-world"
+                    journal_path = parent / ".region-transaction-v1.json"
+                    journal = json.loads(journal_path.read_text(encoding="utf-8"))
+                    stage = parent / journal["stageName"]
+                    cleanup = parent / (
+                        ".region-cleanup-stage-" + journal["afterTreeSha256"]
+                    )
+                    journal["phase"] = "cleaning-up"
+                    journal["cleanupSourceName"] = stage.name
+                    journal["cleanupName"] = cleanup.name
+                    journal_path.write_text(
+                        json.dumps(journal, sort_keys=True) + "\n", encoding="utf-8"
+                    )
+                    stage.rename(cleanup)
                     victim = next(path for path in cleanup.rglob("*") if path.is_file())
                     victim.unlink()
 
@@ -2136,6 +2162,12 @@ public final class FakeAdaptiveClient {
                 self.assertFalse(
                     list((project / "working/layered-world").glob(".region-stage-*"))
                 )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-failed-*"))
+                )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-cleanup-*"))
+                )
                 if expected_state == "before":
                     self.assertEqual(package_before, tree_bytes(package))
                     self.assertEqual(manifest_before, (project / "project.json").read_bytes())
@@ -2149,7 +2181,9 @@ public final class FakeAdaptiveClient {
                         self.assertEqual([], placement[family])
 
     def test_ordinary_reopen_recovers_or_refuses_orphan_region_journal_writes(self):
-        for offset, scenario in enumerate(("alongside", "only", "ambiguous")):
+        for offset, scenario in enumerate(
+            ("alongside", "only", "ambiguous", "bounded-scan", "orphan-rollback")
+        ):
             with self.subTest(scenario=scenario), tempfile.TemporaryDirectory(
                 prefix="adaptive-region-journal-"
             ) as temp:
@@ -2209,14 +2243,34 @@ public final class FakeAdaptiveClient {
                 candidate.write_bytes(candidate_bytes)
                 if scenario == "only":
                     journal.unlink()
+                if scenario == "bounded-scan":
+                    for index in range(8193):
+                        (journal.parent / f"unexpected-recovery-entry-{index:05d}").touch()
+                if scenario == "orphan-rollback":
+                    candidate.unlink()
+                    journal.unlink()
+                    stage = next(journal.parent.glob(".region-stage-*"))
+                    shutil.rmtree(stage)
+                    (journal.parent / "package").rename(
+                        journal.parent / ".region-original-v1"
+                    )
                 reopened = self.run_cli(
                     "open-project", "--installation-root", installation
                 )
-                if scenario == "ambiguous":
+                if scenario in ("ambiguous", "bounded-scan", "orphan-rollback"):
                     self.assertEqual(3, reopened.returncode, reopened.stderr)
-                    self.assertIn("RECOVERY_REQUIRED", reopened.stderr)
-                    self.assertTrue(journal.exists())
-                    self.assertTrue(candidate.exists())
+                    self.assertIn(
+                        "RECOVERY_REQUIRED" if scenario != "bounded-scan"
+                        else "INVENTORY_LIMIT_EXCEEDED",
+                        reopened.stderr,
+                    )
+                    if scenario == "orphan-rollback":
+                        self.assertTrue(
+                            (journal.parent / ".region-original-v1").exists()
+                        )
+                    else:
+                        self.assertTrue(journal.exists())
+                        self.assertTrue(candidate.exists())
                 else:
                     self.assertEqual(0, reopened.returncode, reopened.stderr)
                     self.assertFalse(journal.exists())
@@ -2517,6 +2571,35 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, bounded.returncode, bounded.stderr)
             self.assertIn("CONTRACT_LIMIT_EXCEEDED", bounded.stderr)
             oversized.unlink()
+
+            oversized_stage = second / "snapshot-library/v1" / (
+                "." + ("a" * 64) + ".wbr.staging-" + ("b" * 64)
+            )
+            with oversized_stage.open("wb") as output:
+                output.seek(32 * 1024 * 1024)
+                output.write(b"x")
+            bounded_stage = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "must-not-recover-stage.wbr"
+            )
+            self.assertEqual(3, bounded_stage.returncode, bounded_stage.stderr)
+            self.assertIn("RECOVERY_REQUIRED", bounded_stage.stderr)
+            self.assertTrue(oversized_stage.exists())
+            oversized_stage.unlink()
+
+            junk_entries = []
+            for index in range(1026):
+                junk = second / "snapshot-library/v1" / f".unexpected-{index:04d}"
+                junk.touch()
+                junk_entries.append(junk)
+            bounded_scan = self.run_cli(
+                "region-export", "--project", second, "--snapshot", snapshot_id,
+                "--output", base / "must-not-scan-unbounded-library.wbr"
+            )
+            self.assertEqual(3, bounded_scan.returncode, bounded_scan.stderr)
+            self.assertIn("INVENTORY_LIMIT_EXCEEDED", bounded_scan.stderr)
+            for junk in junk_entries:
+                junk.unlink()
 
             canonical_bytes = canonical_library.read_bytes()
             canonical_library.write_bytes(canonical_bytes[:-1] + b"x")
