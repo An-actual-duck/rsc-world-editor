@@ -32,7 +32,8 @@ projects/<project-uuid>/
 
 The filename is the snapshot content identity. Library entries are independent
 regular files. Links, path aliases, identity collisions, and changed bytes are
-refused. Application updates preserve the complete project directory.
+refused. Files and containing directories are forced before and after atomic
+publication. Application updates preserve the complete project directory.
 
 Copy may add a verified entry to this library, but it MUST NOT change
 `working/layered-world/package`, `project.json`, source evidence, or a target.
@@ -156,6 +157,10 @@ and hash. Archive size, expanded entry size, entry count, path normalization,
 case/Unicode portable collisions, JSON complexity, schema identity, canonical
 fingerprints, and inventory agreement are checked before publication. Any
 extra entry—including an executable or traversal path—blocks import.
+Semantically valid archives with alternate ZIP metadata, compression, entry
+ordering, comments, extra fields, or prefix/trailing bytes are re-encoded to
+the one stored, timestamp-fixed, two-entry representation before they may enter
+the library; none of those source encodings are retained.
 
 Export uses a new `.wbr` destination outside the project and never overwrites.
 Repeated export of one library entry is byte-identical. Import first validates
@@ -184,6 +189,10 @@ Cut is deliberately two-step:
 Drift, a stale plan, an unavailable tile, validation failure, or publication
 failure leaves the last complete package in authority. The already verified
 snapshot remains in the library. Source and target data never change.
+The staged package, rollback package, project-manifest save, and cleanup are
+ordered by a forced transaction journal. Re-entry recovers only when exact tree
+and working fingerprints prove the complete before or after state; any other
+artifact combination is retained and refused as ambiguous.
 
 ## Paste contract
 
@@ -197,11 +206,18 @@ Preview reports:
 - absent destination levels or terrain coverage;
 - every non-void destination tile;
 - every placement owned by the destination polygon;
-- preserved placement-ID conflicts outside the overwrite region; and
+- represented boundary edges and NPC roam footprints entering the destination
+  from placements anchored outside it;
+- missing coverage or preserved occupied content under an incoming crossing
+  boundary/NPC footprint;
+- the complete deterministic source-placement-ID to destination-local-ID map;
 - the exact file hashes that an allowed operation would change.
 
-Missing coverage, incompatible dependencies, overflow, malformed content, or a
-placement-ID conflict outside the destination is blocking and yields no file
+Placement IDs remain unchanged in snapshot provenance. Paste preserves an ID
+when locally available and otherwise derives a deterministic project/snapshot-
+bound destination ID, so Copy then Paste works without deleting or changing
+the source placements. Missing coverage, crossing footprints, incompatible
+dependencies, overflow, or malformed content is blocking and yields no file
 authority. Non-void terrain or destination-owned placements set
 `overwriteRequired`. A normal paste requires literal
 `PASTE <plan-sha256>`; an overwrite requires the separate literal
@@ -258,8 +274,10 @@ themselves.
 Automated tests cover strict schemas, canonical hashes, polygon edge ownership,
 self-intersection and malformed selection refusal, all terrain fields and
 levels, all four placement families, footprint reports, deterministic bundle
-round trips, import without world mutation, traversal/extra-entry refusal,
-dependency incompatibility, collision/overwrite previews, missing coverage,
-stale confirmations, canonical cut voiding, exact paste restoration, and
-source/target preservation. Runtime marker/ghost/undo UX remains explicitly
+round trips, archive canonicalization, import without world mutation,
+traversal/extra-entry refusal, dependency incompatibility, collision/overwrite
+previews, crossing footprints, extreme coordinates, symlinked export ancestors,
+every publication recovery milestone, same-project four-family Copy/Paste,
+canonical cut voiding, exact paste restoration, and source/target preservation.
+Runtime marker/ghost/undo UX remains explicitly
 untested because it is not implemented here.

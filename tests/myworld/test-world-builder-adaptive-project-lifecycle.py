@@ -1751,6 +1751,27 @@ public final class FakeAdaptiveClient {
             self.assertEqual(copy_result["bundleSha256"], second["bundleSha256"])
             self.assertFalse(second["libraryEntryCreated"])
 
+            library_stage = bundle.with_name(
+                "." + bundle.name + ".staging-" + copy_result["bundleSha256"]
+            )
+            os.link(bundle, library_stage)
+            recovered_published = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Portable structure"
+            )
+            self.assertEqual(0, recovered_published.returncode, recovered_published.stderr)
+            self.assertFalse(library_stage.exists())
+            self.assertEqual(1, bundle.stat().st_nlink)
+            bundle.rename(library_stage)
+            recovered_staged = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Portable structure"
+            )
+            self.assertEqual(0, recovered_staged.returncode, recovered_staged.stderr)
+            self.assertFalse(library_stage.exists())
+            self.assertTrue(bundle.is_file())
+            self.assertTrue(json.loads(recovered_staged.stdout)["libraryEntryCreated"])
+
             cut_preview = self.run_cli(
                 "region-cut-preview",
                 "--project",
@@ -1946,6 +1967,169 @@ public final class FakeAdaptiveClient {
                 any(value["kind"] == "unavailable-terrain" for value in unavailable_plan["collisions"])
             )
             self.assertEqual(after, tree_bytes(package))
+            extreme = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot",
+                snapshot_id, "--level", "2147483647", "--x", "2147483647",
+                "--y", "2147483647"
+            )
+            self.assertEqual(3, extreme.returncode, extreme.stderr)
+            self.assertIn("signed 32-bit range", extreme.stderr)
+            self.assertEqual(after, tree_bytes(package))
+
+    def test_region_copy_pastes_all_placement_families_with_local_id_mapping(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-copy-paste-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Copy and paste", 43865
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            source = self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Copy with provenance"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            package = project / "working/layered-world/package"
+            source_before = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            preview = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648"
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)["operationPlan"]
+            self.assertFalse(plan["blocked"])
+            mappings = plan["placementIdMappings"]
+            self.assertEqual(
+                {"boundary", "ground-item", "npc", "scenery"},
+                {value["family"] for value in mappings},
+            )
+            self.assertEqual(4, len(mappings))
+            self.assertTrue(
+                all(value["sourcePlacementId"] != value["destinationPlacementId"]
+                    for value in mappings)
+            )
+            plan_hash = plan["planFingerprintSha256"]
+            applied = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648",
+                "--expected-plan", plan_hash, "--confirm", "PASTE " + plan_hash
+            )
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            result = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            mapping_by_source = {
+                value["sourcePlacementId"]: value["destinationPlacementId"]
+                for value in mappings
+            }
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(2, len(result[family]))
+                self.assertIn(source[family][0], result[family])
+                self.assertEqual(source_before[family][0], source[family][0])
+                self.assertIn(
+                    mapping_by_source[source[family][0]["placementId"]],
+                    {record["placementId"] for record in result[family]},
+                )
+
+    def test_region_publication_recovers_every_durable_exchange_milestone(self):
+        milestones = {
+            "staged-package-durable": "before",
+            "rollback-package-durable": "before",
+            "package-published": "before",
+            "project-manifest-saved": "after",
+            "before-cleanup": "after",
+            "cleanup-complete": "after",
+        }
+        for offset, (milestone, expected_state) in enumerate(milestones.items()):
+            with self.subTest(milestone=milestone), tempfile.TemporaryDirectory(
+                prefix="adaptive-region-recovery-"
+            ) as temp:
+                base = Path(temp)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                target = base / "ordinary-parent"
+                target.mkdir()
+                report = base / "report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Recovery " + milestone, 43900 + offset
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                self.place_representative_definitions(project)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                package = project / "working/layered-world/package"
+                package_before = tree_bytes(package)
+                manifest_before = (project / "project.json").read_bytes()
+                selection = base / "selection.json"
+                self.write_region_selection(
+                    selection,
+                    [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+                )
+                copied = self.run_cli(
+                    "region-copy", "--project", project, "--selection", selection,
+                    "--name", "Recovery source"
+                )
+                self.assertEqual(0, copied.returncode, copied.stderr)
+                snapshot_id = json.loads(copied.stdout)["snapshotId"]
+                preview = self.run_cli(
+                    "region-cut-preview", "--project", project,
+                    "--selection", selection, "--name", "Recovery source"
+                )
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                plan_hash = json.loads(preview.stdout)["operationPlan"][
+                    "planFingerprintSha256"
+                ]
+                interrupted = self.run_region_failure(
+                    project, snapshot_id, plan_hash, "CUT " + plan_hash, milestone
+                )
+                self.assertEqual(4, interrupted.returncode, interrupted.stderr)
+
+                recovered = self.run_cli(
+                    "region-copy", "--project", project, "--selection", selection,
+                    "--name", "Recovery verification"
+                )
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                self.assertFalse(
+                    (project / "working/layered-world/.region-transaction-v1.json").exists()
+                )
+                self.assertFalse(
+                    (project / "working/layered-world/.region-original-v1").exists()
+                )
+                self.assertFalse(
+                    list((project / "working/layered-world").glob(".region-stage-*"))
+                )
+                if expected_state == "before":
+                    self.assertEqual(package_before, tree_bytes(package))
+                    self.assertEqual(manifest_before, (project / "project.json").read_bytes())
+                else:
+                    self.assertNotEqual(package_before, tree_bytes(package))
+                    self.assertNotEqual(manifest_before, (project / "project.json").read_bytes())
+                    placement = json.loads(
+                        (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+                    )
+                    for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                        self.assertEqual([], placement[family])
 
     def test_region_bundle_import_export_dependencies_and_traversal_are_safe(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-bundle-") as temp:
@@ -1983,6 +2167,15 @@ public final class FakeAdaptiveClient {
                 )
                 self.assertEqual(0, exported.returncode, exported.stderr)
             self.assertEqual(first_export.read_bytes(), second_export.read_bytes())
+            redirected = base / "redirected-into-project"
+            redirected.symlink_to(first / "exports", target_is_directory=True)
+            unsafe_export = self.run_cli(
+                "region-export", "--project", first, "--snapshot", snapshot_id,
+                "--output", redirected / "escaped.wbr"
+            )
+            self.assertEqual(3, unsafe_export.returncode, unsafe_export.stderr)
+            self.assertIn("UNSAFE_PATH", unsafe_export.stderr)
+            self.assertFalse((first / "exports/escaped.wbr").exists())
 
             second_created, second_summary = self.create_project(
                 installation, runtime, target, report, "Bundle target", 43863
@@ -2001,6 +2194,35 @@ public final class FakeAdaptiveClient {
             self.assertEqual(
                 second_package_before, tree_bytes(second / "working/layered-world/package")
             )
+            canonical_library = second / import_result["libraryRelativePath"]
+            canonical_bytes = canonical_library.read_bytes()
+            with zipfile.ZipFile(first_export, "r") as archive:
+                manifest_bytes = archive.read("manifest.json")
+                snapshot_bytes = archive.read("snapshot.json")
+            variants = []
+            prefixed = base / "prefixed.wbr"
+            prefixed.write_bytes(b"hidden-prefix" + first_export.read_bytes())
+            variants.append(prefixed)
+            trailing = base / "trailing.wbr"
+            trailing.write_bytes(first_export.read_bytes() + b"hidden-trailer")
+            variants.append(trailing)
+            alternate = base / "alternate-zip.wbr"
+            with zipfile.ZipFile(alternate, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.comment = b"noncanonical comment"
+                snapshot_info = zipfile.ZipInfo("snapshot.json", (2025, 1, 2, 3, 4, 6))
+                snapshot_info.compress_type = zipfile.ZIP_DEFLATED
+                snapshot_info.extra = b"\x0a\x00\x01\x00x"
+                archive.writestr(snapshot_info, snapshot_bytes)
+                archive.writestr("manifest.json", manifest_bytes)
+            variants.append(alternate)
+            for variant in variants:
+                with self.subTest(canonicalized=variant.name):
+                    accepted = self.run_cli(
+                        "region-import", "--project", second, "--bundle", variant
+                    )
+                    self.assertEqual(0, accepted.returncode, accepted.stderr)
+                    self.assertFalse(json.loads(accepted.stdout)["libraryEntryCreated"])
+                    self.assertEqual(canonical_bytes, canonical_library.read_bytes())
 
             catalog_mismatch = base / "catalog-mismatch.wbr"
             shutil.copy2(first_export, catalog_mismatch)
@@ -2131,6 +2353,89 @@ public final class FakeAdaptiveClient {
                     self.assertEqual(
                         library_before, tree_bytes(second / "snapshot-library")
                     )
+
+    def test_region_preview_blocks_external_and_incoming_crossing_footprints(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-footprints-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Footprints", 43866
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            package = project / "working/layered-world/package"
+            self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Crossing footprints"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+
+            placement_path = package / "placements/global/lp0.json"
+            placement = json.loads(placement_path.read_text(encoding="utf-8"))
+            placement["boundaries"].append(
+                {"boundaryId": 1, "direction": 1, "placementId": "outside-boundary",
+                 "position": {"x": 118, "y": 648}}
+            )
+            placement["npcs"].append(
+                {"npcId": 2, "placementId": "outside-npc",
+                 "roamBounds": {"minimum": {"x": 118, "y": 648},
+                                "maximum": {"x": 119, "y": 649}},
+                 "start": {"x": 118, "y": 648}}
+            )
+            placement["boundaries"].sort(
+                key=lambda value: (value["position"]["x"], value["position"]["y"],
+                                   value["direction"], value["placementId"])
+            )
+            placement["npcs"].sort(
+                key=lambda value: (value["start"]["x"], value["start"]["y"],
+                                   value["placementId"])
+            )
+            write_json(placement_path, placement)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            next(value for value in manifest["placementSets"] if value["level"] == 0)[
+                "sha256"
+            ] = sha256(placement_path)
+            write_json(manifest_path, manifest)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+
+            external = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "648"
+            )
+            self.assertEqual(0, external.returncode, external.stderr)
+            external_plan = json.loads(external.stdout)["operationPlan"]
+            self.assertTrue(external_plan["blocked"])
+            kinds = {value["kind"] for value in external_plan["collisions"]}
+            self.assertIn("represented-boundary-crossing", kinds)
+            self.assertIn("represented-npc-crossing", kinds)
+
+            incoming = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "624"
+            )
+            self.assertEqual(0, incoming.returncode, incoming.stderr)
+            incoming_plan = json.loads(incoming.stdout)["operationPlan"]
+            self.assertTrue(incoming_plan["blocked"])
+            self.assertTrue(any(
+                value["kind"] == "incoming-footprint-unavailable"
+                for value in incoming_plan["collisions"]
+            ))
 
     def test_region_selection_geometry_and_contracts_fail_closed(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-contract-") as temp:

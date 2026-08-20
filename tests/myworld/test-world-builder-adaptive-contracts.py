@@ -796,6 +796,7 @@ def region_operation_plan() -> dict:
         "files": [
             {"relativePath": "manifest.json", "beforeSha256": HASH_C, "afterSha256": HASH_D}
         ],
+        "placementIdMappings": [],
         "collisions": [],
         "overwriteRequired": False,
         "blocked": False,

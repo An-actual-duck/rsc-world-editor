@@ -233,12 +233,19 @@ java -jar output/world-builder-tools/world-builder-tools.jar region-import \
 ```
 
 Import only adds a validated bundle and emits a compatibility report. It never
-pastes. Cut and paste are preview/apply pairs whose apply command must repeat
+pastes. Alternate safe ZIP encodings are canonicalized before library
+publication. Cut and paste are preview/apply pairs whose apply command must repeat
 the exact current plan hash and use `CUT <hash>`, `PASTE <hash>`, or the
 separate `OVERWRITE <hash>` confirmation reported by preview. Missing terrain,
 catalog or logical dependency mismatch, stale state, malformed paths, and
 unsupported custom materials fail closed. Operations affect only the isolated
 working package; source and target data remain unchanged.
+Paste previews bind exact deterministic source-to-destination placement-ID
+mappings, including when the unchanged source already owns all four IDs.
+Boundary/NPC crossing footprints participate in blocking coverage and occupied-
+content collision checks. A forced region transaction journal recovers the last
+provably complete package/manifest state after interruption and refuses
+ambiguous artifacts.
 
 This is not yet the packaged in-game selection experience. Ordered marker UI,
 ghost previews, runtime-authoritative transactions, and durable interactive

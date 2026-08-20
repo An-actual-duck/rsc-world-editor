@@ -39,6 +39,7 @@ final class WorldBuilderRegionSnapshotService {
 	private static final String PACKAGE = "working/layered-world/package";
 	private static final String LIBRARY = "snapshot-library/v1";
 	private static final String BUNDLE_EXTENSION = ".wbr";
+	private static final String TRANSACTION = "working/layered-world/.region-transaction-v1.json";
 	private static final long MAX_BUNDLE_BYTES = 32L * 1024L * 1024L;
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
 	private static final long ZIP_TIME = 315532800000L;
@@ -67,6 +68,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-copy")) {
+			recoverRegionTransaction(root);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, false);
 			WorldBuilderRegionContracts.Selection selection = readSelection(selectionPath);
@@ -87,6 +89,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-cut-preview")) {
+			recoverRegionTransaction(root);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Capture capture = capture(verified, readSelection(selectionPath), name);
@@ -113,6 +116,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-import")) {
+			recoverRegionTransaction(root);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Bundle bundle = readBundle(requestedBundle);
@@ -130,6 +134,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-export")) {
+			recoverRegionTransaction(root);
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Bundle bundle = loadLibrary(root, snapshotId);
 			Path output = safeNewOutput(requestedOutput, root);
@@ -138,8 +143,10 @@ final class WorldBuilderRegionSnapshotService {
 			try {
 				Files.write(stage, bundle.bytes, StandardOpenOption.CREATE_NEW,
 					StandardOpenOption.WRITE);
+				WorldBuilderAdaptiveDurability.forceFile(stage);
 				WorldBuilderAdaptiveAtomicFiles.moveNew(stage, output,
 					"region-export", output.getFileName().toString());
+				WorldBuilderAdaptiveDurability.forceDirectory(output.getParent());
 			} finally {
 				Files.deleteIfExists(stage);
 			}
@@ -157,6 +164,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-paste-preview")) {
+			recoverRegionTransaction(root);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 			Bundle bundle = loadLibrary(root, snapshotId);
@@ -190,6 +198,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path project = requestedProject.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, "region-" + operation)) {
+			recoverRegionTransaction(project);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			Bundle bundle = loadLibrary(project, snapshotId);
@@ -223,15 +232,23 @@ final class WorldBuilderRegionSnapshotService {
 			}
 			boolean published = false;
 			boolean saved = false;
+			RegionTransaction transaction = null;
 			try {
+				transaction = RegionTransaction.prepare(project,
+					prepared, verified.working.fingerprintSha256);
+				observer.observe("staged-package-durable", project);
 				observer.observe("before-package-publication", project);
-				publishWorkingPackage(project, prepared.stage);
+				publishWorkingPackage(project, prepared.stage, transaction);
 				published = true;
 				observer.observe("package-published", project);
 				WorldBuilderAdaptiveProjectLifecycle.ProjectResult result =
 					new WorldBuilderAdaptiveProjectLifecycle().saveAfterSupervisedRun(project);
 				saved = true;
-				completeWorkingPublication(project);
+				transaction.phase("manifest-saved");
+				observer.observe("project-manifest-saved", project);
+				observer.observe("before-cleanup", project);
+				completeWorkingPublication(project, transaction);
+				observer.observe("cleanup-complete", project);
 				Map<String,Object> output = new LinkedHashMap<String,Object>();
 				output.put("operation", operation);
 				output.put("snapshotId", snapshotId);
@@ -240,7 +257,8 @@ final class WorldBuilderRegionSnapshotService {
 				output.put("worldModified", Boolean.TRUE);
 				return WorldBuilderJsonDocuments.pretty(output);
 			} catch (Exception failure) {
-				if (published && !saved) rollbackWorkingPublication(project, failure);
+				if (published && !saved) rollbackWorkingPublication(project, transaction,
+					failure);
 				if (failure instanceof IOException) throw (IOException)failure;
 				if (failure instanceof WorldBuilderContractException) {
 					throw (WorldBuilderContractException)failure;
@@ -248,7 +266,7 @@ final class WorldBuilderRegionSnapshotService {
 				throw new IOException("Region publication failed: "
 					+ failure.getMessage(), failure);
 			} finally {
-				if (!published) prepared.discard();
+				if (!published && transaction == null) prepared.discard();
 			}
 		}
 	}
@@ -313,15 +331,16 @@ final class WorldBuilderRegionSnapshotService {
 			Map<String,Object> levelRecord = new LinkedHashMap<String,Object>();
 			levelRecord.put("levelOffset", Long.valueOf((long)level - anchorLevel));
 			List<Object> tiles = new ArrayList<Object>();
-			for (int x = selection.geometry.minimumX; x <= selection.geometry.maximumX; x++) {
-				for (int y = selection.geometry.minimumY; y <= selection.geometry.maximumY; y++) {
-					if (!selection.geometry.owns(x, y)) continue;
-					byte[] tile = state.tile(level.intValue(), x, y);
+			for (long x = selection.geometry.minimumX; x <= (long)selection.geometry.maximumX; x++) {
+				for (long y = selection.geometry.minimumY; y <= (long)selection.geometry.maximumY; y++) {
+					int tileX = (int)x, tileY = (int)y;
+					if (!selection.geometry.owns(tileX, tileY)) continue;
+					byte[] tile = state.tile(level.intValue(), tileX, tileY);
 					if (tile == null) throw problem(WorldBuilderErrorCodes.MAP_MISMATCH,
 						"selection", "Selected tile has no declared terrain coverage at "
-							+ level + ":" + x + "," + y + ".",
+							+ level + ":" + tileX + "," + tileY + ".",
 						"Reduce the polygon to complete working terrain coverage.");
-					tiles.add(tileRecord(tile, x - anchorX, y - anchorY));
+					tiles.add(tileRecord(tile, tileX - anchorX, tileY - anchorY));
 					if (++selectedTiles > WorldBuilderRegionContracts.MAX_TILES) {
 						throw problem(WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED,
 							"selection", "Region snapshot exceeds 65,536 selected tiles.",
@@ -444,11 +463,11 @@ final class WorldBuilderRegionSnapshotService {
 				anchorX(snapshot), anchorY(snapshot), true);
 			removeOwnedPlacements(state, snapshot, snapshot.anchorLevel,
 				anchorX(snapshot), anchorY(snapshot));
-			state.writeAndValidate(verified);
+			String afterWorking = state.writeAndValidate(verified);
 			Map<String,Object> plan = plan(verified, snapshot, "cut",
 				snapshot.anchorLevel, anchorX(snapshot), anchorY(snapshot), stage,
-				new ArrayList<Object>(), false, false);
-			return new PreparedMutation(stage, plan);
+				new ArrayList<Object>(), new ArrayList<Object>(), false, false);
+			return new PreparedMutation(stage, plan, afterWorking);
 		} catch (Exception failure) {
 			deleteTree(stage);
 			if (failure instanceof IOException) throw (IOException)failure;
@@ -512,31 +531,54 @@ final class WorldBuilderRegionSnapshotService {
 							targetLevel.intValue(), owner.x, owner.y,
 							"Destination selection owns an existing placement."));
 						overwrite = true;
-					}
-				}
-			}
-		}
-		Set<String> replacingIds = snapshotPlacementIds(snapshot);
-		for (Map.Entry<Integer,Map<String,Object>> entry : live.placements.entrySet()) {
-			for (String family : placementFamilies()) {
-				for (Object raw : list(entry.getValue(), family)) {
-					Map<String,Object> record = map(raw);
-					String id = text(record, "placementId");
-					Point owner = owner(family, record);
-					boolean removed = destinationLevels.contains(entry.getKey())
-						&& destination.owns(owner.x, owner.y);
-					if (!removed && replacingIds.contains(id)) {
-						collisions.add(collision("placement-id", entry.getKey().intValue(),
-							owner.x, owner.y, "Preserved destination placement already uses ID "
-								+ id + "."));
+					} else if (("boundaries".equals(family) || "npcs".equals(family))
+						&& footprintIntersects(family, record, destination)) {
+						collisions.add(collision("represented-" + singularFamily(family)
+							+ "-crossing", targetLevel.intValue(), owner.x, owner.y,
+							"A preserved placement anchored outside the destination has a "
+								+ "represented footprint crossing into it."));
 						blocked = true;
 					}
 				}
 			}
 		}
+		Map<String,Object> incoming = map(snapshot.root.get("placements"));
+		for (String family : placementFamilies()) {
+			for (Object raw : list(incoming, family)) {
+				Map<String,Object> absolute = absolutePlacement(family, map(raw), x, y);
+				int targetLevel = checkedAdd(level,
+					integer(map(raw), "levelOffset"), "incoming footprint level");
+				for (Point point : footprint(family, absolute)) {
+					if (live.tile(targetLevel, point.x, point.y) == null) {
+						collisions.add(collision("incoming-footprint-unavailable", targetLevel,
+							point.x, point.y, "Incoming " + singularFamily(family)
+								+ " footprint extends beyond declared terrain coverage."));
+						blocked = true;
+					}
+					Map<String,Object> payload = live.placements.get(Integer.valueOf(targetLevel));
+					if (payload == null) continue;
+					for (String occupiedFamily : placementFamilies()) {
+						for (Object occupiedRaw : list(payload, occupiedFamily)) {
+							Map<String,Object> occupied = map(occupiedRaw);
+							Point occupiedOwner = owner(occupiedFamily, occupied);
+							if (!destination.owns(occupiedOwner.x, occupiedOwner.y)
+								&& occupiedOwner.x == point.x && occupiedOwner.y == point.y) {
+								collisions.add(collision("incoming-footprint-occupied",
+									targetLevel, point.x, point.y, "Incoming "
+										+ singularFamily(family) + " footprint overlaps preserved "
+										+ singularFamily(occupiedFamily) + " content."));
+								blocked = true;
+							}
+						}
+					}
+				}
+			}
+		}
+		List<Object> idMappings = allocatePlacementIds(verified, snapshot, live,
+			destinationLevels, destination);
 		Collections.sort(collisions, canonicalComparator());
 		if (blocked) return planOnly(verified, snapshot, "paste", level, x, y,
-			collisions, overwrite, true);
+			collisions, idMappings, overwrite, true);
 
 		Path stage = stagePackage(verified.projectRoot);
 		try {
@@ -544,11 +586,11 @@ final class WorldBuilderRegionSnapshotService {
 				relativeStage(verified.projectRoot, stage));
 			removeDestinationPlacements(state, destinationLevels, destination);
 			applySnapshotTiles(state, snapshot, level, x, y, false);
-			addSnapshotPlacements(state, snapshot, level, x, y);
-			state.writeAndValidate(verified);
+			addSnapshotPlacements(state, snapshot, level, x, y, idMappings);
+			String afterWorking = state.writeAndValidate(verified);
 			Map<String,Object> plan = plan(verified, snapshot, "paste", level, x, y,
-				stage, collisions, overwrite, false);
-			return new PreparedMutation(stage, plan);
+				stage, collisions, idMappings, overwrite, false);
+			return new PreparedMutation(stage, plan, afterWorking);
 		} catch (Exception failure) {
 			deleteTree(stage);
 			if (failure instanceof IOException) throw (IOException)failure;
@@ -605,8 +647,16 @@ final class WorldBuilderRegionSnapshotService {
 	}
 
 	private static void addSnapshotPlacements(PackageState state,
-		WorldBuilderRegionContracts.Snapshot snapshot, int level, int x, int y)
+		WorldBuilderRegionContracts.Snapshot snapshot, int level, int x, int y,
+		List<Object> mappings)
 		throws WorldBuilderContractException {
+		Map<String,String> destinationIds = new HashMap<String,String>();
+		for (Object raw : mappings) {
+			Map<String,Object> mapping = map(raw);
+			destinationIds.put(text(mapping, "family") + "\u0000"
+				+ text(mapping, "sourcePlacementId"),
+				text(mapping, "destinationPlacementId"));
+		}
 		Map<String,Object> placements = map(snapshot.root.get("placements"));
 		for (String family : placementFamilies()) {
 			for (Object raw : list(placements, family)) {
@@ -617,7 +667,11 @@ final class WorldBuilderRegionSnapshotService {
 				if (payload == null) throw problem(WorldBuilderErrorCodes.MAP_MISMATCH,
 					"placements", "Pasted placement level is unavailable.",
 					"Preview against the current complete destination package.");
-				list(payload, family).add(absolutePlacement(family, relative, x, y));
+				Map<String,Object> absolute = absolutePlacement(family, relative, x, y);
+				String mapped = destinationIds.get(singularFamily(family) + "\u0000"
+					+ text(relative, "placementId"));
+				if (mapped != null) absolute.put("placementId", mapped);
+				list(payload, family).add(absolute);
 			}
 		}
 		for (Map<String,Object> payload : state.placements.values()) {
@@ -695,27 +749,96 @@ final class WorldBuilderRegionSnapshotService {
 		WorldBuilderRegionContracts.Snapshot snapshot, String operation,
 		int level, int x, int y, List<Object> collisions, boolean overwrite,
 		boolean blocked) throws WorldBuilderContractException {
+		return planOnly(verified, snapshot, operation, level, x, y, collisions,
+			new ArrayList<Object>(), overwrite, blocked);
+	}
+
+	private PreparedMutation planOnly(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified,
+		WorldBuilderRegionContracts.Snapshot snapshot, String operation,
+		int level, int x, int y, List<Object> collisions, List<Object> idMappings,
+		boolean overwrite, boolean blocked) throws WorldBuilderContractException {
 		Map<String,Object> plan = planBase(verified, snapshot, operation, level, x, y);
 		plan.put("files", new ArrayList<Object>());
+		plan.put("placementIdMappings", idMappings);
 		plan.put("collisions", collisions);
 		plan.put("overwriteRequired", Boolean.valueOf(overwrite));
 		plan.put("blocked", Boolean.valueOf(blocked));
 		plan.put("planFingerprintSha256", WorldBuilderRegionContracts.ZERO_HASH);
 		WorldBuilderRegionContracts.bindFingerprint(plan, "planFingerprintSha256");
 		WorldBuilderRegionContracts.operationPlan(plan);
-		return new PreparedMutation(null, plan);
+		return new PreparedMutation(null, plan, "");
+	}
+
+	private static List<Object> allocatePlacementIds(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified,
+		WorldBuilderRegionContracts.Snapshot snapshot, PackageState live,
+		Set<Integer> destinationLevels, WorldBuilderRegionContracts.Geometry destination)
+		throws WorldBuilderContractException {
+		Set<String> used = new HashSet<String>();
+		for (Map.Entry<Integer,Map<String,Object>> entry : live.placements.entrySet()) {
+			for (String family : placementFamilies()) {
+				for (Object raw : list(entry.getValue(), family)) {
+					Map<String,Object> record = map(raw);
+					Point owner = owner(family, record);
+					if (!(destinationLevels.contains(entry.getKey())
+						&& destination.owns(owner.x, owner.y))) {
+						used.add(text(record, "placementId"));
+					}
+				}
+			}
+		}
+		List<Object> mappings = new ArrayList<Object>();
+		Map<String,Object> placements = map(snapshot.root.get("placements"));
+		for (String family : placementFamilies()) {
+			for (Object raw : list(placements, family)) {
+				String sourceId = text(map(raw), "placementId");
+				String destinationId = sourceId;
+				if (used.contains(destinationId)) {
+					String seed = verified.projectId + "\u0000" + snapshot.id + "\u0000"
+						+ singularFamily(family) + "\u0000" + sourceId;
+					for (int attempt = 0; attempt <= WorldBuilderRegionContracts.MAX_PLACEMENTS;
+						attempt++) {
+						destinationId = "region-" + WorldBuilderHashes.sha256(
+							(seed + "\u0000" + attempt).getBytes(StandardCharsets.UTF_8));
+						if (!used.contains(destinationId)) break;
+					}
+					if (used.contains(destinationId)) throw problem(
+						WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placementId",
+						"No deterministic destination-local placement ID remains available.",
+						"Reduce adversarial placement-ID occupancy and preview again.");
+				}
+				used.add(destinationId);
+				Map<String,Object> mapping = new LinkedHashMap<String,Object>();
+				mapping.put("family", singularFamily(family));
+				mapping.put("sourcePlacementId", sourceId);
+				mapping.put("destinationPlacementId", destinationId);
+				mappings.add(mapping);
+			}
+		}
+		Collections.sort(mappings, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				Map<String,Object> a = map(left), b = map(right);
+				return (text(a, "family") + "\u0000" + text(a, "sourcePlacementId"))
+					.compareTo(text(b, "family") + "\u0000"
+						+ text(b, "sourcePlacementId"));
+			}
+		});
+		return mappings;
 	}
 
 	private Map<String,Object> plan(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified,
 		WorldBuilderRegionContracts.Snapshot snapshot, String operation,
 		int level, int x, int y, Path stage, List<Object> collisions,
+		List<Object> idMappings,
 		boolean overwrite, boolean blocked)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> plan = planBase(verified, snapshot, operation, level, x, y);
 		Path live = verified.projectRoot.resolve(PACKAGE);
 		List<Object> files = changedFiles(live, stage);
 		plan.put("files", blocked ? new ArrayList<Object>() : files);
+		plan.put("placementIdMappings", idMappings);
 		plan.put("collisions", collisions);
 		plan.put("overwriteRequired", Boolean.valueOf(overwrite));
 		plan.put("blocked", Boolean.valueOf(blocked));
@@ -790,12 +913,15 @@ final class WorldBuilderRegionSnapshotService {
 			return new LibraryRecord(LIBRARY + "/" + name,
 				WorldBuilderHashes.sha256(existing), false);
 		}
-		Path stage = library.resolve("." + name + ".staging-" + UUID.randomUUID());
+		String bundleHash = WorldBuilderHashes.sha256(bundle.bytes);
+		Path stage = library.resolve("." + name + ".staging-" + bundleHash);
 		try {
 			Files.write(stage, bundle.bytes, StandardOpenOption.CREATE_NEW,
 				StandardOpenOption.WRITE);
+			WorldBuilderAdaptiveDurability.forceFile(stage);
 			WorldBuilderAdaptiveAtomicFiles.moveNew(stage, destination,
 				"region-library", LIBRARY + "/" + name);
+			WorldBuilderAdaptiveDurability.forceDirectory(library);
 		} finally {
 			Files.deleteIfExists(stage);
 		}
@@ -806,7 +932,7 @@ final class WorldBuilderRegionSnapshotService {
 			"Published snapshot library bundle did not verify byte-for-byte.",
 			"Preserve the library and request filesystem recovery.");
 		return new LibraryRecord(LIBRARY + "/" + name,
-			WorldBuilderHashes.sha256(bundle.bytes), true);
+			bundleHash, true);
 	}
 
 	private Bundle loadLibrary(Path project, String snapshotId)
@@ -847,6 +973,7 @@ final class WorldBuilderRegionSnapshotService {
 		Path parent = library.getParent();
 		if (create && !Files.exists(parent, LinkOption.NOFOLLOW_LINKS)) {
 			Files.createDirectory(parent);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent.getParent());
 		}
 		if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(parent)) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
@@ -854,6 +981,7 @@ final class WorldBuilderRegionSnapshotService {
 			"Restore one real project-local snapshot-library directory.");
 		if (create && !Files.exists(library, LinkOption.NOFOLLOW_LINKS)) {
 			Files.createDirectory(library);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
 		}
 		if (!Files.isDirectory(library, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(library) || !library.toRealPath().startsWith(root.toRealPath())) {
@@ -861,6 +989,7 @@ final class WorldBuilderRegionSnapshotService {
 				"Snapshot library is linked, missing, or outside the project.",
 				"Restore one real contained project-local library.");
 		}
+		recoverLibraryStages(library);
 		int count = 0;
 		try (DirectoryStream<Path> entries = Files.newDirectoryStream(library)) {
 			for (Path entry : entries) {
@@ -881,10 +1010,59 @@ final class WorldBuilderRegionSnapshotService {
 		return library;
 	}
 
+	private static void recoverLibraryStages(Path library)
+		throws IOException, WorldBuilderContractException {
+		List<Path> stages = new ArrayList<Path>();
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(library)) {
+			for (Path entry : entries) {
+				if (entry.getFileName().toString().matches(
+					"\\.[0-9a-f]{64}\\.wbr\\.staging-[0-9a-f]{64}")) stages.add(entry);
+			}
+		}
+		for (Path stage : stages) {
+			String name = stage.getFileName().toString();
+			String snapshotId = name.substring(1, 65);
+			String expectedHash = name.substring(name.length() - 64);
+			if (!Files.isRegularFile(stage, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(stage) || !expectedHash.equals(
+					WorldBuilderHashes.sha256(stage))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
+				"Snapshot publication stage does not match its durable identity.",
+				"Preserve the stage and library; recovery refuses ambiguous bytes.");
+			Path destination = library.resolve(snapshotId + BUNDLE_EXTENSION);
+			if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+				if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(destination)
+					|| !Arrays.equals(Files.readAllBytes(stage), Files.readAllBytes(destination))) {
+					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
+						"Staged and published snapshot identities disagree.",
+						"Preserve both files; recovery refuses an identity collision.");
+				}
+				Files.delete(stage);
+				WorldBuilderAdaptiveDurability.forceDirectory(library);
+				Bundle published = readBundle(destination);
+				if (!snapshotId.equals(published.snapshot.id)
+					|| !expectedHash.equals(WorldBuilderHashes.sha256(published.bytes))) {
+					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
+						"Published snapshot is noncanonical or has the wrong identity.",
+						"Preserve the published entry and restore exact canonical bytes.");
+				}
+				continue;
+			}
+			Bundle staged = readBundle(stage);
+			if (!snapshotId.equals(staged.snapshot.id)
+				|| !expectedHash.equals(WorldBuilderHashes.sha256(staged.bytes))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, LIBRARY,
+				"Snapshot publication stage is noncanonical or has the wrong snapshot ID.",
+				"Preserve the stage and library; recovery refuses ambiguous authority.");
+			Files.delete(stage);
+			WorldBuilderAdaptiveDurability.forceDirectory(library);
+		}
+	}
+
 	private static Bundle readBundle(Path requested)
 		throws IOException, WorldBuilderContractException {
 		Path path = safeExternalFile(requested, "region bundle", 1L, MAX_BUNDLE_BYTES);
-		byte[] archiveBytes = Files.readAllBytes(path);
 		Map<String,byte[]> entries = new TreeMap<String,byte[]>();
 		try (ZipFile archive = new ZipFile(path.toFile())) {
 			Enumeration<? extends ZipEntry> rawEntries = archive.entries();
@@ -922,7 +1100,19 @@ final class WorldBuilderRegionSnapshotService {
 			entries.get("snapshot.json").length);
 		if (!snapshot.id.equals(text(manifest, "snapshotId"))) throw unsafeBundle(
 			"Bundle manifest and snapshot identities disagree.");
-		return new Bundle(archiveBytes, manifest, snapshot);
+		byte[] canonicalSnapshot = WorldBuilderJsonDocuments.pretty(snapshot.root)
+			.getBytes(StandardCharsets.UTF_8);
+		Map<String,Object> canonicalManifest = bundleManifest(snapshot, canonicalSnapshot);
+		byte[] canonicalBundle;
+		try {
+			canonicalBundle = writeBundle(canonicalManifest, canonicalSnapshot);
+		} catch (IOException impossible) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "bundle",
+				"Canonical region bundle encoding failed in memory.",
+				"Preserve the source archive and inspect the local Java ZIP provider.",
+				impossible);
+		}
+		return new Bundle(canonicalBundle, canonicalManifest, snapshot);
 	}
 
 	private static Map<String,Object> bundleManifest(
@@ -988,8 +1178,9 @@ final class WorldBuilderRegionSnapshotService {
 		return stage;
 	}
 
-	private static void publishWorkingPackage(Path project, Path stage)
-		throws IOException, WorldBuilderContractException {
+	private void publishWorkingPackage(Path project, Path stage,
+		RegionTransaction transaction)
+		throws Exception {
 		if (stage == null) throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
 			"package", "Blocked plan has no publishable staged package.",
 			"Resolve every blocker and preview again.");
@@ -1001,10 +1192,16 @@ final class WorldBuilderRegionSnapshotService {
 			"Recover or inspect the exact retained package before retrying.");
 		try {
 			Files.move(live, rollback, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(live.getParent());
+			transaction.phase("rollback-ready");
+			observer.observe("rollback-package-durable", project);
 			try {
 				Files.move(stage, live, StandardCopyOption.ATOMIC_MOVE);
+				WorldBuilderAdaptiveDurability.forceDirectory(live.getParent());
+				transaction.phase("package-published");
 			} catch (Exception failure) {
 				Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
+				WorldBuilderAdaptiveDurability.forceDirectory(live.getParent());
 				throw failure;
 			}
 		} catch (AtomicMoveNotSupportedException unsupported) {
@@ -1014,16 +1211,18 @@ final class WorldBuilderRegionSnapshotService {
 		}
 	}
 
-	private static void rollbackWorkingPublication(Path project, Exception original)
+	private static void rollbackWorkingPublication(Path project,
+		RegionTransaction transaction, Exception original)
 		throws IOException, WorldBuilderContractException {
 		Path live = project.resolve(PACKAGE);
 		Path rollback = rollbackPath(project);
-		Path failed = project.resolve("working/layered-world/.region-failed-"
-			+ UUID.randomUUID());
+		Path failed = transaction.armRollback();
 		try {
 			Files.move(live, failed, StandardCopyOption.ATOMIC_MOVE);
 			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(live.getParent());
 			deleteTree(failed);
+			RegionTransaction.remove(project);
 		} catch (Exception rollbackFailure) {
 			rollbackFailure.addSuppressed(original);
 			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PACKAGE,
@@ -1032,9 +1231,14 @@ final class WorldBuilderRegionSnapshotService {
 		}
 	}
 
-	private static void completeWorkingPublication(Path project)
+	private static void completeWorkingPublication(Path project,
+		RegionTransaction transaction)
 		throws IOException {
 		deleteTree(rollbackPath(project));
+		WorldBuilderAdaptiveDurability.forceDirectory(
+			project.resolve("working/layered-world"));
+		transaction.phase("cleanup-complete");
+		RegionTransaction.remove(project);
 	}
 
 	private static Path rollbackPath(Path project) {
@@ -1124,8 +1328,17 @@ final class WorldBuilderRegionSnapshotService {
 		throws IOException, WorldBuilderContractException {
 		if (requested == null) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "output",
 			"Region export output path is absent.", "Choose a new .wbr output path.");
-		Path output = requested.toAbsolutePath().normalize();
-		if (output.startsWith(project.toAbsolutePath().normalize())) throw problem(
+		Path lexical = requested.toAbsolutePath().normalize();
+		Path parent = lexical.getParent();
+		if (parent == null || !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "output",
+				"Region export parent is missing or not a directory.",
+				"Choose a real existing output directory.");
+		}
+		Path realParent = parent.toRealPath();
+		Path output = realParent.resolve(lexical.getFileName().toString());
+		Path realProject = project.toRealPath();
+		if (realParent.startsWith(realProject)) throw problem(
 			WorldBuilderErrorCodes.UNSAFE_PATH, "output",
 			"Region export output cannot be inside the adaptive project.",
 			"Choose a separate creator-owned export directory.");
@@ -1134,11 +1347,6 @@ final class WorldBuilderRegionSnapshotService {
 			WorldBuilderErrorCodes.TARGET_DRIFT, "output",
 			"Region export destination exists or is not a .wbr path.",
 			"Choose a new portable bundle filename.");
-		Path parent = output.getParent();
-		if (parent == null || !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(parent)) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
-			"output", "Region export parent is missing or linked.",
-			"Choose a real existing output directory.");
 		return output;
 	}
 
@@ -1240,13 +1448,49 @@ final class WorldBuilderRegionSnapshotService {
 			Map<String,Object> bounds = map(record.get("roamBounds"));
 			Point minimum = point(bounds.get("minimum"));
 			Point maximum = point(bounds.get("maximum"));
-			for (int x = minimum.x; x <= maximum.x; x++) {
-				for (int y = minimum.y; y <= maximum.y; y++) {
-					if (!geometry.owns(x, y)) return true;
+			for (long x = minimum.x; x <= (long)maximum.x; x++) {
+				for (long y = minimum.y; y <= (long)maximum.y; y++) {
+					if (!geometry.owns((int)x, (int)y)) return true;
 				}
 			}
 		}
 		return false;
+	}
+
+	private static boolean footprintIntersects(String family,
+		Map<String,Object> record, WorldBuilderRegionContracts.Geometry geometry) {
+		for (Point point : footprint(family, record)) {
+			if (geometry.owns(point.x, point.y)) return true;
+		}
+		return false;
+	}
+
+	private static List<Point> footprint(String family, Map<String,Object> record) {
+		List<Point> result = new ArrayList<Point>();
+		Point origin = owner(family, record);
+		result.add(origin);
+		if ("boundaries".equals(family)) {
+			int direction = integer(record, "direction");
+			int[] dx = {0, 1, 0, -1};
+			int[] dy = {-1, 0, 1, 0};
+			long x = (long)origin.x + dx[direction];
+			long y = (long)origin.y + dy[direction];
+			if (x >= Integer.MIN_VALUE && x <= Integer.MAX_VALUE
+				&& y >= Integer.MIN_VALUE && y <= Integer.MAX_VALUE) {
+				result.add(new Point((int)x, (int)y));
+			}
+		} else if ("npcs".equals(family)) {
+			Map<String,Object> bounds = map(record.get("roamBounds"));
+			Point minimum = point(bounds.get("minimum"));
+			Point maximum = point(bounds.get("maximum"));
+			result.clear();
+			for (long x = minimum.x; x <= (long)maximum.x; x++) {
+				for (long y = minimum.y; y <= (long)maximum.y; y++) {
+					result.add(new Point((int)x, (int)y));
+				}
+			}
+		}
+		return result;
 	}
 
 	private static String footprintDetail(String family, boolean crossing) {
@@ -1374,18 +1618,6 @@ final class WorldBuilderRegionSnapshotService {
 		return WorldBuilderRegionContracts.Geometry.create(points, "region-paste");
 	}
 
-	private static Set<String> snapshotPlacementIds(
-		WorldBuilderRegionContracts.Snapshot snapshot) {
-		Set<String> ids = new HashSet<String>();
-		Map<String,Object> placements = map(snapshot.root.get("placements"));
-		for (String family : placementFamilies()) {
-			for (Object raw : list(placements, family)) {
-				ids.add(text(map(raw), "placementId"));
-			}
-		}
-		return ids;
-	}
-
 	private static boolean hasDefinition(
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		String family, int id) {
@@ -1498,6 +1730,197 @@ final class WorldBuilderRegionSnapshotService {
 			message, nextStep, cause);
 	}
 
+	private static void recoverRegionTransaction(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path journal = project.resolve(TRANSACTION);
+		Path parent = project.resolve("working/layered-world");
+		Path rollback = rollbackPath(project);
+		if (!Files.exists(journal, LinkOption.NOFOLLOW_LINKS)) {
+			if (Files.exists(rollback, LinkOption.NOFOLLOW_LINKS)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, PACKAGE,
+				"Region rollback package exists without its durable transaction journal.",
+				"Preserve every region artifact; the last complete state is ambiguous.");
+			return;
+		}
+		if (!Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(journal)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Region transaction journal is linked or not a regular file.",
+			"Preserve every region artifact and request exact recovery.");
+		Map<String,Object> value;
+		try {
+			value = WorldBuilderJsonDocuments.readObject(journal);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Region transaction journal is malformed.",
+				"Preserve every region artifact; recovery cannot guess transaction state.",
+				malformed);
+		}
+		Set<String> expected = new HashSet<String>(Arrays.asList("schemaVersion", "phase",
+			"stageName", "failedName", "beforeTreeSha256", "afterTreeSha256",
+			"beforeWorkingSha256", "afterWorkingSha256"));
+		String stageName = value.get("stageName") instanceof String
+			? (String)value.get("stageName") : "";
+		if (!value.keySet().equals(expected) || !Long.valueOf(1L).equals(value.get("schemaVersion"))
+			|| !stageName.matches("\\.region-stage-[0-9a-fA-F-]{36}")) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Region transaction journal fields are not the exact v1 contract.",
+				"Preserve every region artifact; recovery refuses ambiguous authority.");
+		}
+		Path stage = parent.resolve(stageName).normalize();
+		String failedName = value.get("failedName") instanceof String
+			? (String)value.get("failedName") : "";
+		if (!failedName.isEmpty() && !failedName.matches("\\.region-failed-[0-9a-f]{64}")) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Region transaction rollback path is invalid.",
+				"Preserve every artifact; recovery refuses escaped authority.");
+		}
+		Path failed = failedName.isEmpty() ? null : parent.resolve(failedName);
+		String beforeTree = requiredHash(value, "beforeTreeSha256");
+		String afterTree = requiredHash(value, "afterTreeSha256");
+		String beforeWorking = requiredHash(value, "beforeWorkingSha256");
+		String afterWorking = requiredHash(value, "afterWorkingSha256");
+		Path live = project.resolve(PACKAGE);
+		boolean liveBefore = treeEquals(live, beforeTree);
+		boolean liveAfter = treeEquals(live, afterTree);
+		boolean rollbackBefore = treeEquals(rollback, beforeTree);
+		boolean stageAfter = treeEquals(stage, afterTree);
+		boolean rollbackAbsent = !Files.exists(rollback, LinkOption.NOFOLLOW_LINKS);
+		boolean stageAbsent = !Files.exists(stage, LinkOption.NOFOLLOW_LINKS);
+		boolean failedAfter = failed != null && treeEquals(failed, afterTree);
+		if (liveBefore && stageAfter && rollbackAbsent) {
+			deleteTree(stage); RegionTransaction.remove(project); return;
+		}
+		if (!Files.exists(live, LinkOption.NOFOLLOW_LINKS)
+			&& rollbackBefore && stageAfter) {
+			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+			deleteTree(stage); RegionTransaction.remove(project); return;
+		}
+		if (liveAfter && rollbackBefore && stageAbsent) {
+			String manifestWorking = projectManifestWorking(project);
+			if (beforeWorking.equals(manifestWorking)) {
+				Path displaced = parent.resolve(".region-failed-" + UUID.randomUUID());
+				Files.move(live, displaced, StandardCopyOption.ATOMIC_MOVE);
+				Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
+				WorldBuilderAdaptiveDurability.forceDirectory(parent);
+				deleteTree(displaced); RegionTransaction.remove(project); return;
+			}
+			if (afterWorking.equals(manifestWorking)) {
+				deleteTree(rollback); WorldBuilderAdaptiveDurability.forceDirectory(parent);
+				RegionTransaction.remove(project); return;
+			}
+		}
+		if (!Files.exists(live, LinkOption.NOFOLLOW_LINKS) && rollbackBefore
+			&& stageAbsent && failedAfter) {
+			Files.move(rollback, live, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+			deleteTree(failed); RegionTransaction.remove(project); return;
+		}
+		if (liveBefore && rollbackAbsent && stageAbsent && failedAfter) {
+			deleteTree(failed); RegionTransaction.remove(project); return;
+		}
+		if (liveAfter && rollbackAbsent && stageAbsent
+			&& afterWorking.equals(projectManifestWorking(project))) {
+			RegionTransaction.remove(project); return;
+		}
+		throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+			"Region transaction artifacts do not prove one complete before or after state.",
+			"Preserve the journal, staged package, rollback package, live package, and manifest; do not force cleanup.");
+	}
+
+	private static String requiredHash(Map<String,Object> value, String key)
+		throws WorldBuilderContractException {
+		Object raw = value.get(key);
+		if (!(raw instanceof String) || !WorldBuilderBoundedInventory.isHash((String)raw)) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, TRANSACTION,
+				"Region journal contains an invalid identity: " + key + ".",
+				"Preserve every artifact; recovery refuses invalid authority.");
+		}
+		return (String)raw;
+	}
+
+	private static String projectManifestWorking(Path project)
+		throws IOException, WorldBuilderContractException {
+		try {
+			Map<String,Object> manifest = WorldBuilderJsonDocuments.readObject(
+				project.resolve("project.json"));
+			return requiredHash(map(manifest.get("fingerprints")), "workingSha256");
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "project.json",
+				"Project manifest cannot prove the region transaction state.",
+				"Preserve all transaction artifacts and restore exact metadata.", malformed);
+		}
+	}
+
+	private static boolean treeEquals(Path path, String expected) throws IOException {
+		return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)
+			&& !Files.isSymbolicLink(path) && treeFingerprint(path).equals(expected);
+	}
+
+	private static String treeFingerprint(Path root) throws IOException {
+		try {
+			StringBuilder inventory = new StringBuilder();
+			for (Map.Entry<String,Path> entry : files(root).entrySet()) {
+				inventory.append(entry.getKey()).append('\0')
+					.append(Files.size(entry.getValue())).append('\0')
+					.append(WorldBuilderHashes.sha256(entry.getValue())).append('\n');
+			}
+			return WorldBuilderHashes.sha256(
+				inventory.toString().getBytes(StandardCharsets.UTF_8));
+		} catch (WorldBuilderContractException unsafe) {
+			throw new IOException(unsafe);
+		}
+	}
+
+	private static final class RegionTransaction {
+		final Path project;
+		final Map<String,Object> value;
+		RegionTransaction(Path project, Map<String,Object> value) {
+			this.project = project; this.value = value;
+		}
+		static RegionTransaction prepare(Path project, PreparedMutation prepared,
+			String beforeWorking) throws IOException, WorldBuilderContractException {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("schemaVersion", Long.valueOf(1L)); value.put("phase", "prepared");
+			value.put("stageName", prepared.stage.getFileName().toString());
+			value.put("failedName", "");
+			value.put("beforeTreeSha256", treeFingerprint(project.resolve(PACKAGE)));
+			value.put("afterTreeSha256", treeFingerprint(prepared.stage));
+			value.put("beforeWorkingSha256", beforeWorking);
+			value.put("afterWorkingSha256", prepared.afterWorkingSha256);
+			RegionTransaction result = new RegionTransaction(project, value);
+			result.write(); return result;
+		}
+		void phase(String phase) throws IOException { value.put("phase", phase); write(); }
+		Path armRollback() throws IOException {
+			String failedName = ".region-failed-" + (String)value.get("afterTreeSha256");
+			value.put("failedName", failedName); phase("rolling-back");
+			return project.resolve("working/layered-world").resolve(failedName);
+		}
+		void write() throws IOException {
+			Path destination = project.resolve(TRANSACTION);
+			Path temporary = destination.resolveSibling("." + destination.getFileName()
+				+ ".new-" + UUID.randomUUID());
+			Files.write(temporary, WorldBuilderJsonDocuments.pretty(value)
+				.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+				StandardOpenOption.WRITE);
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			try {
+				Files.move(temporary, destination, StandardCopyOption.ATOMIC_MOVE,
+					StandardCopyOption.REPLACE_EXISTING);
+			} catch (AtomicMoveNotSupportedException unsupported) {
+				Files.deleteIfExists(temporary); throw unsupported;
+			}
+			WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
+		}
+		static void remove(Path project) throws IOException {
+			Path journal = project.resolve(TRANSACTION);
+			Files.deleteIfExists(journal);
+			WorldBuilderAdaptiveDurability.forceDirectory(journal.getParent());
+		}
+	}
+
 	private static final class Capture {
 		final WorldBuilderRegionContracts.Snapshot snapshot;
 		Capture(WorldBuilderRegionContracts.Snapshot snapshot) { this.snapshot = snapshot; }
@@ -1526,8 +1949,10 @@ final class WorldBuilderRegionSnapshotService {
 	private static final class PreparedMutation {
 		final Path stage;
 		final Map<String,Object> plan;
-		PreparedMutation(Path stage, Map<String,Object> plan) {
+		final String afterWorkingSha256;
+		PreparedMutation(Path stage, Map<String,Object> plan, String afterWorkingSha256) {
 			this.stage = stage; this.plan = plan;
+			this.afterWorkingSha256 = afterWorkingSha256;
 		}
 		void discard() throws IOException { deleteTree(stage); }
 	}
@@ -1653,7 +2078,7 @@ final class WorldBuilderRegionSnapshotService {
 			return true;
 		}
 
-		void writeAndValidate(
+		String writeAndValidate(
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified)
 			throws IOException, WorldBuilderContractException {
 			for (Sector sector : sectors.values()) {
@@ -1669,9 +2094,14 @@ final class WorldBuilderRegionSnapshotService {
 			}
 			Files.write(root.resolve("manifest.json"),
 				WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8));
-			WorldBuilderGenericLayeredPackage.inspect(
+			WorldBuilderGenericLayeredPackage inspected = WorldBuilderGenericLayeredPackage.inspect(
 				WorldBuilderReadOnlyTarget.open(project), relative, "region-stage",
 				verified.definitions);
+			for (Path path : files(root).values()) {
+				WorldBuilderAdaptiveDurability.forceFile(path);
+			}
+			WorldBuilderAdaptiveDurability.forceTreeDirectories(root);
+			return inspected.fingerprintSha256;
 		}
 
 		private static String key(int level, int x, int y) {

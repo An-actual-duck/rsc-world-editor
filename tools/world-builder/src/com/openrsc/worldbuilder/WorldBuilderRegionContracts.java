@@ -98,9 +98,9 @@ final class WorldBuilderRegionContracts {
 			> MAX_TILES * 4L) invalid(op,
 			"Snapshot polygon bounding inventory exceeds its bounded search area.");
 		Set<String> expectedTiles = new HashSet<String>();
-		for (int x = relativeGeometry.minimumX; x <= relativeGeometry.maximumX; x++) {
-			for (int y = relativeGeometry.minimumY; y <= relativeGeometry.maximumY; y++) {
-				if (relativeGeometry.owns(x, y)) expectedTiles.add(x + ":" + y);
+		for (long x = relativeGeometry.minimumX; x <= (long)relativeGeometry.maximumX; x++) {
+			for (long y = relativeGeometry.minimumY; y <= (long)relativeGeometry.maximumY; y++) {
+				if (relativeGeometry.owns((int)x, (int)y)) expectedTiles.add(x + ":" + y);
 			}
 		}
 		if (expectedTiles.isEmpty()) invalid(op, "Snapshot polygon owns no tile centers.");
@@ -273,7 +273,8 @@ final class WorldBuilderRegionContracts {
 		identity(root, "world-builder-region-operation-plan", op);
 		exact(root, op, "schemaVersion", "manifestType", "operation", "snapshotId",
 			"projectId", "workingBeforeSha256", "destinationAnchor", "files",
-			"collisions", "overwriteRequired", "blocked", "planFingerprintSha256");
+			"placementIdMappings", "collisions", "overwriteRequired", "blocked",
+			"planFingerprintSha256");
 		String operation = string(root, "operation", op);
 		if (!("cut".equals(operation) || "paste".equals(operation))) invalid(op,
 			"Region operation must be cut or paste.");
@@ -294,6 +295,25 @@ final class WorldBuilderRegionContracts {
 				"Planned files are duplicated or not canonically ordered.");
 			previous = path;
 		}
+		List<?> mappings = array(root.get("placementIdMappings"), op,
+			"placementIdMappings", 0, MAX_PLACEMENTS);
+		String previousMapping = null;
+		Set<String> destinationIds = new HashSet<String>();
+		for (Object raw : mappings) {
+			Map<String,Object> mapping = object(raw, op, "placement ID mapping");
+			exact(mapping, op, "family", "sourcePlacementId", "destinationPlacementId");
+			String family = identifier(mapping, "family", op);
+			String sourceId = identifier(mapping, "sourcePlacementId", op);
+			String destinationId = identifier(mapping, "destinationPlacementId", op);
+			String key = family + "\u0000" + sourceId;
+			if (previousMapping != null && previousMapping.compareTo(key) >= 0) invalid(op,
+				"Placement ID mappings are duplicated or not canonically ordered.");
+			previousMapping = key;
+			if (!destinationIds.add(destinationId)) invalid(op,
+				"Destination placement IDs must be unique across all families.");
+		}
+		if ("cut".equals(operation) && !mappings.isEmpty()) invalid(op,
+			"Cut plans cannot contain destination placement ID mappings.");
 		List<?> collisions = array(root.get("collisions"), op, "collisions", 0, 65536);
 		String previousCollision = null;
 		for (Object raw : collisions) {

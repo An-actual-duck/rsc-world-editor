@@ -4,7 +4,7 @@
   "title": "World Builder atomic region operation plan v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "manifestType", "operation", "snapshotId", "projectId", "workingBeforeSha256", "destinationAnchor", "files", "collisions", "overwriteRequired", "blocked", "planFingerprintSha256"],
+  "required": ["schemaVersion", "manifestType", "operation", "snapshotId", "projectId", "workingBeforeSha256", "destinationAnchor", "files", "placementIdMappings", "collisions", "overwriteRequired", "blocked", "planFingerprintSha256"],
   "properties": {
     "schemaVersion": {"const": 1},
     "manifestType": {"const": "world-builder-region-operation-plan"},
@@ -22,6 +22,18 @@
           "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
           "beforeSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
           "afterSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+        }
+      }
+    },
+    "placementIdMappings": {
+      "type": "array", "maxItems": 65536,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["family", "sourcePlacementId", "destinationPlacementId"],
+        "properties": {
+          "family": {"enum": ["boundary", "ground-item", "npc", "scenery"]},
+          "sourcePlacementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "destinationPlacementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
         }
       }
     },
