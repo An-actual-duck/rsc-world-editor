@@ -122,3 +122,22 @@ be copied, renamed, uploaded, or promoted as production release files.
 Production archives must be rebuilt after this record and `RELEASE-READY` are
 committed and published on clean `main`, using the exact locked runtime and
 reviewed JRE inputs.
+
+## Post-publication gate state
+
+The production release was published from gate commit
+`80e785170adb17580dd725c21ecda98b730972fb` as tag
+`rsc-world-editor-v2-0.3.0-alpha.4`. That immutable tag retains this accepted
+record and the release gate. The production assets were downloaded back from
+GitHub and verified against the uploaded `SHA256SUMS.txt`:
+
+| Production artifact | SHA-256 |
+| --- | --- |
+| `rsc-world-editor-v2-0.3.0-alpha.4-linux-x64.zip` | `dc577212e0b70a1bd940dfccc04b463414a6b1a674b5f2f72d284f2afb09cf25` |
+| `rsc-world-editor-v2-0.3.0-alpha.4-windows-x64.zip` | `1a4a70c32ee99b2c00c699b34779c6a451e25a0e991acb27d8c25bca3e9744a4` |
+| `SHA256SUMS.txt` | `8dd182b3573ce95b682468d43caa0091152a20fa82ff021e92588c3545058d46` |
+| External production inspection | `ef45a67093bbd6901e4fcb105705fa2d5512a096412dfd48e660c6ddfd5bba9d` |
+
+Development `main` consumes/removes the gate after publication. Any later
+release therefore requires a new exact candidate, owner decision, validation
+record, and gate commit.
