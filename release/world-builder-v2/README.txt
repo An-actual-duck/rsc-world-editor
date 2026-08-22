@@ -42,7 +42,8 @@ folder, extract it over v1, or move individual files from another installation.
 FIRST LAUNCH
 ------------
 
-Linux: run "Start World Builder.sh".
+Linux: run "Start World Builder.sh". A desktop/file-manager launch opens a
+visible terminal so first-run discovery and confirmation cannot disappear.
 Windows: double-click "Start World Builder.cmd".
 
 The launcher treats its parent as the possible target and performs read-only
