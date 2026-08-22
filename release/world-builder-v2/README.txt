@@ -18,9 +18,11 @@ creation, UUID project lifecycle, content-neutral packaging, and durable update
 preservation are implemented. Phase 6 complete export, compiled target import,
 verified rollback/recovery, changed-after refusal, and exact undo are also
 implemented. The generic Phase 4 client/server capability is published and
-pinned. Exact archive, packaged-runtime, transaction, and owner-run native
-visual/edit/save/reopen validation passed, and the v0.2.0-alpha.1 candidate was
-accepted on 2026-08-14.
+pinned. This update adds portable region snapshot copy/cut/paste primitives,
+lossless unsigned 16-bit terrain elevation, foreground-aware elevated-terrain
+picking, and a contextual two-column editor toolbar. Exact archive,
+packaged-runtime, transaction, and owner-run native validation passed for the
+accepted release candidate.
 
 INSTALLATION
 ------------
@@ -77,7 +79,8 @@ UUID project's independent server/client copies, layered working package,
 credential, control state, logs, and database. It never resolves the target
 during launch or save. Adopted, converted, and standalone visual/edit/save/
 reopen acceptance passed for the exact candidate named in the
-v0.2.0-alpha.1 validation record.
+current validation record. The original adaptive baseline remains recorded in
+the v0.2.0-alpha.1 validation record.
 
 AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or
@@ -176,8 +179,11 @@ REQUIREMENTS AND LIMITS
   compatible client/map identity reported by each successful Import.
 - World Editor v1 remains frozen with separate identity, update channel,
   install folder, workspace, and artifacts.
+- Region snapshot storage, portable bundles, and atomic copy/cut/paste are
+  implemented, but the in-game ordered-marker and ghost-preview interface is
+  still planned; current access is through the included tooling contract.
 - Easy drop-in custom wall and floor material packs are not implemented in
-  v0.2.0-alpha.1; their approved design remains planned for a later release.
+  this release; their approved design remains planned for a later release.
 - Native Windows application and PowerShell updater execution were not claimed;
   Windows archive, Java, launcher, and static transaction review passed.
 
