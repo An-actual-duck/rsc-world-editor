@@ -84,4 +84,35 @@ final class WorldBuilderAdaptiveDurability {
 		Path parent = root.getParent();
 		if (parent != null) forceDirectory(parent);
 	}
+
+	static void forceTree(final Path root) throws IOException {
+		final List<Path> directories = new ArrayList<Path>();
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isDirectory() || Files.isSymbolicLink(directory)) {
+					throw new IOException("unsafe directory in persistence tree");
+				}
+				directories.add(directory);
+				return FileVisitResult.CONTINUE;
+			}
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file)) {
+					throw new IOException("unsafe file in persistence tree");
+				}
+				forceFile(file);
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		Collections.sort(directories, new Comparator<Path>() {
+			@Override public int compare(Path left, Path right) {
+				int depth = right.getNameCount() - left.getNameCount();
+				return depth == 0 ? right.toString().compareTo(left.toString()) : depth;
+			}
+		});
+		for (Path directory : directories) forceDirectory(directory);
+		Path parent = root.getParent();
+		if (parent != null) forceDirectory(parent);
+	}
 }

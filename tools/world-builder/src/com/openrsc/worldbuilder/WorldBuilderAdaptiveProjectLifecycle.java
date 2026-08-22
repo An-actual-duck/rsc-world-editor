@@ -494,6 +494,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		boolean requireWorkingFingerprint, boolean allowUnpublishedStage)
 		throws IOException, WorldBuilderContractException {
 		Path project = realDirectory(requestedProject, "adaptive project");
+		if (!allowUnpublishedStage) recoverPromotionTransaction(project);
 		Path manifestPath = safeRegularFile(project, PROJECT_FILE, "project manifest");
 		Map<String,Object> manifest = readContractMap(manifestPath,
 			WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);
@@ -630,6 +631,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
+				recoverPromotionTransactions(projects);
 				return openActiveLocked(
 					install, requestedTargetRoot, updateAttachmentState);
 			} finally {
@@ -704,6 +706,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
+				recoverPromotionTransactions(projects);
 				RegistryState registry = loadRegistry(install, true);
 				RegistryRecord record = registry.byId.get(id);
 				if (record == null) throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
@@ -763,6 +766,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
+				recoverPromotionTransactions(projects);
 				RegistryState registry = loadRegistry(install, true);
 				ActiveState active = loadActive(install, registry, true);
 				if (active.projectId.isEmpty()) throw problem(
@@ -822,6 +826,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				PROJECTS_DIRECTORY, "Project registry is busy.",
 				"Wait for the active lifecycle operation and retry.");
 			try {
+				recoverPromotionTransaction(project);
 				VerifiedProject verified = verifyProjectDirectory(project, false);
 				boolean promote;
 				try {
@@ -834,7 +839,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 						"Restore the complete valid project and retry save.", malformed);
 				}
 				if (promote) {
-					promoteWorkingPackage(project, verified.definitions);
+					promoteWorkingPackage(project, verified);
 					verified = verifyProjectDirectory(project, false);
 				}
 				Map<String,Object> manifest = verified.manifest;
@@ -853,48 +858,177 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 	}
 
-	private static void promoteWorkingPackage(Path project,
-		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
+	private void promoteWorkingPackage(Path project, VerifiedProject verified)
 		throws IOException, WorldBuilderContractException {
-		Path working = project.resolve(WORKING_PACKAGE_DIRECTORY);
-		Path parent = working.getParent();
-		String token = UUID.randomUUID().toString();
-		Path stage = parent.resolve(".package.wide-v2-" + token);
-		Path previous = parent.resolve(".package.wide-v1-" + token);
-		boolean previousMoved = false;
-		boolean installed = false;
+		Path stage = null;
+		WorldBuilderWideElevationPromotionTransaction transaction = null;
 		try {
-			copyTreeExact(working, stage);
+			stage = WorldBuilderWideElevationPromotionTransaction.createStage(project);
 			WorldBuilderWideElevationPromotion.promoteInPlace(stage);
-			WorldBuilderGenericLayeredPackage.inspect(
+			WorldBuilderGenericLayeredPackage wide = WorldBuilderGenericLayeredPackage.inspect(
 				WorldBuilderReadOnlyTarget.open(project),
 				project.relativize(stage).toString().replace('\\', '/'),
-				"wide-elevation-stage", definitions);
-			moveAtomicNew(working, previous);
-			previousMoved = true;
-			moveAtomicNew(stage, working);
-			installed = true;
+				"wide-elevation-stage", verified.definitions);
+			Map<String,Object> afterManifest = readContractMap(
+				project.resolve(PROJECT_FILE),
+				WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);
+			Map<String,Object> afterFingerprints = object(
+				afterManifest.get("fingerprints"), "fingerprints");
+			afterFingerprints.put("workingSha256", wide.fingerprintSha256);
+			bindSelfFingerprint(afterManifest, "projectFingerprintSha256", true);
+			byte[] afterManifestBytes = WorldBuilderJsonDocuments.pretty(afterManifest)
+				.getBytes(StandardCharsets.UTF_8);
+			transaction = WorldBuilderWideElevationPromotionTransaction.prepare(
+				project, stage, verified.working.fingerprintSha256,
+				wide.fingerprintSha256, WorldBuilderHashes.sha256(afterManifestBytes));
+			observe("wide-promotion-staged", project);
+			transaction.moveOriginalAside();
+			observe("wide-promotion-v1-aside", project);
+			transaction.installWide();
+			observe("wide-promotion-v2-installed", project);
 			WorldBuilderGenericLayeredPackage.inspect(
 				WorldBuilderReadOnlyTarget.open(project), WORKING_PACKAGE_DIRECTORY,
-				"wide-elevation-working", definitions);
-			deleteTree(previous);
-			previousMoved = false;
-		} catch (WorldBuilderDiscoveryException malformed) {
-			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT,
-				WORKING_PACKAGE_DIRECTORY,
-				"Editable v1 terrain could not be promoted losslessly to v2.",
-				"Restore the complete valid project and retry save.", malformed);
-		} finally {
-			if (previousMoved && Files.exists(previous, LinkOption.NOFOLLOW_LINKS)) {
-				if (installed && Files.exists(working, LinkOption.NOFOLLOW_LINKS)) {
-					deleteTree(working);
-				}
-				if (!Files.exists(working, LinkOption.NOFOLLOW_LINKS)) {
-					moveAtomicNew(previous, working);
+				"wide-elevation-working", verified.definitions);
+			reconcilePromotionMetadata(project, (String)transaction.value.get("token"),
+				(String)transaction.value.get("beforeProjectSha256"),
+				(String)transaction.value.get("afterProjectSha256"),
+				verified.working.fingerprintSha256, wide.fingerprintSha256);
+			observe("wide-promotion-before-cleanup", project);
+			transaction.finishCommitted();
+		} catch (Exception failure) {
+			if (transaction == null) {
+				deleteTree(stage);
+			} else {
+				try {
+					recoverPromotionTransaction(project);
+				} catch (Exception recoveryFailure) {
+					recoveryFailure.addSuppressed(failure);
+					if (recoveryFailure instanceof IOException) {
+						throw (IOException)recoveryFailure;
+					}
+					throw (WorldBuilderContractException)recoveryFailure;
 				}
 			}
-			deleteTree(stage);
-			if (!previousMoved) deleteTree(previous);
+			if (failure instanceof WorldBuilderDiscoveryException) {
+				throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT,
+					WORKING_PACKAGE_DIRECTORY,
+					"Editable v1 terrain could not be promoted losslessly to v2.",
+					"Restore the complete valid project and retry save.", failure);
+			}
+			if (failure instanceof IOException) throw (IOException)failure;
+			if (failure instanceof WorldBuilderContractException) {
+				throw (WorldBuilderContractException)failure;
+			}
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
+				WORKING_PACKAGE_DIRECTORY,
+				"Editable v1 terrain promotion was interrupted and recovered.",
+				"Retry save after checking filesystem health.", failure);
+		}
+	}
+
+	private static void recoverPromotionTransactions(Path projects)
+		throws IOException, WorldBuilderContractException {
+		int count = 0;
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(projects)) {
+			for (Path entry : entries) {
+				if (++count > WorldBuilderContractLimits.MAX_PROJECTS + 32) {
+					throw problem(WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED,
+						PROJECTS_DIRECTORY,
+						"Project recovery scan exceeds its bounded inventory.",
+						"Remove unrelated entries without touching registered projects.");
+				}
+				String name = entry.getFileName().toString();
+				if (!name.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")) {
+					continue;
+				}
+				if (!Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(entry)) {
+					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, name,
+						"Registered-looking project recovery path is unsafe.",
+						"Preserve the projects directory and restore a real project directory.");
+				}
+				recoverPromotionTransaction(entry);
+			}
+		}
+	}
+
+	private static void recoverPromotionTransaction(Path project)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderWideElevationPromotionTransaction.recover(project,
+			new WorldBuilderWideElevationPromotionTransaction.MetadataReconciler() {
+				@Override public void installAfterFingerprint(Path selected,
+					String token, String beforeProjectSha256, String afterProjectSha256,
+					String beforeWorkingSha256, String afterWorkingSha256)
+					throws IOException, WorldBuilderContractException {
+					reconcilePromotionMetadata(selected, token, beforeProjectSha256,
+						afterProjectSha256, beforeWorkingSha256, afterWorkingSha256);
+				}
+			});
+	}
+
+	private static void reconcilePromotionMetadata(Path project,
+		String token, String beforeProjectSha256, String afterProjectSha256,
+		String beforeWorkingSha256, String afterWorkingSha256)
+		throws IOException, WorldBuilderContractException {
+		Path manifestPath = project.resolve(PROJECT_FILE);
+		Map<String,Object> manifest = readContractMap(manifestPath,
+			WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);
+		requireSelfFingerprint(manifest, "projectFingerprintSha256", true);
+		String currentProjectSha256 = WorldBuilderHashes.sha256(manifestPath);
+		String currentWorkingSha256 = string(
+			object(manifest.get("fingerprints"), "fingerprints"), "workingSha256");
+		if (!(beforeProjectSha256.equals(currentProjectSha256)
+				&& beforeWorkingSha256.equals(currentWorkingSha256))
+			&& !(afterProjectSha256.equals(currentProjectSha256)
+				&& afterWorkingSha256.equals(currentWorkingSha256))) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PROJECT_FILE,
+				"Project fingerprints do not match either promotion metadata state.",
+				"Preserve the promotion journal and exact project metadata; do not guess.");
+		}
+		Map<String,Object> fingerprints = object(manifest.get("fingerprints"), "fingerprints");
+		fingerprints.put("workingSha256", afterWorkingSha256);
+		bindSelfFingerprint(manifest, "projectFingerprintSha256", true);
+		byte[] afterBytes = WorldBuilderJsonDocuments.pretty(manifest)
+			.getBytes(StandardCharsets.UTF_8);
+		if (!afterProjectSha256.equals(WorldBuilderHashes.sha256(afterBytes))) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PROJECT_FILE,
+				"Journaled v2 project fingerprint cannot be reconstructed exactly.",
+				"Preserve the promotion transaction and restore exact metadata.");
+		}
+		Path projects = project.getParent();
+		Path install = projects == null ? null : projects.getParent();
+		if (install == null || !PROJECTS_DIRECTORY.equals(projects.getFileName().toString())) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, PROJECT_FILE,
+				"Promotion project is outside its install registry.",
+				"Use the exact registered projects/<uuid> directory.");
+		}
+		RegistryState registry = loadRegistryWithoutManifestHashes(install);
+		String projectId = string(manifest, "projectId");
+		if (!registry.byId.containsKey(projectId)) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, REGISTRY_FILE,
+				"Promoted project is absent from its registry.",
+				"Preserve the transaction and restore exact registry authority.");
+		}
+		Map<String,Object> active = null;
+		Path activePath = install.resolve(ACTIVE_FILE);
+		if (Files.exists(activePath, LinkOption.NOFOLLOW_LINKS)) {
+			active = readContractMap(activePath,
+				WorldBuilderAdaptiveContracts.Kind.ACTIVE_PROJECT);
+		}
+		writePromotionContractAtomic(manifestPath, manifest,
+			WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST,
+			project.resolve(".wide-elevation-project-" + token + ".new"));
+		String manifestHash = WorldBuilderHashes.sha256(manifestPath);
+		Map<String,Object> updated = registryReplacing(registry, projectId,
+			string(manifest, "displayName"), string(manifest, "origin"),
+			string(manifest, "state"), manifestHash);
+		writePromotionContractAtomic(install.resolve(REGISTRY_FILE), updated,
+			WorldBuilderAdaptiveContracts.Kind.PROJECT_REGISTRY,
+			install.resolve(".wide-elevation-registry-" + token + ".new"));
+		if (active != null && projectId.equals(string(active, "projectId"))) {
+			writePromotionContractAtomic(activePath, activeProject(projectId, manifestHash),
+				WorldBuilderAdaptiveContracts.Kind.ACTIVE_PROJECT,
+				install.resolve(".wide-elevation-active-" + token + ".new"));
 		}
 	}
 
@@ -1555,6 +1689,39 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderAdaptiveContracts.read(kind, path);
 	}
 
+	private static void writePromotionContractAtomic(Path path,
+		Map<String,Object> value, WorldBuilderAdaptiveContracts.Kind kind,
+		Path temporary) throws IOException, WorldBuilderContractException {
+		WorldBuilderAdaptiveContracts.validateParsed(kind, value);
+		byte[] bytes = WorldBuilderJsonDocuments.pretty(value)
+			.getBytes(StandardCharsets.UTF_8);
+		Path parent = path.getParent();
+		ensureRealDirectory(parent);
+		if (!temporary.getParent().equals(parent)
+			|| !temporary.getFileName().toString().matches(
+				"\\.wide-elevation-(project|registry|active)-[0-9a-f-]{36}\\.new")) {
+			throw new IOException("Promotion metadata stage is outside journal authority");
+		}
+		if (Files.exists(temporary, LinkOption.NOFOLLOW_LINKS)) {
+			if (!Files.isRegularFile(temporary, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(temporary)) {
+				throw new IOException("Promotion metadata stage is unsafe");
+			}
+			Files.delete(temporary);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		}
+		writeNew(temporary, bytes);
+		try {
+			Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+		} catch (AtomicMoveNotSupportedException unsupported) {
+			throw new IOException("Filesystem cannot atomically reconcile promotion metadata",
+				unsupported);
+		}
+		WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		WorldBuilderAdaptiveContracts.read(kind, path);
+	}
+
 	private static void writeNew(Path path, byte[] bytes) throws IOException {
 		Files.createDirectories(path.getParent());
 		try (FileChannel channel = FileChannel.open(path,
@@ -1584,6 +1751,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			throw new IOException("Filesystem cannot atomically publish project metadata",
 				unsupported);
 		}
+		WorldBuilderAdaptiveDurability.forceDirectory(parent);
 	}
 
 	private static void restoreAtomic(Path path, byte[] bytes) throws IOException {

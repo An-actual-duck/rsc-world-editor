@@ -171,6 +171,12 @@ conversions, saves, and region snapshots use v2. A legacy terrain downgrade is
 refused unless every elevation is at most 255, with every blocking tile's
 level, world coordinates, and value reported.
 
+Existing-project promotion uses a forced, bounded transaction journal and
+same-directory atomic package exchange. Open, verification, and save recover
+an interrupted exchange to either the exact journaled v1 tree or the fully
+validated v2 tree, reconcile project/registry fingerprints, and refuse
+unjournaled, linked, malformed, or otherwise ambiguous artifacts.
+
 ## Project selection, validation, and save
 
 List and select by exact UUID:
