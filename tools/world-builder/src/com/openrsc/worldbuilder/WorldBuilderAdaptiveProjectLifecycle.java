@@ -494,7 +494,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		boolean requireWorkingFingerprint, boolean allowUnpublishedStage)
 		throws IOException, WorldBuilderContractException {
 		Path project = realDirectory(requestedProject, "adaptive project");
-		if (!allowUnpublishedStage) recoverPromotionTransaction(project);
+		if (!allowUnpublishedStage) {
+			WorldBuilderWideElevationPromotionTransaction.requireSettled(project);
+		}
 		Path manifestPath = safeRegularFile(project, PROJECT_FILE, "project manifest");
 		Map<String,Object> manifest = readContractMap(manifestPath,
 			WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);

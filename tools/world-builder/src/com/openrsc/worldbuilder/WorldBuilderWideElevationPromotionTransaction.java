@@ -156,6 +156,20 @@ final class WorldBuilderWideElevationPromotionTransaction {
 		transaction.recover(reconciler);
 	}
 
+	/** Refuses a pending promotion without performing recovery or metadata writes. */
+	static void requireSettled(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path parent = project.resolve("working/layered-world");
+		if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(parent)) {
+			throw problem("Promotion transaction directory is missing or unsafe.");
+		}
+		if (hasArtifact(parent)) {
+			throw problem("Wide-elevation promotion requires locked recovery before verification.");
+		}
+		requireMetadataTempsAbsent(project, "");
+	}
+
 	private void recover(MetadataReconciler reconciler)
 		throws IOException, WorldBuilderContractException {
 		String beforeTree = hash("beforeTreeSha256");

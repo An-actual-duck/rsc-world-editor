@@ -3487,6 +3487,43 @@ public final class FakeAdaptiveClient {
                 self.assertEqual(source_before, tree_bytes(project / "source"))
                 self.assertEqual(target_before, tree_bytes(target, installation))
 
+    def test_read_only_verification_does_not_recover_pending_wide_promotion(self):
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-wide-promotion-read-only-"
+        ) as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(str(base), world_space="global")
+            installation = target / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "layered-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Read-only promotion refusal", 44032
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.install_legacy_working_package(installation, project)
+            crashed = self.run_promotion_crash(project, "wide-promotion-staged")
+            self.assertEqual(71, crashed.returncode, crashed.stderr)
+            before = tree_bytes(installation)
+
+            refused = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+            self.assertEqual(before, tree_bytes(installation))
+
+            recovered = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--validate-only"
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertFalse(any(
+                path.name.startswith(".wide-elevation-")
+                for path in installation.rglob("*")
+            ))
+
     def test_save_entry_recovers_promotion_with_missing_working_package(self):
         with tempfile.TemporaryDirectory(
             prefix="adaptive-wide-promotion-save-recovery-"
