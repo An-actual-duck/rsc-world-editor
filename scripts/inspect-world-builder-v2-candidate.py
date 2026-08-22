@@ -56,15 +56,15 @@ MAX_FORBIDDEN_CORE_BYTES = 1024 * 1024 * 1024
 RELEVANT_RUNTIME_MODE_MASK = 0o777
 
 EXPECTED_RUNTIME_CAPABILITY = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "manifestType": "adaptive-world-builder-runtime-capability",
-    "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+    "capabilityId": "adaptive-world-builder-runtime-capability-v2",
     "profileId": "adaptive-world-builder",
-    "serverBuildId": "core-framework-adaptive-builder-server-v1",
-    "clientBuildId": "core-framework-adaptive-builder-client-v1",
-    "loaderId": "generic-signed-layered-loader-v1",
-    "authoringId": "generic-signed-layered-authoring-v1",
-    "protocolId": "world-builder-native-layered-protocol-v1",
+    "serverBuildId": "core-framework-adaptive-builder-server-v2",
+    "clientBuildId": "core-framework-adaptive-builder-client-v2",
+    "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+    "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
+    "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
     "packageSchemaId": "layered-world-package-v1",
     "coordinateModel": "signed-layered-v1",
 }
@@ -105,7 +105,7 @@ FIXED_BUILDER_RUNTIME_FILES = {
 }
 REQUIRED_BUILDER_RUNTIME_FILES = FIXED_BUILDER_RUNTIME_FILES | {
     "builder-runtime/server/inc/sqlite/world_builder_seed.db",
-    "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json",
+    "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v2.json",
 }
 REQUIRED_CLIENT_ENTRIES = {
     RELEASE_MARKER_ENTRY,
@@ -934,6 +934,19 @@ def validate_runtime_capability(data: bytes, display: str) -> None:
         "scenery",
     ]:
         fail(f"Adaptive runtime placement-family capability mismatch: {display}")
+    expected_elevation = {
+        "storageEncoding": "unsigned-16",
+        "minimum": 0,
+        "maximum": 65535,
+        "renderScale": 3,
+        "legacyV1Promotion": "unsigned-byte-lossless",
+        "operations": ["absolute", "raise", "lower"],
+        "atomicMultiTileBounds": True,
+    }
+    if capability.get("terrainElevation") != expected_elevation:
+        fail(f"Adaptive runtime wide-elevation capability mismatch: {display}")
+    if capability.get("encodingVersions") != [1, 2, 3]:
+        fail(f"Adaptive runtime encoding-version capability mismatch: {display}")
 
 
 def validate_runtime_configuration(data: bytes, display: str) -> None:
@@ -1370,7 +1383,7 @@ def validate_archive(
     validate_runtime_capability(
         files[
             "builder-runtime/server/conf/world-builder/"
-            "adaptive-runtime-capability-v1.json"
+            "adaptive-runtime-capability-v2.json"
         ],
         path.name,
     )

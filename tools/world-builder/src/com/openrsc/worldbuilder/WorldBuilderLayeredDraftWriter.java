@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
  */
 final class WorldBuilderLayeredDraftWriter {
 	private static final int SECTOR_SIZE = 48;
-	private static final int TILE_BYTES = 10;
+	private static final int TILE_BYTES = WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
 	private static final Pattern ROLE =
 		Pattern.compile("[a-z0-9][a-z0-9._-]{0,127}");
 
@@ -125,6 +125,13 @@ final class WorldBuilderLayeredDraftWriter {
 		boolean draftMoved = false;
 		try {
 			copyTree(packageRoot, stage);
+			try {
+				WorldBuilderWideElevationPromotion.promoteInPlace(stage);
+			} catch (WorldBuilderContractException malformed) {
+				throw new WorldBuilderDiscoveryException(
+					"Create Level could not promote editable terrain to v2: "
+						+ malformed.getMessage());
+			}
 			writeLevel(
 				stage, level, name, role, anchorX, anchorY,
 				minimumSectorX, maximumSectorX,
@@ -212,7 +219,7 @@ final class WorldBuilderLayeredDraftWriter {
 				Files.createDirectories(payload.getParent());
 				Files.write(payload, starterTerrain, StandardOpenOption.CREATE_NEW);
 				Map<String,Object> record = new LinkedHashMap<String,Object>();
-				record.put("encoding", "raw-layered-sector-v1");
+				record.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
 				record.put("level", Long.valueOf(level));
 				record.put("path", relative);
 				record.put("sectorX", Long.valueOf(sectorX));
@@ -271,13 +278,13 @@ final class WorldBuilderLayeredDraftWriter {
 		for (int localX = 0; localX < SECTOR_SIZE; localX++) {
 			for (int localY = 0; localY < SECTOR_SIZE; localY++) {
 				int offset = (localX * SECTOR_SIZE + localY) * TILE_BYTES;
-				result[offset + 1] = 1;
+				result[offset + 2] = 1;
 				long worldX = (long)sectorX * SECTOR_SIZE + localX;
 				long worldY = (long)sectorY * SECTOR_SIZE + localY;
 				boolean anchorPad =
 					Math.abs(worldX - anchorX) <= 1L
 						&& Math.abs(worldY - anchorY) <= 1L;
-				result[offset + 2] = (byte)(anchorPad ? 0 : 8);
+				result[offset + 3] = (byte)(anchorPad ? 0 : 8);
 			}
 		}
 		return result;

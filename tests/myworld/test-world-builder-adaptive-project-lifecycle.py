@@ -21,9 +21,9 @@ DISCOVERY_TEST = ROOT / "tests/myworld/test-world-builder-adaptive-discovery.py"
 PACKED_CONVERSION_TEST = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
 RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
 RUNTIME_ALLOWLIST_RESOURCE = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
-CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
+CANONICAL_VOID_TILE = bytes((0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
-VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 STANDALONE_INITIAL_LOCATION = {"level": 0, "x": 120, "y": 648}
 
 
@@ -33,8 +33,8 @@ def standalone_seed_sector() -> bytes:
     center_y = STANDALONE_INITIAL_LOCATION["y"] % 48
     for local_x in range(center_x - 1, center_x + 2):
         for local_y in range(center_y - 1, center_y + 2):
-            offset = (local_x * 48 + local_y) * 10
-            result[offset : offset + 10] = VISIBLE_FLOOR_TILE
+            offset = (local_x * 48 + local_y) * 11
+            result[offset : offset + 11] = VISIBLE_FLOOR_TILE
     return bytes(result)
 
 
@@ -616,22 +616,31 @@ public final class AdaptiveProjectSupervisorHarness {
             b"fixture-project-local-database-seed\n"
         )
         capability = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "manifestType": "adaptive-world-builder-runtime-capability",
-            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v2",
             "profileId": "adaptive-world-builder",
-            "serverBuildId": "core-framework-adaptive-builder-server-v1",
-            "clientBuildId": "core-framework-adaptive-builder-client-v1",
-            "loaderId": "generic-signed-layered-loader-v1",
-            "authoringId": "generic-signed-layered-authoring-v1",
+            "serverBuildId": "core-framework-adaptive-builder-server-v2",
+            "clientBuildId": "core-framework-adaptive-builder-client-v2",
+            "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+            "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
             "definitionContractId": "world-builder-definition-catalog-binding-v1",
             "assetContractId": "world-builder-client-asset-binding-v1",
-            "protocolId": "world-builder-native-layered-protocol-v1",
+            "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
             "effectiveCompositionId": "world-builder-effective-static-composition-v1",
             "mapFormatId": "signed-layered-v1",
             "packageSchemaId": "layered-world-package-v1",
             "coordinateModel": "signed-layered-v1",
-            "encodingVersions": [1, 3],
+            "terrainElevation": {
+                "storageEncoding": "unsigned-16",
+                "minimum": 0,
+                "maximum": 65535,
+                "renderScale": 3,
+                "legacyV1Promotion": "unsigned-byte-lossless",
+                "operations": ["absolute", "raise", "lower"],
+                "atomicMultiTileBounds": True,
+            },
+            "encodingVersions": [1, 2, 3],
             "authoring": {
                 "editExistingLevels": True,
                 "createLevels": True,
@@ -647,7 +656,7 @@ public final class AdaptiveProjectSupervisorHarness {
             "canonicalVoidTile": [0, 1, 8, 0, 0, 0, 0, 0, 0, 0],
         }
         write_json(
-            server / "conf/world-builder/adaptive-runtime-capability-v1.json",
+            server / "conf/world-builder/adaptive-runtime-capability-v2.json",
             capability,
         )
         for name in REQUIRED_LANGUAGE_BUNDLES:
@@ -843,12 +852,12 @@ public final class FakeAdaptiveClient {
         byte[] payload = Files.readAllBytes(terrain);
         for (int localX = 22; localX <= 26; localX++) {
             for (int localY = 22; localY <= 26; localY++) {
-                int offset = (localX * 48 + localY) * 10;
+                int offset = (localX * 48 + localY) * 11;
                 boolean seed = localX >= 23 && localX <= 25
                     && localY >= 23 && localY <= 25;
-                require((payload[offset + 1] & 0xff) == (seed ? 0 : 1),
+                require((payload[offset + 2] & 0xff) == (seed ? 0 : 1),
                     "standalone initial floor color");
-                require((payload[offset + 2] & 0xff) == (seed ? 0 : 8),
+                require((payload[offset + 3] & 0xff) == (seed ? 0 : 8),
                     "standalone initial floor overlay");
             }
         }
@@ -1123,7 +1132,7 @@ public final class FakeAdaptiveClient {
         manifest["levels"].sort(key=lambda value: value["level"])
         manifest["terrainSectors"].append(
             {
-                "encoding": "raw-layered-sector-v1",
+                "encoding": "raw-layered-sector-v2-u16",
                 "level": level,
                 "path": terrain_relative,
                 "sectorX": 2,
@@ -1180,8 +1189,30 @@ public final class FakeAdaptiveClient {
             and value["sectorY"] == y // 48
         )
         sector = (package / declaration["path"]).read_bytes()
-        offset = ((x % 48) * 48 + (y % 48)) * 10
-        return sector[offset : offset + 10]
+        width = 11 if declaration["encoding"] == "raw-layered-sector-v2-u16" else 10
+        offset = ((x % 48) * 48 + (y % 48)) * width
+        return sector[offset : offset + width]
+
+    @staticmethod
+    def set_tile_elevation(package: Path, x: int, y: int, elevation: int,
+                           level: int = 0) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declaration = next(
+            value for value in manifest["terrainSectors"]
+            if value["level"] == level
+            and value["sectorX"] == x // 48
+            and value["sectorY"] == y // 48
+        )
+        if declaration["encoding"] != "raw-layered-sector-v2-u16":
+            raise AssertionError("wide-elevation fixture requires v2 terrain")
+        terrain = package / declaration["path"]
+        payload = bytearray(terrain.read_bytes())
+        offset = ((x % 48) * 48 + (y % 48)) * 11
+        payload[offset : offset + 2] = elevation.to_bytes(2, "big")
+        terrain.write_bytes(payload)
+        declaration["sha256"] = sha256(terrain)
+        write_json(manifest_path, manifest)
 
     @staticmethod
     def rewrite_region_bundle(bundle: Path, mutate) -> None:
@@ -1315,7 +1346,7 @@ public final class FakeAdaptiveClient {
         sector = manifest["terrainSectors"][0]
         self.assertEqual(
             {
-                "encoding": "raw-layered-sector-v1",
+                "encoding": "raw-layered-sector-v2-u16",
                 "level": 0,
                 "path": "terrain/global/lp0/xp2-yp13.raw",
                 "sectorX": 2,
@@ -1340,7 +1371,7 @@ public final class FakeAdaptiveClient {
         self.assertGreaterEqual(
             minimum_y + 47 - STANDALONE_INITIAL_LOCATION["y"], 23
         )
-        tiles = [payload[offset : offset + 10] for offset in range(0, len(payload), 10)]
+        tiles = [payload[offset : offset + 11] for offset in range(0, len(payload), 11)]
         self.assertEqual(9, tiles.count(VISIBLE_FLOOR_TILE))
         self.assertEqual(48 * 48 - 9, tiles.count(CANONICAL_VOID_TILE))
 
@@ -1676,9 +1707,20 @@ public final class FakeAdaptiveClient {
             project = Path(summary["projectRoot"])
             self.add_empty_level(project, -1)
             expected_placements = self.place_representative_definitions(project)
+            package = project / "working/layered-world/package"
+            wide_values = [0, 255, 256, 12000, 65535, 12345]
+            for (x, y), elevation in zip(
+                ((119, 648), (119, 649), (120, 648), (120, 649),
+                 (121, 648), (121, 649)),
+                wide_values,
+            ):
+                self.set_tile_elevation(package, x, y, elevation)
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
-            package = project / "working/layered-world/package"
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation, "--validate-only"
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
             package_before = tree_bytes(package)
             source_before = tree_bytes(project / "source")
             target_before = tree_bytes(target)
@@ -1725,9 +1767,24 @@ public final class FakeAdaptiveClient {
                 )
                 snapshot = json.loads(archive.read("snapshot.json"))
             self.assertEqual(copy_result["snapshotId"], snapshot["snapshotId"])
+            self.assertEqual(2, snapshot["schemaVersion"])
             self.assertEqual("global", snapshot["worldSpace"])
             self.assertEqual(
                 {0, 1}, {value["levelOffset"] for value in snapshot["levels"]}
+            )
+            surface = next(
+                value for value in snapshot["levels"] if value["levelOffset"] == 1
+            )
+            captured = {
+                (tile["xOffset"], tile["yOffset"]): tile["elevation"]
+                for tile in surface["tiles"]
+            }
+            self.assertEqual(
+                dict(zip(
+                    ((0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)),
+                    wide_values,
+                )),
+                captured,
             )
             self.assertEqual(
                 {
@@ -1846,7 +1903,7 @@ public final class FakeAdaptiveClient {
                 "CUT " + plan_hash,
             )
             self.assertEqual(0, cut_apply.returncode, cut_apply.stderr)
-            void_tile = bytes([0, 1, 8, 0, 0, 0, 0, 0, 0, 0])
+            void_tile = CANONICAL_VOID_TILE
             for level in (-1, 0):
                 for x in range(119, 122):
                     for y in range(648, 650):
@@ -3216,10 +3273,33 @@ public final class FakeAdaptiveClient {
             self.assertEqual(str(target.resolve()), manifest["target"]["locatorDisplay"])
             self.assertEqual("", manifest["fingerprints"]["conversionSha256"])
             self.assertFalse((project / "source/conversion").exists())
-            self.assertEqual(
-                tree_bytes(project / "source/layered-baseline/package"),
-                tree_bytes(project / "working/layered-world/package"),
+            baseline_package = project / "source/layered-baseline/package"
+            working_package = project / "working/layered-world/package"
+            baseline_manifest = json.loads(
+                (baseline_package / "manifest.json").read_text(encoding="utf-8")
             )
+            working_manifest = json.loads(
+                (working_package / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(all(
+                item["encoding"] == "raw-layered-sector-v1"
+                for item in baseline_manifest["terrainSectors"]
+            ))
+            self.assertTrue(all(
+                item["encoding"] == "raw-layered-sector-v2-u16"
+                for item in working_manifest["terrainSectors"]
+            ))
+            for source_sector, editable_sector in zip(
+                baseline_manifest["terrainSectors"], working_manifest["terrainSectors"]
+            ):
+                legacy = (baseline_package / source_sector["path"]).read_bytes()
+                promoted = b"".join(
+                    b"\0" + legacy[offset : offset + 10]
+                    for offset in range(0, len(legacy), 10)
+                )
+                self.assertEqual(
+                    promoted, (working_package / editable_sector["path"]).read_bytes()
+                )
             install_before_validation = tree_bytes(installation)
             validated = self.run_cli(
                 "open-project",
@@ -3706,7 +3786,7 @@ public final class FakeAdaptiveClient {
                     capability_path = (
                         runtime
                         / "server/conf/world-builder/"
-                        "adaptive-runtime-capability-v1.json"
+                        "adaptive-runtime-capability-v2.json"
                     )
                     capability = json.loads(
                         capability_path.read_text(encoding="utf-8")

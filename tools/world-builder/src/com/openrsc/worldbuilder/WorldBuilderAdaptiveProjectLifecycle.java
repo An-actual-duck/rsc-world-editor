@@ -190,6 +190,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 			copyTreeExact(stage.resolve(BASELINE_DIRECTORY),
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
+			WorldBuilderWideElevationPromotion.promoteInPlace(
+				stage.resolve(WORKING_PACKAGE_DIRECTORY));
 			for (String relative : Arrays.asList(
 				"exports", "backups", "receipts", "diagnostics", "logs", "run")) {
 				ensureRealDirectory(stage.resolve(relative));
@@ -220,7 +222,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				snapshot, "sourceFingerprintSha256");
 
 			Map<String,Object> manifest = projectManifest(stage, projectId, displayName,
-				origin, report, prepared, runtimeSha256, snapshotFingerprint);
+				origin, report, prepared, runtimeSha256, snapshotFingerprint,
+				stagedWorking.fingerprintSha256);
 			Path manifestPath = stage.resolve(PROJECT_FILE);
 			writeContractNew(manifestPath, manifest,
 				WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);
@@ -408,7 +411,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 	private static Map<String,Object> projectManifest(Path stage, String projectId,
 		String displayName, String origin, Map<String,Object> report,
-		PreparedOrigin prepared, String runtimeSha256, String snapshotFingerprint)
+		PreparedOrigin prepared, String runtimeSha256, String snapshotFingerprint,
+		String workingFingerprint)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> manifest = new LinkedHashMap<String,Object>();
 		manifest.put("schemaVersion", Long.valueOf(2L));
@@ -468,7 +472,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		fingerprints.put("definitionsSha256", prepared.definitionSha256);
 		fingerprints.put("runtimeSha256", runtimeSha256);
 		fingerprints.put("conversionSha256", prepared.conversionFingerprintSha256);
-		fingerprints.put("workingSha256", prepared.packageFingerprintSha256);
+		fingerprints.put("workingSha256", workingFingerprint);
 		manifest.put("fingerprints", fingerprints);
 		manifest.put("operations", operations(
 			true, true, attached, false));
@@ -819,6 +823,20 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Wait for the active lifecycle operation and retry.");
 			try {
 				VerifiedProject verified = verifyProjectDirectory(project, false);
+				boolean promote;
+				try {
+					promote = WorldBuilderWideElevationPromotion.requiresPromotion(
+						project.resolve(WORKING_PACKAGE_DIRECTORY));
+				} catch (WorldBuilderDiscoveryException malformed) {
+					throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT,
+						WORKING_PACKAGE_DIRECTORY,
+						"Editable terrain manifest is malformed during v2 promotion.",
+						"Restore the complete valid project and retry save.", malformed);
+				}
+				if (promote) {
+					promoteWorkingPackage(project, verified.definitions);
+					verified = verifyProjectDirectory(project, false);
+				}
 				Map<String,Object> manifest = verified.manifest;
 				Map<String,Object> fingerprints = object(
 					manifest.get("fingerprints"), "fingerprints");
@@ -832,6 +850,51 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			} finally {
 				lock.release();
 			}
+		}
+	}
+
+	private static void promoteWorkingPackage(Path project,
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
+		throws IOException, WorldBuilderContractException {
+		Path working = project.resolve(WORKING_PACKAGE_DIRECTORY);
+		Path parent = working.getParent();
+		String token = UUID.randomUUID().toString();
+		Path stage = parent.resolve(".package.wide-v2-" + token);
+		Path previous = parent.resolve(".package.wide-v1-" + token);
+		boolean previousMoved = false;
+		boolean installed = false;
+		try {
+			copyTreeExact(working, stage);
+			WorldBuilderWideElevationPromotion.promoteInPlace(stage);
+			WorldBuilderGenericLayeredPackage.inspect(
+				WorldBuilderReadOnlyTarget.open(project),
+				project.relativize(stage).toString().replace('\\', '/'),
+				"wide-elevation-stage", definitions);
+			moveAtomicNew(working, previous);
+			previousMoved = true;
+			moveAtomicNew(stage, working);
+			installed = true;
+			WorldBuilderGenericLayeredPackage.inspect(
+				WorldBuilderReadOnlyTarget.open(project), WORKING_PACKAGE_DIRECTORY,
+				"wide-elevation-working", definitions);
+			deleteTree(previous);
+			previousMoved = false;
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT,
+				WORKING_PACKAGE_DIRECTORY,
+				"Editable v1 terrain could not be promoted losslessly to v2.",
+				"Restore the complete valid project and retry save.", malformed);
+		} finally {
+			if (previousMoved && Files.exists(previous, LinkOption.NOFOLLOW_LINKS)) {
+				if (installed && Files.exists(working, LinkOption.NOFOLLOW_LINKS)) {
+					deleteTree(working);
+				}
+				if (!Files.exists(working, LinkOption.NOFOLLOW_LINKS)) {
+					moveAtomicNew(previous, working);
+				}
+			}
+			deleteTree(stage);
+			if (!previousMoved) deleteTree(previous);
 		}
 	}
 
@@ -1166,7 +1229,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		runtime.put("initialX", Long.valueOf(working.initialX));
 		runtime.put("initialY", Long.valueOf(working.initialY));
 		runtime.put("upstreamAuthoringCapability",
-			"adaptive-world-builder-runtime-capability-v1");
+			"adaptive-world-builder-runtime-capability-v2");
 		writeNew(stage.resolve(WORKING_RUNTIME_FILE),
 			WorldBuilderJsonDocuments.pretty(runtime).getBytes(StandardCharsets.UTF_8));
 	}
@@ -1191,8 +1254,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			|| integer(value, "initialLayer") != working.initialLevel
 			|| integer(value, "initialX") != working.initialX
 			|| integer(value, "initialY") != working.initialY
-			|| !"adaptive-world-builder-runtime-capability-v1".equals(
-				string(value, "upstreamAuthoringCapability"))) {
+			|| !("adaptive-world-builder-runtime-capability-v1".equals(
+				string(value, "upstreamAuthoringCapability"))
+				|| "adaptive-world-builder-runtime-capability-v2".equals(
+				string(value, "upstreamAuthoringCapability")))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, WORKING_RUNTIME_FILE,
 				"Project runtime metadata is inconsistent with the selected project.",
 				"Restore the complete project from a trusted backup.");

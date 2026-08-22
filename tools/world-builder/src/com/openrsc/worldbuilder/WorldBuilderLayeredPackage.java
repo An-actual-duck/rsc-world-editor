@@ -28,7 +28,6 @@ final class WorldBuilderLayeredPackage {
 	static final String MANIFEST_SHA256 =
 		"f914d93e7abcf40dc281c06df5010269c7a9ce4fe4a16aaa6ae11f0d90a14306";
 	static final String BUILDER_DRAFT_PROFILE_ID = "spoiled-milk-builder-draft";
-	private static final int RAW_SECTOR_BYTES = 48 * 48 * 10;
 	private static final int MAX_LEVELS = 4096;
 	private static final int MAX_TERRAIN_SECTORS = 65536;
 	private static final Pattern ID =
@@ -182,22 +181,32 @@ final class WorldBuilderLayeredPackage {
 			int sectorX = integer(sector, "sectorX");
 			int sectorY = integer(sector, "sectorY");
 			String identity = level + ":" + sectorX + ":" + sectorY;
+			String encoding = string(sector, "encoding");
 			if (!worldSpace.equals(string(sector, "worldSpace"))
 				|| !uniqueLevels.contains(Integer.valueOf(level))
 				|| !terrainIdentities.add(identity)
-				|| !"raw-layered-sector-v1".equals(string(sector, "encoding"))) {
+				|| !WorldBuilderRawLayeredTerrainCodec.supports(encoding)) {
 				throw new WorldBuilderDiscoveryException(
 					"Layered terrain declaration is unsupported.");
 			}
 			String path = normalizedRelative(string(sector, "path"));
 			String sha256 = hash(sector, "sha256");
 			registerReference(root, referenced, path, sha256);
-			if (Files.size(requiredFile(root, path)) != RAW_SECTOR_BYTES) {
+			Path terrainPath = requiredFile(root, path);
+			if (Files.size(terrainPath)
+				!= WorldBuilderRawLayeredTerrainCodec.byteCount(encoding)) {
 				throw new WorldBuilderDiscoveryException(
 					"Raw layered terrain sector has an invalid size: " + path);
 			}
+			try {
+				WorldBuilderRawLayeredTerrainCodec.requireDecodable(
+					Files.readAllBytes(terrainPath), encoding);
+			} catch (WorldBuilderContractException malformed) {
+				throw new WorldBuilderDiscoveryException(
+					"Raw layered terrain sector is malformed: " + path);
+			}
 			terrainRecords.add(new TerrainRecord(
-				level, sectorX, sectorY, path, sha256));
+				level, sectorX, sectorY, path, sha256, encoding));
 		}
 
 		List<Object> placements = array(document, "placementSets");
@@ -284,12 +293,12 @@ final class WorldBuilderLayeredPackage {
 	}
 
 	void requireFirstDraftDescendant(WorldBuilderLayeredPackage source)
-		throws WorldBuilderDiscoveryException {
+		throws IOException, WorldBuilderDiscoveryException {
 		requireTerrainDraftDescendant(source);
 	}
 
 	void requireTerrainDraftDescendant(WorldBuilderLayeredPackage source)
-		throws WorldBuilderDiscoveryException {
+		throws IOException, WorldBuilderDiscoveryException {
 		if (source == null
 			|| !PACKAGE_ID.equals(packageId)
 			|| !PACKAGE_VERSION.equals(packageVersion)
@@ -318,7 +327,8 @@ final class WorldBuilderLayeredPackage {
 		}
 		for (TerrainRecord accepted : source.terrainRecords) {
 			TerrainRecord current = currentTerrain.get(accepted.key());
-			if (current == null || !current.same(accepted)) {
+			if (current == null || !current.sameMetadata(accepted)
+				|| !sameTerrainBytes(current, accepted, this.root, source.root)) {
 				throw new WorldBuilderDiscoveryException(
 					"Layered draft changed accepted terrain: " + accepted.key());
 			}
@@ -359,6 +369,25 @@ final class WorldBuilderLayeredPackage {
 			}
 			requireBuilderTerrain(level, starter);
 		}
+	}
+
+	private static boolean sameTerrainBytes(TerrainRecord current,
+		TerrainRecord accepted, Path currentRoot, Path sourceRoot) throws IOException {
+		byte[] currentBytes = Files.readAllBytes(currentRoot.resolve(current.path));
+		byte[] acceptedBytes = Files.readAllBytes(sourceRoot.resolve(accepted.path));
+		if (current.encoding.equals(accepted.encoding)) {
+			return Arrays.equals(currentBytes, acceptedBytes);
+		}
+		if (WorldBuilderRawLayeredTerrainCodec.V2_ENCODING.equals(current.encoding)
+			&& WorldBuilderRawLayeredTerrainCodec.V1_ENCODING.equals(accepted.encoding)) {
+			try {
+				return Arrays.equals(currentBytes,
+					WorldBuilderRawLayeredTerrainCodec.promoteV1(acceptedBytes));
+			} catch (WorldBuilderContractException malformed) {
+				return false;
+			}
+		}
+		return false;
 	}
 
 	private static void requireBuilderTerrain(
@@ -657,24 +686,27 @@ final class WorldBuilderLayeredPackage {
 		final int sectorY;
 		final String path;
 		final String sha256;
+		final String encoding;
 
 		TerrainRecord(
-			int level, int sectorX, int sectorY, String path, String sha256) {
+			int level, int sectorX, int sectorY, String path, String sha256,
+			String encoding) {
 			this.level = level;
 			this.sectorX = sectorX;
 			this.sectorY = sectorY;
 			this.path = path;
 			this.sha256 = sha256;
+			this.encoding = encoding;
 		}
 
 		String key() {
 			return level + ":" + sectorX + ":" + sectorY;
 		}
 
-		boolean same(TerrainRecord other) {
+		boolean sameMetadata(TerrainRecord other) {
 			return other != null && level == other.level
 				&& sectorX == other.sectorX && sectorY == other.sectorY
-				&& path.equals(other.path) && sha256.equals(other.sha256);
+				&& path.equals(other.path);
 		}
 	}
 

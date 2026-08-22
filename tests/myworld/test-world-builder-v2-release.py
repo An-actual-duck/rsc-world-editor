@@ -70,17 +70,25 @@ REQUIRED_DATABASE_QUERIES = (
 ADAPTIVE_CAPABILITY = (
     json.dumps(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "manifestType": "adaptive-world-builder-runtime-capability",
-            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v2",
             "profileId": "adaptive-world-builder",
-            "serverBuildId": "core-framework-adaptive-builder-server-v1",
-            "clientBuildId": "core-framework-adaptive-builder-client-v1",
-            "loaderId": "generic-signed-layered-loader-v1",
-            "authoringId": "generic-signed-layered-authoring-v1",
-            "protocolId": "world-builder-native-layered-protocol-v1",
+            "serverBuildId": "core-framework-adaptive-builder-server-v2",
+            "clientBuildId": "core-framework-adaptive-builder-client-v2",
+            "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+            "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
+            "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
             "packageSchemaId": "layered-world-package-v1",
             "coordinateModel": "signed-layered-v1",
+            "terrainElevation": {
+                "storageEncoding": "unsigned-16", "minimum": 0,
+                "maximum": 65535, "renderScale": 3,
+                "legacyV1Promotion": "unsigned-byte-lossless",
+                "operations": ["absolute", "raise", "lower"],
+                "atomicMultiTileBounds": True,
+            },
+            "encodingVersions": [1, 2, 3],
             "authoring": {
                 "placementFamilies": ["boundary", "ground-item", "npc", "scenery"]
             },
@@ -1094,7 +1102,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         prefix + "builder-runtime/server/world-builder.conf",
                         prefix
                         + "builder-runtime/server/conf/world-builder/"
-                        + "adaptive-runtime-capability-v1.json",
+                        + "adaptive-runtime-capability-v2.json",
                         prefix + "builder-runtime/launcher/world-builder-tools.jar",
                     }
                     required.update(

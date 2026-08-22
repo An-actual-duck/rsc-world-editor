@@ -429,7 +429,7 @@ require_manifest_paths() {
 		"builder-runtime/server/plugins.jar" \
 		"builder-runtime/server/inc/sqlite/world_builder_seed.db" \
 		"builder-runtime/server/world-builder.conf" \
-		"builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json" \
+		"builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v2.json" \
 		"builder-runtime/launcher/world-builder-tools.jar" \
 		"runtime/bin/java"; do
 		manifest_contains "$manifest" "$required" \

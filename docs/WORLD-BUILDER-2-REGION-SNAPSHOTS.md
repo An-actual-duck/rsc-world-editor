@@ -1,11 +1,11 @@
-# World Builder 2 Region Snapshots v1
+# World Builder 2 Region Snapshots v1 and v2
 
 Status: **Editor foundation implemented; runtime interaction pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: unchanged by this feature
 
-This document is normative for region snapshot version 1. “MUST”, “MUST NOT”,
+This document is normative for region snapshot versions 1 and 2. “MUST”, “MUST NOT”,
 “SHALL”, and “SHALL NOT” are requirements. The Java validators are the
 executable authority where prose and malformed external input disagree.
 
@@ -47,7 +47,7 @@ The strict schemas are:
 | Contract | Schema |
 | --- | --- |
 | Ordered selection | `region-selection-v1.schema.json` |
-| Region payload | `region-snapshot-v1.schema.json` |
+| Region payload | `region-snapshot-v2.schema.json` (current), `region-snapshot-v1.schema.json` (readable legacy) |
 | Bundle manifest | `region-bundle-manifest-v1.schema.json` |
 | Compatibility report | `region-compatibility-report-v1.schema.json` |
 | Atomic cut/paste plan | `region-operation-plan-v1.schema.json` |
@@ -83,7 +83,7 @@ signed levels.
 
 ## Captured content
 
-For every owned tile, the snapshot stores all ten bytes as named fields:
+For every owned tile, the snapshot stores every terrain field by name:
 elevation, ground texture, ground overlay, roof texture, vertical wall,
 horizontal wall, and 32-bit diagonal wall. `canonicalVoid` is verified against
 the shared canonical void record:
@@ -92,6 +92,12 @@ the shared canonical void record:
 elevation=0, groundTexture=1, groundOverlay=8,
 roofTexture=0, verticalWall=0, horizontalWall=0, diagonalWall=0
 ```
+
+Snapshot v1 restricts elevation to `0..255` and remains readable without
+reinterpretation. New captures use snapshot v2 and retain elevations through
+`65535`; copy, cut, paste, bundle import/export, and recovery preserve those
+values exactly. Every non-elevation terrain field and placement family has the
+same representation in both versions.
 
 The snapshot retains every supported placement whose ownership point belongs
 to the polygon:

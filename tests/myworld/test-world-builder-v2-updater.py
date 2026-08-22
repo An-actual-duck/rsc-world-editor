@@ -254,7 +254,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "builder-runtime/server/plugins.jar": "plugins\n",
             "builder-runtime/server/inc/sqlite/world_builder_seed.db": "seed\n",
             "builder-runtime/server/world-builder.conf": "server_name: World Builder 2 Runtime\n",
-            "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json": "{}\n",
+            "builder-runtime/server/conf/world-builder/adaptive-runtime-capability-v2.json": "{}\n",
             "builder-runtime/launcher/world-builder-tools.jar": "tools\n",
             "runtime/bin/java": f"#!/usr/bin/env bash\nexit {compatibility_exit}\n",
             "runtime/bin/java.exe": "runtime\n",

@@ -302,24 +302,26 @@ second incompatible package system.
 
 ### Elevation range and color freedom
 
-The current native layered terrain representation uses byte-sized elevation,
-ground-color, overlay, roof, and wall fields. The editor therefore exposes
-`0..255` for elevation and ground color. True RGB values and a larger elevation
-range cannot be added honestly as UI-only changes.
+The native layered terrain v2 representation now uses unsigned 16-bit
+big-endian elevation (`0..65535`) while ground color, overlay, roof, and wall
+fields retain their frozen byte representations. V1 packages remain readable
+and are losslessly promoted for editing. True RGB values remain unavailable;
+they cannot be added honestly as a UI-only change.
 
 Two useful increments should be distinguished:
 
 1. Improve the UI for the existing representation: expose all valid current
    primitive values, provide palettes and previews, and offer a color picker
    that resolves to the nearest supported current value.
-2. Define a new layered terrain capability and schema for wider elevation and
-   true color. This requires compatible package encoding, wire protocol,
+2. Define a later layered terrain capability and schema for true color. This
+   still requires compatible package encoding, wire protocol,
    client rendering, server validation/collision, converter behavior,
    snapshot/export/import contracts, and explicit refusal by older runtimes.
 
-Readiness: **design-ready** for better current-value UI; **foundational design
-required** for wider elevation or true RGB. The new representation should not
-silently reinterpret released layered package fields.
+Readiness: **implemented** for unsigned 16-bit elevation across package,
+protocol, persistence, conversion, and region sharing; **design-ready** for
+better current-value color UI; **foundational design required** for true RGB.
+The v2 elevation representation does not reinterpret released v1 bytes.
 
 ## Goal 3 — Legacy conversion, region editing, and sharing
 
@@ -457,7 +459,8 @@ This is a technical dependency order, not an assignment or fixed release plan:
 
 1. Generalize the current terrain stroke into one previewable, undoable editor
    operation model.
-2. Add byte-range relative raise/lower and deterministic line tools.
+2. Build on the implemented atomic `0..65535` relative raise/lower capability
+   and add deterministic line tools.
 3. Add immediate local stroke previews, pipelined authoritative
    reconciliation, and incremental scene rebuilds.
 4. Design and implement the detached camera anchor and the quiescent Builder
@@ -470,8 +473,8 @@ This is a technical dependency order, not an assignment or fixed release plan:
    quick-house/prefab tools.
 8. Revise the custom-material identity model for creator-to-creator sharing,
    then implement drop-in floor/wall materials.
-9. Consider wider elevation, RGB terrain, and broader custom content only
-   through new explicit capabilities and schema versions.
+9. Consider RGB terrain and broader custom content only through new explicit
+   capabilities and schema versions; wide elevation already uses that boundary.
 
 Some increments can be reordered, but region snapshots should not invent a
 material-sharing model that custom materials later have to replace.
@@ -483,11 +486,12 @@ material-sharing model that custom materials later have to replace.
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready | Immediate preview, pipelining, reconciliation, incremental rebuild |
-| Relative raise/lower within `0..255` | Design-ready | Relative atomic operation and UI |
+| Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
-| Wider elevation / RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
+| Wider elevation | Implemented | Polished Editor UI and additional visual validation |
+| True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Editor foundation implemented | Runtime marker/ghost transaction and durable undo UX |

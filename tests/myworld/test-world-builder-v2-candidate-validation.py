@@ -34,17 +34,25 @@ RELEASE_MARKER = "spoiled-milk-release-build.marker"
 CAPABILITY = (
     json.dumps(
         {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "manifestType": "adaptive-world-builder-runtime-capability",
-            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v2",
             "profileId": "adaptive-world-builder",
-            "serverBuildId": "core-framework-adaptive-builder-server-v1",
-            "clientBuildId": "core-framework-adaptive-builder-client-v1",
-            "loaderId": "generic-signed-layered-loader-v1",
-            "authoringId": "generic-signed-layered-authoring-v1",
-            "protocolId": "world-builder-native-layered-protocol-v1",
+            "serverBuildId": "core-framework-adaptive-builder-server-v2",
+            "clientBuildId": "core-framework-adaptive-builder-client-v2",
+            "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+            "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
+            "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
             "packageSchemaId": "layered-world-package-v1",
             "coordinateModel": "signed-layered-v1",
+            "terrainElevation": {
+                "storageEncoding": "unsigned-16", "minimum": 0,
+                "maximum": 65535, "renderScale": 3,
+                "legacyV1Promotion": "unsigned-byte-lossless",
+                "operations": ["absolute", "raise", "lower"],
+                "atomicMultiTileBounds": True,
+            },
+            "encodingVersions": [1, 2, 3],
             "authoring": {
                 "placementFamilies": ["boundary", "ground-item", "npc", "scenery"]
             },
@@ -257,7 +265,7 @@ class CandidateFixture:
             "server/core.jar": self.server_jar,
             "server/plugins.jar": self.plugins_jar,
             "server/inc/sqlite/myworld_seed.db": self.core_seed,
-            "server/conf/world-builder/adaptive-runtime-capability-v1.json": (
+            "server/conf/world-builder/adaptive-runtime-capability-v2.json": (
                 self.capability
             ),
             "server/conf/server/data/private-map.bin": self.forbidden_world,
@@ -327,8 +335,8 @@ class CandidateFixture:
             "# Candidate validation fixture allowlist\n"
             "server/inc/sqlite/myworld_seed.db\t"
             "server/inc/sqlite/world_builder_seed.db\tbuilder-database-seed\n"
-            "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
-            "server/conf/world-builder/adaptive-runtime-capability-v1.json\t"
+            "server/conf/world-builder/adaptive-runtime-capability-v2.json\t"
+			"server/conf/world-builder/adaptive-runtime-capability-v2.json\t"
             "runtime-capability\n"
             + native_records
             + definition_records
@@ -491,7 +499,7 @@ class CandidateFixture:
                     0o644,
                 ),
                 "builder-runtime/server/conf/world-builder/"
-                "adaptive-runtime-capability-v1.json": (
+                "adaptive-runtime-capability-v2.json": (
                     self.capability,
                     0o644,
                 ),

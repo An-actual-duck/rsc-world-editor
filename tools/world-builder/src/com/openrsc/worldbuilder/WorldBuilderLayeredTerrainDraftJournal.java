@@ -38,8 +38,10 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		"world-builder-layered-draft-v4";
 	private static final String GROUND_ITEM_HEADER =
 		"world-builder-layered-draft-v5";
+	private static final String WIDE_ELEVATION_HEADER =
+		"world-builder-layered-draft-v6-u16-elevation";
 	private static final int SECTOR_SIZE = 48;
-	private static final int TILE_BYTES = 10;
+	private static final int TILE_BYTES = WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
 	private static final int MAX_TILES = 4096;
 	private static final int MAX_SECTORS = 64;
 	private static final int MAX_SCENERY = 4096;
@@ -153,6 +155,12 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		Journal journal)
 		throws IOException, WorldBuilderDiscoveryException {
 		Path manifestPath = packageRoot.resolve("manifest.json");
+		try {
+			WorldBuilderWideElevationPromotion.promoteInPlace(packageRoot);
+		} catch (WorldBuilderContractException malformed) {
+			throw new WorldBuilderDiscoveryException(
+				"Layered terrain promotion failed: " + malformed.getMessage());
+		}
 		Map<String,Object> manifest =
 			WorldBuilderJsonDocuments.readObject(manifestPath);
 		List<Object> levels = array(manifest, "levels");
@@ -201,7 +209,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			Files.write(payload, WorldBuilderCanonicalVoidTerrain.sector(),
 				StandardOpenOption.CREATE_NEW);
 			Map<String,Object> declaration = new LinkedHashMap<String,Object>();
-			declaration.put("encoding", "raw-layered-sector-v1");
+			declaration.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
 			declaration.put("level", Long.valueOf(growth.level));
 			declaration.put("path", relative);
 			declaration.put("sectorX", Long.valueOf(growth.sectorX));
@@ -251,16 +259,17 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			int localX = Math.floorMod(edit.x, SECTOR_SIZE);
 			int localY = Math.floorMod(edit.y, SECTOR_SIZE);
 			int offset = (localX * SECTOR_SIZE + localY) * TILE_BYTES;
-			bytes[offset] = (byte)edit.elevation;
-			bytes[offset + 1] = (byte)edit.texture;
-			bytes[offset + 2] = (byte)edit.overlay;
-			bytes[offset + 3] = (byte)edit.roof;
-			bytes[offset + 4] = (byte)edit.verticalWall;
-			bytes[offset + 5] = (byte)edit.horizontalWall;
-			bytes[offset + 6] = (byte)(edit.diagonal >>> 24);
-			bytes[offset + 7] = (byte)(edit.diagonal >>> 16);
-			bytes[offset + 8] = (byte)(edit.diagonal >>> 8);
-			bytes[offset + 9] = (byte)edit.diagonal;
+			bytes[offset] = (byte)(edit.elevation >>> 8);
+			bytes[offset + 1] = (byte)edit.elevation;
+			bytes[offset + 2] = (byte)edit.texture;
+			bytes[offset + 3] = (byte)edit.overlay;
+			bytes[offset + 4] = (byte)edit.roof;
+			bytes[offset + 5] = (byte)edit.verticalWall;
+			bytes[offset + 6] = (byte)edit.horizontalWall;
+			bytes[offset + 7] = (byte)(edit.diagonal >>> 24);
+			bytes[offset + 8] = (byte)(edit.diagonal >>> 16);
+			bytes[offset + 9] = (byte)(edit.diagonal >>> 8);
+			bytes[offset + 10] = (byte)edit.diagonal;
 		}
 		for (Map.Entry<Path,byte[]> changed : changedPayloads.entrySet()) {
 			Files.write(changed.getKey(), changed.getValue(),
@@ -733,8 +742,10 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 	private static Journal read(Path path)
 		throws IOException, WorldBuilderDiscoveryException {
 		List<String> lines = Files.readAllLines(path, StandardCharsets.US_ASCII);
-		boolean groundItemAuthoring =
-			!lines.isEmpty() && GROUND_ITEM_HEADER.equals(lines.get(0));
+		boolean wideElevation = !lines.isEmpty()
+			&& WIDE_ELEVATION_HEADER.equals(lines.get(0));
+		boolean groundItemAuthoring = wideElevation
+			|| (!lines.isEmpty() && GROUND_ITEM_HEADER.equals(lines.get(0)));
 		boolean allocation = groundItemAuthoring
 			|| (!lines.isEmpty() && ALLOCATION_HEADER.equals(lines.get(0)));
 		boolean authoring = allocation
@@ -838,7 +849,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			}
 			TileEdit tile = new TileEdit(
 				signed(values[1]), coordinate(values[2]), coordinate(values[3]),
-				unsignedByte(values[4]), unsignedByte(values[5]),
+				wideElevation ? unsignedShort(values[4]) : unsignedByte(values[4]),
+				unsignedByte(values[5]),
 				unsignedByte(values[6]), unsignedByte(values[7]),
 				unsignedByte(values[8]), unsignedByte(values[9]),
 				signed(values[10]));
@@ -963,6 +975,16 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		if (result < 0 || result > 255) {
 			throw new WorldBuilderDiscoveryException(
 				"Layered terrain draft byte is out of range.");
+		}
+		return result;
+	}
+
+	private static int unsignedShort(String value)
+		throws WorldBuilderDiscoveryException {
+		int result = signed(value);
+		if (result < 0 || result > 65535) {
+			throw new WorldBuilderDiscoveryException(
+				"Layered terrain draft elevation is outside 0..65535.");
 		}
 		return result;
 	}

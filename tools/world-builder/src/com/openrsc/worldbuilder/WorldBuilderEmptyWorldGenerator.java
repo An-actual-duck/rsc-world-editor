@@ -143,7 +143,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		manifest.put("levels", levels);
 		ArrayList<Object> sectors = new ArrayList<Object>();
 		Map<String,Object> sector = new LinkedHashMap<String,Object>();
-		sector.put("encoding", "raw-layered-sector-v1");
+		sector.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
 		sector.put("level", Long.valueOf(INITIAL_LEVEL));
 		sector.put("path", terrainRelative);
 		sector.put("sectorX", Long.valueOf(INITIAL_SECTOR_X));
