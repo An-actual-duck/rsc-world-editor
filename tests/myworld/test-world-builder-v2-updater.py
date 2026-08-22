@@ -769,7 +769,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual(1, len(recovery_stages))
         self.assertTrue((recovery_stages[0] / "VERSION.txt").is_file())
 
-        environment = {**os.environ, "WORLD_BUILDER_SKIP_UPDATE": "1"}
+        environment = {
+            **os.environ,
+            "WORLD_BUILDER_SKIP_UPDATE": "1",
+            "WORLD_BUILDER_NO_TERMINAL": "1",
+        }
         launched = subprocess.run(
             [str(self.install / "Start World Builder.sh")],
             cwd=self.install,

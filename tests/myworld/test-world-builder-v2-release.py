@@ -475,6 +475,59 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
+    def test_linux_desktop_start_reopens_in_a_visible_terminal(self) -> None:
+        with tempfile.TemporaryDirectory(
+            prefix="world-builder-v2-desktop-start-"
+        ) as temp:
+            root = Path(temp)
+            package = root / PACKAGE_ROOT
+            package.mkdir()
+            start = package / "Start World Builder.sh"
+            shutil.copy2(
+                SOURCE_ROOT / "release/updater-v2/Start World Builder.sh", start
+            )
+            start.chmod(0o755)
+
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            terminal = fake_bin / "x-terminal-emulator"
+            terminal.write_text(
+                "#!/usr/bin/env bash\n"
+                "printf '%s\\n' \"$@\" > \"$TERMINAL_CALLS\"\n",
+                encoding="utf-8",
+            )
+            terminal.chmod(0o755)
+            calls = root / "terminal-calls.txt"
+            environment = {
+                **os.environ,
+                "DISPLAY": ":test",
+                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                "TERMINAL_CALLS": str(calls),
+                "WORLD_BUILDER_SKIP_UPDATE": "1",
+            }
+
+            launched = subprocess.run(
+                [str(start)],
+                cwd=root,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertEqual(0, launched.returncode, launched.stderr)
+            self.assertEqual(
+                [
+                    "-e",
+                    "env",
+                    "WORLD_BUILDER_TERMINAL_SESSION=1",
+                    str(start),
+                ],
+                calls.read_text(encoding="utf-8").splitlines(),
+            )
+            self.assertFalse((package / "project-registry.json").exists())
+
     def test_runtime_allowlist_has_exact_inherited_mysql_query_closure(self) -> None:
         allowlist = SOURCE_ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
         records = {
@@ -1266,6 +1319,15 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     ):
                         self.assertIn(expected, start)
                         self.assertIn(expected, windows_start)
+                    for expected in (
+                        "open_terminal_for_desktop_launch",
+                        "WORLD_BUILDER_TERMINAL_SESSION",
+                        "WORLD_BUILDER_NO_TERMINAL",
+                        "x-terminal-emulator",
+                        "gnome-terminal",
+                        "Press Enter to close this window",
+                    ):
+                        self.assertIn(expected, start)
                     self.assertNotIn("--layered-package", windows_start)
                     self.assertNotIn("server/myworld.conf", windows_start)
                     for script_name, command in (
