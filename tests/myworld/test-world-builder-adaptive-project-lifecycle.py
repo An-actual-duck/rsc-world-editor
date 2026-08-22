@@ -4059,7 +4059,18 @@ public final class FakeAdaptiveClient {
                 "SELECT_SOURCE", selected, marker
             )
             self.assertEqual(0, created.returncode, created.stderr)
-            self.assertTrue(marker.is_file())
+            selected_project = Path(marker.read_text(encoding="utf-8").strip())
+
+            marker.unlink()
+            reopened = self.run_desktop_launcher(
+                installation, runtime, detected, 44102,
+                "OPEN_EXISTING", None, marker
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual(
+                selected_project,
+                Path(marker.read_text(encoding="utf-8").strip()),
+            )
             self.assertEqual(detected_before, tree_bytes(detected))
             self.assertEqual(selected_before, tree_bytes(selected))
 
