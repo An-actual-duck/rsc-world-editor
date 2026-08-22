@@ -9,59 +9,11 @@ TOOLS_JAR="$RUNTIME_ROOT/launcher/world-builder-tools.jar"
 PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
 RELEASE_IDENTITY="$ROOT_DIR/RELEASE-IDENTITY.json"
 UPDATE_LOCK="$ROOT_DIR/.world-builder-v2-update.lock"
-TERMINAL_SESSION="${WORLD_BUILDER_TERMINAL_SESSION:-0}"
 
 fail() {
 	printf 'World Builder 2 could not start: %s\n' "$*" >&2
 	exit 1
 }
-
-pause_terminal_session() {
-	local status=$?
-	trap - EXIT
-	printf '\n'
-	if [[ $status -eq 0 ]]; then
-		printf 'World Builder 2 closed.\n'
-	else
-		printf 'World Builder 2 stopped with an error (exit %d).\n' "$status" >&2
-	fi
-	if [[ -t 0 ]]; then
-		read -r -p "Press Enter to close this window..." _ || true
-	fi
-	exit "$status"
-}
-
-open_terminal_for_desktop_launch() {
-	if [[ "$TERMINAL_SESSION" == "1" || "${WORLD_BUILDER_NO_TERMINAL:-0}" == "1" \
-		|| -t 0 || -t 1 ]]; then
-		return
-	fi
-	if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
-		return
-	fi
-
-	local script="$ROOT_DIR/Start World Builder.sh"
-	local -a command=(env WORLD_BUILDER_TERMINAL_SESSION=1 "$script")
-	if command -v x-terminal-emulator >/dev/null 2>&1; then
-		exec x-terminal-emulator -e "${command[@]}"
-	elif command -v gnome-terminal >/dev/null 2>&1; then
-		exec gnome-terminal --wait -- "${command[@]}"
-	elif command -v konsole >/dev/null 2>&1; then
-		exec konsole -e "${command[@]}"
-	elif command -v xfce4-terminal >/dev/null 2>&1; then
-		exec xfce4-terminal --disable-server -x "${command[@]}"
-	elif command -v mate-terminal >/dev/null 2>&1; then
-		exec mate-terminal --wait -- "${command[@]}"
-	elif command -v xterm >/dev/null 2>&1; then
-		exec xterm -e "${command[@]}"
-	fi
-	fail "No supported terminal application was found. Install a terminal or run this script from one."
-}
-
-if [[ "$TERMINAL_SESSION" == "1" ]]; then
-	trap pause_terminal_session EXIT
-fi
-open_terminal_for_desktop_launch
 
 update_lock_exists() {
 	[[ -e "$UPDATE_LOCK" || -L "$UPDATE_LOCK" ]]
@@ -109,7 +61,7 @@ PORT="${WORLD_BUILDER_PORT:-43615}"
 	|| fail "WORLD_BUILDER_PORT must be between 1 and 65534."
 
 ADAPTIVE_ARGUMENTS=(
-	launch-adaptive
+	desktop-launch
 	--installation-root "$ROOT_DIR"
 	--runtime-root "$RUNTIME_ROOT"
 	--target-root "$TARGET_ROOT"
@@ -120,8 +72,4 @@ if [[ -n "${WORLD_BUILDER_CONFIGURATION_ROLE:-}" ]]; then
 		--configuration-role "$WORLD_BUILDER_CONFIGURATION_ROLE"
 	)
 fi
-if [[ "$TERMINAL_SESSION" == "1" ]]; then
-	"$JAVA_EXE" -jar "$TOOLS_JAR" "${ADAPTIVE_ARGUMENTS[@]}"
-else
-	exec "$JAVA_EXE" -jar "$TOOLS_JAR" "${ADAPTIVE_ARGUMENTS[@]}"
-fi
+exec "$JAVA_EXE" -jar "$TOOLS_JAR" "${ADAPTIVE_ARGUMENTS[@]}"

@@ -39,7 +39,7 @@ PORT="${WORLD_BUILDER_PORT:-43615}"
 	|| fail "WORLD_BUILDER_PORT must be between 1 and 65534."
 
 ADAPTIVE_ARGUMENTS=(
-	launch-adaptive
+	desktop-launch
 	--installation-root "$ROOT_DIR"
 	--runtime-root "$RUNTIME_ROOT"
 	--target-root "$TARGET_ROOT"

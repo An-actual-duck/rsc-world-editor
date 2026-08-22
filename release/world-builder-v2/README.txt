@@ -22,7 +22,9 @@ pinned. This update adds portable region snapshot copy/cut/paste primitives,
 lossless unsigned 16-bit terrain elevation, foreground-aware elevated-terrain
 picking, and a contextual two-column editor toolbar. Exact archive,
 packaged-runtime, transaction, and owner-run native validation passed for the
-accepted release candidate.
+accepted release candidate. Current development replaces the terminal-first
+project prompt with a persistent desktop project screen while retaining the
+same validated project and process-supervision contracts.
 
 INSTALLATION
 ------------
@@ -42,9 +44,23 @@ folder, extract it over v1, or move individual files from another installation.
 FIRST LAUNCH
 ------------
 
-Linux: run "Start World Builder.sh". A desktop/file-manager launch opens a
-visible terminal so first-run discovery and confirmation cannot disappear.
-Windows: double-click "Start World Builder.cmd".
+Linux: run "Start World Builder.sh". Windows: double-click
+"Start World Builder.cmd". Both open the World Builder desktop project screen;
+no terminal interaction is required.
+
+Choose New Empty World, Use Detected Server Map, Open Existing Project, or
+Select Another Supported Source. Closing or cancelling a screen changes
+nothing. The advanced launch-adaptive command remains available for headless
+CLI automation.
+
+The project screen always shows the World Builder installation folder and its
+registered projects, so starting a second extracted copy cannot be mistaken for
+reopening the first copy. Open Existing Project means a validated project under
+this installation's projects/ folder. Select Another Supported Source accepts a
+server/source directory; it does not guess an arbitrary individual map file.
+The compatibility preview identifies packed, layered, standalone, or blocked
+input and says whether confirming will create a new isolated project or open an
+existing one.
 
 The launcher treats its parent as the possible target and performs read-only
 adaptive discovery. It does not assume one configuration filename and never
@@ -58,8 +74,8 @@ these results:
 - an ambiguous, malformed, partially recognized, or unsupported server stops
   with a compatibility report and no project or target change.
 
-Review the report and type CREATE exactly before the first project is
-published. Project creation writes beneath:
+Review the GUI summary and confirm before the first project is published.
+Project creation writes beneath:
 
   World Builder 2/projects/<project-uuid>/
 

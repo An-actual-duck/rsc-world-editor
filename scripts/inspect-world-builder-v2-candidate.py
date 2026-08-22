@@ -136,6 +136,8 @@ REQUIRED_TOOL_ENTRIES = {
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveRecovery.class",
     "com/openrsc/worldbuilder/WorldBuilderAdaptiveUndo.class",
     "com/openrsc/worldbuilder/WorldBuilderCli.class",
+    "com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.class",
+    "com/openrsc/worldbuilder/WorldBuilderLauncherModel.class",
     "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
     "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
     TOOL_RUNTIME_ALLOWLIST_ENTRY,

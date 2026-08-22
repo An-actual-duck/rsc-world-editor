@@ -83,6 +83,9 @@ public final class WorldBuilderCli {
 		if ("launch-adaptive".equals(args[0])) {
 			return launchAdaptive(args);
 		}
+		if ("desktop-launch".equals(args[0])) {
+			return desktopLaunch(args);
+		}
 		if ("import-active-adaptive".equals(args[0])) {
 			return importActiveAdaptive(args);
 		}
@@ -970,6 +973,44 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int desktopLaunch(String[] args) {
+		Path installation = null;
+		Path runtime = null;
+		Path target = null;
+		String configurationRole = null;
+		int port = 0;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--installation-root".equals(argument) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--runtime-root".equals(argument) && index + 1 < args.length) {
+				runtime = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--configuration-role".equals(argument)
+				&& index + 1 < args.length) {
+				configurationRole = args[++index];
+			} else if ("--port".equals(argument) && index + 1 < args.length) {
+				Integer parsed = parseIntOption("--port", args[++index]);
+				if (parsed == null) return 2;
+				port = parsed.intValue();
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (installation == null || runtime == null || target == null || port == 0) {
+			System.err.println("ERROR: desktop-launch requires --installation-root, "
+				+ "--runtime-root, --target-root, and --port.");
+			usage();
+			return 2;
+		}
+		return WorldBuilderDesktopLauncher.launch(
+			new WorldBuilderDesktopLauncher.Options(installation, runtime, target,
+				configurationRole, port));
+	}
+
 	private static int refuseActiveAdaptiveMutation(
 		String[] args, String operation) {
 		Path installation = singlePathOption(
@@ -1621,6 +1662,9 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
+			+ "\n  WorldBuilderCli desktop-launch --installation-root <World Builder 2>"
+			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
+			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli undo-active-adaptive --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli recover-active-adaptive"

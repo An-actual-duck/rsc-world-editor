@@ -212,6 +212,8 @@ def make_fixture(
             "com/openrsc/worldbuilder/WorldBuilderAdaptiveRecovery.class",
             "com/openrsc/worldbuilder/WorldBuilderAdaptiveUndo.class",
             "com/openrsc/worldbuilder/WorldBuilderCli.class",
+            "com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.class",
+            "com/openrsc/worldbuilder/WorldBuilderLauncherModel.class",
             "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
             "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
             "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt",
@@ -475,7 +477,7 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
-    def test_linux_desktop_start_reopens_in_a_visible_terminal(self) -> None:
+    def test_linux_desktop_start_invokes_gui_without_terminal_relaunch(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="world-builder-v2-desktop-start-"
         ) as temp:
@@ -493,16 +495,35 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             terminal = fake_bin / "x-terminal-emulator"
             terminal.write_text(
                 "#!/usr/bin/env bash\n"
-                "printf '%s\\n' \"$@\" > \"$TERMINAL_CALLS\"\n",
+                "printf 'unexpected terminal launch\\n' > \"$TERMINAL_CALLS\"\n"
+                "exit 99\n",
                 encoding="utf-8",
             )
             terminal.chmod(0o755)
             calls = root / "terminal-calls.txt"
+            java_calls = root / "java-calls.txt"
+            java = fake_bin / "java"
+            java.write_text(
+                "#!/usr/bin/env bash\n"
+                "if [[ \"${1:-}\" == '-version' ]]; then exit 0; fi\n"
+                "printf '%s\\n' \"$@\" > \"$JAVA_CALLS\"\n",
+                encoding="utf-8",
+            )
+            java.chmod(0o755)
+            (package / "builder-runtime/launcher").mkdir(parents=True)
+            (package / "builder-runtime/launcher/world-builder-tools.jar").write_bytes(
+                b"fixture tools\n"
+            )
+            (package / "RELEASE-IDENTITY.json").write_text(
+                '{"productId": "rsc-world-editor-v2"}\n', encoding="utf-8"
+            )
             environment = {
                 **os.environ,
                 "DISPLAY": ":test",
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
                 "TERMINAL_CALLS": str(calls),
+                "JAVA_CALLS": str(java_calls),
+                "WORLD_BUILDER_JAVA": str(java),
                 "WORLD_BUILDER_SKIP_UPDATE": "1",
             }
 
@@ -517,15 +538,10 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
 
             self.assertEqual(0, launched.returncode, launched.stderr)
-            self.assertEqual(
-                [
-                    "-e",
-                    "env",
-                    "WORLD_BUILDER_TERMINAL_SESSION=1",
-                    str(start),
-                ],
-                calls.read_text(encoding="utf-8").splitlines(),
-            )
+            self.assertFalse(calls.exists())
+            arguments = java_calls.read_text(encoding="utf-8").splitlines()
+            self.assertIn("desktop-launch", arguments)
+            self.assertNotIn("launch-adaptive", arguments)
             self.assertFalse((package / "project-registry.json").exists())
 
     def test_runtime_allowlist_has_exact_inherited_mysql_query_closure(self) -> None:
@@ -1301,7 +1317,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     self.assertIn("never treats the frozen World Editor v1.1.0", readme)
                     start = archive.read(prefix + "Start World Builder.sh").decode()
                     self.assertIn("Update World Builder.sh", start)
-                    self.assertIn("launch-adaptive", start)
+                    self.assertIn("desktop-launch", start)
                     self.assertIn("--installation-root", start)
                     self.assertIn("--target-root", start)
                     self.assertNotIn("--layered-package", start)
@@ -1310,7 +1326,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         prefix + "Start World Builder.cmd"
                     ).decode()
                     for expected in (
-                        "launch-adaptive",
+                        "desktop-launch",
                         "--installation-root",
                         "--runtime-root",
                         "--target-root",
@@ -1327,7 +1343,10 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         "gnome-terminal",
                         "Press Enter to close this window",
                     ):
-                        self.assertIn(expected, start)
+                        self.assertNotIn(expected, start)
+                    self.assertIn("javaw.exe", windows_start)
+                    self.assertIn('start "" "%JAVA_EXE%"', windows_start)
+                    self.assertIn('set "JAVA_EXE=javaw"', windows_start)
                     self.assertNotIn("--layered-package", windows_start)
                     self.assertNotIn("server/myworld.conf", windows_start)
                     for script_name, command in (
@@ -1367,7 +1386,6 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                 {
                     "WORLD_BUILDER_SKIP_UPDATE": "1",
                     "WORLD_BUILDER_PORT": "44600",
-                    "WORLD_BUILDER_NO_TERMINAL": "1",
                     "FAKE_JAVA_CALLS": str(calls),
                 }
             )
@@ -1405,7 +1423,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             )
             self.assertEqual(0, started.returncode, started.stdout + started.stderr)
             start_call = calls.read_text(encoding="utf-8")
-            self.assertIn("launch-adaptive\n", start_call)
+            self.assertIn("desktop-launch\n", start_call)
             self.assertIn(str(package), start_call)
             self.assertIn(str(extracted), start_call)
             self.assertIn("44600\n", start_call)

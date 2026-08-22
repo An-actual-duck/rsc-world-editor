@@ -278,6 +278,80 @@ public final class WidePromotionCrashHarness {
             capture_output=True,
             text=True,
         )
+        desktop_harness = (
+            Path(cls.compile_temp.name)
+            / "harness/com/openrsc/worldbuilder/DesktopLauncherHarness.java"
+        )
+        desktop_harness.write_text(
+            """
+package com.openrsc.worldbuilder;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.List;
+
+public final class DesktopLauncherHarness {
+    public static void main(String[] args) throws Exception {
+        final WorldBuilderDesktopLauncher.Action action =
+            WorldBuilderDesktopLauncher.Action.valueOf(args[4]);
+        final Path selected = "-".equals(args[5]) ? null : Paths.get(args[5]);
+        final Path marker = Paths.get(args[6]);
+        WorldBuilderDesktopLauncher.Ui ui = new WorldBuilderDesktopLauncher.Ui() {
+            @Override public WorldBuilderDesktopLauncher.Action chooseAction(
+                List<WorldBuilderDesktopLauncher.ProjectChoice> projects,
+                String summary, boolean supported) {
+                return action;
+            }
+            @Override public WorldBuilderDesktopLauncher.ProjectChoice chooseProject(
+                List<WorldBuilderDesktopLauncher.ProjectChoice> projects) {
+                return projects.isEmpty() ? null : projects.get(0);
+            }
+            @Override public Path chooseSource(Path initial) { return selected; }
+            @Override public String requestDisplayName(String suggested) {
+                return suggested + " Test";
+            }
+            @Override public boolean confirmCreation(String title, String summary) {
+                return true;
+            }
+            @Override public void showError(String title, String message) {
+                throw new IllegalStateException(title + ": " + message);
+            }
+        };
+        WorldBuilderDesktopLauncher.ProjectRunner runner =
+            new WorldBuilderDesktopLauncher.ProjectRunner() {
+                @Override public int run(Path project) throws Exception {
+                    Files.write(marker,
+                        (project.toRealPath().toString() + "\\n").getBytes(StandardCharsets.UTF_8),
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING,
+                        StandardOpenOption.WRITE);
+                    return 0;
+                }
+            };
+        int result = new WorldBuilderDesktopLauncher(ui, runner).run(
+            new WorldBuilderDesktopLauncher.Options(
+                Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]),
+                null, Integer.parseInt(args[3])));
+        System.exit(result);
+    }
+}
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8",
+                "-cp", str(cls.classes), "-d", str(cls.classes),
+                str(desktop_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         region_harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/RegionOperationFailureHarness.java"
@@ -1083,6 +1157,28 @@ public final class FakeAdaptiveClient {
                 "java", "-cp", str(self.classes),
                 "com.openrsc.worldbuilder.WidePromotionCrashHarness",
                 str(project), milestone,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_desktop_launcher(
+        self,
+        installation: Path,
+        runtime: Path,
+        detected_source: Path,
+        port: int,
+        action: str,
+        selected_source: Path | None,
+        marker: Path,
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "java", "-Djava.awt.headless=true", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.DesktopLauncherHarness",
+                str(installation), str(runtime), str(detected_source), str(port),
+                action, str(selected_source) if selected_source else "-", str(marker),
             ],
             cwd=ROOT,
             text=True,
@@ -3882,6 +3978,90 @@ public final class FakeAdaptiveClient {
                         [path for path in projects.iterdir() if path.is_dir()], mode
                     )
                     self.assertFalse(list(projects.glob(".staging-*")), mode)
+
+    def test_desktop_launcher_choices_and_existing_project_start_are_headless_testable(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            detected = base / "ordinary-parent"
+            detected.mkdir()
+            marker = base / "runner.txt"
+            detected_before = tree_bytes(detected)
+
+            cancelled = self.run_desktop_launcher(
+                installation, runtime, detected, 44100, "CANCEL", None, marker
+            )
+            self.assertEqual(0, cancelled.returncode, cancelled.stderr)
+            self.assertFalse(marker.exists())
+            self.assertFalse((installation / "project-registry.json").exists())
+            self.assertEqual(detected_before, tree_bytes(detected))
+
+            created_empty = self.run_desktop_launcher(
+                installation, runtime, detected, 44100, "NEW_EMPTY", None, marker
+            )
+            self.assertEqual(0, created_empty.returncode, created_empty.stderr)
+            empty_project = Path(marker.read_text(encoding="utf-8").strip())
+            empty_manifest = json.loads(
+                (empty_project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("standalone-empty", empty_manifest["origin"])
+            self.assertEqual(detected_before, tree_bytes(detected))
+            self.assertFalse(list(installation.glob(".desktop-discovery-*")))
+
+            marker.unlink()
+            reopened = self.run_desktop_launcher(
+                installation, runtime, detected, 44100,
+                "OPEN_EXISTING", None, marker
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual(empty_project, Path(marker.read_text().strip()))
+            self.assertEqual(detected_before, tree_bytes(detected))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-desktop-detected-") as temp:
+            base = Path(temp)
+            detected = self.fixtures.descriptor_fixture(
+                str(base), world_space="global"
+            )
+            installation = detected / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            marker = base / "detected-runner.txt"
+            target_before = tree_bytes(detected, installation)
+            created = self.run_desktop_launcher(
+                installation, runtime, detected, 44101,
+                "DETECTED_SERVER", None, marker
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(marker.read_text().strip())
+            self.assertEqual(
+                "target-layered",
+                json.loads((project / "project.json").read_text())["origin"],
+            )
+            self.assertEqual(target_before, tree_bytes(detected, installation))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-desktop-selected-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            detected = base / "no-server"
+            detected.mkdir()
+            selected = self.fixtures.descriptor_fixture(
+                str(base / "selected"), world_space="global"
+            )
+            marker = base / "selected-runner.txt"
+            detected_before = tree_bytes(detected)
+            selected_before = tree_bytes(selected)
+            created = self.run_desktop_launcher(
+                installation, runtime, detected, 44102,
+                "SELECT_SOURCE", selected, marker
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertTrue(marker.is_file())
+            self.assertEqual(detected_before, tree_bytes(detected))
+            self.assertEqual(selected_before, tree_bytes(selected))
 
     def test_adaptive_launch_creates_once_and_reopens_active_project(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-launch-") as temp:

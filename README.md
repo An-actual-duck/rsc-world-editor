@@ -89,7 +89,9 @@ World Builder 2's instructions are kept separately in
 The adaptive v2 product contract is:
 
 1. Put the complete `World Builder 2` folder directly inside a compatible
-   game/server root and launch it.
+   game/server root and launch it. The desktop screen offers New Empty World,
+   Use Detected Server Map, Open Existing Project, and Select Another Supported
+   Source; the command-line workflow remains available for automation.
 2. Let World Builder discover the target's active map, definitions, and
    compatibility evidence; unsupported or ambiguous layouts fail with a
    report instead of being guessed.

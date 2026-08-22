@@ -288,8 +288,17 @@ project**, but the project remains visibly unattached and cannot import.
 ### D. Reopen, move, or replace projects
 
 World Builder records projects by UUID, not display name or absolute server
-path. Later launches reopen the last valid project. A simple project chooser
-allows multiple server-derived or standalone projects.
+path. The desktop launcher offers New Empty World, Use Detected Server Map,
+Open Existing Project, and Select Another Supported Source. Existing-project
+selection validates and selects the UUID project before starting the same
+supervised client/server path used by CLI automation. Cancellation does not
+create, select, or launch anything.
+
+The source chooser selects a directory for the compiled adaptive discovery
+adapters, not an untyped individual map file. The existing-project chooser
+selects only a registered UUID project contained in the current installation;
+moving a project between installations requires moving the complete closed
+World Builder folder so its registry and immutable evidence stay together.
 
 Moving the complete World Builder folder or a complete closed project preserves
 it because internal manifests use relative paths. If the original target moved
