@@ -14,7 +14,7 @@ final class WorldBuilderCanonicalVoidTerrain {
 
 	static byte[] tile() {
 		return new byte[] {
-			0, (byte)GROUND_TEXTURE, (byte)GROUND_OVERLAY, 0, 0, 0, 0, 0, 0, 0
+			0, 0, (byte)GROUND_TEXTURE, (byte)GROUND_OVERLAY, 0, 0, 0, 0, 0, 0, 0
 		};
 	}
 
@@ -40,8 +40,8 @@ final class WorldBuilderCanonicalVoidTerrain {
 			for (int y = centerY - 1; y <= centerY + 1; y++) {
 				int offset = (x * WorldBuilderRawLayeredTerrainCodec.SECTOR_SIZE + y)
 					* WorldBuilderRawLayeredTerrainCodec.TILE_BYTES;
-				result[offset + 1] = (byte)VISIBLE_FLOOR_COLOR;
-				result[offset + 2] = (byte)VISIBLE_FLOOR_OVERLAY;
+				result[offset + 2] = (byte)VISIBLE_FLOOR_COLOR;
+				result[offset + 3] = (byte)VISIBLE_FLOOR_OVERLAY;
 			}
 		}
 		return result;

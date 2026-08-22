@@ -38,7 +38,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 }
 
 for relative in \
-	server/conf/world-builder/adaptive-runtime-capability-v1.json \
+	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
 	server/src/com/openrsc/server/content/worldedit/AdaptiveWorldBuilderRuntimeIdentity.java \
@@ -50,22 +50,22 @@ for relative in \
 	}
 done
 
-python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/adaptive-runtime-capability-v1.json" <<'PY'
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/adaptive-runtime-capability-v2.json" <<'PY'
 import json
 import pathlib
 import sys
 
 capability = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "manifestType": "adaptive-world-builder-runtime-capability",
-    "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+    "capabilityId": "adaptive-world-builder-runtime-capability-v2",
     "profileId": "adaptive-world-builder",
-    "serverBuildId": "core-framework-adaptive-builder-server-v1",
-    "clientBuildId": "core-framework-adaptive-builder-client-v1",
-    "loaderId": "generic-signed-layered-loader-v1",
-    "authoringId": "generic-signed-layered-authoring-v1",
-    "protocolId": "world-builder-native-layered-protocol-v1",
+    "serverBuildId": "core-framework-adaptive-builder-server-v2",
+    "clientBuildId": "core-framework-adaptive-builder-client-v2",
+    "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+    "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
+    "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
     "packageSchemaId": "layered-world-package-v1",
     "coordinateModel": "signed-layered-v1",
 }
@@ -78,6 +78,17 @@ for key, value in expected.items():
 families = capability.get("authoring", {}).get("placementFamilies")
 if families != ["boundary", "ground-item", "npc", "scenery"]:
     raise SystemExit("FAIL: Adaptive runtime placement-family contract drifted")
+elevation = capability.get("terrainElevation")
+if elevation != {
+    "storageEncoding": "unsigned-16",
+    "minimum": 0,
+    "maximum": 65535,
+    "renderScale": 3,
+    "legacyV1Promotion": "unsigned-byte-lossless",
+    "operations": ["absolute", "raise", "lower"],
+    "atomicMultiTileBounds": True,
+}:
+    raise SystemExit("FAIL: Adaptive runtime wide-elevation contract drifted")
 PY
 
 client_version="$(sed -n \

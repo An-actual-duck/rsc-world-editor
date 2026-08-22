@@ -17,9 +17,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-/** Generic, content-neutral validator for an active layered-world-package-v1 tree. */
+/** Generic validator for frozen-v1 and wide-elevation-v2 layered packages. */
 final class WorldBuilderGenericLayeredPackage {
-	private static final int RAW_SECTOR_BYTES = 48 * 48 * 10;
 	private static final int MAX_LEVELS = 4096;
 	private static final int MAX_TERRAIN = 65536;
 	private static final int MAX_PLACEMENTS_PER_SET = 65536;
@@ -196,10 +195,10 @@ final class WorldBuilderGenericLayeredPackage {
 			int sectorY = signedInteger(terrain, "sectorY", manifestRelative);
 			String key = coordinateKey(level, sectorX, sectorY);
 			String order = orderedCoordinate(level, sectorX, sectorY);
+			String encoding = string(terrain, "encoding", manifestRelative);
 			if (!levels.contains(Integer.valueOf(level))
 				|| !worldSpace.equals(string(terrain, "worldSpace", manifestRelative))
-				|| !"raw-layered-sector-v1".equals(
-					string(terrain, "encoding", manifestRelative))
+				|| !WorldBuilderRawLayeredTerrainCodec.supports(encoding)
 				|| !terrainCoverage.add(key)
 				|| previousTerrain != null && previousTerrain.compareTo(order) >= 0) {
 				throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, manifestRelative,
@@ -224,14 +223,16 @@ final class WorldBuilderGenericLayeredPackage {
 			String expectedHash = hash(terrain, "sha256", manifestRelative);
 			WorldBuilderReadOnlyTarget.FileState state = target.requiredState(
 				side + "-map-terrain", targetPath);
-			if (state.size != RAW_SECTOR_BYTES || !expectedHash.equals(state.sha256)) {
+			long expectedSize = WorldBuilderRawLayeredTerrainCodec.byteCount(encoding);
+			if (state.size != expectedSize || !expectedHash.equals(state.sha256)) {
 				throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, targetPath,
 					"Layered terrain payload size or hash does not match its declaration.",
-					"Restore the exact 23,040-byte declared sector payload.");
+					"Restore the exact " + expectedSize + "-byte " + encoding
+						+ " declared sector payload.");
 			}
 			try {
 				WorldBuilderRawLayeredTerrainCodec.requireDecodable(
-					Files.readAllBytes(target.requiredFile(targetPath)));
+					Files.readAllBytes(target.requiredFile(targetPath)), encoding);
 			} catch (IOException failure) {
 				throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, targetPath,
 					"Layered terrain changed while it was decoded.",

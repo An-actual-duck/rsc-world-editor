@@ -144,18 +144,25 @@ public final class WorldBuilderRuntimePreparer {
 				Path sourcePackage = stage.resolve(LAYERED_SOURCE_PACKAGE);
 				copyTree(layered.root, workingPackage);
 				copyTree(layered.root, sourcePackage);
+				try {
+					WorldBuilderWideElevationPromotion.promoteInPlace(workingPackage);
+				} catch (WorldBuilderContractException malformed) {
+					throw new WorldBuilderDiscoveryException(
+						"Layered working-package v2 promotion failed: "
+							+ malformed.getMessage());
+				}
 				for (WorldBuilderLayeredPackage.FileRecord file : layered.files) {
-					Path workingFile = requiredFile(workingPackage, file.relativePath);
 					Path sourceFile = requiredFile(sourcePackage, file.relativePath);
-					if (Files.size(workingFile) != file.size
-						|| Files.size(sourceFile) != file.size
-						|| !file.sha256.equals(WorldBuilderHashes.sha256(workingFile))
+					if (Files.size(sourceFile) != file.size
 						|| !file.sha256.equals(WorldBuilderHashes.sha256(sourceFile))) {
 						throw new WorldBuilderDiscoveryException(
 							"Layered package workspace copy verification failed: "
 								+ file.relativePath);
 					}
 				}
+				WorldBuilderLayeredPackage promoted =
+					WorldBuilderLayeredPackage.discoverDraft(workingPackage);
+				promoted.requireTerrainDraftDescendant(layered);
 				byte[] layeredMetadata =
 					layered.toMetadataJson().getBytes(StandardCharsets.UTF_8);
 				Files.write(stage.resolve(LAYERED_REVIEW_METADATA), layeredMetadata);

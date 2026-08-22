@@ -195,8 +195,13 @@ Product Goals and Readiness](docs/WORLD-BUILDER-2-PRODUCT-GOALS.md). That
 document assesses the current foundation and does not itself start
 implementation work.
 
+Development now integrates the runtime v2 unsigned 16-bit elevation contract:
+v1 terrain remains readable and is promoted losslessly for editing, while v2
+packages and region snapshots preserve elevations through 65535. True RGB
+terrain remains deferred behind a future explicit capability.
+
 The Editor-owned copy/cut/paste foundation is specified in [World Builder 2
-Region Snapshots v1](docs/WORLD-BUILDER-2-REGION-SNAPSHOTS.md). It implements
+Region Snapshots v1 and v2](docs/WORLD-BUILDER-2-REGION-SNAPSHOTS.md). It implements
 strict ordered-polygon snapshots, safe project-local bundle import/export,
 compatibility and collision plans, and atomic isolated-project cut/paste.
 In-game markers, ghost rendering, runtime transactions, and durable undo remain

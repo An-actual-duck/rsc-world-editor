@@ -832,6 +832,7 @@ SCHEMA_CONTRACTS = {
     "import-receipt-v3.schema.json": (3, "world-builder-adaptive-import-receipt"),
     "region-selection-v1.schema.json": (1, "world-builder-region-selection"),
     "region-snapshot-v1.schema.json": (1, "world-builder-region-snapshot"),
+    "region-snapshot-v2.schema.json": (2, "world-builder-region-snapshot"),
     "region-bundle-manifest-v1.schema.json": (1, "world-builder-region-bundle"),
     "region-compatibility-report-v1.schema.json": (1, "world-builder-region-compatibility-report"),
     "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),
@@ -1013,7 +1014,7 @@ class AdaptiveContractTests(unittest.TestCase):
             factory()["manifestType"]: factory for factory in VALID_CONTRACTS.values()
         }
         factories_by_type.update(REGION_SCHEMA_VECTORS)
-        for name, (_, manifest_type) in SCHEMA_CONTRACTS.items():
+        for name, (version, manifest_type) in SCHEMA_CONTRACTS.items():
             with self.subTest(schema=name):
                 schema = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
                 jsonschema.Draft202012Validator.check_schema(schema)
@@ -1023,7 +1024,9 @@ class AdaptiveContractTests(unittest.TestCase):
                 validator = jsonschema.Draft202012Validator(
                     schema, resolver=resolver
                 )
-                errors = list(validator.iter_errors(factories_by_type[manifest_type]()))
+                document = factories_by_type[manifest_type]()
+                document["schemaVersion"] = version
+                errors = list(validator.iter_errors(document))
                 self.assertEqual([], errors, [error.message for error in errors])
 
         alternates = (

@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/region-snapshot-v2.schema.json",
+  "title": "World Builder portable region snapshot v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "snapshotId", "name", "worldSpace", "anchor", "polygon", "levels", "placements", "footprintBoundaryReports", "catalog", "sourceEvidence", "dependencies", "snapshotFingerprintSha256"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "manifestType": {"const": "world-builder-region-snapshot"},
+    "snapshotId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "name": {"type": "string", "minLength": 1, "maxLength": 128},
+    "worldSpace": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "anchor": {"$ref": "#/$defs/point3"},
+    "polygon": {
+      "type": "array", "minItems": 3, "maxItems": 256,
+      "items": {"$ref": "#/$defs/polygonMarker"}
+    },
+    "levels": {
+      "type": "array", "minItems": 1, "maxItems": 64,
+      "items": {"$ref": "#/$defs/level"}
+    },
+    "placements": {"$ref": "#/$defs/placements"},
+    "footprintBoundaryReports": {
+      "type": "array", "maxItems": 65536,
+      "items": {"$ref": "#/$defs/footprintReport"}
+    },
+    "catalog": {"$ref": "#/$defs/catalog"},
+    "sourceEvidence": {"$ref": "#/$defs/sourceEvidence"},
+    "dependencies": {
+      "type": "array", "minItems": 1, "maxItems": 65536,
+      "items": {"$ref": "#/$defs/dependency"}
+    },
+    "snapshotFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "signed": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+    "nonnegative": {"type": "integer", "minimum": 0, "maximum": 2147483647},
+    "byte": {"type": "integer", "minimum": 0, "maximum": 255},
+    "point3": {
+      "type": "object", "additionalProperties": false,
+      "required": ["level", "x", "y"],
+      "properties": {"level": {"$ref": "#/$defs/signed"}, "x": {"$ref": "#/$defs/signed"}, "y": {"$ref": "#/$defs/signed"}}
+    },
+    "offset": {
+      "type": "object", "additionalProperties": false,
+      "required": ["xOffset", "yOffset"],
+      "properties": {"xOffset": {"$ref": "#/$defs/signed"}, "yOffset": {"$ref": "#/$defs/signed"}}
+    },
+    "polygonMarker": {
+      "type": "object", "additionalProperties": false,
+      "required": ["marker", "xOffset", "yOffset"],
+      "properties": {
+        "marker": {"type": "integer", "minimum": 1, "maximum": 256},
+        "xOffset": {"$ref": "#/$defs/signed"},
+        "yOffset": {"$ref": "#/$defs/signed"}
+      }
+    },
+    "level": {
+      "type": "object", "additionalProperties": false,
+      "required": ["levelOffset", "tiles"],
+      "properties": {
+        "levelOffset": {"$ref": "#/$defs/signed"},
+        "tiles": {"type": "array", "minItems": 1, "maxItems": 65536, "items": {"$ref": "#/$defs/tile"}}
+      }
+    },
+    "tile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["xOffset", "yOffset", "elevation", "groundTexture", "groundOverlay", "roofTexture", "verticalWall", "horizontalWall", "diagonalWall", "canonicalVoid"],
+      "properties": {
+        "xOffset": {"$ref": "#/$defs/signed"}, "yOffset": {"$ref": "#/$defs/signed"},
+        "elevation": {"type": "integer", "minimum": 0, "maximum": 65535}, "groundTexture": {"$ref": "#/$defs/byte"},
+        "groundOverlay": {"$ref": "#/$defs/byte"}, "roofTexture": {"$ref": "#/$defs/byte"},
+        "verticalWall": {"$ref": "#/$defs/byte"}, "horizontalWall": {"$ref": "#/$defs/byte"},
+        "diagonalWall": {"$ref": "#/$defs/signed"}, "canonicalVoid": {"type": "boolean"}
+      }
+    },
+    "placements": {
+      "type": "object", "additionalProperties": false,
+      "required": ["boundaries", "groundItems", "npcs", "scenery"],
+      "properties": {
+        "boundaries": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/boundary"}},
+        "groundItems": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/groundItem"}},
+        "npcs": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/npc"}},
+        "scenery": {"type": "array", "maxItems": 65536, "items": {"$ref": "#/$defs/scenery"}}
+      }
+    },
+    "boundary": {
+      "type": "object", "additionalProperties": false,
+      "required": ["levelOffset", "placementId", "boundaryId", "direction", "position"],
+      "properties": {
+        "levelOffset": {"$ref": "#/$defs/signed"}, "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "boundaryId": {"$ref": "#/$defs/nonnegative"}, "direction": {"type": "integer", "minimum": 0, "maximum": 3}, "position": {"$ref": "#/$defs/offset"}
+      }
+    },
+    "groundItem": {
+      "type": "object", "additionalProperties": false,
+      "required": ["levelOffset", "placementId", "itemId", "amount", "respawnSeconds", "position"],
+      "properties": {
+        "levelOffset": {"$ref": "#/$defs/signed"}, "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "itemId": {"$ref": "#/$defs/nonnegative"}, "amount": {"type": "integer", "minimum": 1, "maximum": 2147483647},
+        "respawnSeconds": {"type": "integer", "minimum": 0, "maximum": 86400}, "position": {"$ref": "#/$defs/offset"}
+      }
+    },
+    "npc": {
+      "type": "object", "additionalProperties": false,
+      "required": ["levelOffset", "placementId", "npcId", "start", "roamBounds"],
+      "properties": {
+        "levelOffset": {"$ref": "#/$defs/signed"}, "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "npcId": {"$ref": "#/$defs/nonnegative"}, "start": {"$ref": "#/$defs/offset"},
+        "roamBounds": {
+          "type": "object", "additionalProperties": false, "required": ["minimum", "maximum"],
+          "properties": {"minimum": {"$ref": "#/$defs/offset"}, "maximum": {"$ref": "#/$defs/offset"}}
+        }
+      }
+    },
+    "scenery": {
+      "type": "object", "additionalProperties": false,
+      "required": ["levelOffset", "placementId", "sceneryId", "direction", "position"],
+      "properties": {
+        "levelOffset": {"$ref": "#/$defs/signed"}, "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "sceneryId": {"$ref": "#/$defs/nonnegative"}, "direction": {"type": "integer", "minimum": 0, "maximum": 7}, "position": {"$ref": "#/$defs/offset"}
+      }
+    },
+    "footprintReport": {
+      "type": "object", "additionalProperties": false,
+      "required": ["family", "placementId", "ownership", "crossesBoundary", "detail"],
+      "properties": {
+        "family": {"enum": ["boundary", "ground-item", "npc", "scenery"]},
+        "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "ownership": {"enum": ["anchor-point", "boundary-origin"]},
+        "crossesBoundary": {"type": "boolean"},
+        "detail": {"type": "string", "minLength": 1, "maxLength": 256}
+      }
+    },
+    "catalog": {
+      "type": "object", "additionalProperties": false, "required": ["catalogId", "sha256"],
+      "properties": {"catalogId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}, "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}}
+    },
+    "sourceEvidence": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "packageSchemaId", "coordinateModel", "workingSha256", "runtimeSha256"],
+      "properties": {
+        "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+        "packageSchemaId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "coordinateModel": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "workingSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "runtimeSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "dependency": {
+      "type": "object", "additionalProperties": false,
+      "required": ["kind", "family", "logicalId", "numericId", "catalogId", "contentSha256", "resolution", "bundled"],
+      "properties": {
+        "kind": {"enum": ["definition-catalog", "definition", "material", "sprite"]},
+        "family": {"type": "string", "maxLength": 64},
+        "logicalId": {"type": "string", "minLength": 1, "maxLength": 256},
+        "numericId": {"type": "integer", "minimum": -1, "maximum": 2147483647},
+        "catalogId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "contentSha256": {"type": "string", "pattern": "^$|^[0-9a-f]{64}$"},
+        "resolution": {"enum": ["catalog", "unsupported"]},
+        "bundled": {"const": false}
+      }
+    }
+  }
+}

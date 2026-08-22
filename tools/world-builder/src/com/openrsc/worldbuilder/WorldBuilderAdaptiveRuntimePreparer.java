@@ -48,7 +48,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Collections.unmodifiableList(Arrays.asList(
 			"server/core.jar",
 			"server/plugins.jar",
-			"server/conf/world-builder/adaptive-runtime-capability-v1.json",
+			"server/conf/world-builder/adaptive-runtime-capability-v2.json",
 			"server/inc/sqlite/world_builder_seed.db",
 			"client/Open_RSC_Client.jar"));
 	private static final Set<String> ALLOWED_RUNTIME_ROLES =
@@ -202,7 +202,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		validateDefinitionClosure(entries.keySet(), requiredPaths, true);
 		validateRuntimeClosure(runtime, entries);
 		validateCapability(runtime.resolve(
-			"server/conf/world-builder/adaptive-runtime-capability-v1.json"));
+			"server/conf/world-builder/adaptive-runtime-capability-v2.json"));
 		validateConfig(runtime.resolve("server/world-builder.conf"), port);
 		Path connections = requireFile(runtime.resolve("server/connections.conf"),
 			"working/runtime/server/connections.conf");
@@ -682,7 +682,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static void validateCapability(Path path)
 		throws IOException, WorldBuilderContractException {
 		final String relative =
-			"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v1.json";
+			"working/runtime/server/conf/world-builder/adaptive-runtime-capability-v2.json";
 		Map<String,Object> value;
 		try {
 			value = WorldBuilderJsonDocuments.readObject(requireFile(path, relative));
@@ -693,18 +693,18 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 				"Restore the exact project-local runtime.");
 		}
 		Map<String,Object> expected = new LinkedHashMap<String,Object>();
-		expected.put("schemaVersion", Long.valueOf(1L));
+		expected.put("schemaVersion", Long.valueOf(2L));
 		expected.put("manifestType", "adaptive-world-builder-runtime-capability");
-		expected.put("capabilityId", "adaptive-world-builder-runtime-capability-v1");
+		expected.put("capabilityId", "adaptive-world-builder-runtime-capability-v2");
 		expected.put("profileId", "adaptive-world-builder");
-		expected.put("serverBuildId", "core-framework-adaptive-builder-server-v1");
-		expected.put("clientBuildId", "core-framework-adaptive-builder-client-v1");
-		expected.put("loaderId", "generic-signed-layered-loader-v1");
-		expected.put("authoringId", "generic-signed-layered-authoring-v1");
+		expected.put("serverBuildId", "core-framework-adaptive-builder-server-v2");
+		expected.put("clientBuildId", "core-framework-adaptive-builder-client-v2");
+		expected.put("loaderId", "generic-signed-layered-loader-v2-u16-elevation");
+		expected.put("authoringId", "generic-signed-layered-authoring-v2-u16-elevation");
 		expected.put("definitionContractId",
 			"world-builder-definition-catalog-binding-v1");
 		expected.put("assetContractId", "world-builder-client-asset-binding-v1");
-		expected.put("protocolId", "world-builder-native-layered-protocol-v1");
+		expected.put("protocolId", "world-builder-native-layered-protocol-v2-u16-elevation");
 		expected.put("effectiveCompositionId",
 			"world-builder-effective-static-composition-v1");
 		expected.put("mapFormatId", "signed-layered-v1");
@@ -719,11 +719,24 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"profileId", "serverBuildId", "clientBuildId", "loaderId",
 			"authoringId", "definitionContractId", "assetContractId", "protocolId",
 			"effectiveCompositionId", "mapFormatId", "packageSchemaId",
-			"coordinateModel", "encodingVersions", "authoring", "activation",
+			"coordinateModel", "terrainElevation", "encodingVersions", "authoring", "activation",
 			"canonicalVoidTile")) {
 			throw incompatibleCapability(relative, "document shape");
 		}
-		if (!numericList(value.get("encodingVersions"), 1L, 3L)) {
+		Map<String,Object> elevation = object(value.get("terrainElevation"));
+		if (elevation == null || !exactKeys(elevation, "storageEncoding", "minimum",
+			"maximum", "renderScale", "legacyV1Promotion", "operations",
+			"atomicMultiTileBounds")
+			|| !"unsigned-16".equals(elevation.get("storageEncoding"))
+			|| !Long.valueOf(0L).equals(elevation.get("minimum"))
+			|| !Long.valueOf(65535L).equals(elevation.get("maximum"))
+			|| !Long.valueOf(3L).equals(elevation.get("renderScale"))
+			|| !"unsigned-byte-lossless".equals(elevation.get("legacyV1Promotion"))
+			|| !Arrays.asList("absolute", "raise", "lower").equals(elevation.get("operations"))
+			|| !Boolean.TRUE.equals(elevation.get("atomicMultiTileBounds"))) {
+			throw incompatibleCapability(relative, "terrainElevation");
+		}
+		if (!numericList(value.get("encodingVersions"), 1L, 2L, 3L)) {
 			throw incompatibleCapability(relative, "encodingVersions");
 		}
 		Map<String,Object> authoring = object(value.get("authoring"));

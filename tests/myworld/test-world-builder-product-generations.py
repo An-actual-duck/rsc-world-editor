@@ -95,7 +95,7 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
         self.assertIn("No World Builder-owned source was copied", sync)
         self.assertIn("release/world-builder-v2", sync)
         self.assertNotIn('diff -qr "$ROOT_DIR/$relative"', parity)
-        self.assertIn("adaptive-runtime-capability-v1.json", parity)
+        self.assertIn("adaptive-runtime-capability-v2.json", parity)
         self.assertIn("AdaptiveWorldBuilderRuntimeSession.java", parity)
         self.assertIn("release/world-builder-v2", parity)
         self.assertNotIn(

@@ -163,6 +163,20 @@ adapter, capability, selected configuration, definition/runtime identity, and
 source/baseline/working fingerprints. Only a display locator may be absolute,
 and it is excluded from portable project identity.
 
+Terrain input accepts the frozen `raw-layered-sector-v1` encoding (10 bytes per
+tile) and `raw-layered-sector-v2-u16` (11 bytes per tile). Editable working
+packages are promoted losslessly to v2: unsigned 16-bit big-endian elevation
+followed by the unchanged nine legacy bytes. New empty worlds, packed
+conversions, saves, and region snapshots use v2. A legacy terrain downgrade is
+refused unless every elevation is at most 255, with every blocking tile's
+level, world coordinates, and value reported.
+
+Existing-project promotion uses a forced, bounded transaction journal and
+same-directory atomic package exchange. Open, verification, and save recover
+an interrupted exchange to either the exact journaled v1 tree or the fully
+validated v2 tree, reconcile project/registry fingerprints, and refuse
+unjournaled, linked, malformed, or otherwise ambiguous artifacts.
+
 ## Project selection, validation, and save
 
 List and select by exact UUID:

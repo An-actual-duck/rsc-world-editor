@@ -724,6 +724,10 @@ public final class PackedConversionFailureHarness {
                 "rsc-remastered.spoiled-milk-layered-world", manifest["packageId"]
             )
             self.assertEqual([-1, 0, 1, 2], [level["level"] for level in manifest["levels"]])
+            self.assertTrue(all(
+                item["encoding"] == "raw-layered-sector-v2-u16"
+                for item in manifest["terrainSectors"]
+            ))
             package_files = [
                 path.relative_to(first_output / "package").as_posix()
                 for path in (first_output / "package").rglob("*")
@@ -743,12 +747,13 @@ public final class PackedConversionFailureHarness {
                     layered = bytearray(
                         (first_output / "package" / declaration["path"]).read_bytes()
                     )
-                    for offset in range(0, len(layered), 10):
-                        layered[offset + 4], layered[offset + 5] = (
-                            layered[offset + 5],
-                            layered[offset + 4],
-                        )
-                    self.assertEqual(archive.read(entry), bytes(layered))
+                    legacy = bytearray()
+                    for offset in range(0, len(layered), 11):
+                        self.assertEqual(0, layered[offset])
+                        tile = bytearray(layered[offset + 1 : offset + 11])
+                        tile[4], tile[5] = tile[5], tile[4]
+                        legacy.extend(tile)
+                    self.assertEqual(archive.read(entry), bytes(legacy))
 
             placement_payloads = [
                 json.loads((first_output / "package" / item["path"]).read_text())

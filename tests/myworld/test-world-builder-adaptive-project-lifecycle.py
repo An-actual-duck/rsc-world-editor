@@ -21,9 +21,9 @@ DISCOVERY_TEST = ROOT / "tests/myworld/test-world-builder-adaptive-discovery.py"
 PACKED_CONVERSION_TEST = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
 RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
 RUNTIME_ALLOWLIST_RESOURCE = "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt"
-CANONICAL_VOID_TILE = bytes((0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
+CANONICAL_VOID_TILE = bytes((0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
-VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 STANDALONE_INITIAL_LOCATION = {"level": 0, "x": 120, "y": 648}
 
 
@@ -33,8 +33,8 @@ def standalone_seed_sector() -> bytes:
     center_y = STANDALONE_INITIAL_LOCATION["y"] % 48
     for local_x in range(center_x - 1, center_x + 2):
         for local_y in range(center_y - 1, center_y + 2):
-            offset = (local_x * 48 + local_y) * 10
-            result[offset : offset + 10] = VISIBLE_FLOOR_TILE
+            offset = (local_x * 48 + local_y) * 11
+            result[offset : offset + 11] = VISIBLE_FLOOR_TILE
     return bytes(result)
 
 
@@ -95,6 +95,16 @@ def canonical_hash(value: dict) -> str:
     return hashlib.sha256(
         json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def package_fingerprint(package: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(value for value in package.rglob("*") if value.is_file()):
+        relative = path.relative_to(package).as_posix()
+        for value in (relative, str(path.stat().st_size), sha256(path)):
+            digest.update(value.encode("utf-8"))
+            digest.update(b"\0")
+    return digest.hexdigest()
 
 
 def runtime_allowlist_records() -> tuple[tuple[str, str, str], ...]:
@@ -221,6 +231,47 @@ public final class AdaptiveProjectFailureHarness {
                 "-d",
                 str(cls.classes),
                 str(harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        promotion_harness = (
+            Path(cls.compile_temp.name)
+            / "harness/com/openrsc/worldbuilder/WidePromotionCrashHarness.java"
+        )
+        promotion_harness.write_text(
+            """
+package com.openrsc.worldbuilder;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public final class WidePromotionCrashHarness {
+    public static void main(String[] args) throws Exception {
+        final String injected = args[1];
+        WorldBuilderAdaptiveProjectLifecycle.Observer observer =
+            new WorldBuilderAdaptiveProjectLifecycle.Observer() {
+                @Override
+                public void observe(String milestone, Path project) {
+                    if (injected.equals(milestone)) {
+                        Runtime.getRuntime().halt(71);
+                    }
+                }
+            };
+        new WorldBuilderAdaptiveProjectLifecycle(observer).save(Paths.get(args[0]));
+    }
+}
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8",
+                "-cp", str(cls.classes), "-d", str(cls.classes),
+                str(promotion_harness),
             ],
             check=True,
             cwd=ROOT,
@@ -616,22 +667,31 @@ public final class AdaptiveProjectSupervisorHarness {
             b"fixture-project-local-database-seed\n"
         )
         capability = {
-            "schemaVersion": 1,
+            "schemaVersion": 2,
             "manifestType": "adaptive-world-builder-runtime-capability",
-            "capabilityId": "adaptive-world-builder-runtime-capability-v1",
+            "capabilityId": "adaptive-world-builder-runtime-capability-v2",
             "profileId": "adaptive-world-builder",
-            "serverBuildId": "core-framework-adaptive-builder-server-v1",
-            "clientBuildId": "core-framework-adaptive-builder-client-v1",
-            "loaderId": "generic-signed-layered-loader-v1",
-            "authoringId": "generic-signed-layered-authoring-v1",
+            "serverBuildId": "core-framework-adaptive-builder-server-v2",
+            "clientBuildId": "core-framework-adaptive-builder-client-v2",
+            "loaderId": "generic-signed-layered-loader-v2-u16-elevation",
+            "authoringId": "generic-signed-layered-authoring-v2-u16-elevation",
             "definitionContractId": "world-builder-definition-catalog-binding-v1",
             "assetContractId": "world-builder-client-asset-binding-v1",
-            "protocolId": "world-builder-native-layered-protocol-v1",
+            "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
             "effectiveCompositionId": "world-builder-effective-static-composition-v1",
             "mapFormatId": "signed-layered-v1",
             "packageSchemaId": "layered-world-package-v1",
             "coordinateModel": "signed-layered-v1",
-            "encodingVersions": [1, 3],
+            "terrainElevation": {
+                "storageEncoding": "unsigned-16",
+                "minimum": 0,
+                "maximum": 65535,
+                "renderScale": 3,
+                "legacyV1Promotion": "unsigned-byte-lossless",
+                "operations": ["absolute", "raise", "lower"],
+                "atomicMultiTileBounds": True,
+            },
+            "encodingVersions": [1, 2, 3],
             "authoring": {
                 "editExistingLevels": True,
                 "createLevels": True,
@@ -647,7 +707,7 @@ public final class AdaptiveProjectSupervisorHarness {
             "canonicalVoidTile": [0, 1, 8, 0, 0, 0, 0, 0, 0, 0],
         }
         write_json(
-            server / "conf/world-builder/adaptive-runtime-capability-v1.json",
+            server / "conf/world-builder/adaptive-runtime-capability-v2.json",
             capability,
         )
         for name in REQUIRED_LANGUAGE_BUNDLES:
@@ -843,12 +903,12 @@ public final class FakeAdaptiveClient {
         byte[] payload = Files.readAllBytes(terrain);
         for (int localX = 22; localX <= 26; localX++) {
             for (int localY = 22; localY <= 26; localY++) {
-                int offset = (localX * 48 + localY) * 10;
+                int offset = (localX * 48 + localY) * 11;
                 boolean seed = localX >= 23 && localX <= 25
                     && localY >= 23 && localY <= 25;
-                require((payload[offset + 1] & 0xff) == (seed ? 0 : 1),
+                require((payload[offset + 2] & 0xff) == (seed ? 0 : 1),
                     "standalone initial floor color");
-                require((payload[offset + 2] & 0xff) == (seed ? 0 : 8),
+                require((payload[offset + 3] & 0xff) == (seed ? 0 : 8),
                     "standalone initial floor overlay");
             }
         }
@@ -961,6 +1021,73 @@ public final class FakeAdaptiveClient {
             confirmation,
         )
         return result, json.loads(result.stdout) if result.returncode == 0 else None
+
+    def install_legacy_working_package(
+        self, installation: Path, project: Path
+    ) -> tuple[dict[str, tuple], dict[str, bytes]]:
+        source = project / "source/layered-baseline/package"
+        working = project / "working/layered-world/package"
+        shutil.rmtree(working)
+        shutil.copytree(source, working)
+        package_manifest_path = working / "manifest.json"
+        package_manifest = json.loads(package_manifest_path.read_text(encoding="utf-8"))
+        terrain_expected = {}
+        for index, sector in enumerate(package_manifest["terrainSectors"]):
+            terrain = working / sector["path"]
+            payload = bytearray(terrain.read_bytes())
+            if index == 0:
+                payload[0:10] = bytes((0, 31, 32, 33, 34, 35, 36, 37, 38, 39))
+                payload[10:20] = bytes((255, 41, 42, 43, 44, 45, 46, 47, 48, 49))
+            terrain.write_bytes(payload)
+            sector["sha256"] = sha256(terrain)
+            terrain_expected[sector["path"]] = bytes(payload)
+        write_json(package_manifest_path, package_manifest)
+
+        manifest_path = project / "project.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["fingerprints"]["workingSha256"] = package_fingerprint(working)
+        manifest["projectFingerprintSha256"] = "0" * 64
+        locator = manifest["target"]["locatorDisplay"]
+        manifest["target"]["locatorDisplay"] = ""
+        manifest["projectFingerprintSha256"] = canonical_hash(manifest)
+        manifest["target"]["locatorDisplay"] = locator
+        write_json(manifest_path, manifest)
+        manifest_hash = sha256(manifest_path)
+
+        registry_path = installation / "project-registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        record = next(
+            item for item in registry["projects"]
+            if item["projectId"] == manifest["projectId"]
+        )
+        record["manifestSha256"] = manifest_hash
+        registry["registryFingerprintSha256"] = "0" * 64
+        registry["registryFingerprintSha256"] = canonical_hash(registry)
+        write_json(registry_path, registry)
+        active_path = installation / "active-project.json"
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        active["manifestSha256"] = manifest_hash
+        write_json(active_path, active)
+
+        placements = {
+            item["path"]: (working / item["path"]).read_bytes()
+            for item in package_manifest["placementSets"]
+        }
+        return tree_bytes(working), {**terrain_expected, **placements}
+
+    def run_promotion_crash(
+        self, project: Path, milestone: str
+    ) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.WidePromotionCrashHarness",
+                str(project), milestone,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
 
     def run_injected(
         self,
@@ -1123,7 +1250,7 @@ public final class FakeAdaptiveClient {
         manifest["levels"].sort(key=lambda value: value["level"])
         manifest["terrainSectors"].append(
             {
-                "encoding": "raw-layered-sector-v1",
+                "encoding": "raw-layered-sector-v2-u16",
                 "level": level,
                 "path": terrain_relative,
                 "sectorX": 2,
@@ -1180,8 +1307,30 @@ public final class FakeAdaptiveClient {
             and value["sectorY"] == y // 48
         )
         sector = (package / declaration["path"]).read_bytes()
-        offset = ((x % 48) * 48 + (y % 48)) * 10
-        return sector[offset : offset + 10]
+        width = 11 if declaration["encoding"] == "raw-layered-sector-v2-u16" else 10
+        offset = ((x % 48) * 48 + (y % 48)) * width
+        return sector[offset : offset + width]
+
+    @staticmethod
+    def set_tile_elevation(package: Path, x: int, y: int, elevation: int,
+                           level: int = 0) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declaration = next(
+            value for value in manifest["terrainSectors"]
+            if value["level"] == level
+            and value["sectorX"] == x // 48
+            and value["sectorY"] == y // 48
+        )
+        if declaration["encoding"] != "raw-layered-sector-v2-u16":
+            raise AssertionError("wide-elevation fixture requires v2 terrain")
+        terrain = package / declaration["path"]
+        payload = bytearray(terrain.read_bytes())
+        offset = ((x % 48) * 48 + (y % 48)) * 11
+        payload[offset : offset + 2] = elevation.to_bytes(2, "big")
+        terrain.write_bytes(payload)
+        declaration["sha256"] = sha256(terrain)
+        write_json(manifest_path, manifest)
 
     @staticmethod
     def rewrite_region_bundle(bundle: Path, mutate) -> None:
@@ -1315,7 +1464,7 @@ public final class FakeAdaptiveClient {
         sector = manifest["terrainSectors"][0]
         self.assertEqual(
             {
-                "encoding": "raw-layered-sector-v1",
+                "encoding": "raw-layered-sector-v2-u16",
                 "level": 0,
                 "path": "terrain/global/lp0/xp2-yp13.raw",
                 "sectorX": 2,
@@ -1340,7 +1489,7 @@ public final class FakeAdaptiveClient {
         self.assertGreaterEqual(
             minimum_y + 47 - STANDALONE_INITIAL_LOCATION["y"], 23
         )
-        tiles = [payload[offset : offset + 10] for offset in range(0, len(payload), 10)]
+        tiles = [payload[offset : offset + 11] for offset in range(0, len(payload), 11)]
         self.assertEqual(9, tiles.count(VISIBLE_FLOOR_TILE))
         self.assertEqual(48 * 48 - 9, tiles.count(CANONICAL_VOID_TILE))
 
@@ -1676,9 +1825,20 @@ public final class FakeAdaptiveClient {
             project = Path(summary["projectRoot"])
             self.add_empty_level(project, -1)
             expected_placements = self.place_representative_definitions(project)
+            package = project / "working/layered-world/package"
+            wide_values = [0, 255, 256, 12000, 65535, 12345]
+            for (x, y), elevation in zip(
+                ((119, 648), (119, 649), (120, 648), (120, 649),
+                 (121, 648), (121, 649)),
+                wide_values,
+            ):
+                self.set_tile_elevation(package, x, y, elevation)
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
-            package = project / "working/layered-world/package"
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation, "--validate-only"
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
             package_before = tree_bytes(package)
             source_before = tree_bytes(project / "source")
             target_before = tree_bytes(target)
@@ -1725,9 +1885,24 @@ public final class FakeAdaptiveClient {
                 )
                 snapshot = json.loads(archive.read("snapshot.json"))
             self.assertEqual(copy_result["snapshotId"], snapshot["snapshotId"])
+            self.assertEqual(2, snapshot["schemaVersion"])
             self.assertEqual("global", snapshot["worldSpace"])
             self.assertEqual(
                 {0, 1}, {value["levelOffset"] for value in snapshot["levels"]}
+            )
+            surface = next(
+                value for value in snapshot["levels"] if value["levelOffset"] == 1
+            )
+            captured = {
+                (tile["xOffset"], tile["yOffset"]): tile["elevation"]
+                for tile in surface["tiles"]
+            }
+            self.assertEqual(
+                dict(zip(
+                    ((0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)),
+                    wide_values,
+                )),
+                captured,
             )
             self.assertEqual(
                 {
@@ -1846,7 +2021,7 @@ public final class FakeAdaptiveClient {
                 "CUT " + plan_hash,
             )
             self.assertEqual(0, cut_apply.returncode, cut_apply.stderr)
-            void_tile = bytes([0, 1, 8, 0, 0, 0, 0, 0, 0, 0])
+            void_tile = CANONICAL_VOID_TILE
             for level in (-1, 0):
                 for x in range(119, 122):
                     for y in range(648, 650):
@@ -3193,6 +3368,194 @@ public final class FakeAdaptiveClient {
             self.assertEqual(before, external.read_bytes())
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_wide_promotion_recovers_every_process_crash_swap_milestone(self):
+        milestones = (
+            "wide-promotion-staged",
+            "wide-promotion-v1-aside",
+            "wide-promotion-v2-installed",
+            "wide-promotion-before-cleanup",
+        )
+        for index, milestone in enumerate(milestones):
+            with self.subTest(milestone=milestone), tempfile.TemporaryDirectory(
+                prefix="adaptive-wide-promotion-crash-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.descriptor_fixture(
+                    str(base), world_space="global"
+                )
+                installation = target / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "layered-report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Promotion recovery", 44020 + index
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                target_before = tree_bytes(target, installation)
+                source_before = tree_bytes(project / "source")
+                legacy_tree, expected = self.install_legacy_working_package(
+                    installation, project
+                )
+                self.assertTrue(legacy_tree)
+
+                crashed = self.run_promotion_crash(project, milestone)
+                self.assertEqual(71, crashed.returncode, crashed.stderr)
+                self.assertEqual(source_before, tree_bytes(project / "source"))
+                self.assertEqual(target_before, tree_bytes(target, installation))
+
+                opened = self.run_cli(
+                    "open-project", "--installation-root", installation,
+                    "--validate-only"
+                )
+                self.assertEqual(0, opened.returncode, opened.stderr)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                reopened = self.run_cli(
+                    "open-project", "--installation-root", installation,
+                    "--validate-only"
+                )
+                self.assertEqual(0, reopened.returncode, reopened.stderr)
+
+                working = project / "working/layered-world/package"
+                manifest = json.loads(
+                    (working / "manifest.json").read_text(encoding="utf-8")
+                )
+                self.assertTrue(all(
+                    item["encoding"] == "raw-layered-sector-v2-u16"
+                    for item in manifest["terrainSectors"]
+                ))
+                for item in manifest["terrainSectors"]:
+                    legacy = expected[item["path"]]
+                    promoted = b"".join(
+                        b"\0" + legacy[offset : offset + 10]
+                        for offset in range(0, len(legacy), 10)
+                    )
+                    self.assertEqual(promoted, (working / item["path"]).read_bytes())
+                for item in manifest["placementSets"]:
+                    self.assertEqual(
+                        expected[item["path"]],
+                        (working / item["path"]).read_bytes(),
+                    )
+                self.assertFalse(any(
+                    path.name.startswith(".wide-elevation-")
+                    for path in installation.rglob("*")
+                ))
+                self.assertEqual(source_before, tree_bytes(project / "source"))
+                self.assertEqual(target_before, tree_bytes(target, installation))
+
+    def test_wide_promotion_recovery_refuses_unjournaled_and_malformed_state(self):
+        for mode in ("unjournaled", "malformed"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory(
+                prefix="adaptive-wide-promotion-refusal-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.descriptor_fixture(
+                    str(base), world_space="global"
+                )
+                installation = target / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "layered-report.json"
+                self.discover(target, report)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    "Promotion refusal", 44030
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                source_before = tree_bytes(project / "source")
+                target_before = tree_bytes(target, installation)
+                parent = project / "working/layered-world"
+                if mode == "unjournaled":
+                    (parent / (
+                        ".wide-elevation-stage-"
+                        "11111111-1111-1111-1111-111111111111"
+                    )).mkdir()
+                else:
+                    (parent / ".wide-elevation-promotion-v1.json").write_text(
+                        "{}\n", encoding="utf-8"
+                    )
+                refused = self.run_cli(
+                    "open-project", "--installation-root", installation,
+                    "--validate-only"
+                )
+                self.assertEqual(3, refused.returncode)
+                self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+                self.assertEqual(source_before, tree_bytes(project / "source"))
+                self.assertEqual(target_before, tree_bytes(target, installation))
+
+    def test_read_only_verification_does_not_recover_pending_wide_promotion(self):
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-wide-promotion-read-only-"
+        ) as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(str(base), world_space="global")
+            installation = target / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "layered-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Read-only promotion refusal", 44032
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.install_legacy_working_package(installation, project)
+            crashed = self.run_promotion_crash(project, "wide-promotion-staged")
+            self.assertEqual(71, crashed.returncode, crashed.stderr)
+            before = tree_bytes(installation)
+
+            refused = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+            self.assertEqual(before, tree_bytes(installation))
+
+            recovered = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--validate-only"
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertFalse(any(
+                path.name.startswith(".wide-elevation-")
+                for path in installation.rglob("*")
+            ))
+
+    def test_save_entry_recovers_promotion_with_missing_working_package(self):
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-wide-promotion-save-recovery-"
+        ) as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(str(base), world_space="global")
+            installation = target / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "layered-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Save promotion recovery", 44031
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.install_legacy_working_package(installation, project)
+            source_before = tree_bytes(project / "source")
+            target_before = tree_bytes(target, installation)
+            crashed = self.run_promotion_crash(project, "wide-promotion-v1-aside")
+            self.assertEqual(71, crashed.returncode, crashed.stderr)
+            self.assertFalse((project / "working/layered-world/package").exists())
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target, installation))
+            self.assertFalse(any(
+                path.name.startswith(".wide-elevation-")
+                for path in installation.rglob("*")
+            ))
+
     def test_layered_adoption_save_and_portable_detached_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-layered-") as temp:
             base = Path(temp)
@@ -3216,10 +3579,33 @@ public final class FakeAdaptiveClient {
             self.assertEqual(str(target.resolve()), manifest["target"]["locatorDisplay"])
             self.assertEqual("", manifest["fingerprints"]["conversionSha256"])
             self.assertFalse((project / "source/conversion").exists())
-            self.assertEqual(
-                tree_bytes(project / "source/layered-baseline/package"),
-                tree_bytes(project / "working/layered-world/package"),
+            baseline_package = project / "source/layered-baseline/package"
+            working_package = project / "working/layered-world/package"
+            baseline_manifest = json.loads(
+                (baseline_package / "manifest.json").read_text(encoding="utf-8")
             )
+            working_manifest = json.loads(
+                (working_package / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertTrue(all(
+                item["encoding"] == "raw-layered-sector-v1"
+                for item in baseline_manifest["terrainSectors"]
+            ))
+            self.assertTrue(all(
+                item["encoding"] == "raw-layered-sector-v2-u16"
+                for item in working_manifest["terrainSectors"]
+            ))
+            for source_sector, editable_sector in zip(
+                baseline_manifest["terrainSectors"], working_manifest["terrainSectors"]
+            ):
+                legacy = (baseline_package / source_sector["path"]).read_bytes()
+                promoted = b"".join(
+                    b"\0" + legacy[offset : offset + 10]
+                    for offset in range(0, len(legacy), 10)
+                )
+                self.assertEqual(
+                    promoted, (working_package / editable_sector["path"]).read_bytes()
+                )
             install_before_validation = tree_bytes(installation)
             validated = self.run_cli(
                 "open-project",
@@ -3706,7 +4092,7 @@ public final class FakeAdaptiveClient {
                     capability_path = (
                         runtime
                         / "server/conf/world-builder/"
-                        "adaptive-runtime-capability-v1.json"
+                        "adaptive-runtime-capability-v2.json"
                     )
                     capability = json.loads(
                         capability_path.read_text(encoding="utf-8")

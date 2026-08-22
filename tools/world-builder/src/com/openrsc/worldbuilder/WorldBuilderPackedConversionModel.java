@@ -27,7 +27,7 @@ final class WorldBuilderPackedConversionModel {
 	static final String PLACEMENT_COMPOSITION_PROFILE_ID =
 		"declared-packed-static-composition-v1";
 	static final String OUTPUT_PACKAGE_SCHEMA_ID = "layered-world-package-v1";
-	static final int OUTPUT_ENCODING_VERSION = 1;
+	static final int OUTPUT_ENCODING_VERSION = 2;
 	private static final String WORLD_SPACE = "global";
 	private static final int MAX_SECTORS = 65536;
 	static final int DEFAULT_CUMULATIVE_RECORD_LIMIT = 65536;
@@ -421,15 +421,15 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		String path, String entry) throws WorldBuilderContractException {
 		for (int offset = 0, tile = 0; offset < layered.length;
-			offset += WorldBuilderPackedTerrainCodec.TILE_BYTES, tile++) {
-			int overlay = layered[offset + 2] & 0xff;
+			offset += WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES, tile++) {
+			int overlay = layered[offset + 3] & 0xff;
 			int effectiveOverlay = overlay == 250 ? 2 : overlay;
 			if (effectiveOverlay > 0
 				&& !definitions.tiles.contains(Integer.valueOf(effectiveOverlay - 1))) {
 				throw definition(path, entry, tile, "tile", effectiveOverlay - 1);
 			}
-			int vertical = layered[offset + 4] & 0xff;
-			int horizontal = layered[offset + 5] & 0xff;
+			int vertical = layered[offset + 5] & 0xff;
+			int horizontal = layered[offset + 6] & 0xff;
 			if (vertical > 0
 				&& !definitions.boundaries.contains(Integer.valueOf(vertical - 1))) {
 				throw definition(path, entry, tile, "boundary", vertical - 1);
@@ -438,7 +438,7 @@ final class WorldBuilderPackedConversionModel {
 				&& !definitions.boundaries.contains(Integer.valueOf(horizontal - 1))) {
 				throw definition(path, entry, tile, "boundary", horizontal - 1);
 			}
-			int diagonal = ByteBuffer.wrap(layered, offset + 6, 4).getInt();
+			int diagonal = ByteBuffer.wrap(layered, offset + 7, 4).getInt();
 			if (diagonal != 0) {
 				int definitionId;
 				if (diagonal > 0 && diagonal < 12000) definitionId = diagonal - 1;
@@ -877,7 +877,9 @@ final class WorldBuilderPackedConversionModel {
 				throw blocked(relative,
 					"Staged terrain byte sequence differs from the converted model.");
 			}
-			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(actualBytes);
+			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(actualBytes,
+				sector.coordinate.level, sector.coordinate.sectorX,
+				sector.coordinate.sectorY);
 			if (!Arrays.equals(sector.legacyBytes, reversed)) {
 				throw blocked(relative,
 					"Staged terrain does not reverse to its exact immutable source ZIP entry.");

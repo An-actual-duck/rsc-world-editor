@@ -347,7 +347,8 @@ final class WorldBuilderRegionSnapshotService {
 		int anchorY = selection.markers.get(0).y;
 		int anchorLevel = selection.levels.get(0).intValue();
 		Map<String,Object> root = new LinkedHashMap<String,Object>();
-		root.put("schemaVersion", Long.valueOf(1L));
+		root.put("schemaVersion", Long.valueOf(
+			WorldBuilderRegionContracts.SNAPSHOT_VERSION));
 		root.put("manifestType", "world-builder-region-snapshot");
 		root.put("snapshotId", WorldBuilderRegionContracts.ZERO_HASH);
 		root.put("name", name);
@@ -444,7 +445,7 @@ final class WorldBuilderRegionSnapshotService {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("xOffset", Long.valueOf(x));
 		result.put("yOffset", Long.valueOf(y));
-		result.put("elevation", Long.valueOf(input.get() & 0xff));
+		result.put("elevation", Long.valueOf(input.getShort() & 0xffff));
 		result.put("groundTexture", Long.valueOf(input.get() & 0xff));
 		result.put("groundOverlay", Long.valueOf(input.get() & 0xff));
 		result.put("roofTexture", Long.valueOf(input.get() & 0xff));
@@ -1806,15 +1807,11 @@ final class WorldBuilderRegionSnapshotService {
 	}
 
 	private static byte[] encodeTile(Map<String,Object> tile) {
-		ByteBuffer output = ByteBuffer.allocate(WorldBuilderRawLayeredTerrainCodec.TILE_BYTES);
-		output.put((byte)integer(tile, "elevation"));
-		output.put((byte)integer(tile, "groundTexture"));
-		output.put((byte)integer(tile, "groundOverlay"));
-		output.put((byte)integer(tile, "roofTexture"));
-		output.put((byte)integer(tile, "verticalWall"));
-		output.put((byte)integer(tile, "horizontalWall"));
-		output.putInt(integer(tile, "diagonalWall"));
-		return output.array();
+		return WorldBuilderRawLayeredTerrainCodec.encodeV2Tile(
+			integer(tile, "elevation"), integer(tile, "groundTexture"),
+			integer(tile, "groundOverlay"), integer(tile, "roofTexture"),
+			integer(tile, "verticalWall"), integer(tile, "horizontalWall"),
+			integer(tile, "diagonalWall"));
 	}
 
 	private static Set<Integer> snapshotLevels(
@@ -2663,8 +2660,15 @@ final class WorldBuilderRegionSnapshotService {
 				int sx = integer(declaration, "sectorX");
 				int sy = integer(declaration, "sectorY");
 				Path path = root.resolve(text(declaration, "path"));
+				String encoding = text(declaration, "encoding");
+				byte[] bytes = Files.readAllBytes(path);
+				if (WorldBuilderRawLayeredTerrainCodec.V1_ENCODING.equals(encoding)) {
+					bytes = WorldBuilderRawLayeredTerrainCodec.promoteV1(bytes);
+					declaration.put("encoding",
+						WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
+				}
 				state.sectors.put(key(level, sx, sy),
-					new Sector(declaration, path, Files.readAllBytes(path)));
+					new Sector(declaration, path, bytes));
 			}
 			for (Object raw : list(manifest, "placementSets")) {
 				Map<String,Object> declaration = map(raw);
@@ -2686,15 +2690,22 @@ final class WorldBuilderRegionSnapshotService {
 		byte[] tile(int level, int x, int y) {
 			Sector sector = sectors.get(key(level, Math.floorDiv(x, 48), Math.floorDiv(y, 48)));
 			if (sector == null) return null;
-			int offset = (Math.floorMod(x, 48) * 48 + Math.floorMod(y, 48)) * 10;
-			return Arrays.copyOfRange(sector.bytes, offset, offset + 10);
+			int offset = (Math.floorMod(x, 48) * 48 + Math.floorMod(y, 48))
+				* WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
+			return Arrays.copyOfRange(sector.bytes, offset,
+				offset + WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES);
 		}
 
 		boolean setTile(int level, int x, int y, byte[] value) {
 			Sector sector = sectors.get(key(level, Math.floorDiv(x, 48), Math.floorDiv(y, 48)));
 			if (sector == null) return false;
-			int offset = (Math.floorMod(x, 48) * 48 + Math.floorMod(y, 48)) * 10;
-			System.arraycopy(value, 0, sector.bytes, offset, 10);
+			if (value.length != WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES) {
+				throw new IllegalArgumentException("Region tile must use exact v2 width.");
+			}
+			int offset = (Math.floorMod(x, 48) * 48 + Math.floorMod(y, 48))
+				* WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
+			System.arraycopy(value, 0, sector.bytes, offset,
+				WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES);
 			return true;
 		}
 

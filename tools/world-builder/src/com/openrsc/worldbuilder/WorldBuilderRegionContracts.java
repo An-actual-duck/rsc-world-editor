@@ -9,9 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Strict version-1 contracts for portable, non-executable region snapshots. */
+/** Strict portable region contracts with readable v1 and wide-elevation v2 snapshots. */
 final class WorldBuilderRegionContracts {
 	static final long VERSION = 1L;
+	static final long SNAPSHOT_VERSION = 2L;
 	static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
 	static final int MAX_MARKERS = 256;
@@ -69,7 +70,8 @@ final class WorldBuilderRegionContracts {
 	static Snapshot snapshot(Map<String,Object> root)
 		throws WorldBuilderContractException {
 		String op = "validate-region-snapshot";
-		identity(root, "world-builder-region-snapshot", op);
+		long snapshotVersion = version(root, "world-builder-region-snapshot", op,
+			VERSION, SNAPSHOT_VERSION);
 		exact(root, op, "schemaVersion", "manifestType", "snapshotId", "name",
 			"worldSpace", "anchor", "polygon", "levels", "placements",
 			"footprintBoundaryReports", "catalog", "sourceEvidence", "dependencies",
@@ -126,7 +128,11 @@ final class WorldBuilderRegionContracts {
 					"diagonalWall", "canonicalVoid");
 				int x = signed(tile, "xOffset", op);
 				int y = signed(tile, "yOffset", op);
-				for (String field : Arrays.asList("elevation", "groundTexture",
+				long elevation = integer(tile, "elevation", op);
+				if (elevation < 0L
+					|| elevation > (snapshotVersion == VERSION ? 255L : 65535L)) invalid(op,
+					"Snapshot elevation is outside its schema range.");
+				for (String field : Arrays.asList("groundTexture",
 					"groundOverlay", "roofTexture", "verticalWall", "horizontalWall")) {
 					long value = integer(tile, field, op);
 					if (value < 0L || value > 255L) invalid(op,
@@ -490,14 +496,26 @@ final class WorldBuilderRegionContracts {
 
 	private static boolean isCanonicalVoid(Map<String,Object> tile, String op)
 		throws WorldBuilderContractException {
-		byte[] expected = WorldBuilderCanonicalVoidTerrain.tile();
-		return integer(tile, "elevation", op) == (expected[0] & 0xff)
-			&& integer(tile, "groundTexture", op) == (expected[1] & 0xff)
-			&& integer(tile, "groundOverlay", op) == (expected[2] & 0xff)
-			&& integer(tile, "roofTexture", op) == (expected[3] & 0xff)
-			&& integer(tile, "verticalWall", op) == (expected[4] & 0xff)
-			&& integer(tile, "horizontalWall", op) == (expected[5] & 0xff)
+		return integer(tile, "elevation", op) == 0L
+			&& integer(tile, "groundTexture", op)
+				== WorldBuilderCanonicalVoidTerrain.GROUND_TEXTURE
+			&& integer(tile, "groundOverlay", op)
+				== WorldBuilderCanonicalVoidTerrain.GROUND_OVERLAY
+			&& integer(tile, "roofTexture", op) == 0L
+			&& integer(tile, "verticalWall", op) == 0L
+			&& integer(tile, "horizontalWall", op) == 0L
 			&& integer(tile, "diagonalWall", op) == 0L;
+	}
+
+	private static long version(Map<String,Object> root, String type, String op,
+		long first, long second) throws WorldBuilderContractException {
+		if (!(root.get("schemaVersion") instanceof Long)
+			|| !type.equals(root.get("manifestType"))) invalid(op,
+			"Region contract identity or schema version is unsupported.");
+		long value = ((Long)root.get("schemaVersion")).longValue();
+		if (value != first && value != second) invalid(op,
+			"Region contract identity or schema version is unsupported.");
+		return value;
 	}
 
 	private static void identity(Map<String,Object> root, String type, String op)
@@ -645,7 +663,7 @@ final class WorldBuilderRegionContracts {
 	static void invalid(String op, String message) throws WorldBuilderContractException {
 		throw new WorldBuilderContractException(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
 			op, "", false, message,
-			"Use one exact, bounded region-snapshot-v1 contract.");
+			"Use one exact, bounded region-snapshot-v1 or region-snapshot-v2 contract.");
 	}
 
 	private static String ordered(int value) {

@@ -135,7 +135,9 @@ vectors:
 
 - terrain archive entries use names such as
   `h<plane>x<archive-x>y<archive-y>`;
-- a raw sector is 48 by 48 tiles with 10 bytes per tile, exactly 23,040 bytes;
+- a frozen v1 raw sector is 48 by 48 tiles with 10 bytes per tile, exactly
+  23,040 bytes; editable v2 uses an unsigned 16-bit big-endian elevation plus
+  the unchanged nine legacy bytes, exactly 25,344 bytes per sector;
 - the legacy codec maps packed planes and archive offsets into signed layered
   levels and sector coordinates;
 - conversion swaps the two legacy orientation bytes, and the inverse transform

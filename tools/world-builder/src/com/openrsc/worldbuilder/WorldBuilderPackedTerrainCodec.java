@@ -4,21 +4,32 @@ import java.util.Arrays;
 
 /** Exact legacy-ORSC to raw-layered terrain payload codec. */
 final class WorldBuilderPackedTerrainCodec {
-	static final String CONVERSION_PROFILE_ID = "exact-packed-to-layered-v1";
-	static final String OUTPUT_ENCODING = "raw-layered-sector-v1";
+	static final String CONVERSION_PROFILE_ID = "exact-packed-to-layered-v2-u16";
+	static final String OUTPUT_ENCODING = WorldBuilderRawLayeredTerrainCodec.V2_ENCODING;
 	static final int SECTOR_SIZE = 48;
-	static final int TILE_BYTES = 10;
-	static final int BYTE_COUNT = SECTOR_SIZE * SECTOR_SIZE * TILE_BYTES;
+	static final int TILE_BYTES = WorldBuilderRawLayeredTerrainCodec.V1_TILE_BYTES;
+	static final int BYTE_COUNT = WorldBuilderRawLayeredTerrainCodec.V1_BYTE_COUNT;
 
 	private WorldBuilderPackedTerrainCodec() {
 	}
 
 	static byte[] toLayered(byte[] legacy) throws WorldBuilderContractException {
-		return swapWalls(legacy, "legacy packed");
+		return WorldBuilderRawLayeredTerrainCodec.promoteV1(
+			swapWalls(legacy, "legacy packed"));
 	}
 
 	static byte[] toLegacy(byte[] layered) throws WorldBuilderContractException {
-		return swapWalls(layered, "raw layered");
+		return toLegacy(layered, 0, 0, 0);
+	}
+
+	static byte[] toLegacy(byte[] layered, int level, int sectorX, int sectorY)
+		throws WorldBuilderContractException {
+		byte[] v1 = WorldBuilderRawLayeredTerrainCodec.toV1(
+			layered, layered != null && layered.length == BYTE_COUNT
+				? WorldBuilderRawLayeredTerrainCodec.V1_ENCODING
+				: WorldBuilderRawLayeredTerrainCodec.V2_ENCODING,
+			level, sectorX, sectorY);
+		return swapWalls(v1, "raw layered");
 	}
 
 	static void requireExactReverse(byte[] legacy, byte[] layered)
