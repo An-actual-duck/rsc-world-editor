@@ -130,8 +130,18 @@ final class WorldBuilderPackedConversionModel {
 		Set<String> declaredFamilies = new HashSet<String>();
 		Set<String> generatedIds = new HashSet<String>();
 		List<Decision> decisions = new ArrayList<Decision>();
-		int inputRecordCount = 0;
-		int effectiveRecordCount = 0;
+		List<Placement> embeddedScenery = embeddedSceneryPlacements(
+			source, terrain, definitions, idFactory, generatedIds,
+			cumulativeRecordLimit);
+		Map<String,Placement> sceneryBase = effective.get("scenery");
+		for (Placement placement : embeddedScenery) {
+			if (sceneryBase.put(placement.slot, placement) != null) {
+				throw placementProblem(placement,
+					"Embedded packed scenery repeats an effective anchor slot.");
+			}
+		}
+		int inputRecordCount = embeddedMarkerCount(terrain);
+		int effectiveRecordCount = embeddedScenery.size();
 		for (WorldBuilderAdaptiveConfiguration.PlacementSource placementSource
 			: configuration.placements) {
 			declaredFamilies.add(placementSource.family);
@@ -342,6 +352,135 @@ final class WorldBuilderPackedConversionModel {
 			WorldBuilderJsonDocuments.canonical(manifest));
 	}
 
+	private static int embeddedMarkerCount(List<TerrainSector> terrain)
+		throws WorldBuilderContractException {
+		long count = 0L;
+		for (TerrainSector sector : terrain) count += sector.embeddedScenery.size();
+		if (count > DEFAULT_CUMULATIVE_RECORD_LIMIT) {
+			throw blocked("server-terrain",
+				"Embedded packed scenery exceeds the 65,536-record conversion bound.");
+		}
+		return (int)count;
+	}
+
+	private static List<Placement> embeddedSceneryPlacements(
+		WorldBuilderPackedConversionSource source,
+		List<TerrainSector> terrain,
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		PlacementIdFactory idFactory,
+		Set<String> generatedIds,
+		int cumulativeRecordLimit) throws WorldBuilderContractException {
+		int markerCount = embeddedMarkerCount(terrain);
+		if (markerCount == 0) return Collections.emptyList();
+		if (markerCount > cumulativeRecordLimit) {
+			throw blocked("server-terrain",
+				"Packed terrain and placement inputs exceed the bounded conversion record limit.");
+		}
+		WorldBuilderPackedSceneryDefinitions footprints =
+			WorldBuilderPackedSceneryDefinitions.read(source);
+		List<EmbeddedSceneryMarker> markers =
+			new ArrayList<EmbeddedSceneryMarker>(markerCount);
+		for (TerrainSector sector : terrain) markers.addAll(sector.embeddedScenery);
+		Collections.sort(markers);
+		Map<String,EmbeddedSceneryMarker> byTile =
+			new HashMap<String,EmbeddedSceneryMarker>();
+		for (EmbeddedSceneryMarker marker : markers) {
+			if (byTile.put(marker.coordinateKey(), marker) != null) {
+				throw blocked(marker.sourcePath,
+					"Embedded packed scenery repeats one global terrain tile.");
+			}
+		}
+
+		Set<String> consumed = new HashSet<String>();
+		List<Placement> result = new ArrayList<Placement>();
+		long footprintWork = 0L;
+		for (EmbeddedSceneryMarker marker : markers) {
+			if (consumed.contains(marker.coordinateKey())) continue;
+			requireDefinition(definitions, "scenery", marker.definitionId,
+				marker.sourcePath, marker.tileIndex);
+			WorldBuilderPackedSceneryDefinitions.Footprint footprint =
+				footprints.require(marker.definitionId);
+			long work = footprint.width > 0 && footprint.height > 0
+				? (long)footprint.width * (long)footprint.height : 1L;
+			footprintWork += work;
+			if (footprintWork > 1000000L) {
+				throw blocked(marker.sourcePath,
+					"Embedded packed scenery footprint work exceeds 1,000,000 tiles.");
+			}
+
+			Placement placement = new Placement("scenery", "server-terrain",
+				marker.sourcePath, marker.tileIndex, marker.provenance(),
+				marker.definitionId, marker.level, marker.x, marker.y,
+				0, 0, 0, null, null, "");
+			String facts = WorldBuilderPackedLayoutAdapter.ID + "\u0000"
+				+ source.sourceFingerprintSha256 + "\u0000server-terrain\u0000"
+				+ placement.semantic() + "\u0000" + marker.provenance();
+			String placementId = idFactory.create(facts);
+			if (placementId == null
+				|| !placementId.matches("[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}")) {
+				throw placementProblem(placement,
+					"Deterministic embedded-scenery ID is not a valid package identifier.");
+			}
+			if (!generatedIds.add(placementId)) {
+				throw placementProblem(placement,
+					"Deterministic embedded-scenery placement ID collision.");
+			}
+			result.add(placement.withId(placementId));
+			consumed.add(marker.coordinateKey());
+			if (footprint.width <= 0 || footprint.height <= 0) continue;
+			for (int offsetX = 0; offsetX < footprint.width; offsetX++) {
+				for (int offsetY = 0; offsetY < footprint.height; offsetY++) {
+					String key = EmbeddedSceneryMarker.coordinateKey(marker.level,
+						(long)marker.x + offsetX, (long)marker.y + offsetY);
+					EmbeddedSceneryMarker candidate = byTile.get(key);
+					if (candidate != null
+						&& candidate.definitionId == marker.definitionId) consumed.add(key);
+				}
+			}
+		}
+		return result;
+	}
+
+	private static List<EmbeddedSceneryMarker> extractEmbeddedScenery(
+		byte[] layered, WorldBuilderPackedCoordinateCodec.Sector coordinate,
+		String sourcePath, String sourceEntry) throws WorldBuilderContractException {
+		List<EmbeddedSceneryMarker> result = new ArrayList<EmbeddedSceneryMarker>();
+		for (int offset = 0, tile = 0; offset < layered.length;
+			offset += WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES, tile++) {
+			int diagonal = ByteBuffer.wrap(layered, offset + 7, 4).getInt();
+			if (diagonal <= 48000 || diagonal >= 60000) continue;
+			int tileX = tile / WorldBuilderPackedTerrainCodec.SECTOR_SIZE;
+			int tileY = tile % WorldBuilderPackedTerrainCodec.SECTOR_SIZE;
+			int worldX;
+			int worldY;
+			try {
+				worldX = Math.addExact(Math.multiplyExact(coordinate.sectorX,
+					WorldBuilderPackedTerrainCodec.SECTOR_SIZE), tileX);
+				worldY = Math.addExact(Math.multiplyExact(coordinate.sectorY,
+					WorldBuilderPackedTerrainCodec.SECTOR_SIZE), tileY);
+			} catch (ArithmeticException overflow) {
+				throw blocked(sourcePath,
+					"Embedded packed scenery coordinates overflow signed world space in "
+						+ sourceEntry + " at tile " + tile + ".");
+			}
+			result.add(new EmbeddedSceneryMarker(coordinate.level, worldX, worldY,
+				diagonal - 48001, diagonal, tile, sourcePath, sourceEntry));
+			for (int index = offset + 7; index < offset + 11; index++) layered[index] = 0;
+		}
+		return Collections.unmodifiableList(result);
+	}
+
+	private static byte[] restoreEmbeddedScenery(
+		byte[] layered, List<EmbeddedSceneryMarker> markers) {
+		byte[] result = layered.clone();
+		for (EmbeddedSceneryMarker marker : markers) {
+			int offset = marker.tileIndex
+				* WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES + 7;
+			ByteBuffer.wrap(result, offset, 4).putInt(marker.rawEncoding);
+		}
+		return result;
+	}
+
 	private static List<TerrainSector> readTerrain(Path archive, String relative,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
 		throws WorldBuilderContractException {
@@ -375,11 +514,14 @@ final class WorldBuilderPackedConversionModel {
 				}
 				byte[] legacy = readExact(zip, entry, relative);
 				byte[] layered = WorldBuilderPackedTerrainCodec.toLayered(legacy);
-				WorldBuilderPackedTerrainCodec.requireExactReverse(legacy, layered);
+				List<EmbeddedSceneryMarker> embedded = extractEmbeddedScenery(
+					layered, coordinate, relative, entry.getName());
+				byte[] restored = restoreEmbeddedScenery(layered, embedded);
+				WorldBuilderPackedTerrainCodec.requireExactReverse(legacy, restored);
 				WorldBuilderRawLayeredTerrainCodec.requireDecodable(layered);
 				validateTerrainDefinitions(layered, definitions, relative, entry.getName());
 				result.add(new TerrainSector(coordinate, legacy, layered,
-					"server-terrain", relative, entry.getName()));
+					"server-terrain", relative, entry.getName(), embedded));
 			}
 		} catch (WorldBuilderContractException refusal) {
 			throw refusal;
@@ -877,7 +1019,9 @@ final class WorldBuilderPackedConversionModel {
 				throw blocked(relative,
 					"Staged terrain byte sequence differs from the converted model.");
 			}
-			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(actualBytes,
+			byte[] restored = restoreEmbeddedScenery(actualBytes,
+				sector.embeddedScenery);
+			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(restored,
 				sector.coordinate.level, sector.coordinate.sectorX,
 				sector.coordinate.sectorY);
 			if (!Arrays.equals(sector.legacyBytes, reversed)) {
@@ -907,6 +1051,52 @@ final class WorldBuilderPackedConversionModel {
 		}
 	}
 
+	static final class EmbeddedSceneryMarker
+		implements Comparable<EmbeddedSceneryMarker> {
+		final int level;
+		final int x;
+		final int y;
+		final int definitionId;
+		final int rawEncoding;
+		final int tileIndex;
+		final String sourcePath;
+		final String sourceEntry;
+
+		EmbeddedSceneryMarker(int level, int x, int y, int definitionId,
+			int rawEncoding, int tileIndex, String sourcePath, String sourceEntry) {
+			this.level = level;
+			this.x = x;
+			this.y = y;
+			this.definitionId = definitionId;
+			this.rawEncoding = rawEncoding;
+			this.tileIndex = tileIndex;
+			this.sourcePath = sourcePath;
+			this.sourceEntry = sourceEntry;
+		}
+
+		String coordinateKey() {
+			return coordinateKey(level, x, y);
+		}
+
+		static String coordinateKey(int level, long x, long y) {
+			return level + ":" + x + ":" + y;
+		}
+
+		String provenance() {
+			return sourcePath + "#entry=" + sourceEntry + "&tile=" + tileIndex;
+		}
+
+		@Override
+		public int compareTo(EmbeddedSceneryMarker other) {
+			int result = Integer.compare(level, other.level);
+			if (result == 0) result = Integer.compare(x, other.x);
+			if (result == 0) result = Integer.compare(y, other.y);
+			if (result == 0) result = sourceEntry.compareTo(other.sourceEntry);
+			if (result == 0) result = Integer.compare(tileIndex, other.tileIndex);
+			return result;
+		}
+	}
+
 	static final class TerrainSector implements Comparable<TerrainSector> {
 		final WorldBuilderPackedCoordinateCodec.Sector coordinate;
 		final byte[] legacyBytes;
@@ -914,16 +1104,20 @@ final class WorldBuilderPackedConversionModel {
 		final String sourceRole;
 		final String sourcePath;
 		final String sourceEntry;
+		final List<EmbeddedSceneryMarker> embeddedScenery;
 
 		TerrainSector(WorldBuilderPackedCoordinateCodec.Sector coordinate,
 			byte[] legacyBytes, byte[] layeredBytes, String sourceRole,
-			String sourcePath, String sourceEntry) {
+			String sourcePath, String sourceEntry,
+			List<EmbeddedSceneryMarker> embeddedScenery) {
 			this.coordinate = coordinate;
 			this.legacyBytes = legacyBytes.clone();
 			this.layeredBytes = layeredBytes.clone();
 			this.sourceRole = sourceRole;
 			this.sourcePath = sourcePath;
 			this.sourceEntry = sourceEntry;
+			this.embeddedScenery = Collections.unmodifiableList(
+				new ArrayList<EmbeddedSceneryMarker>(embeddedScenery));
 		}
 
 		@Override
@@ -957,11 +1151,22 @@ final class WorldBuilderPackedConversionModel {
 			WorldBuilderPackedCoordinateCodec.Coordinate minimum,
 			WorldBuilderPackedCoordinateCodec.Coordinate maximum,
 			String placementId) {
+			this(family, "placement." + source.role, source.relativePath, recordIndex,
+				source.relativePath + "#record=" + recordIndex, definitionId, level,
+				x, y, direction, amount, respawn, minimum, maximum, placementId);
+		}
+
+		Placement(String family, String sourceRole, String sourcePath,
+			int recordIndex, String provenance, int definitionId, int level,
+			int x, int y, int direction, int amount, int respawn,
+			WorldBuilderPackedCoordinateCodec.Coordinate minimum,
+			WorldBuilderPackedCoordinateCodec.Coordinate maximum,
+			String placementId) {
 			this.family = family;
-			this.sourceRole = "placement." + source.role;
-			this.sourcePath = source.relativePath;
+			this.sourceRole = sourceRole;
+			this.sourcePath = sourcePath;
 			this.recordIndex = recordIndex;
-			this.provenance = source.relativePath + "#record=" + recordIndex;
+			this.provenance = provenance;
 			this.definitionId = definitionId;
 			this.level = level;
 			this.x = x;
@@ -976,12 +1181,9 @@ final class WorldBuilderPackedConversionModel {
 		}
 
 		Placement withId(String id) {
-			WorldBuilderAdaptiveConfiguration.PlacementSource source =
-				new WorldBuilderAdaptiveConfiguration.PlacementSource(
-					sourceRole.substring("placement.".length()), family, "base", 0,
-					"placeholder", sourcePath);
-			return new Placement(family, source, recordIndex, definitionId, level,
-				x, y, direction, amount, respawn, minimum, maximum, id);
+			return new Placement(family, sourceRole, sourcePath, recordIndex,
+				provenance, definitionId, level, x, y, direction, amount, respawn,
+				minimum, maximum, id);
 		}
 
 		String semantic() {
