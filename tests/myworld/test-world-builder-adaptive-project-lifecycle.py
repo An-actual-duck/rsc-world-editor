@@ -532,6 +532,33 @@ public final class AdaptiveProjectSupervisorHarness {
                 "-Dopenrsc.worldBuilderAssetEvidenceFile="
                     + project.resolve("working/runtime/client/evidence/adaptive-assets.sha256")),
                 "client assets");
+            Path contentRoot = project.resolve("working/content-bundle");
+            if (Files.isDirectory(contentRoot)) {
+                WorldBuilderProjectContentBundle.Bundle content =
+                    WorldBuilderProjectContentBundle.read(contentRoot);
+                for (List<String> command : Arrays.asList(
+                        productionServer, productionClient)) {
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentBundle=" + contentRoot),
+                        "custom content path");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentCapabilityId="
+                            + WorldBuilderProjectContentBundle.CAPABILITY_ID),
+                        "custom content capability");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentBundleSha256="
+                            + content.bundleFingerprintSha256),
+                        "custom content bundle fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentDefinitionSha256="
+                            + content.definitionFingerprintSha256),
+                        "custom content definition fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentAssetSha256="
+                            + content.assetFingerprintSha256),
+                        "custom content asset fingerprint");
+                }
+            }
             require(contains(productionClient,
                 "-Dspoiledmilk.clientLog="
                     + project.resolve("logs/client-runtime.log")),
@@ -4130,6 +4157,14 @@ public final class FakeAdaptiveClient {
             )
             with zipfile.ZipFile(copied_archive) as archive:
                 self.assertEqual(bytes(packed_sector), archive.read("h0x48y37"))
+            self.assertEqual(target_before, tree_bytes(target))
+
+            source_before = tree_bytes(project / "source")
+            supervised = self.run_supervision(project)
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            self.assertEqual(source_before, tree_bytes(project / "source"))
             self.assertEqual(target_before, tree_bytes(target))
 
             working_model = (
