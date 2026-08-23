@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/project-content-bundle-v2.schema.json",
+  "title": "World Builder project-local custom content bundle v2",
+  "$comment": "Executable validation is authoritative for canonical ordering, exact role/path mapping, beyond-packaged item visual closure, archive entry existence, bounds, and fingerprints.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "capabilityId", "sourceKind",
+    "definitionCatalog", "familyBindings", "itemVisuals", "files",
+    "definitionFingerprintSha256", "assetFingerprintSha256",
+    "itemVisualFingerprintSha256", "bundleFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "manifestType": {"const": "world-builder-project-content-bundle"},
+    "capabilityId": {"const": "project-local-custom-content-v2"},
+    "sourceKind": {"enum": ["content-neutral-default", "target-adopted"]},
+    "definitionCatalog": {"$ref": "#/$defs/definitionCatalog"},
+    "familyBindings": {
+      "type": "array", "minItems": 5, "maxItems": 5,
+      "items": {"$ref": "#/$defs/familyBinding"}
+    },
+    "itemVisuals": {
+      "type": "array", "minItems": 1, "maxItems": 65536,
+      "items": {"$ref": "#/$defs/itemVisual"}
+    },
+    "files": {
+      "type": "array", "minItems": 17, "maxItems": 17,
+      "items": {"$ref": "#/$defs/file"}
+    },
+    "definitionFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "assetFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "itemVisualFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "bundleFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "runtimeId": {"type": "integer", "minimum": 0, "maximum": 65535},
+    "definitionIds": {
+      "type": "array", "maxItems": 65536,
+      "items": {"$ref": "#/$defs/runtimeId"}
+    },
+    "rawByteDefinitionIds": {
+      "type": "array", "maxItems": 255,
+      "items": {"type": "integer", "minimum": 0, "maximum": 254}
+    },
+    "definitionCatalog": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "manifestType", "catalogId", "tiles", "boundaries", "scenery", "npcs", "groundItems", "catalogSha256"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "manifestType": {"const": "world-builder-definition-catalog"},
+        "catalogId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "tiles": {"$ref": "#/$defs/rawByteDefinitionIds"},
+        "boundaries": {"$ref": "#/$defs/rawByteDefinitionIds"},
+        "scenery": {"$ref": "#/$defs/definitionIds"},
+        "npcs": {"$ref": "#/$defs/definitionIds"},
+        "groundItems": {"$ref": "#/$defs/definitionIds"},
+        "catalogSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "itemVisual": {
+      "type": "object", "additionalProperties": false,
+      "required": ["itemId", "authenticSpriteId", "customSpriteAssetRole", "customSpriteSubspace", "customSpriteEntry", "pictureMask", "blueMask"],
+      "properties": {
+        "itemId": {"$ref": "#/$defs/runtimeId"},
+        "authenticSpriteId": {"anyOf": [{"$ref": "#/$defs/runtimeId"}, {"type": "null"}]},
+        "customSpriteAssetRole": {"anyOf": [{"enum": ["asset.sprite.custom", "asset.spritepack"]}, {"type": "null"}]},
+        "customSpriteSubspace": {"anyOf": [{"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"}, {"type": "null"}]},
+        "customSpriteEntry": {"anyOf": [{"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"}, {"type": "null"}]},
+        "pictureMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
+        "blueMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
+      },
+      "oneOf": [
+        {"properties": {"authenticSpriteId": {"$ref": "#/$defs/runtimeId"}, "customSpriteAssetRole": {"type": "null"}, "customSpriteSubspace": {"type": "null"}, "customSpriteEntry": {"type": "null"}}},
+        {"properties": {"authenticSpriteId": {"type": "null"}, "customSpriteAssetRole": {"enum": ["asset.sprite.custom", "asset.spritepack"]}, "customSpriteSubspace": {"type": "string"}, "customSpriteEntry": {"type": "string"}}}
+      ]
+    },
+    "familyBinding": {
+      "type": "object", "additionalProperties": false,
+      "required": ["family", "definitionRoles", "assetRoles"],
+      "properties": {
+        "family": {"enum": ["floor", "ground-item", "npc", "scenery", "wall"]},
+        "definitionRoles": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/definitionRole"}},
+        "assetRoles": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/assetRole"}}
+      }
+    },
+    "definitionRole": {"enum": ["definition.boundary", "definition.item.base", "definition.item.custom", "definition.item.patch", "definition.item.world", "definition.npc.base", "definition.npc.custom", "definition.npc.patch", "definition.npc.world", "definition.scenery", "definition.tile"]},
+    "assetRole": {"enum": ["asset.library", "asset.model", "asset.sprite.authentic", "asset.sprite.custom", "asset.spritepack"]},
+    "fileRole": {"anyOf": [{"$ref": "#/$defs/definitionRole"}, {"$ref": "#/$defs/assetRole"}, {"const": "metadata.item-visuals"}]},
+    "file": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "bundleRelativePath", "runtimeRelativePath", "mediaType", "size", "sha256"],
+      "properties": {
+        "role": {"$ref": "#/$defs/fileRole"},
+        "bundleRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "runtimeRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "mediaType": {"enum": ["application/gzip", "application/json", "application/vnd.openrsc.archive", "application/xml"]},
+        "size": {"type": "integer", "minimum": 1, "maximum": 268435456},
+        "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    }
+  }
+}

@@ -714,6 +714,12 @@ public final class WorldBuilderProcessSupervisor {
 		final String assetSha256;
 		final Path serverAssetEvidence;
 		final Path clientAssetEvidence;
+		final Path contentBundle;
+		final String contentCapabilityId;
+		final String contentBundleSha256;
+		final String contentDefinitionSha256;
+		final String contentAssetSha256;
+		final String contentItemVisualSha256;
 		final String manifestSha256;
 		final String workingInventorySha256;
 		final String baselineInventorySha256;
@@ -727,7 +733,8 @@ public final class WorldBuilderProcessSupervisor {
 			WorldBuilderAdaptiveRuntimePreparer.RuntimeEvidence evidence,
 			String displayName, String sourceFingerprint, String sourceCapability,
 			String manifestSha256, String workingInventorySha256,
-			String baselineInventorySha256, int port) {
+			String baselineInventorySha256,
+			WorldBuilderProjectContentBundle.Bundle content, int port) {
 			this.project = verified.projectRoot;
 			this.server = project.resolve("working/runtime/server");
 			this.client = project.resolve("working/runtime/client");
@@ -748,6 +755,16 @@ public final class WorldBuilderProcessSupervisor {
 			this.assetSha256 = evidence.assetSha256;
 			this.serverAssetEvidence = evidence.serverAssetEvidence;
 			this.clientAssetEvidence = evidence.clientAssetEvidence;
+			this.contentBundle = content == null ? null : content.root;
+			this.contentCapabilityId = content == null ? "" : content.capabilityId;
+			this.contentBundleSha256 = content == null ? ""
+				: content.bundleFingerprintSha256;
+			this.contentDefinitionSha256 = content == null ? ""
+				: content.definitionFingerprintSha256;
+			this.contentAssetSha256 = content == null ? ""
+				: content.assetFingerprintSha256;
+			this.contentItemVisualSha256 = content == null ? ""
+				: content.itemVisualFingerprintSha256;
 			this.manifestSha256 = manifestSha256;
 			this.workingInventorySha256 = workingInventorySha256;
 			this.baselineInventorySha256 = baselineInventorySha256;
@@ -785,10 +802,27 @@ public final class WorldBuilderProcessSupervisor {
 				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY);
 			String baselineInventory = inventorySha256(verified.baseline,
 				WorldBuilderAdaptiveProjectLifecycle.BASELINE_DIRECTORY);
+			WorldBuilderProjectContentBundle.Bundle content = null;
+			Path sourceContent = verified.projectRoot.resolve(
+				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
+			Path workingContent = verified.projectRoot.resolve(
+				WorldBuilderProjectContentBundle.WORKING_DIRECTORY);
+			if (Files.exists(sourceContent, LinkOption.NOFOLLOW_LINKS)
+				|| Files.exists(workingContent, LinkOption.NOFOLLOW_LINKS)) {
+				WorldBuilderProjectContentBundle.Bundle immutable =
+					WorldBuilderProjectContentBundle.read(sourceContent);
+				content = WorldBuilderProjectContentBundle.read(workingContent);
+				if (!immutable.bundleFingerprintSha256.equals(
+					content.bundleFingerprintSha256)) {
+					throw incompatible(WorldBuilderProjectContentBundle.WORKING_DIRECTORY,
+						"Working custom content differs from immutable source evidence.",
+						"Restore the exact project-local content bundle.");
+				}
+			}
 			return new AdaptiveLaunch(verified, evidence,
 				text(verified.manifest, "displayName"),
 				text(fingerprints, "sourceSha256"), text(target, "capabilityId"),
-				manifest, workingInventory, baselineInventory, port);
+				manifest, workingInventory, baselineInventory, content, port);
 		}
 
 		List<String> serverCommand() {
@@ -813,6 +847,15 @@ public final class WorldBuilderProcessSupervisor {
 					WorldBuilderAdaptiveRuntimePreparer.ASSET_ID),
 				property("openrsc.worldBuilderAssetSha256", assetSha256),
 				property("openrsc.worldBuilderAssetEvidencePath", serverAssetEvidence),
+				property("openrsc.worldBuilderContentBundle",
+					contentBundle == null ? "" : contentBundle.toString()),
+				property("openrsc.worldBuilderContentCapabilityId", contentCapabilityId),
+				property("openrsc.worldBuilderContentBundleSha256", contentBundleSha256),
+				property("openrsc.worldBuilderContentDefinitionSha256",
+					contentDefinitionSha256),
+				property("openrsc.worldBuilderContentAssetSha256", contentAssetSha256),
+				property("openrsc.worldBuilderContentItemVisualSha256",
+					contentItemVisualSha256),
 				property("openrsc.worldBuilderSourceBaselineInventorySha256",
 					baselineInventorySha256),
 				property("openrsc.worldBuilderInitialWorldSpace", "global"),
@@ -848,9 +891,23 @@ public final class WorldBuilderProcessSupervisor {
 				property("openrsc.worldBuilderSourceCapabilityId", sourceCapability),
 				property("openrsc.worldBuilderSourceRevision", sourceFingerprint),
 				property("openrsc.worldBuilderRuntimeBindingFile", binding),
+				property("openrsc.worldBuilderDefinitionId", definitionId),
+				property("openrsc.worldBuilderDefinitionSha256", definitionSha256),
 				property("openrsc.worldBuilderDefinitionEvidenceFile",
 					clientDefinitionEvidence),
+				property("openrsc.worldBuilderAssetId",
+					WorldBuilderAdaptiveRuntimePreparer.ASSET_ID),
+				property("openrsc.worldBuilderAssetSha256", assetSha256),
 				property("openrsc.worldBuilderAssetEvidenceFile", clientAssetEvidence),
+				property("openrsc.worldBuilderContentBundle",
+					contentBundle == null ? "" : contentBundle.toString()),
+				property("openrsc.worldBuilderContentCapabilityId", contentCapabilityId),
+				property("openrsc.worldBuilderContentBundleSha256", contentBundleSha256),
+				property("openrsc.worldBuilderContentDefinitionSha256",
+					contentDefinitionSha256),
+				property("openrsc.worldBuilderContentAssetSha256", contentAssetSha256),
+				property("openrsc.worldBuilderContentItemVisualSha256",
+					contentItemVisualSha256),
 				"-jar", "Open_RSC_Client.jar");
 		}
 

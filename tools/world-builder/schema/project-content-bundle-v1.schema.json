@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/project-content-bundle-v1.schema.json",
+  "title": "World Builder project-local custom content bundle v1",
+  "$comment": "Executable validation is authoritative for canonical ordering, portable collisions, role/path mapping, archive safety, definition parsing, closure, and fingerprints.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "capabilityId", "sourceKind",
+    "definitionCatalog", "familyBindings", "files",
+    "definitionFingerprintSha256", "assetFingerprintSha256",
+    "bundleFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-project-content-bundle"},
+    "capabilityId": {"const": "project-local-custom-content-v1"},
+    "sourceKind": {"enum": ["content-neutral-default", "target-adopted"]},
+    "definitionCatalog": {"$ref": "#/$defs/definitionCatalog"},
+    "familyBindings": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {"$ref": "#/$defs/familyBinding"}
+    },
+    "files": {
+      "type": "array",
+      "minItems": 9,
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/file"}
+    },
+    "definitionFingerprintSha256": {
+      "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+    },
+    "assetFingerprintSha256": {
+      "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+    },
+    "bundleFingerprintSha256": {
+      "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "definitionIds": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {"type": "integer", "minimum": 0, "maximum": 65535}
+    },
+    "definitionCatalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion", "manifestType", "catalogId", "tiles", "boundaries",
+        "scenery", "npcs", "groundItems", "catalogSha256"
+      ],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "manifestType": {"const": "world-builder-definition-catalog"},
+        "catalogId": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"
+        },
+        "tiles": {"$ref": "#/$defs/rawByteDefinitionIds"},
+        "boundaries": {"$ref": "#/$defs/rawByteDefinitionIds"},
+        "scenery": {"$ref": "#/$defs/definitionIds"},
+        "npcs": {"$ref": "#/$defs/definitionIds"},
+        "groundItems": {"$ref": "#/$defs/definitionIds"},
+        "catalogSha256": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "rawByteDefinitionIds": {
+      "type": "array",
+      "maxItems": 255,
+      "items": {"type": "integer", "minimum": 0, "maximum": 254}
+    },
+    "familyBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["family", "definitionRoles", "assetRoles"],
+      "properties": {
+        "family": {"enum": ["floor", "ground-item", "npc", "scenery", "wall"]},
+        "definitionRoles": {
+          "type": "array", "minItems": 1, "maxItems": 4,
+          "items": {"$ref": "#/$defs/definitionRole"}
+        },
+        "assetRoles": {
+          "type": "array", "minItems": 1, "maxItems": 64,
+          "items": {"$ref": "#/$defs/assetRole"}
+        }
+      }
+    },
+    "definitionRole": {
+      "enum": [
+        "definition.boundary", "definition.item.base", "definition.item.custom",
+        "definition.item.patch", "definition.item.world", "definition.npc.base",
+        "definition.npc.custom", "definition.npc.patch", "definition.npc.world",
+        "definition.scenery", "definition.tile"
+      ]
+    },
+    "assetRole": {
+      "enum": [
+        "asset.library", "asset.model", "asset.sprite.authentic",
+        "asset.sprite.custom", "asset.spritepack"
+      ]
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role", "bundleRelativePath", "runtimeRelativePath", "mediaType",
+        "size", "sha256"
+      ],
+      "properties": {
+        "role": {
+          "anyOf": [
+            {"$ref": "#/$defs/definitionRole"},
+            {"$ref": "#/$defs/assetRole"}
+          ]
+        },
+        "bundleRelativePath": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"
+        },
+        "runtimeRelativePath": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"
+        },
+        "mediaType": {
+          "enum": [
+            "application/gzip", "application/json", "application/vnd.openrsc.archive",
+            "application/xml"
+          ]
+        },
+        "size": {"type": "integer", "minimum": 1, "maximum": 268435456},
+        "sha256": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+        }
+      }
+    }
+  }
+}

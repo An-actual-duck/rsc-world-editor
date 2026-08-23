@@ -532,6 +532,47 @@ public final class AdaptiveProjectSupervisorHarness {
                 "-Dopenrsc.worldBuilderAssetEvidenceFile="
                     + project.resolve("working/runtime/client/evidence/adaptive-assets.sha256")),
                 "client assets");
+            for (String property : Arrays.asList(
+                    "openrsc.worldBuilderDefinitionId",
+                    "openrsc.worldBuilderDefinitionSha256",
+                    "openrsc.worldBuilderAssetId",
+                    "openrsc.worldBuilderAssetSha256")) {
+                String serverValue = propertyValue(productionServer, property);
+                String clientValue = propertyValue(productionClient, property);
+                require(!serverValue.isEmpty(), "server " + property);
+                require(serverValue.equals(clientValue), "shared " + property);
+            }
+            Path contentRoot = project.resolve("working/content-bundle");
+            if (Files.isDirectory(contentRoot)) {
+                WorldBuilderProjectContentBundle.Bundle content =
+                    WorldBuilderProjectContentBundle.read(contentRoot);
+                for (List<String> command : Arrays.asList(
+                        productionServer, productionClient)) {
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentBundle=" + contentRoot),
+                        "custom content path");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentCapabilityId="
+                            + WorldBuilderProjectContentBundle.CAPABILITY_ID),
+                        "custom content capability");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentBundleSha256="
+                            + content.bundleFingerprintSha256),
+                        "custom content bundle fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentDefinitionSha256="
+                            + content.definitionFingerprintSha256),
+                        "custom content definition fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentAssetSha256="
+                            + content.assetFingerprintSha256),
+                        "custom content asset fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentItemVisualSha256="
+                            + content.itemVisualFingerprintSha256),
+                        "custom content item visual fingerprint");
+                }
+            }
             require(contains(productionClient,
                 "-Dspoiledmilk.clientLog="
                     + project.resolve("logs/client-runtime.log")),
@@ -632,6 +673,14 @@ public final class AdaptiveProjectSupervisorHarness {
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             "bounded run receipt");
         System.out.println("adaptive-supervision-ok");
+    }
+
+    private static String propertyValue(List<String> command, String property) {
+        String prefix = "-D" + property + "=";
+        for (String argument : command) {
+            if (argument.startsWith(prefix)) return argument.substring(prefix.length());
+        }
+        return "";
     }
 
     private static void requireCleanFailure(Path project, byte[] manifestBefore,
@@ -3950,6 +3999,32 @@ public final class FakeAdaptiveClient {
                 target / "server/conf/server/defs/locs/MyWorldSceneryRemovals.json",
                 {"scenery_removals": [{"pos": {"X": 1, "Y": 1}}]},
             )
+            write_json(
+                target / "server/conf/server/defs/locs/MyWorldNpcLocs.json",
+                {
+                    "npclocs": [
+                        {
+                            "id": 846,
+                            "start": {"X": 2, "Y": 2},
+                            "min": {"X": 1, "Y": 1},
+                            "max": {"X": 3, "Y": 3},
+                        }
+                    ]
+                },
+            )
+            write_json(
+                target / "server/conf/server/defs/locs/MyWorldGroundItemLocs.json",
+                {
+                    "ground_items": [
+                        {
+                            "id": 9000,
+                            "pos": {"X": 3, "Y": 3},
+                            "amount": 2,
+                            "respawn": 90,
+                        }
+                    ]
+                },
+            )
             (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
                 "<GameObjectDef-array>"
                 + "".join(
@@ -3957,7 +4032,7 @@ public final class FakeAdaptiveClient {
                     + ("<width>2</width><height>1</height>" if index == 54
                        else "<width>1</width><height>1</height>")
                     + "</GameObjectDef>"
-                    for index in range(55)
+                    for index in range(60)
                 )
                 + "</GameObjectDef-array>\n",
                 encoding="utf-8",
@@ -3971,6 +4046,15 @@ public final class FakeAdaptiveClient {
                 packed_sector[offset : offset + 4] = (48055).to_bytes(
                     4, byteorder="big", signed=True
                 )
+            custom_scenery_tile = 100
+            custom_scenery_offset = custom_scenery_tile * 10 + 6
+            packed_sector[
+                custom_scenery_offset : custom_scenery_offset + 4
+            ] = (48060).to_bytes(4, byteorder="big", signed=True)
+            custom_floor_tile = 200
+            packed_sector[custom_floor_tile * 10 + 2] = 32
+            custom_wall_tile = 201
+            packed_sector[custom_wall_tile * 10 + 4] = 220
             sentinel_tile = 653
             sentinel_offset = sentinel_tile * 10 + 6
             packed_sector[sentinel_offset : sentinel_offset + 4] = (12000).to_bytes(
@@ -4027,6 +4111,32 @@ public final class FakeAdaptiveClient {
             self.assertTrue(
                 (project / "source/original/server/world-builder-capabilities.json").is_file()
             )
+            source_content = project / "source/content-bundle"
+            working_content = project / "working/content-bundle"
+            source_bundle = json.loads(
+                (source_content / "manifest.json").read_text(encoding="utf-8")
+            )
+            working_bundle = json.loads(
+                (working_content / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "project-local-custom-content-v2", source_bundle["capabilityId"]
+            )
+            self.assertEqual(
+                source_bundle["bundleFingerprintSha256"],
+                working_bundle["bundleFingerprintSha256"],
+            )
+            self.assertIn(846, source_bundle["definitionCatalog"]["npcs"])
+            self.assertIn(9000, source_bundle["definitionCatalog"]["groundItems"])
+            self.assertIn(31, source_bundle["definitionCatalog"]["tiles"])
+            self.assertIn(219, source_bundle["definitionCatalog"]["boundaries"])
+            self.assertEqual(
+                [9000, 9001, 9002],
+                [value["itemId"] for value in source_bundle["itemVisuals"]],
+            )
+            self.assertEqual(
+                tree_bytes(source_content), tree_bytes(working_content)
+            )
             package = project / "working/layered-world/package"
             package_manifest = json.loads(
                 (package / "manifest.json").read_text(encoding="utf-8")
@@ -4040,6 +4150,8 @@ public final class FakeAdaptiveClient {
             for tile in (6, 54, sentinel_tile):
                 offset = tile * 11 + 7
                 self.assertEqual(bytes(4), layered[offset : offset + 4])
+            self.assertEqual(32, layered[custom_floor_tile * 11 + 3])
+            self.assertEqual(220, layered[custom_wall_tile * 11 + 6])
             placement_record = next(
                 value for value in package_manifest["placementSets"]
                 if value["level"] == 0
@@ -4048,7 +4160,10 @@ public final class FakeAdaptiveClient {
                 (package / placement_record["path"]).read_text(encoding="utf-8")
             )
             self.assertEqual(
-                [{"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54}],
+                [
+                    {"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54},
+                    {"direction": 0, "position": {"x": 2, "y": 4}, "sceneryId": 59},
+                ],
                 [
                     {
                         "direction": value["direction"],
@@ -4058,6 +4173,10 @@ public final class FakeAdaptiveClient {
                     for value in placements["scenery"]
                 ],
             )
+            self.assertEqual([846], [value["npcId"] for value in placements["npcs"]])
+            self.assertEqual(
+                [9000], [value["itemId"] for value in placements["groundItems"]]
+            )
             copied_archive = (
                 project
                 / "source/original/server/conf/server/data/Custom_Landscape.orsc"
@@ -4065,6 +4184,25 @@ public final class FakeAdaptiveClient {
             with zipfile.ZipFile(copied_archive) as archive:
                 self.assertEqual(bytes(packed_sector), archive.read("h0x48y37"))
             self.assertEqual(target_before, tree_bytes(target))
+
+            source_before = tree_bytes(project / "source")
+            supervised = self.run_supervision(project)
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            self.assertEqual(source_before, tree_bytes(project / "source"))
+            self.assertEqual(target_before, tree_bytes(target))
+
+            working_model = (
+                working_content / "files/client/Cache/video/models.orsc"
+            )
+            model_before = working_model.read_bytes()
+            working_model.write_bytes(model_before + b"drift")
+            mismatched = self.run_cli("save-project", "--project", project)
+            self.assertEqual(3, mismatched.returncode, mismatched.stdout)
+            self.assertIn("SOURCE_CORRUPT", mismatched.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            working_model.write_bytes(model_before)
 
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
@@ -4080,6 +4218,76 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, refused_import.returncode)
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_beyond_packaged_item_visual_blockers_preserve_target_bytes(self):
+        cases = {}
+
+        def missing_evidence(target: Path) -> None:
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+
+        cases["missing-evidence"] = (missing_evidence, "authoritative item visual evidence is missing")
+
+        def missing_entry(target: Path) -> None:
+            archive = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+            archive.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("different", self.fixtures.fixture_sprite_entry())]),
+            ]))
+
+        cases["missing-entry"] = (missing_entry, "archive entry is missing")
+
+        for name, (mutation, expected) in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory(
+                prefix="adaptive-item-visual-blocker-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.legacy_fixture(str(base))
+                mutation(target)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "report.json"
+                discovered = self.discover(target, report)
+                self.assertEqual("compatible", discovered["status"])
+                before = tree_bytes(target)
+                created, _ = self.create_project(
+                    installation, runtime, target, report,
+                    "Blocked item visual", 43816,
+                )
+                self.assertEqual(3, created.returncode, created.stdout)
+                self.assertIn(expected, created.stderr)
+                self.assertEqual(before, tree_bytes(target))
+                self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_packaged_item_only_fallback_retains_bundle_v1_without_visual_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-content-v1-compatible-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 42}]})
+            write_json(definitions / "ItemDefsPatch18.json", {"items": []})
+            write_json(definitions / "ItemDefsMyWorld.json", {"items": []})
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Bundle v1 compatible", 43817,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            manifest = json.loads((Path(summary["projectRoot"]) /
+                "source/content-bundle/manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, manifest["schemaVersion"])
+            self.assertEqual("project-local-custom-content-v1", manifest["capabilityId"])
+            self.assertNotIn("itemVisuals", manifest)
+            self.assertEqual(before, tree_bytes(target))
 
     def test_multiple_projects_selection_and_existing_project_preservation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-multiple-") as temp:

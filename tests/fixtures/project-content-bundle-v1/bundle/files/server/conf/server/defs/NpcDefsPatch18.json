@@ -1,0 +1,8 @@
+{
+  "npcs": [
+    {
+      "id": 100,
+      "name": "fixture-patch-npc"
+    }
+  ]
+}
