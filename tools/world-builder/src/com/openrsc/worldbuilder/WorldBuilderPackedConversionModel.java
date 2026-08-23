@@ -101,6 +101,17 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		PlacementIdFactory idFactory,
 		int cumulativeRecordLimit) throws WorldBuilderContractException {
+		return read(source, configuration, definitions, idFactory,
+			cumulativeRecordLimit, false);
+	}
+
+	static WorldBuilderPackedConversionModel read(
+		WorldBuilderPackedConversionSource source,
+		WorldBuilderAdaptiveConfiguration configuration,
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		PlacementIdFactory idFactory,
+		int cumulativeRecordLimit,
+		boolean allowInertLegacyRemovals) throws WorldBuilderContractException {
 		if (idFactory == null) idFactory = HASHED_IDS;
 		if (cumulativeRecordLimit < 1
 			|| cumulativeRecordLimit > DEFAULT_CUMULATIVE_RECORD_LIMIT) {
@@ -163,6 +174,21 @@ final class WorldBuilderPackedConversionModel {
 				if ("removal".equals(placementSource.kind)) {
 					Placement removed = family.get(placement.slot);
 					if (removed == null || !placement.removesExactly(removed)) {
+						if (allowInertLegacyRemovals
+							&& ("scenery".equals(placementSource.family)
+								|| "npc".equals(placementSource.family))) {
+							String tombstoneId = "p-" + WorldBuilderHashes.sha256(
+								(WorldBuilderPackedLayoutAdapter.ID + "\u0000"
+									+ source.sourceFingerprintSha256 + "\u0000"
+									+ inputRole + "\u0000" + placement.provenance
+									+ "\u0000inert-removal")
+									.getBytes(StandardCharsets.UTF_8));
+							addDecision(decisions, new Decision("removal", inputRole,
+								placement.provenance + " matched no effective placement",
+								tombstoneId, "retained"), cumulativeRecordLimit,
+								placement.sourcePath);
+							continue;
+						}
 						throw placementProblem(placement,
 							"Packed removal at record " + placement.recordIndex
 								+ " does not exactly match an earlier effective placement.");

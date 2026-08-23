@@ -334,6 +334,13 @@ normalizes that value to zero in layered terrain and restores it only for
 byte-exact reverse-parity verification. All other nonzero diagonal values
 outside the two boundary ranges remain blocked.
 
+The descriptorless legacy fallback also preserves stale scenery and NPC
+removal records as immutable source evidence. The original runtime treats a
+removal with no matching effective placement as an inert tombstone, so the
+layered package omits it and the conversion report records the no-op. This
+compatibility rule is limited to the synthesized fallback capability;
+descriptor-backed packed composition continues requiring exact removals.
+
 ## Runtime and application updates
 
 `run-adaptive-project --project <projects/uuid>` supervises only one verified

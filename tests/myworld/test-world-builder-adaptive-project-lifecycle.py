@@ -3946,6 +3946,10 @@ public final class FakeAdaptiveClient {
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-fallback-") as temp:
             base = Path(temp)
             target = self.fixtures.legacy_fixture(str(base))
+            write_json(
+                target / "server/conf/server/defs/locs/MyWorldSceneryRemovals.json",
+                {"scenery_removals": [{"pos": {"X": 1, "Y": 1}}]},
+            )
             (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
                 "<GameObjectDef-array>"
                 + "".join(
@@ -3993,6 +3997,18 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(0, created.returncode, created.stderr)
             project = Path(summary["projectRoot"])
+            conversion = json.loads(
+                (project / "source/conversion/report.json").read_text(encoding="utf-8")
+            )
+            inert_removals = [
+                value for value in conversion["decisions"]
+                if value["kind"] == "removal" and value["outcome"] == "retained"
+            ]
+            self.assertEqual(1, len(inert_removals))
+            self.assertIn(
+                "MyWorldSceneryRemovals.json#record=0 matched no effective placement",
+                inert_removals[0]["provenance"],
+            )
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             snapshot = json.loads(
                 (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")

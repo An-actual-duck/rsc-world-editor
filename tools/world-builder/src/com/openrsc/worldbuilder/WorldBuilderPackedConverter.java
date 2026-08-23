@@ -214,7 +214,9 @@ final class WorldBuilderPackedConverter {
 				files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
 			WorldBuilderPackedConversionModel model =
 				WorldBuilderPackedConversionModel.read(source, configuration,
-					common.definitions, idFactory, cumulativeRecordLimit);
+					common.definitions, idFactory, cumulativeRecordLimit,
+					WorldBuilderPackedFallbackEvidence.CAPABILITY_ID.equals(
+						capability.capabilityId));
 			source.reverify();
 			return new Prepared(capability, configuration, common, model);
 		} catch (WorldBuilderContractException refusal) {
