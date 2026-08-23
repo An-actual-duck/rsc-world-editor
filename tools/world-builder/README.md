@@ -41,9 +41,28 @@ output/world-builder-tools/world-builder-tools.jar
 Packaged launchers use the identical JAR under
 `builder-runtime/launcher/world-builder-tools.jar`.
 
-## Primary guided launch
+## Desktop project launcher
 
-The packaged Linux and Windows launchers use `launch-adaptive`:
+The packaged Linux and Windows launchers use `desktop-launch`. It opens a
+project screen with four explicit paths: **New Empty World**, **Use Detected
+Server Map**, **Open Existing Project**, and **Select Another Supported
+Source**. Cancelling any chooser or confirmation returns without creating a
+project or starting child processes.
+
+While an editor session is running, the project launcher remains open and
+refuses to exit. Close the editor normally so the supervisor can stop the
+private server, save the project, remove process metadata, and complete final
+validation before the launcher itself is closed.
+
+The source chooser accepts directories that satisfy a compiled packed or
+layered adapter; it does not infer a format from an arbitrary map file. The
+existing-project chooser is deliberately limited to registered UUID projects
+inside the current installation. The screen displays the exact installation,
+project UUID/path, origin, attachment state, and discovery compatibility before
+the corresponding create/open action.
+
+For headless automation and detailed reports, the terminal command remains
+available unchanged:
 
 ```bash
 java -jar output/world-builder-tools/world-builder-tools.jar launch-adaptive \
@@ -68,9 +87,11 @@ project evidence.
 Recognizable but incomplete, malformed, unsupported, changing, or ambiguous
 server evidence is blocked; it is never treated as an empty world.
 
-The discovery report is printed before the exact `CREATE` confirmation. The
-command then creates one isolated UUID project without changing the target.
-Later launches validate and reopen the selected project. Optional
+The CLI discovery report is printed before the exact `CREATE` confirmation.
+The GUI presents the equivalent summary and explicit confirmation. Both create
+one isolated UUID project without changing the target. Later desktop launches
+offer the validated project list and start the client/server supervisor after
+the user selects a project. Optional CLI
 `--configuration-role <role>` resolves an explicitly declared multi-role
 server, and `--display-name <name>` names the first project.
 

@@ -10,10 +10,10 @@ set "RELEASE_IDENTITY=%~dp0RELEASE-IDENTITY.json"
 
 if defined WORLD_BUILDER_JAVA (
   set "JAVA_EXE=%WORLD_BUILDER_JAVA%"
-) else if exist "%~dp0runtime\bin\java.exe" (
-  set "JAVA_EXE=%~dp0runtime\bin\java.exe"
+) else if exist "%~dp0runtime\bin\javaw.exe" (
+  set "JAVA_EXE=%~dp0runtime\bin\javaw.exe"
 ) else (
-  set "JAVA_EXE=java"
+  set "JAVA_EXE=javaw"
 )
 
 if not exist "%TOOLS_JAR%" goto missing_tools
@@ -27,9 +27,9 @@ if exist "%WORKSPACE%" if not exist "%PROJECT_REGISTRY%" goto historical_workspa
 
 if not defined WORLD_BUILDER_PORT set "WORLD_BUILDER_PORT=43615"
 if defined WORLD_BUILDER_CONFIGURATION_ROLE (
-  "%JAVA_EXE%" -jar "%TOOLS_JAR%" launch-adaptive --installation-root "%ROOT_DIR%" --runtime-root "%RUNTIME_ROOT%" --target-root "%TARGET_ROOT%" --port "%WORLD_BUILDER_PORT%" --configuration-role "%WORLD_BUILDER_CONFIGURATION_ROLE%"
+  start "" "%JAVA_EXE%" -jar "%TOOLS_JAR%" desktop-launch --installation-root "%ROOT_DIR%" --runtime-root "%RUNTIME_ROOT%" --target-root "%TARGET_ROOT%" --port "%WORLD_BUILDER_PORT%" --configuration-role "%WORLD_BUILDER_CONFIGURATION_ROLE%"
 ) else (
-  "%JAVA_EXE%" -jar "%TOOLS_JAR%" launch-adaptive --installation-root "%ROOT_DIR%" --runtime-root "%RUNTIME_ROOT%" --target-root "%TARGET_ROOT%" --port "%WORLD_BUILDER_PORT%"
+  start "" "%JAVA_EXE%" -jar "%TOOLS_JAR%" desktop-launch --installation-root "%ROOT_DIR%" --runtime-root "%RUNTIME_ROOT%" --target-root "%TARGET_ROOT%" --port "%WORLD_BUILDER_PORT%"
 )
 goto finished
 

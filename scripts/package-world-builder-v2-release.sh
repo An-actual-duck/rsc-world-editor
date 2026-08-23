@@ -531,6 +531,10 @@ require_jar_entry "$SERVER_JAR" \
 require_jar_entry "$TOOLS_JAR" \
 	"com/openrsc/worldbuilder/WorldBuilderCli.class" "tools jar"
 require_jar_entry "$TOOLS_JAR" \
+	"com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.class" "tools jar"
+require_jar_entry "$TOOLS_JAR" \
+	"com/openrsc/worldbuilder/WorldBuilderLauncherModel.class" "tools jar"
+require_jar_entry "$TOOLS_JAR" \
 	"com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class" "tools jar"
 require_jar_entry "$TOOLS_JAR" "$TOOLS_RUNTIME_ALLOWLIST_ENTRY" "tools jar"
 python3 - "$TOOLS_JAR" "$RUNTIME_ALLOWLIST" "$TOOLS_RUNTIME_ALLOWLIST_ENTRY" <<'PY' \
