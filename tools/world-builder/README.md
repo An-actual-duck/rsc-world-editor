@@ -323,6 +323,14 @@ report, and complete generic layered package. Every terrain sector is decoded
 and round-tripped, and base/overlay/removal placement composition retains
 record provenance and zero-delta semantics.
 
+Legacy packed terrain values `48001..59999` are embedded scenery markers, not
+diagonal boundaries. Conversion resolves each marker through the exact
+inventoried `GameObjectDef.xml`, collapses repeated multi-tile footprint
+markers in legacy scan order, emits a direction-0 base scenery placement, and
+clears the marker from layered terrain. Exact marker bytes remain in immutable
+source evidence and are restored during reverse-parity verification. Other
+nonzero diagonal values outside the two boundary ranges remain blocked.
+
 ## Runtime and application updates
 
 `run-adaptive-project --project <projects/uuid>` supervises only one verified

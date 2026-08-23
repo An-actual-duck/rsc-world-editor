@@ -779,7 +779,7 @@ public final class AdaptiveProjectSupervisorHarness {
         )
 
     @staticmethod
-    def make_runtime(root: Path) -> Path:
+    def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         runtime = root / "builder-runtime"
         launcher = runtime / "launcher/world-builder-tools.jar"
         launcher.parent.mkdir(parents=True)
@@ -878,8 +878,11 @@ public final class AdaptiveProjectSupervisorHarness {
                 path.write_text(
                     "<GameObjectDef-array>"
                     + "".join(
-                        "<GameObjectDef><name>fixture</name></GameObjectDef>"
-                        for _ in range(4)
+                        "<GameObjectDef><name>fixture</name>"
+                        + ("<width>2</width><height>1</height>" if index == 54
+                           else "<width>1</width><height>1</height>")
+                        + "</GameObjectDef>"
+                        for index in range(scenery_count)
                     )
                     + "</GameObjectDef-array>\n",
                     encoding="utf-8",
@@ -3943,18 +3946,36 @@ public final class FakeAdaptiveClient {
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-fallback-") as temp:
             base = Path(temp)
             target = self.fixtures.legacy_fixture(str(base))
+            (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
+                "<GameObjectDef-array>"
+                + "".join(
+                    "<GameObjectDef><name>fixture</name>"
+                    + ("<width>2</width><height>1</height>" if index == 54
+                       else "<width>1</width><height>1</height>")
+                    + "</GameObjectDef>"
+                    for index in range(55)
+                )
+                + "</GameObjectDef-array>\n",
+                encoding="utf-8",
+            )
             server_terrain = (
                 target / "server/conf/server/data/Custom_Landscape.orsc"
             )
+            packed_sector = bytearray(48 * 48 * 10)
+            for tile in (6, 54):
+                offset = tile * 10 + 6
+                packed_sector[offset : offset + 4] = (48055).to_bytes(
+                    4, byteorder="big", signed=True
+                )
             with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
-                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+                archive.writestr("h0x48y37", packed_sector)
             shutil.copy2(
                 server_terrain,
                 target / "Client_Base/Cache/video/Custom_Landscape.orsc",
             )
             installation = base / "World Builder 2"
             installation.mkdir()
-            runtime = self.make_runtime(installation)
+            runtime = self.make_runtime(installation, scenery_count=55)
             report = base / "fallback-report.json"
             discovery = self.discover(target, report)
             self.assertEqual("compatible", discovery["status"])
@@ -3985,6 +4006,43 @@ public final class FakeAdaptiveClient {
             self.assertTrue(
                 (project / "source/original/server/world-builder-capabilities.json").is_file()
             )
+            package = project / "working/layered-world/package"
+            package_manifest = json.loads(
+                (package / "manifest.json").read_text(encoding="utf-8")
+            )
+            terrain_record = next(
+                value for value in package_manifest["terrainSectors"]
+                if value["level"] == 0 and value["sectorX"] == 0
+                and value["sectorY"] == 0
+            )
+            layered = (package / terrain_record["path"]).read_bytes()
+            for tile in (6, 54):
+                offset = tile * 11 + 7
+                self.assertEqual(bytes(4), layered[offset : offset + 4])
+            placement_record = next(
+                value for value in package_manifest["placementSets"]
+                if value["level"] == 0
+            )
+            placements = json.loads(
+                (package / placement_record["path"]).read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                [{"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54}],
+                [
+                    {
+                        "direction": value["direction"],
+                        "position": value["position"],
+                        "sceneryId": value["sceneryId"],
+                    }
+                    for value in placements["scenery"]
+                ],
+            )
+            copied_archive = (
+                project
+                / "source/original/server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(copied_archive) as archive:
+                self.assertEqual(bytes(packed_sector), archive.read("h0x48y37"))
             self.assertEqual(target_before, tree_bytes(target))
 
             saved = self.run_cli("save-project", "--project", project)
