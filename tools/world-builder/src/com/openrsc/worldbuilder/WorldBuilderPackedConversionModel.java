@@ -443,11 +443,18 @@ final class WorldBuilderPackedConversionModel {
 
 	private static List<EmbeddedSceneryMarker> extractEmbeddedScenery(
 		byte[] layered, WorldBuilderPackedCoordinateCodec.Sector coordinate,
-		String sourcePath, String sourceEntry) throws WorldBuilderContractException {
+		String sourcePath, String sourceEntry,
+		List<DiagonalNormalization> normalizations)
+		throws WorldBuilderContractException {
 		List<EmbeddedSceneryMarker> result = new ArrayList<EmbeddedSceneryMarker>();
 		for (int offset = 0, tile = 0; offset < layered.length;
 			offset += WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES, tile++) {
 			int diagonal = ByteBuffer.wrap(layered, offset + 7, 4).getInt();
+			if (diagonal == 12000) {
+				normalizations.add(new DiagonalNormalization(tile, diagonal));
+				for (int index = offset + 7; index < offset + 11; index++) layered[index] = 0;
+				continue;
+			}
 			if (diagonal <= 48000 || diagonal >= 60000) continue;
 			int tileX = tile / WorldBuilderPackedTerrainCodec.SECTOR_SIZE;
 			int tileY = tile % WorldBuilderPackedTerrainCodec.SECTOR_SIZE;
@@ -465,18 +472,19 @@ final class WorldBuilderPackedConversionModel {
 			}
 			result.add(new EmbeddedSceneryMarker(coordinate.level, worldX, worldY,
 				diagonal - 48001, diagonal, tile, sourcePath, sourceEntry));
+			normalizations.add(new DiagonalNormalization(tile, diagonal));
 			for (int index = offset + 7; index < offset + 11; index++) layered[index] = 0;
 		}
 		return Collections.unmodifiableList(result);
 	}
 
-	private static byte[] restoreEmbeddedScenery(
-		byte[] layered, List<EmbeddedSceneryMarker> markers) {
+	private static byte[] restoreNormalizedDiagonals(
+		byte[] layered, List<DiagonalNormalization> normalizations) {
 		byte[] result = layered.clone();
-		for (EmbeddedSceneryMarker marker : markers) {
-			int offset = marker.tileIndex
+		for (DiagonalNormalization normalization : normalizations) {
+			int offset = normalization.tileIndex
 				* WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES + 7;
-			ByteBuffer.wrap(result, offset, 4).putInt(marker.rawEncoding);
+			ByteBuffer.wrap(result, offset, 4).putInt(normalization.rawEncoding);
 		}
 		return result;
 	}
@@ -514,14 +522,17 @@ final class WorldBuilderPackedConversionModel {
 				}
 				byte[] legacy = readExact(zip, entry, relative);
 				byte[] layered = WorldBuilderPackedTerrainCodec.toLayered(legacy);
+				List<DiagonalNormalization> normalizations =
+					new ArrayList<DiagonalNormalization>();
 				List<EmbeddedSceneryMarker> embedded = extractEmbeddedScenery(
-					layered, coordinate, relative, entry.getName());
-				byte[] restored = restoreEmbeddedScenery(layered, embedded);
+					layered, coordinate, relative, entry.getName(), normalizations);
+				byte[] restored = restoreNormalizedDiagonals(layered, normalizations);
 				WorldBuilderPackedTerrainCodec.requireExactReverse(legacy, restored);
 				WorldBuilderRawLayeredTerrainCodec.requireDecodable(layered);
 				validateTerrainDefinitions(layered, definitions, relative, entry.getName());
 				result.add(new TerrainSector(coordinate, legacy, layered,
-					"server-terrain", relative, entry.getName(), embedded));
+					"server-terrain", relative, entry.getName(), embedded,
+					normalizations));
 			}
 		} catch (WorldBuilderContractException refusal) {
 			throw refusal;
@@ -1019,8 +1030,8 @@ final class WorldBuilderPackedConversionModel {
 				throw blocked(relative,
 					"Staged terrain byte sequence differs from the converted model.");
 			}
-			byte[] restored = restoreEmbeddedScenery(actualBytes,
-				sector.embeddedScenery);
+			byte[] restored = restoreNormalizedDiagonals(actualBytes,
+				sector.normalizedDiagonals);
 			byte[] reversed = WorldBuilderPackedTerrainCodec.toLegacy(restored,
 				sector.coordinate.level, sector.coordinate.sectorX,
 				sector.coordinate.sectorY);
@@ -1097,6 +1108,16 @@ final class WorldBuilderPackedConversionModel {
 		}
 	}
 
+	static final class DiagonalNormalization {
+		final int tileIndex;
+		final int rawEncoding;
+
+		DiagonalNormalization(int tileIndex, int rawEncoding) {
+			this.tileIndex = tileIndex;
+			this.rawEncoding = rawEncoding;
+		}
+	}
+
 	static final class TerrainSector implements Comparable<TerrainSector> {
 		final WorldBuilderPackedCoordinateCodec.Sector coordinate;
 		final byte[] legacyBytes;
@@ -1105,11 +1126,13 @@ final class WorldBuilderPackedConversionModel {
 		final String sourcePath;
 		final String sourceEntry;
 		final List<EmbeddedSceneryMarker> embeddedScenery;
+		final List<DiagonalNormalization> normalizedDiagonals;
 
 		TerrainSector(WorldBuilderPackedCoordinateCodec.Sector coordinate,
 			byte[] legacyBytes, byte[] layeredBytes, String sourceRole,
 			String sourcePath, String sourceEntry,
-			List<EmbeddedSceneryMarker> embeddedScenery) {
+			List<EmbeddedSceneryMarker> embeddedScenery,
+			List<DiagonalNormalization> normalizedDiagonals) {
 			this.coordinate = coordinate;
 			this.legacyBytes = legacyBytes.clone();
 			this.layeredBytes = layeredBytes.clone();
@@ -1118,6 +1141,8 @@ final class WorldBuilderPackedConversionModel {
 			this.sourceEntry = sourceEntry;
 			this.embeddedScenery = Collections.unmodifiableList(
 				new ArrayList<EmbeddedSceneryMarker>(embeddedScenery));
+			this.normalizedDiagonals = Collections.unmodifiableList(
+				new ArrayList<DiagonalNormalization>(normalizedDiagonals));
 		}
 
 		@Override

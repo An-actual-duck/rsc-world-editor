@@ -328,8 +328,11 @@ diagonal boundaries. Conversion resolves each marker through the exact
 inventoried `GameObjectDef.xml`, collapses repeated multi-tile footprint
 markers in legacy scan order, emits a direction-0 base scenery placement, and
 clears the marker from layered terrain. Exact marker bytes remain in immutable
-source evidence and are restored during reverse-parity verification. Other
-nonzero diagonal values outside the two boundary ranges remain blocked.
+source evidence and are restored during reverse-parity verification. Some
+legacy maps use exactly `12000` as an inert diagonal sentinel; conversion
+normalizes that value to zero in layered terrain and restores it only for
+byte-exact reverse-parity verification. All other nonzero diagonal values
+outside the two boundary ranges remain blocked.
 
 ## Runtime and application updates
 

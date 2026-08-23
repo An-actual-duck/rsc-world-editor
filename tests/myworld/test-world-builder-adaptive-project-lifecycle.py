@@ -3967,6 +3967,11 @@ public final class FakeAdaptiveClient {
                 packed_sector[offset : offset + 4] = (48055).to_bytes(
                     4, byteorder="big", signed=True
                 )
+            sentinel_tile = 653
+            sentinel_offset = sentinel_tile * 10 + 6
+            packed_sector[sentinel_offset : sentinel_offset + 4] = (12000).to_bytes(
+                4, byteorder="big", signed=True
+            )
             with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("h0x48y37", packed_sector)
             shutil.copy2(
@@ -4016,7 +4021,7 @@ public final class FakeAdaptiveClient {
                 and value["sectorY"] == 0
             )
             layered = (package / terrain_record["path"]).read_bytes()
-            for tile in (6, 54):
+            for tile in (6, 54, sentinel_tile):
                 offset = tile * 11 + 7
                 self.assertEqual(bytes(4), layered[offset : offset + 4])
             placement_record = next(
