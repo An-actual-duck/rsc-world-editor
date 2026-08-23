@@ -27,6 +27,7 @@ PACKAGE_NAME = "World Builder 2"
 PRODUCT_ID = "rsc-world-editor-v2"
 WORLD_SOURCE_IDENTITY = "target-adaptive-v1"
 RUNTIME_ALLOWLIST = ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
+SCHEMA_ROOT = ROOT / "tools/world-builder/schema"
 NEW_MANAGED_PATH = "EDITOR-ICON-CREDITS.txt"
 POWERSHELL = os.environ.get("WORLD_BUILDER_PWSH") or shutil.which("pwsh")
 
@@ -263,6 +264,13 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             path = package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(contents, encoding="utf-8")
+        schema_relatives = set()
+        for schema in sorted(SCHEMA_ROOT.glob("*.schema.json")):
+            relative = f"builder-runtime/launcher/schema/{schema.name}"
+            destination = package / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(schema, destination)
+            schema_relatives.add(relative)
         for relative in (
             "Import Map Changes.sh",
             "Recover Map Transaction.sh",
@@ -278,6 +286,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "Update World Builder.ps1",
         }
         managed_relatives.update(required_payloads)
+        managed_relatives.update(schema_relatives)
         managed_relatives.update(
             {
                 "VERSION.txt",
@@ -483,6 +492,15 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
+        shell_updater = UPDATER.read_text(encoding="utf-8")
+        windows_updater = WINDOWS_UPDATER.read_text(encoding="utf-8")
+        for schema in sorted(SCHEMA_ROOT.glob("*.schema.json")):
+            installed = (
+                self.install / "builder-runtime/launcher/schema" / schema.name
+            )
+            self.assertEqual(schema.read_bytes(), installed.read_bytes())
+            self.assertIn(schema.name, shell_updater)
+            self.assertIn(schema.name, windows_updater)
         self.assert_durable_state_unchanged()
 
     def test_historical_pre_adaptive_workspace_refuses_automatic_migration(

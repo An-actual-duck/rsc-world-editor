@@ -465,6 +465,10 @@ validate_application_paths() {
 		export-manifest-v2.schema.json import-receipt-v1.schema.json \
 		import-receipt-v3.schema.json project-manifest-v1.schema.json \
 		project-manifest-v2.schema.json project-registry-v1.schema.json \
+		region-bundle-manifest-v1.schema.json \
+		region-compatibility-report-v1.schema.json \
+		region-operation-plan-v1.schema.json region-selection-v1.schema.json \
+		region-snapshot-v1.schema.json region-snapshot-v2.schema.json \
 		source-snapshot-v2.schema.json target-capability-v1.schema.json \
 		target-mutation-plan-v1.schema.json; do
 		allowed["builder-runtime/launcher/schema/$relative"]=1

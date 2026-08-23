@@ -182,7 +182,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				prepared = PreparedOrigin.empty(empty);
 			} else {
 				prepared = prepareTargetOrigin(
-					stage, target, report, stagedReport, origin);
+					stage, target, report, stagedReport, origin, sourceRuntime);
 			}
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);
@@ -276,7 +276,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	}
 
 	private PreparedOrigin prepareTargetOrigin(Path stage, Path target,
-		Map<String,Object> report, Path stagedReport, String origin)
+		Map<String,Object> report, Path stagedReport, String origin,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime)
 		throws IOException, WorldBuilderContractException {
 		List<Evidence> evidence = evidence(report);
 		Path original = stage.resolve("source/original");
@@ -310,11 +311,29 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		requireFreshDiscovery(report, target);
 
 		WorldBuilderReadOnlyTarget copied = WorldBuilderReadOnlyTarget.open(original);
-		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(copied);
-		String selectedRole = selectedRole(report);
-		WorldBuilderAdaptiveConfiguration.Selection selection =
-			WorldBuilderAdaptiveConfiguration.select(copied, capability, selectedRole);
-		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		WorldBuilderTargetCapability capability;
+		WorldBuilderAdaptiveConfiguration configuration;
+		Path conversionReport = stagedReport;
+		if (isPackedFallbackReport(report)) {
+			WorldBuilderPackedFallbackEvidence.Result generated =
+				WorldBuilderPackedFallbackEvidence.materialize(
+					original, report, sourceRuntime);
+			evidence = withGeneratedFallbackEvidence(evidence, generated.generated);
+			requireExactOriginalTree(original, evidence);
+			copied = WorldBuilderReadOnlyTarget.open(original);
+			capability = generated.capability;
+			configuration = generated.configuration;
+			conversionReport = stage.resolve(".fallback-conversion-report.json");
+			writeNew(conversionReport,
+				WorldBuilderJsonDocuments.pretty(generated.conversionReport)
+					.getBytes(StandardCharsets.UTF_8));
+		} else {
+			capability = WorldBuilderTargetCapability.read(copied);
+			String selectedRole = selectedRole(report);
+			WorldBuilderAdaptiveConfiguration.Selection selection =
+				WorldBuilderAdaptiveConfiguration.select(copied, capability, selectedRole);
+			configuration = selection.selected;
+		}
 		WorldBuilderCompatibilityEvidence common =
 			WorldBuilderCompatibilityEvidence.inspect(copied, capability, configuration);
 		String baselineFingerprint;
@@ -337,9 +356,15 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			baselineFingerprint = adopted.fingerprintSha256;
 		} else {
 			Path conversionOutput = stage.resolve(".conversion-output");
-			WorldBuilderPackedConverter.Result converted =
-				new WorldBuilderPackedConverter().convertForProject(
-					original, stagedReport, conversionOutput, stage);
+			WorldBuilderPackedConverter.Result converted;
+			try {
+				converted = new WorldBuilderPackedConverter().convertForProject(
+					original, conversionReport, conversionOutput, stage);
+			} finally {
+				if (!conversionReport.equals(stagedReport)) {
+					Files.deleteIfExists(conversionReport);
+				}
+			}
 			Path conversionDirectory = stage.resolve("source/conversion");
 			ensureRealDirectory(conversionDirectory);
 			moveAtomicNew(conversionOutput.resolve("conversion-plan.json"),
@@ -659,7 +684,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			String attachedLocator = "";
 			Map<String,Object> targetInfo = object(
 				verified.manifest.get("target"), "target");
-			if (requestedTargetRoot != null) {
+			boolean importCapable = !"no-import-v1".equals(
+				string(targetInfo, "importProfileId"));
+			if (importCapable && requestedTargetRoot != null) {
 				try {
 					Path target = realDirectory(requestedTargetRoot, "target root");
 					Map<String,Object> selected = object(
@@ -1286,25 +1313,76 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		List<Evidence> result = new ArrayList<Evidence>();
 		Set<String> paths = new HashSet<String>();
 		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
-		if (!Boolean.TRUE.equals(descriptor.get("present"))) {
+		boolean fallback = isPackedFallbackReport(report);
+		if (!Boolean.TRUE.equals(descriptor.get("present")) && !fallback) {
 			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED, DISCOVERY_FILE,
 				"Target-backed projects require descriptor-backed complete evidence.",
 				"Add a truthful capability descriptor and rediscover before project creation.");
 		}
-		addEvidence(result, paths, "target-capability",
-			string(descriptor, "relativePath"), true, -1L,
-			string(descriptor, "sha256"), false);
-		Map<String,Object> selected = object(
-			report.get("selectedConfiguration"), "selectedConfiguration");
-		addEvidence(result, paths, "configuration." + string(selected, "role"),
-			string(selected, "relativePath"), true, -1L,
-			string(selected, "sha256"), false);
+		if (!fallback) {
+			addEvidence(result, paths, "target-capability",
+				string(descriptor, "relativePath"), true, -1L,
+				string(descriptor, "sha256"), false);
+			Map<String,Object> selected = object(
+				report.get("selectedConfiguration"), "selectedConfiguration");
+			addEvidence(result, paths, "configuration." + string(selected, "role"),
+				string(selected, "relativePath"), true, -1L,
+				string(selected, "sha256"), false);
+		}
 		for (Object raw : array(report.get("files"), "files")) {
 			Map<String,Object> file = object(raw, "discovery file");
 			String role = string(file, "role");
 			addEvidence(result, paths, role, string(file, "relativePath"),
 				bool(file, "present"), integer(file, "size"),
 				string(file, "sha256"), definitionRuntimeRole(role));
+		}
+		Collections.sort(result);
+		return result;
+	}
+
+	private static boolean isPackedFallbackReport(Map<String,Object> report)
+		throws WorldBuilderContractException {
+		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
+		Map<String,Object> capability = object(report.get("capability"), "capability");
+		Map<String,Object> selected = object(
+			report.get("selectedConfiguration"), "selectedConfiguration");
+		return !bool(descriptor, "present")
+			&& "compatible".equals(string(report, "status"))
+			&& "packed".equals(string(report, "representation"))
+			&& bool(capability, "resolved")
+			&& WorldBuilderPackedLayoutAdapter.ID.equals(
+				string(capability, "adapterId"))
+			&& WorldBuilderPackedFallbackEvidence.CAPABILITY_ID.equals(
+				string(capability, "capabilityId"))
+			&& WorldBuilderDiscovery.DEFAULT_CONFIG.equals(
+				string(capability, "evidenceRelativePath"))
+			&& bool(selected, "present")
+			&& "primary".equals(string(selected, "role"))
+			&& WorldBuilderDiscovery.DEFAULT_CONFIG.equals(
+				string(selected, "relativePath"))
+			&& string(capability, "evidenceSha256").equals(
+				string(selected, "sha256"));
+	}
+
+	private static List<Evidence> withGeneratedFallbackEvidence(
+		List<Evidence> discovered,
+		List<WorldBuilderReadOnlyTarget.FileState> generated)
+		throws WorldBuilderContractException {
+		Set<String> generatedPaths = new HashSet<String>();
+		for (WorldBuilderReadOnlyTarget.FileState file : generated) {
+			generatedPaths.add(file.relativePath);
+		}
+		List<Evidence> result = new ArrayList<Evidence>();
+		Set<String> paths = new HashSet<String>();
+		for (Evidence item : discovered) {
+			if (!generatedPaths.contains(item.targetRelativePath)) {
+				addEvidence(result, paths, item.role, item.targetRelativePath,
+					item.present, item.size, item.sha256, item.definitionRuntime);
+			}
+		}
+		for (WorldBuilderReadOnlyTarget.FileState file : generated) {
+			addEvidence(result, paths, file.role, file.relativePath, true,
+				file.size, file.sha256, definitionRuntimeRole(file.role));
 		}
 		Collections.sort(result);
 		return result;

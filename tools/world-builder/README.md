@@ -129,6 +129,15 @@ product, release contents, target world, or install folder. Discovery binds
 the exact server/client map pair, definition catalog, rendering assets,
 runtime evidence, configuration role, and all four placement families.
 
+The one descriptorless exception is the compiled adapter's exact, complete
+reviewed packed fallback layout. Project creation copies that source first,
+then writes deterministic capability, configuration, catalog, and runtime
+evidence only into the unpublished project staging tree. It never adds those
+files to the selected server. Missing, partial, conflicting, ambiguous, or
+otherwise unsupported evidence remains blocked. Because this fallback has no
+truthful target mutation contract, its project stays detached and does not
+advertise import even when the original source is still present.
+
 ## Explicit project creation
 
 The guided command is preferred. To create from a reviewed report explicitly:
