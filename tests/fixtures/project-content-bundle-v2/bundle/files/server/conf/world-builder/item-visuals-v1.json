@@ -1,0 +1,33 @@
+{
+  "itemVisuals": [
+    {
+      "authenticSpriteId": null,
+      "blueMask": 1122867,
+      "customSpriteAssetRole": "asset.sprite.custom",
+      "customSpriteEntry": "9000.dat",
+      "customSpriteSubspace": "items",
+      "itemId": 9000,
+      "pictureMask": 3368601
+    },
+    {
+      "authenticSpriteId": 417,
+      "blueMask": 0,
+      "customSpriteAssetRole": null,
+      "customSpriteEntry": null,
+      "customSpriteSubspace": null,
+      "itemId": 9001,
+      "pictureMask": -1
+    },
+    {
+      "authenticSpriteId": null,
+      "blueMask": -16776961,
+      "customSpriteAssetRole": "asset.spritepack",
+      "customSpriteEntry": "9002.dat",
+      "customSpriteSubspace": "inventory",
+      "itemId": 9002,
+      "pictureMask": 4478310
+    }
+  ],
+  "manifestType": "world-builder-item-visual-evidence",
+  "schemaVersion": 1
+}

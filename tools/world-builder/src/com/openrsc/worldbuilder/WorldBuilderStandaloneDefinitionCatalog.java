@@ -46,11 +46,11 @@ final class WorldBuilderStandaloneDefinitionCatalog {
 		if (runtime == null) throw problem(TILE_DEFINITIONS,
 			"Standalone project creation has no verified packaged runtime.");
 		List<Object> tiles = indexedXml(
-			runtime, TILE_DEFINITIONS, "TileDef-array", "TileDef");
+			runtime, TILE_DEFINITIONS, "TileDef-array", "TileDef", 255);
 		List<Object> boundaries = indexedXml(
-			runtime, BOUNDARY_DEFINITIONS, "DoorDef-array", "DoorDef");
+			runtime, BOUNDARY_DEFINITIONS, "DoorDef-array", "DoorDef", 255);
 		List<Object> scenery = indexedXml(
-			runtime, SCENERY_DEFINITIONS, "GameObjectDef-array", "GameObjectDef");
+			runtime, SCENERY_DEFINITIONS, "GameObjectDef-array", "GameObjectDef", 65536);
 		List<Object> npcs = appendedJsonIds(runtime, NPC_DEFINITIONS, "NPC");
 		List<Object> items = explicitJsonIds(runtime, ITEM_DEFINITIONS, "item");
 		int structuralOverlay =
@@ -74,7 +74,7 @@ final class WorldBuilderStandaloneDefinitionCatalog {
 
 	private static List<Object> indexedXml(
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime,
-		String relative, String rootName, String elementName)
+		String relative, String rootName, String elementName, int maximumCount)
 		throws IOException, WorldBuilderContractException {
 		Path path = runtime.verifiedSourcePath(relative);
 		if (Files.size(path) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
@@ -103,7 +103,9 @@ final class WorldBuilderStandaloneDefinitionCatalog {
 				Node child = children.item(index);
 				if (child.getNodeType() == Node.ELEMENT_NODE
 					&& elementName.equals(child.getNodeName())) {
-					if (++count > MAX_DEFINITIONS) throw tooMany(relative, elementName);
+					if (++count > maximumCount) throw problem(relative,
+						"Packaged " + elementName + " count exceeds its bounded runtime domain of "
+							+ maximumCount + " entries.");
 				}
 			}
 			if (count == 0) throw problem(relative,
@@ -134,8 +136,8 @@ final class WorldBuilderStandaloneDefinitionCatalog {
 				if (!(rawId instanceof Long)) throw problem(source.relative,
 					"Packaged " + label + " definition has no integer ID.");
 				long id = ((Long)rawId).longValue();
-				if (id < 0L || id > Integer.MAX_VALUE) throw problem(source.relative,
-					"Packaged " + label + " definition ID is outside its supported range.");
+				if (id < 0L || id > 65535L) throw problem(source.relative,
+					"Packaged " + label + " definition ID is outside 0..65535.");
 				ids.add(Integer.valueOf((int)id));
 			}
 		}

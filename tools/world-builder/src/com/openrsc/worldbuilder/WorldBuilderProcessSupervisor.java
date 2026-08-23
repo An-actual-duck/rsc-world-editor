@@ -719,6 +719,7 @@ public final class WorldBuilderProcessSupervisor {
 		final String contentBundleSha256;
 		final String contentDefinitionSha256;
 		final String contentAssetSha256;
+		final String contentItemVisualSha256;
 		final String manifestSha256;
 		final String workingInventorySha256;
 		final String baselineInventorySha256;
@@ -755,14 +756,15 @@ public final class WorldBuilderProcessSupervisor {
 			this.serverAssetEvidence = evidence.serverAssetEvidence;
 			this.clientAssetEvidence = evidence.clientAssetEvidence;
 			this.contentBundle = content == null ? null : content.root;
-			this.contentCapabilityId = content == null ? ""
-				: WorldBuilderProjectContentBundle.CAPABILITY_ID;
+			this.contentCapabilityId = content == null ? "" : content.capabilityId;
 			this.contentBundleSha256 = content == null ? ""
 				: content.bundleFingerprintSha256;
 			this.contentDefinitionSha256 = content == null ? ""
 				: content.definitionFingerprintSha256;
 			this.contentAssetSha256 = content == null ? ""
 				: content.assetFingerprintSha256;
+			this.contentItemVisualSha256 = content == null ? ""
+				: content.itemVisualFingerprintSha256;
 			this.manifestSha256 = manifestSha256;
 			this.workingInventorySha256 = workingInventorySha256;
 			this.baselineInventorySha256 = baselineInventorySha256;
@@ -852,6 +854,8 @@ public final class WorldBuilderProcessSupervisor {
 				property("openrsc.worldBuilderContentDefinitionSha256",
 					contentDefinitionSha256),
 				property("openrsc.worldBuilderContentAssetSha256", contentAssetSha256),
+				property("openrsc.worldBuilderContentItemVisualSha256",
+					contentItemVisualSha256),
 				property("openrsc.worldBuilderSourceBaselineInventorySha256",
 					baselineInventorySha256),
 				property("openrsc.worldBuilderInitialWorldSpace", "global"),
@@ -902,6 +906,8 @@ public final class WorldBuilderProcessSupervisor {
 				property("openrsc.worldBuilderContentDefinitionSha256",
 					contentDefinitionSha256),
 				property("openrsc.worldBuilderContentAssetSha256", contentAssetSha256),
+				property("openrsc.worldBuilderContentItemVisualSha256",
+					contentItemVisualSha256),
 				"-jar", "Open_RSC_Client.jar");
 		}
 

@@ -2,13 +2,17 @@
 
 ## Contract status
 
-`project-local-custom-content-v1` is the strict Editor/runtime boundary for
-declarative target-owned content. Its checked-in schema is
-`tools/world-builder/schema/project-content-bundle-v1.schema.json`.
+`project-local-custom-content-v2` is the strict Editor/runtime boundary when a
+target contains ground-item definitions beyond the exact packaged runtime.
+Its checked-in schema is
+`tools/world-builder/schema/project-content-bundle-v2.schema.json`. The Editor
+continues to read and produce `project-local-custom-content-v1` when all target
+ground items already exist in the packaged catalog. Material-free projects
+continue to launch without a content bundle.
 
 The bundle is general. No ID, file, hash, or behavior belonging to one target
-is part of the application release or this contract. NPC ID 846 is an
-acceptance fixture only.
+is part of the application release or this contract. Floor 31, wall 219,
+scenery 59, NPC 846, and items 9000 through 9002 are fixtures only.
 
 ## Project paths
 
@@ -36,10 +40,11 @@ these Builder-only launch properties:
 | Property | Value |
 | --- | --- |
 | `openrsc.worldBuilderContentBundle` | absolute `working/content-bundle/` root |
-| `openrsc.worldBuilderContentCapabilityId` | `project-local-custom-content-v1` |
+| `openrsc.worldBuilderContentCapabilityId` | exact v1 or v2 manifest capability |
 | `openrsc.worldBuilderContentBundleSha256` | manifest-bound bundle fingerprint |
 | `openrsc.worldBuilderContentDefinitionSha256` | definition/catalog fingerprint |
 | `openrsc.worldBuilderContentAssetSha256` | client-asset fingerprint |
+| `openrsc.worldBuilderContentItemVisualSha256` | v2 item-visual fingerprint; 64 zeroes for v1 |
 
 Both processes also receive the existing
 `openrsc.worldBuilderDefinitionId`,
@@ -48,12 +53,12 @@ Both processes also receive the existing
 `openrsc.worldBuilderAssetSha256` bindings. Server evidence paths end in
 `EvidencePath`; client evidence paths end in `EvidenceFile`. The bundle path
 is operational metadata, never part of a fingerprint. A runtime that does not
-advertise and enforce `project-local-custom-content-v1` must refuse a nonempty
+advertise and enforce the exact manifest capability must refuse a nonempty
 target-adopted bundle before world entry.
 
 ## Closed content surface
 
-Version 1 accepts only these declarative definition roles:
+Both versions accept only these declarative definition roles:
 
 - `definition.tile` (`TileDef.xml`)
 - `definition.boundary` (`DoorDef.xml`)
@@ -68,6 +73,12 @@ It accepts only these client asset roles:
 - `asset.sprite.authentic`
 - `asset.sprite.custom`
 - bounded, directly contained `asset.spritepack` archives
+
+Version 2 also preserves static producer evidence at
+`server/conf/world-builder/item-visuals-v1.json` as role
+`metadata.item-visuals`. It is strict JSON with manifest type
+`world-builder-item-visual-evidence`, schema version 1, and one `itemVisuals`
+array. It is data, never executable target code.
 
 No JAR, class, script, plugin, configuration, database, credential, symlink,
 device, socket, executable permission, or target-supplied command is accepted.
@@ -84,7 +95,10 @@ collisions, Windows-invalid names, and exact role/path agreement.
 
 The embedded `definitionCatalog` is derived from the adopted definition bytes,
 not the packaged neutral catalog. It carries sorted unique IDs for tiles,
-boundaries, scenery, NPCs, and ground items. `catalogSha256` is SHA-256 over
+boundaries, scenery, NPCs, and ground items. Floors and boundaries use their
+one-byte raw domain `0..254`; raw value 255 is reserved. Scenery, NPC,
+ground-item, and sprite IDs use the bounded runtime domain `0..65535`.
+`catalogSha256` is SHA-256 over
 the canonical catalog after temporarily replacing that field with 64 zeroes.
 
 Exactly five sorted family bindings cover `floor`, `ground-item`, `npc`,
@@ -104,15 +118,44 @@ the bundle as one. A future creator-facing loose-file importer requires its
 own versioned ingestion contract and must compile to this exact closed runtime
 surface.
 
+## Authoritative item visuals
+
+The Editor derives both the target catalog and the packaged catalog from exact
+verified definition bytes, then computes
+`target groundItems - packaged groundItems`. It uses no numeric threshold. An
+empty difference produces bundle v1. A nonempty difference requires static
+item-visual evidence covering that set exactly—no missing, duplicate,
+packaged, or unknown records.
+
+Every v2 `itemVisuals` record has exactly these fields:
+
+| Field | Contract |
+| --- | --- |
+| `itemId` | unique ascending integer `0..65535`; one beyond-packaged definition |
+| `authenticSpriteId` | authentic archive sprite ID `0..65535`, otherwise `null` |
+| `customSpriteAssetRole` | `asset.sprite.custom` or `asset.spritepack`, otherwise `null` |
+| `customSpriteSubspace` | portable archive subspace for a custom mapping, otherwise `null` |
+| `customSpriteEntry` | portable entry below that subspace, otherwise `null` |
+| `pictureMask` | authoritative signed 32-bit recolor mask |
+| `blueMask` | authoritative signed 32-bit recolor mask |
+
+Exactly one mapping form is allowed. An authentic mapping supplies only
+`authenticSpriteId`; a custom mapping supplies the complete
+role/subspace/entry triple. The Editor never derives `spriteId` from `itemId`,
+never assumes `items:<itemId>`, and never executes a target client. Named
+mappings require a structurally readable ZIP container and the exact
+case-sensitive `<subspace>/<entry>` member. Malformed or duplicate evidence,
+missing evidence or archive members, and incomplete closure are precise
+read-only discovery/conversion blockers.
+
 ## Canonical compatibility fixture
 
-The compact bundle at
-`tests/fixtures/project-content-bundle-v1/bundle/` is the cross-repository
-compatibility oracle. It contains all 16 required roles in their compiled
-runtime paths, raw representative definition files, and existing-format raw,
-ZIP, and gzip client archives. Its authoring catalog includes the acceptance
-IDs floor 31, wall 219, scenery 59, NPC 846, and ground item 9000. None of
-those IDs is part of the general contract.
+The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains
+the v1 compatibility oracle. The frozen successor oracle is
+`tests/fixtures/project-content-bundle-v2/bundle/`. Its 17-role inventory
+retains floor 31, wall 219, scenery 59, and NPC 846, and maps ordinary
+beyond-packaged items through authentic and named custom archives with
+nontrivial recolor masks. Item 9000 is not special-cased.
 
 Generate an independent copy or verify the checked-in bytes with:
 
@@ -120,6 +163,8 @@ Generate an independent copy or verify the checked-in bytes with:
 python3 scripts/generate-project-content-bundle-v1-fixture.py /empty/output/bundle
 python3 scripts/generate-project-content-bundle-v1-fixture.py \
   --check tests/fixtures/project-content-bundle-v1/bundle
+python3 scripts/generate-project-content-bundle-v2-fixture.py \
+  --check tests/fixtures/project-content-bundle-v2/bundle
 ```
 
 The generator is deterministic and contains the fingerprint algorithm in a
@@ -132,14 +177,17 @@ fingerprints; they do not need access to an Editor worktree.
 All JSON is canonical UTF-8 with no host path or timestamp.
 
 - `definitionFingerprintSha256` is SHA-256 of the ASCII domain
-  `world-builder-project-content-definitions-v1\n`, followed by each
+  `world-builder-project-content-definitions-v<bundle-version>\n`, followed by each
   definition record in canonical runtime-path order as
   `role\0runtimeRelativePath\0size\0sha256\n`, followed by the catalog hash.
 - `assetFingerprintSha256` uses domain
-  `world-builder-project-content-assets-v1\n` and the same record encoding for
+  `world-builder-project-content-assets-v<bundle-version>\n` and the same record encoding for
   asset records.
+- `itemVisualFingerprintSha256` in v2 is SHA-256 of domain
+  `world-builder-project-content-item-visuals-v1\n` followed by canonical
+  `itemVisuals` JSON. V1 launch compatibility uses 64 zeroes.
 - `bundleFingerprintSha256` is SHA-256 of domain
-  `world-builder-project-content-bundle-v1\n` followed by the canonical
+  `world-builder-project-content-bundle-v<bundle-version>\n` followed by the canonical
   manifest bytes after temporarily replacing this field with 64 zeroes. File
   bytes are bound by the exact inventory hashes already in that manifest.
 
@@ -157,7 +205,9 @@ leaves target and existing projects byte-identical.
 
 The immutable source snapshot inventories the complete source bundle.
 Preparation copies it into `working/content-bundle/`, reopens and verifies the
-copy, and launches only after both runtime sides bind the same catalog and
-bundle fingerprints. Descriptor-backed material-free projects retain their
+complete bytes, preserved evidence equality, archive-entry closure, and all
+fingerprints. Both runtime sides receive the same capability and item-visual
+fingerprint. Working-copy drift blocks save/launch without changing immutable
+source or the target. Descriptor-backed material-free projects retain their
 released strict behavior; standalone projects use the content-neutral default
 catalog until a separately versioned creator-ingest feature is applied.

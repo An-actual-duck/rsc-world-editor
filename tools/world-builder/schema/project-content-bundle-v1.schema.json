@@ -43,7 +43,7 @@
     "definitionIds": {
       "type": "array",
       "maxItems": 65536,
-      "items": {"type": "integer", "minimum": 0, "maximum": 2147483647}
+      "items": {"type": "integer", "minimum": 0, "maximum": 65535}
     },
     "definitionCatalog": {
       "type": "object",
@@ -58,8 +58,8 @@
         "catalogId": {
           "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"
         },
-        "tiles": {"$ref": "#/$defs/definitionIds"},
-        "boundaries": {"$ref": "#/$defs/definitionIds"},
+        "tiles": {"$ref": "#/$defs/rawByteDefinitionIds"},
+        "boundaries": {"$ref": "#/$defs/rawByteDefinitionIds"},
         "scenery": {"$ref": "#/$defs/definitionIds"},
         "npcs": {"$ref": "#/$defs/definitionIds"},
         "groundItems": {"$ref": "#/$defs/definitionIds"},
@@ -67,6 +67,11 @@
           "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
         }
       }
+    },
+    "rawByteDefinitionIds": {
+      "type": "array",
+      "maxItems": 255,
+      "items": {"type": "integer", "minimum": 0, "maximum": 254}
     },
     "familyBinding": {
       "type": "object",

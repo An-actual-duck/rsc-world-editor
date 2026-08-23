@@ -140,10 +140,12 @@ advertise import even when the original source is still present.
 
 The fallback also captures the target's bounded declarative floor, wall,
 scenery, NPC, and item definitions with matching client model/sprite archives
-through `project-local-custom-content-v1`. Authoring IDs come from that exact
-target bundle rather than the packaged neutral catalog. The immutable and
-working copies stay inside the UUID project; no target code runs and no custom
-content enters a release archive.
+through the versioned project-local custom-content boundary. Bundle v1 remains
+for packaged-item-only targets; v2 requires exact static visual metadata and
+named archive-entry closure for every beyond-packaged ground item. Authoring
+IDs come from exact target bytes rather than the neutral catalog. The immutable
+and working copies stay inside the UUID project; no target code runs and no
+custom content enters a release archive.
 
 ## Explicit project creation
 

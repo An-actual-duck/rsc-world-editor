@@ -300,8 +300,9 @@ Readiness: **exploratory** beyond basic materials. Finish the material identity,
 distribution, and dependency model first so larger content does not invent a
 second incompatible package system.
 
-The first general foundation is now frozen as
-[`project-local-custom-content-v1`](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md).
+The first general foundation is now versioned through
+[`project-local-custom-content-v2`](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md),
+while retaining v1 compatibility for packaged-item-only targets.
 It adopts bounded declarative target definitions and matching client archives
 into only the UUID project, derives every authoring family from those bytes,
 and exposes one fingerprinted runtime boundary. It does not yet provide the

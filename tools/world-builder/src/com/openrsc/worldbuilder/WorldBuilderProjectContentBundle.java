@@ -34,7 +34,8 @@ import org.w3c.dom.NodeList;
 
 /** Strict target-owned declarative definitions/assets captured inside one UUID project. */
 final class WorldBuilderProjectContentBundle {
-	static final String CAPABILITY_ID = "project-local-custom-content-v1";
+	static final String CAPABILITY_ID = "project-local-custom-content-v2";
+	static final String LEGACY_CAPABILITY_ID = "project-local-custom-content-v1";
 	static final String SOURCE_DIRECTORY = "source/content-bundle";
 	static final String WORKING_DIRECTORY = "working/content-bundle";
 	static final String MANIFEST = "manifest.json";
@@ -46,7 +47,11 @@ final class WorldBuilderProjectContentBundle {
 	private static final long MAX_EXPANDED_BYTES = 512L * 1024L * 1024L;
 	private static final int MAX_ARCHIVE_ENTRIES = 8192;
 	private static final int MAX_DEFINITIONS = 65536;
+	private static final int MAX_RUNTIME_ID = 65535;
+	private static final int MAX_RAW_BYTE_ID = 254;
 	private static final String OPERATION = "project-content-bundle";
+	private static final String ITEM_VISUAL_EVIDENCE_PATH =
+		"server/conf/world-builder/item-visuals-v1.json";
 
 	private static final List<Spec> SPECS = Collections.unmodifiableList(Arrays.asList(
 		new Spec("definition.boundary", "server/conf/server/defs/DoorDef.xml",
@@ -82,6 +87,8 @@ final class WorldBuilderProjectContentBundle {
 		new Spec("asset.spritepack", "Client_Base/Cache/video/spritepacks/Menus.osar",
 			"client/Cache/video/spritepacks/Menus.osar", "application/gzip", false)
 	));
+	private static final Spec ITEM_VISUAL_SPEC = new Spec("metadata.item-visuals",
+		ITEM_VISUAL_EVIDENCE_PATH, ITEM_VISUAL_EVIDENCE_PATH, "application/json", true);
 
 	private WorldBuilderProjectContentBundle() {
 	}
@@ -96,6 +103,12 @@ final class WorldBuilderProjectContentBundle {
 			validateFile(target.requiredFile(spec.targetPath), spec);
 			result.add(state);
 		}
+		WorldBuilderReadOnlyTarget.FileState visuals = target.optionalState(
+			discoveryRole(ITEM_VISUAL_SPEC), ITEM_VISUAL_EVIDENCE_PATH);
+		if (visuals.present) {
+			validateItemVisualEvidence(target.requiredFile(ITEM_VISUAL_EVIDENCE_PATH));
+		}
+		result.add(visuals);
 		try {
 			deriveCatalog(target.root, "target-adopted-content-v1");
 		} catch (IOException changed) {
@@ -117,7 +130,8 @@ final class WorldBuilderProjectContentBundle {
 		return "content." + spec.role;
 	}
 
-	static Bundle capture(Path projectStage, Path copiedTarget)
+	static Bundle capture(Path projectStage, Path copiedTarget,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
 		throws IOException, WorldBuilderContractException {
 		Path sourceRoot = projectStage.resolve(SOURCE_DIRECTORY).normalize();
 		if (!sourceRoot.startsWith(projectStage.toAbsolutePath().normalize())
@@ -127,8 +141,32 @@ final class WorldBuilderProjectContentBundle {
 				"Discard the unpublished project stage and retry.");
 		}
 		Files.createDirectories(sourceRoot);
+		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
+			"target-adopted-content-v2");
+		Map<String,Object> packagedCatalog =
+			WorldBuilderStandaloneDefinitionCatalog.generate(runtime,
+				"packaged-content-comparison-v1");
+		Set<Integer> beyondPackaged = differenceIds(
+			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
+		Path visualEvidence = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
+		List<Object> itemVisuals;
+		boolean successor = !beyondPackaged.isEmpty();
+		if (successor) {
+			if (!Files.isRegularFile(visualEvidence, LinkOption.NOFOLLOW_LINKS)) {
+				throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+					ITEM_VISUAL_EVIDENCE_PATH,
+					"Target ground-item definitions exceed the packaged runtime, but authoritative item visual evidence is missing.",
+					"Add static world-builder-item-visual-evidence schema version 1 for every beyond-packaged ground-item ID and retry conversion.");
+			}
+			itemVisuals = validateItemVisualEvidence(visualEvidence);
+			requireExactVisualClosure(itemVisuals, beyondPackaged);
+		} else {
+			itemVisuals = Collections.emptyList();
+		}
+		List<Spec> captureSpecs = new ArrayList<Spec>(SPECS);
+		if (successor) captureSpecs.add(ITEM_VISUAL_SPEC);
 		List<FileRecord> records = new ArrayList<FileRecord>();
-		for (Spec spec : SPECS) {
+		for (Spec spec : captureSpecs) {
 			Path source = safeRegular(copiedTarget.resolve(spec.targetPath), spec.targetPath);
 			validateFile(source, spec);
 			String bundlePath = "files/" + spec.runtimePath;
@@ -143,17 +181,22 @@ final class WorldBuilderProjectContentBundle {
 					"Target content changed while its project-local copy was verified.",
 					"Stop target changes, rediscover, and create a new project.");
 			}
-			records.add(new FileRecord(spec, bundlePath, size, hash));
+			records.add(new FileRecord(spec, bundlePath, size, hash,
+				mediaType(spec, source, successor)));
 		}
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
-			"target-adopted-content-v1");
+			successor ? "target-adopted-content-v2" : "target-adopted-content-v1");
+		if (successor) validateItemVisualArchiveClosure(sourceRoot, itemVisuals);
+		int version = successor ? 2 : 1;
 		String definitions = fingerprint(
-			"world-builder-project-content-definitions-v1\n", records, true,
+			"world-builder-project-content-definitions-v" + version + "\n", records, true,
 			(String)catalog.get("catalogSha256"));
 		String assets = fingerprint(
-			"world-builder-project-content-assets-v1\n", records, false, "");
-		Map<String,Object> manifest = manifest(catalog, records, definitions, assets);
+			"world-builder-project-content-assets-v" + version + "\n", records, false, "");
+		String visualHash = itemVisualFingerprint(version, itemVisuals);
+		Map<String,Object> manifest = manifest(version, catalog, itemVisuals, records,
+			definitions, assets, visualHash);
 		Path manifestPath = sourceRoot.resolve(MANIFEST);
 		Files.write(manifestPath, WorldBuilderJsonDocuments.pretty(manifest)
 			.getBytes(StandardCharsets.UTF_8));
@@ -195,38 +238,63 @@ final class WorldBuilderProjectContentBundle {
 				"Project custom-content manifest is malformed.",
 				"Restore the exact version 1 content bundle.", malformed);
 		}
-		exact(manifest, "schemaVersion", "manifestType", "capabilityId", "sourceKind",
-			"definitionCatalog", "familyBindings", "files",
-			"definitionFingerprintSha256", "assetFingerprintSha256",
-			"bundleFingerprintSha256");
-		if (!Long.valueOf(1L).equals(manifest.get("schemaVersion"))
+		long version = integer(manifest, "schemaVersion");
+		if (version == 1L) {
+			exact(manifest, "schemaVersion", "manifestType", "capabilityId", "sourceKind",
+				"definitionCatalog", "familyBindings", "files",
+				"definitionFingerprintSha256", "assetFingerprintSha256",
+				"bundleFingerprintSha256");
+		} else if (version == 2L) {
+			exact(manifest, "schemaVersion", "manifestType", "capabilityId", "sourceKind",
+				"definitionCatalog", "familyBindings", "itemVisuals", "files",
+				"definitionFingerprintSha256", "assetFingerprintSha256",
+				"itemVisualFingerprintSha256", "bundleFingerprintSha256");
+		}
+		String capabilityId = version == 1L ? LEGACY_CAPABILITY_ID : CAPABILITY_ID;
+		if (!(version == 1L || version == 2L)
 			|| !TYPE.equals(manifest.get("manifestType"))
-			|| !CAPABILITY_ID.equals(manifest.get("capabilityId"))
+			|| !capabilityId.equals(manifest.get("capabilityId"))
 			|| !("target-adopted".equals(manifest.get("sourceKind"))
 				|| "content-neutral-default".equals(manifest.get("sourceKind")))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_CONTRACT_VERSION, MANIFEST,
 				"Project custom-content identity or version is unsupported.",
-				"Use world-builder-project-content-bundle schema version 1.");
+				"Use world-builder-project-content-bundle schema version 1 or 2.");
 		}
 		Map<String,Object> catalog = object(manifest.get("definitionCatalog"),
 			"definitionCatalog");
 		validateCatalogShape(catalog);
-		List<FileRecord> records = parseFiles(root, manifest.get("files"));
-		validateFamilies(manifest.get("familyBindings"), records);
+		List<FileRecord> records = parseFiles(root, manifest.get("files"), (int)version);
+		List<Object> itemVisuals = version == 2L
+			? parseItemVisuals(manifest.get("itemVisuals"), "itemVisuals")
+			: Collections.<Object>emptyList();
+		validateFamilies(manifest.get("familyBindings"), records, (int)version, itemVisuals);
 		Map<String,Object> derived = deriveCatalog(root, (String)catalog.get("catalogId"));
 		if (!catalog.equals(derived)) throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
 			MANIFEST, "Bundle authoring IDs do not exactly match adopted definitions.",
 			"Recreate the project from one stable complete target content set.");
 		String definitionHash = fingerprint(
-			"world-builder-project-content-definitions-v1\n", records, true,
+			"world-builder-project-content-definitions-v" + version + "\n", records, true,
 			(String)catalog.get("catalogSha256"));
 		String assetHash = fingerprint(
-			"world-builder-project-content-assets-v1\n", records, false, "");
+			"world-builder-project-content-assets-v" + version + "\n", records, false, "");
+		String visualHash = itemVisualFingerprint((int)version, itemVisuals);
 		if (!definitionHash.equals(manifest.get("definitionFingerprintSha256"))
-			|| !assetHash.equals(manifest.get("assetFingerprintSha256"))) {
+			|| !assetHash.equals(manifest.get("assetFingerprintSha256"))
+			|| version == 2L
+				&& !visualHash.equals(manifest.get("itemVisualFingerprintSha256"))) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
 				"Bundle definition or client-asset fingerprint is inconsistent.",
 				"Restore the exact complete project-local content bundle.");
+		}
+		if (version == 2L) {
+			Map<String,Object> evidence = readItemVisualEvidence(
+				contentPath(root, "metadata.item-visuals"));
+			if (!itemVisuals.equals(evidence.get("itemVisuals"))) throw problem(
+				WorldBuilderErrorCodes.DEFINITION_MISMATCH, ITEM_VISUAL_EVIDENCE_PATH,
+				"Manifest item visuals differ from their preserved declarative evidence.",
+				"Restore one exact successor bundle from its immutable source.");
+			validateItemVisualCatalogClosure(itemVisuals, catalog);
+			validateItemVisualArchiveClosure(root, itemVisuals);
 		}
 		String expectedBundle = selfFingerprint(manifest);
 		if (!expectedBundle.equals(manifest.get("bundleFingerprintSha256"))) {
@@ -242,24 +310,28 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderErrorCodes.INVENTORY_DUPLICATE, requestedRoot.toString(),
 			"Project custom-content file inventory is missing or contains extras.",
 			"Restore the exact version 1 bundle inventory.");
-		return new Bundle(root, catalog, records, definitionHash, assetHash, expectedBundle);
+		return new Bundle(root, capabilityId, catalog, itemVisuals, records,
+			definitionHash, assetHash, visualHash, expectedBundle);
 	}
 
-	private static Map<String,Object> manifest(Map<String,Object> catalog,
-		List<FileRecord> records, String definitions, String assets)
+	private static Map<String,Object> manifest(int version, Map<String,Object> catalog,
+		List<Object> itemVisuals, List<FileRecord> records, String definitions,
+		String assets, String visualHash)
 		throws WorldBuilderContractException {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
-		value.put("schemaVersion", Long.valueOf(1L));
+		value.put("schemaVersion", Long.valueOf(version));
 		value.put("manifestType", TYPE);
-		value.put("capabilityId", CAPABILITY_ID);
+		value.put("capabilityId", version == 1 ? LEGACY_CAPABILITY_ID : CAPABILITY_ID);
 		value.put("sourceKind", "target-adopted");
 		value.put("definitionCatalog", catalog);
 		value.put("familyBindings", familyBindings());
+		if (version == 2) value.put("itemVisuals", new ArrayList<Object>(itemVisuals));
 		List<Object> files = new ArrayList<Object>();
 		for (FileRecord record : records) files.add(record.toJson());
 		value.put("files", files);
 		value.put("definitionFingerprintSha256", definitions);
 		value.put("assetFingerprintSha256", assets);
+		if (version == 2) value.put("itemVisualFingerprintSha256", visualHash);
 		value.put("bundleFingerprintSha256", ZERO_HASH);
 		value.put("bundleFingerprintSha256", selfFingerprint(value));
 		return value;
@@ -293,13 +365,14 @@ final class WorldBuilderProjectContentBundle {
 		return value;
 	}
 
-	private static void validateFamilies(Object raw, List<FileRecord> records)
+	private static void validateFamilies(Object raw, List<FileRecord> records,
+		int version, List<Object> itemVisuals)
 		throws WorldBuilderContractException {
 		List<?> values = array(raw, "familyBindings", 5, 5);
 		List<Object> expected = familyBindings();
 		if (!values.equals(expected)) throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
 			MANIFEST, "Content family bindings are incomplete or noncanonical.",
-			"Use the exact five version 1 family bindings.");
+			"Use the exact five canonical family bindings.");
 		Set<String> present = new HashSet<String>();
 		for (FileRecord record : records) present.add(record.spec.role);
 		for (Object rawBinding : values) {
@@ -313,17 +386,33 @@ final class WorldBuilderProjectContentBundle {
 				}
 			}
 		}
+		if (version == 2) {
+			Set<String> dependencies = new HashSet<String>();
+			for (Object rawVisual : itemVisuals) {
+				Map<String,Object> visual = object(rawVisual, "itemVisual");
+				if (visual.get("authenticSpriteId") != null) {
+					dependencies.add("asset.sprite.authentic");
+				} else dependencies.add(string(visual, "customSpriteAssetRole"));
+			}
+			for (String dependency : dependencies) if (!present.contains(dependency)) {
+				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
+					"Item visual metadata references a missing client archive role.",
+					"Capture the exact referenced client asset dependency closure.");
+			}
+		}
 	}
 
-	private static List<FileRecord> parseFiles(Path root, Object raw)
+	private static List<FileRecord> parseFiles(Path root, Object raw, int version)
 		throws IOException, WorldBuilderContractException {
-		List<?> values = array(raw, "files", SPECS.size(), 256);
-		if (values.size() != SPECS.size()) throw problem(
+		int expectedCount = SPECS.size() + (version == 2 ? 1 : 0);
+		List<?> values = array(raw, "files", expectedCount, 256);
+		if (values.size() != expectedCount) throw problem(
 			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
-			"Version 1 target bundle is missing a required declarative content role.",
+			"Target bundle is missing a required declarative content role.",
 			"Capture all required target definitions and client assets.");
 		Map<String,Spec> specs = new HashMap<String,Spec>();
 		for (Spec spec : SPECS) specs.put(spec.role, spec);
+		if (version == 2) specs.put(ITEM_VISUAL_SPEC.role, ITEM_VISUAL_SPEC);
 		Set<String> paths = new HashSet<String>();
 		Set<String> roles = new HashSet<String>();
 		List<FileRecord> result = new ArrayList<FileRecord>();
@@ -336,13 +425,14 @@ final class WorldBuilderProjectContentBundle {
 			Spec spec = specs.get(role);
 			String bundlePath = string(record, "bundleRelativePath");
 			String runtimePath = string(record, "runtimeRelativePath");
+			String mediaType = string(record, "mediaType");
 			if (spec == null || !roles.add(role) || !spec.runtimePath.equals(runtimePath)
-				|| !spec.mediaType.equals(string(record, "mediaType"))
+				|| !validMediaType(spec, mediaType, version)
 				|| !("files/" + runtimePath).equals(bundlePath)
 				|| previous.compareTo(runtimePath) >= 0) {
 				throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, MANIFEST,
 					"Content file roles or compiled runtime destinations are invalid.",
-					"Use each exact version 1 role/path mapping once in canonical order.");
+					"Use each exact versioned role/path mapping once in canonical order.");
 			}
 			WorldBuilderPortablePath.require(bundlePath, OPERATION);
 			WorldBuilderPortablePath.require(runtimePath, OPERATION);
@@ -361,20 +451,20 @@ final class WorldBuilderProjectContentBundle {
 					"Restore the exact complete project-local bundle.");
 			}
 			validateFile(path, spec);
-			result.add(new FileRecord(spec, bundlePath, size, hash));
+			result.add(new FileRecord(spec, bundlePath, size, hash, mediaType));
 			previous = runtimePath;
 		}
 		if (!roles.equals(specs.keySet())) throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 			MANIFEST, "Content role closure is incomplete.",
-			"Capture every required version 1 definition and client asset role.");
+			"Capture every required versioned definition, metadata, and client asset role.");
 		return result;
 	}
 
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId)
 		throws IOException, WorldBuilderContractException {
-		List<Object> tiles = range(xmlCount(root, "definition.tile",
+		List<Object> tiles = range(rawByteXmlCount(root, "definition.tile",
 			"TileDef-array", "TileDef"));
-		List<Object> boundaries = range(xmlCount(root, "definition.boundary",
+		List<Object> boundaries = range(rawByteXmlCount(root, "definition.boundary",
 			"DoorDef-array", "DoorDef"));
 		List<Object> scenery = range(xmlCount(root, "definition.scenery",
 			"GameObjectDef-array", "GameObjectDef"));
@@ -401,6 +491,16 @@ final class WorldBuilderProjectContentBundle {
 		catalog.put("catalogSha256", ZERO_HASH);
 		catalog.put("catalogSha256", selfHash(catalog, "catalogSha256"));
 		return catalog;
+	}
+
+	private static int rawByteXmlCount(Path root, String role, String rootName,
+		String element) throws IOException, WorldBuilderContractException {
+		int count = xmlCount(root, role, rootName, element);
+		if (count > MAX_RAW_BYTE_ID + 1) throw problem(
+			WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, role,
+			"Floor and boundary definitions exceed their one-byte raw ID domain 0..254.",
+			"Reduce the declarative family to at most 255 indexed definitions; raw value 255 is reserved.");
+		return count;
 	}
 
 	private static int xmlCount(Path root, String role, String rootName, String element)
@@ -449,8 +549,8 @@ final class WorldBuilderProjectContentBundle {
 			if (!(raw instanceof Map)) throw malformedDefinition(role);
 			@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)raw;
 			Object id = value.get("id");
-			if (!(id instanceof Long) || ((Long)id).longValue() < 0L
-				|| ((Long)id).longValue() > Integer.MAX_VALUE
+				if (!(id instanceof Long) || ((Long)id).longValue() < 0L
+					|| ((Long)id).longValue() > MAX_RUNTIME_ID
 				|| !result.add(Integer.valueOf((int)((Long)id).longValue()))) {
 				throw malformedDefinition(role);
 			}
@@ -475,7 +575,9 @@ final class WorldBuilderProjectContentBundle {
 
 	private static Path contentPath(Path root, String role)
 		throws WorldBuilderContractException {
-		for (Spec spec : SPECS) if (role.equals(spec.role)) {
+		List<Spec> specs = new ArrayList<Spec>(SPECS);
+		specs.add(ITEM_VISUAL_SPEC);
+		for (Spec spec : specs) if (role.equals(spec.role)) {
 			Path bundled = root.resolve("files/" + spec.runtimePath);
 			return Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)
 				? bundled : root.resolve(spec.targetPath);
@@ -517,6 +619,28 @@ final class WorldBuilderProjectContentBundle {
 				"Target custom-content file changed while it was inspected.",
 				"Stop target updates and retry discovery.", failure);
 		}
+	}
+
+	private static String mediaType(Spec spec, Path path, boolean successor)
+		throws IOException {
+		if (successor && ("asset.sprite.custom".equals(spec.role)
+			|| "asset.spritepack".equals(spec.role))) {
+			byte[] magic = new byte[2];
+			try (InputStream input = Files.newInputStream(path)) {
+				int read = input.read(magic);
+				if (read == 2 && magic[0] == 'P' && magic[1] == 'K') {
+					return "application/zip";
+				}
+			}
+		}
+		return spec.mediaType;
+	}
+
+	private static boolean validMediaType(Spec spec, String mediaType, int version) {
+		return spec.mediaType.equals(mediaType) || version == 2
+			&& ("asset.sprite.custom".equals(spec.role)
+				|| "asset.spritepack".equals(spec.role))
+			&& "application/zip".equals(mediaType);
 	}
 
 	private static void validateGzip(Path path, String label)
@@ -572,6 +696,186 @@ final class WorldBuilderProjectContentBundle {
 			"Provide a complete supported target-owned archive.");
 	}
 
+	private static List<Object> validateItemVisualEvidence(Path path)
+		throws WorldBuilderContractException {
+		return parseItemVisuals(readItemVisualEvidence(path).get("itemVisuals"),
+			ITEM_VISUAL_EVIDENCE_PATH);
+	}
+
+	private static Map<String,Object> readItemVisualEvidence(Path path)
+		throws WorldBuilderContractException {
+		Map<String,Object> value;
+		try {
+			value = WorldBuilderJsonDocuments.readObject(path);
+		} catch (IOException failure) {
+			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+				ITEM_VISUAL_EVIDENCE_PATH,
+				"Static item visual evidence changed while it was read.",
+				"Stop target changes and retry discovery.", failure);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_JSON,
+				ITEM_VISUAL_EVIDENCE_PATH,
+				"Static item visual evidence is malformed JSON.",
+				"Provide the exact world-builder-item-visual-evidence schema version 1.",
+				malformed);
+		}
+		exact(value, "schemaVersion", "manifestType", "itemVisuals");
+		if (!Long.valueOf(1L).equals(value.get("schemaVersion"))
+			|| !"world-builder-item-visual-evidence".equals(value.get("manifestType"))) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_CONTRACT_VERSION,
+				ITEM_VISUAL_EVIDENCE_PATH,
+				"Static item visual evidence identity is unsupported.",
+				"Provide world-builder-item-visual-evidence schema version 1.");
+		}
+		parseItemVisuals(value.get("itemVisuals"), ITEM_VISUAL_EVIDENCE_PATH);
+		return value;
+	}
+
+	private static List<Object> parseItemVisuals(Object raw, String label)
+		throws WorldBuilderContractException {
+		List<?> values = array(raw, label, 1, MAX_DEFINITIONS);
+		List<Object> result = new ArrayList<Object>(values.size());
+		long previous = -1L;
+		for (Object rawVisual : values) {
+			Map<String,Object> visual = object(rawVisual, label);
+			exact(visual, "itemId", "authenticSpriteId", "customSpriteAssetRole",
+				"customSpriteSubspace", "customSpriteEntry", "pictureMask", "blueMask");
+			long itemId = integer(visual, "itemId");
+			if (itemId <= previous || itemId > MAX_RUNTIME_ID) {
+				throw visualProblem("Item visual IDs must be unique, ascending, and within 0..65535.");
+			}
+			previous = itemId;
+			Object authentic = visual.get("authenticSpriteId");
+			Object role = visual.get("customSpriteAssetRole");
+			Object subspace = visual.get("customSpriteSubspace");
+			Object entry = visual.get("customSpriteEntry");
+			boolean authenticMapping = authentic instanceof Long
+				&& role == null && subspace == null && entry == null;
+			boolean customMapping = authentic == null && role instanceof String
+				&& subspace instanceof String && entry instanceof String;
+			if (authenticMapping) {
+				long spriteId = ((Long)authentic).longValue();
+				if (spriteId < 0L || spriteId > MAX_RUNTIME_ID) {
+					throw visualProblem("Authentic sprite IDs must be within 0..65535.");
+				}
+			} else if (customMapping) {
+				String archiveRole = (String)role;
+				if (!("asset.sprite.custom".equals(archiveRole)
+					|| "asset.spritepack".equals(archiveRole))) {
+					throw visualProblem("Custom item visuals must select asset.sprite.custom or asset.spritepack.");
+				}
+				String combined = (String)subspace + "/" + (String)entry;
+				WorldBuilderPortablePath.require((String)subspace, OPERATION);
+				WorldBuilderPortablePath.require((String)entry, OPERATION);
+				WorldBuilderPortablePath.require(combined, OPERATION);
+			} else {
+				throw visualProblem("Each item visual must select exactly one authentic or custom archive mapping.");
+			}
+			for (String mask : Arrays.asList("pictureMask", "blueMask")) {
+				long number = integer(visual, mask);
+				if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
+					throw visualProblem("Item recolor masks must be signed 32-bit integers.");
+				}
+			}
+			result.add(new LinkedHashMap<String,Object>(visual));
+		}
+		return result;
+	}
+
+	private static void requireExactVisualClosure(List<Object> visuals,
+		Set<Integer> beyondPackaged) throws WorldBuilderContractException {
+		Set<Integer> actual = new TreeSet<Integer>();
+		for (Object raw : visuals) {
+			actual.add(Integer.valueOf((int)integer(object(raw, "itemVisual"), "itemId")));
+		}
+		if (!actual.equals(beyondPackaged)) throw problem(
+			WorldBuilderErrorCodes.CONVERSION_BLOCKED, ITEM_VISUAL_EVIDENCE_PATH,
+			"Static item visual evidence does not exactly cover the beyond-packaged ground-item definitions.",
+			"Add each missing beyond-packaged item once and remove packaged, unknown, or duplicate item records.");
+	}
+
+	private static void validateItemVisualCatalogClosure(List<Object> visuals,
+		Map<String,Object> catalog) throws WorldBuilderContractException {
+		Set<Integer> items = idSet(catalog.get("groundItems"));
+		for (Object raw : visuals) {
+			int itemId = (int)integer(object(raw, "itemVisual"), "itemId");
+			if (!items.contains(Integer.valueOf(itemId))) throw visualProblem(
+				"Item visual metadata references a ground-item ID absent from the definition catalog.");
+		}
+	}
+
+	private static void validateItemVisualArchiveClosure(Path root, List<Object> visuals)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Set<String>> entriesByRole = new HashMap<String,Set<String>>();
+		for (Object raw : visuals) {
+			Map<String,Object> visual = object(raw, "itemVisual");
+			if (visual.get("authenticSpriteId") != null) continue;
+			String role = string(visual, "customSpriteAssetRole");
+			Set<String> entries = entriesByRole.get(role);
+			if (entries == null) {
+				Path archive = contentPath(root, role);
+				entries = zipEntries(archive, role);
+				entriesByRole.put(role, entries);
+			}
+			String required = string(visual, "customSpriteSubspace") + "/"
+				+ string(visual, "customSpriteEntry");
+			if (!entries.contains(required)) throw problem(
+				WorldBuilderErrorCodes.DEFINITION_MISMATCH, role,
+				"Custom item visual archive entry is missing: " + required + ".",
+				"Add the exact declared entry to the selected target archive or correct the static mapping.");
+		}
+	}
+
+	private static Set<String> zipEntries(Path path, String role)
+		throws IOException, WorldBuilderContractException {
+		Set<String> result = new HashSet<String>();
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (!entry.isDirectory()) result.add(entry.getName());
+			}
+		} catch (java.util.zip.ZipException unsupported) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, role,
+				"A named custom item visual mapping requires a structurally readable ZIP archive.",
+				"Provide a ZIP-contained target archive with the exact declared entry names.", unsupported);
+		}
+		return result;
+	}
+
+	private static Set<Integer> differenceIds(Object target, Object packaged)
+		throws WorldBuilderContractException {
+		Set<Integer> result = idSet(target);
+		result.removeAll(idSet(packaged));
+		return result;
+	}
+
+	private static Set<Integer> idSet(Object raw) throws WorldBuilderContractException {
+		Set<Integer> result = new TreeSet<Integer>();
+		for (Object value : array(raw, "definition IDs", 0, MAX_DEFINITIONS)) {
+			if (!(value instanceof Long)) throw malformedDefinition("definition IDs");
+			result.add(Integer.valueOf((int)((Long)value).longValue()));
+		}
+		return result;
+	}
+
+	private static String itemVisualFingerprint(int version, List<Object> visuals) {
+		if (version == 1) return ZERO_HASH;
+		byte[] domain = "world-builder-project-content-item-visuals-v1\n"
+			.getBytes(StandardCharsets.US_ASCII);
+		MessageDigest digest = sha256();
+		digest.update(domain);
+		digest.update(WorldBuilderJsonDocuments.canonical(visuals)
+			.getBytes(StandardCharsets.UTF_8));
+		return hex(digest.digest());
+	}
+
+	private static WorldBuilderContractException visualProblem(String message) {
+		return problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+			ITEM_VISUAL_EVIDENCE_PATH, message,
+			"Correct the truthful static item visual evidence and retry without executing target code.");
+	}
+
 	private static String fingerprint(String domain, List<FileRecord> records,
 		boolean definitions, String suffix) {
 		MessageDigest digest = sha256();
@@ -589,7 +893,8 @@ final class WorldBuilderProjectContentBundle {
 	private static String selfFingerprint(Map<String,Object> manifest)
 		throws WorldBuilderContractException {
 		MessageDigest digest = sha256();
-		digest.update("world-builder-project-content-bundle-v1\n"
+		digest.update(("world-builder-project-content-bundle-v"
+			+ integer(manifest, "schemaVersion") + "\n")
 			.getBytes(StandardCharsets.US_ASCII));
 		Map<String,Object> copy = deepCopy(manifest);
 		copy.put("bundleFingerprintSha256", ZERO_HASH);
@@ -618,20 +923,24 @@ final class WorldBuilderProjectContentBundle {
 		if (!id.matches("[A-Za-z0-9][A-Za-z0-9._:+-]{0,127}")) {
 			throw malformedDefinition("definitionCatalog");
 		}
-		for (String field : Arrays.asList("tiles", "boundaries", "scenery", "npcs",
-			"groundItems")) validateIds(catalog.get(field), field);
+		for (String field : Arrays.asList("tiles", "boundaries")) {
+			validateIds(catalog.get(field), field, MAX_RAW_BYTE_ID);
+		}
+		for (String field : Arrays.asList("scenery", "npcs", "groundItems")) {
+			validateIds(catalog.get(field), field, MAX_RUNTIME_ID);
+		}
 		if (!selfHash(catalog, "catalogSha256").equals(catalog.get("catalogSha256"))) {
 			throw malformedDefinition("definitionCatalog");
 		}
 	}
 
-	private static void validateIds(Object raw, String field)
+	private static void validateIds(Object raw, String field, int maximum)
 		throws WorldBuilderContractException {
 		List<?> values = array(raw, field, 0, MAX_DEFINITIONS);
 		long previous = -1L;
 		for (Object value : values) {
 			if (!(value instanceof Long) || ((Long)value).longValue() <= previous
-				|| ((Long)value).longValue() > Integer.MAX_VALUE) {
+				|| ((Long)value).longValue() > maximum) {
 				throw malformedDefinition(field);
 			}
 			previous = ((Long)value).longValue();
@@ -813,21 +1122,29 @@ final class WorldBuilderProjectContentBundle {
 
 	static final class Bundle {
 		final Path root;
+		final String capabilityId;
 		final Map<String,Object> definitionCatalog;
+		final List<Object> itemVisuals;
 		final List<FileRecord> files;
 		final String definitionFingerprintSha256;
 		final String assetFingerprintSha256;
+		final String itemVisualFingerprintSha256;
 		final String bundleFingerprintSha256;
 
-		Bundle(Path root, Map<String,Object> definitionCatalog,
-			List<FileRecord> files, String definitionFingerprintSha256,
-			String assetFingerprintSha256, String bundleFingerprintSha256) {
+		Bundle(Path root, String capabilityId, Map<String,Object> definitionCatalog,
+			List<Object> itemVisuals, List<FileRecord> files,
+			String definitionFingerprintSha256, String assetFingerprintSha256,
+			String itemVisualFingerprintSha256, String bundleFingerprintSha256) {
 			this.root = root;
+			this.capabilityId = capabilityId;
 			this.definitionCatalog = Collections.unmodifiableMap(
 				new LinkedHashMap<String,Object>(definitionCatalog));
+			this.itemVisuals = Collections.unmodifiableList(
+				new ArrayList<Object>(itemVisuals));
 			this.files = Collections.unmodifiableList(new ArrayList<FileRecord>(files));
 			this.definitionFingerprintSha256 = definitionFingerprintSha256;
 			this.assetFingerprintSha256 = assetFingerprintSha256;
+			this.itemVisualFingerprintSha256 = itemVisualFingerprintSha256;
 			this.bundleFingerprintSha256 = bundleFingerprintSha256;
 		}
 
@@ -844,12 +1161,15 @@ final class WorldBuilderProjectContentBundle {
 		final String bundlePath;
 		final long size;
 		final String sha256;
+		final String mediaType;
 
-		FileRecord(Spec spec, String bundlePath, long size, String sha256) {
+		FileRecord(Spec spec, String bundlePath, long size, String sha256,
+			String mediaType) {
 			this.spec = spec;
 			this.bundlePath = bundlePath;
 			this.size = size;
 			this.sha256 = sha256;
+			this.mediaType = mediaType;
 		}
 
 		Map<String,Object> toJson() {
@@ -857,7 +1177,7 @@ final class WorldBuilderProjectContentBundle {
 			value.put("role", spec.role);
 			value.put("bundleRelativePath", bundlePath);
 			value.put("runtimeRelativePath", spec.runtimePath);
-			value.put("mediaType", spec.mediaType);
+			value.put("mediaType", mediaType);
 			value.put("size", Long.valueOf(size));
 			value.put("sha256", sha256);
 			return value;

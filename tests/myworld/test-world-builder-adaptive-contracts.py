@@ -863,6 +863,33 @@ def project_content_bundle() -> dict:
     }
 
 
+def project_content_bundle_v2() -> dict:
+    value = project_content_bundle()
+    value["schemaVersion"] = 2
+    value["capabilityId"] = "project-local-custom-content-v2"
+    value["definitionCatalog"]["catalogId"] = "target-adopted-content-v2"
+    value["itemVisuals"] = [{
+        "itemId": 9000,
+        "authenticSpriteId": None,
+        "customSpriteAssetRole": "asset.sprite.custom",
+        "customSpriteSubspace": "items",
+        "customSpriteEntry": "9000.dat",
+        "pictureMask": 0x336699,
+        "blueMask": -16776961,
+    }]
+    value["files"].append({
+        "role": "metadata.item-visuals",
+        "bundleRelativePath": "files/server/conf/world-builder/item-visuals-v1.json",
+        "runtimeRelativePath": "server/conf/world-builder/item-visuals-v1.json",
+        "mediaType": "application/json",
+        "size": 1,
+        "sha256": HASH_B,
+    })
+    value["files"].sort(key=lambda record: record["runtimeRelativePath"])
+    value["itemVisualFingerprintSha256"] = HASH_B
+    return value
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -896,6 +923,7 @@ SCHEMA_CONTRACTS = {
     "region-compatibility-report-v1.schema.json": (1, "world-builder-region-compatibility-report"),
     "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),
     "project-content-bundle-v1.schema.json": (1, "world-builder-project-content-bundle"),
+    "project-content-bundle-v2.schema.json": (2, "world-builder-project-content-bundle"),
 }
 
 REGION_SCHEMA_VECTORS = {
@@ -1063,6 +1091,19 @@ class AdaptiveContractTests(unittest.TestCase):
             legacy = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
             self.assertEqual(1, legacy["properties"]["schemaVersion"]["const"])
 
+        for name in (
+            "project-content-bundle-v1.schema.json",
+            "project-content-bundle-v2.schema.json",
+        ):
+            schema = json.loads((SCHEMA_ROOT / name).read_text(encoding="utf-8"))
+            self.assertEqual(254, schema["$defs"]["rawByteDefinitionIds"]
+                ["items"]["maximum"])
+            self.assertEqual(255, schema["$defs"]["rawByteDefinitionIds"]
+                ["maxItems"])
+            self.assertEqual(65535, schema["$defs"]["definitionIds"]
+                ["items"].get("maximum", schema["$defs"].get("runtimeId", {})
+                .get("maximum")))
+
     @unittest.skipUnless(jsonschema is not None, "optional jsonschema module unavailable")
     def test_json_schemas_are_valid_and_accept_production_valid_vectors(self):
         common = json.loads(
@@ -1085,7 +1126,9 @@ class AdaptiveContractTests(unittest.TestCase):
                 validator = jsonschema.Draft202012Validator(
                     schema, resolver=resolver
                 )
-                document = factories_by_type[manifest_type]()
+                document = (project_content_bundle_v2() if name ==
+                    "project-content-bundle-v2.schema.json"
+                    else factories_by_type[manifest_type]())
                 document["schemaVersion"] = version
                 errors = list(validator.iter_errors(document))
                 self.assertEqual([], errors, [error.message for error in errors])

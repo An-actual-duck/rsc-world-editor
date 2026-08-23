@@ -35,8 +35,6 @@ final class WorldBuilderPackedFallbackEvidence {
 		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	static final String CLIENT_ASSET =
 		"Client_Base/Cache/video/library.orsc";
-	private static final String CATALOG_ID =
-		"target-adopted-content-v1";
 	private static final String SERVER_TERRAIN =
 		"server/conf/server/data/Custom_Landscape.orsc";
 	private static final String CLIENT_TERRAIN =
@@ -59,8 +57,9 @@ final class WorldBuilderPackedFallbackEvidence {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderProjectContentBundle.Bundle content =
-			WorldBuilderProjectContentBundle.capture(projectStage, original);
+			WorldBuilderProjectContentBundle.capture(projectStage, original, runtime);
 		Map<String,Object> catalog = content.compatibilityCatalog();
+		String catalogId = (String)catalog.get("catalogId");
 		writeJson(original, SERVER_DEFINITIONS, catalog);
 		copyNew(original.resolve(SERVER_DEFINITIONS),
 			original.resolve(CLIENT_DEFINITIONS));
@@ -73,10 +72,10 @@ final class WorldBuilderPackedFallbackEvidence {
 		authoring.put("placementFamilies", new ArrayList<String>(FAMILIES));
 		writeJson(original, SERVER_RUNTIME,
 			runtimeEvidence("server", "world-builder-fallback-server-v1",
-				catalogHash, authoring));
+				catalogId, catalogHash, authoring));
 		writeJson(original, CLIENT_RUNTIME,
 			runtimeEvidence("client", "world-builder-fallback-client-v1",
-				catalogHash, authoring));
+				catalogId, catalogHash, authoring));
 		copyNew(original.resolve(CLIENT_ASSET), original.resolve(SERVER_ASSET));
 		writeJson(original, BOUNDARY_PLACEMENTS,
 			emptyPlacement("boundaries"));
@@ -100,7 +99,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		}
 		Collections.sort(sourceRoles);
 		Map<String,Object> capability = capability(
-			catalogHash, authoring, sourceRoles);
+			catalogId, catalogHash, authoring, sourceRoles);
 		writeJson(original, WorldBuilderTargetCapability.RELATIVE_PATH, capability);
 
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(original);
@@ -117,7 +116,7 @@ final class WorldBuilderPackedFallbackEvidence {
 	}
 
 	private static Map<String,Object> runtimeEvidence(String side, String build,
-		String catalogHash, Map<String,Object> authoring) {
+		String catalogId, String catalogHash, Map<String,Object> authoring) {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
 		value.put("schemaVersion", Long.valueOf(1L));
 		value.put("manifestType", "world-builder-runtime-evidence");
@@ -125,7 +124,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		value.put("buildId", build);
 		value.put("loaderId", "layered-loader-v2");
 		value.put("protocolId", "rsc-world-builder-loopback-v1");
-		value.put("definitionCatalogId", CATALOG_ID);
+		value.put("definitionCatalogId", catalogId);
 		value.put("definitionCatalogSha256", catalogHash);
 		value.put("mapFormatId", "legacy-packed-orsc-v1");
 		value.put("packageSchemaId", "layered-world-package-v1");
@@ -156,7 +155,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		return value;
 	}
 
-	private static Map<String,Object> capability(String catalogHash,
+	private static Map<String,Object> capability(String catalogId, String catalogHash,
 		Map<String,Object> authoring, List<String> sourceRoles) {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
 		value.put("schemaVersion", Long.valueOf(1L));
@@ -166,7 +165,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		value.put("server", side("world-builder-fallback-server-v1", false));
 		value.put("client", side("world-builder-fallback-client-v1", true));
 		Map<String,Object> definitions = new LinkedHashMap<String,Object>();
-		definitions.put("catalogId", CATALOG_ID);
+		definitions.put("catalogId", catalogId);
 		definitions.put("catalogSha256", catalogHash);
 		value.put("definitions", definitions);
 		Map<String,Object> map = new LinkedHashMap<String,Object>();

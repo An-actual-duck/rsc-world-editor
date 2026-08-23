@@ -567,6 +567,10 @@ public final class AdaptiveProjectSupervisorHarness {
                         "-Dopenrsc.worldBuilderContentAssetSha256="
                             + content.assetFingerprintSha256),
                         "custom content asset fingerprint");
+                    require(contains(command,
+                        "-Dopenrsc.worldBuilderContentItemVisualSha256="
+                            + content.itemVisualFingerprintSha256),
+                        "custom content item visual fingerprint");
                 }
             }
             require(contains(productionClient,
@@ -4116,7 +4120,7 @@ public final class FakeAdaptiveClient {
                 (working_content / "manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(
-                "project-local-custom-content-v1", source_bundle["capabilityId"]
+                "project-local-custom-content-v2", source_bundle["capabilityId"]
             )
             self.assertEqual(
                 source_bundle["bundleFingerprintSha256"],
@@ -4126,6 +4130,10 @@ public final class FakeAdaptiveClient {
             self.assertIn(9000, source_bundle["definitionCatalog"]["groundItems"])
             self.assertIn(31, source_bundle["definitionCatalog"]["tiles"])
             self.assertIn(219, source_bundle["definitionCatalog"]["boundaries"])
+            self.assertEqual(
+                [9000, 9001, 9002],
+                [value["itemId"] for value in source_bundle["itemVisuals"]],
+            )
             self.assertEqual(
                 tree_bytes(source_content), tree_bytes(working_content)
             )
@@ -4210,6 +4218,75 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, refused_import.returncode)
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_beyond_packaged_item_visual_blockers_preserve_target_bytes(self):
+        cases = {}
+
+        def missing_evidence(target: Path) -> None:
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+
+        cases["missing-evidence"] = (missing_evidence, "authoritative item visual evidence is missing")
+
+        def missing_entry(target: Path) -> None:
+            archive = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
+                output.writestr("items/not-9000.dat", b"unrelated sprite")
+
+        cases["missing-entry"] = (missing_entry, "archive entry is missing")
+
+        for name, (mutation, expected) in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory(
+                prefix="adaptive-item-visual-blocker-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.legacy_fixture(str(base))
+                mutation(target)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "report.json"
+                discovered = self.discover(target, report)
+                self.assertEqual("compatible", discovered["status"])
+                before = tree_bytes(target)
+                created, _ = self.create_project(
+                    installation, runtime, target, report,
+                    "Blocked item visual", 43816,
+                )
+                self.assertEqual(3, created.returncode, created.stdout)
+                self.assertIn(expected, created.stderr)
+                self.assertEqual(before, tree_bytes(target))
+                self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_packaged_item_only_fallback_retains_bundle_v1_without_visual_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-content-v1-compatible-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 42}]})
+            write_json(definitions / "ItemDefsPatch18.json", {"items": []})
+            write_json(definitions / "ItemDefsMyWorld.json", {"items": []})
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Bundle v1 compatible", 43817,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            manifest = json.loads((Path(summary["projectRoot"]) /
+                "source/content-bundle/manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, manifest["schemaVersion"])
+            self.assertEqual("project-local-custom-content-v1", manifest["capabilityId"])
+            self.assertNotIn("itemVisuals", manifest)
+            self.assertEqual(before, tree_bytes(target))
 
     def test_multiple_projects_selection_and_existing_project_preservation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-multiple-") as temp:

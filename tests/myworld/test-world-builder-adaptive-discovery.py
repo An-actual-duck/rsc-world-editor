@@ -659,24 +659,54 @@ public final class AdaptiveDiscoveryDriftHarness {
         write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 9000}]})
         write_json(definitions / "ItemDefsMyWorld.json", {"items": [{"id": 9001}]})
         write_json(definitions / "ItemDefsPatch18.json", {"items": [{"id": 9002}]})
+        write_json(
+            root / "server/conf/world-builder/item-visuals-v1.json",
+            {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-evidence",
+                "itemVisuals": [
+                    {
+                        "itemId": 9000,
+                        "authenticSpriteId": None,
+                        "customSpriteAssetRole": "asset.sprite.custom",
+                        "customSpriteSubspace": "items",
+                        "customSpriteEntry": "9000.dat",
+                        "pictureMask": 0x336699,
+                        "blueMask": 0x112233,
+                    },
+                    {
+                        "itemId": 9001,
+                        "authenticSpriteId": 417,
+                        "customSpriteAssetRole": None,
+                        "customSpriteSubspace": None,
+                        "customSpriteEntry": None,
+                        "pictureMask": -1,
+                        "blueMask": 0,
+                    },
+                    {
+                        "itemId": 9002,
+                        "authenticSpriteId": None,
+                        "customSpriteAssetRole": "asset.spritepack",
+                        "customSpriteSubspace": "inventory",
+                        "customSpriteEntry": "9002.dat",
+                        "pictureMask": 0x445566,
+                        "blueMask": -16776961,
+                    },
+                ],
+            },
+        )
         video = root / "Client_Base/Cache/video"
         video.mkdir(parents=True, exist_ok=True)
         (video / "library.orsc").write_bytes(b"fixture target library archive\n")
         (video / "models.orsc").write_bytes(b"fixture target model archive\n")
         with zipfile.ZipFile(video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("sprites/base.bin", b"fixture authentic sprites")
-        with (video / "Custom_Sprites.osar").open("wb") as compressed:
-            with gzip.GzipFile(
-                filename="", mode="wb", fileobj=compressed, mtime=0
-            ) as archive:
-                archive.write(b"fixture target custom sprites and textures")
+        with zipfile.ZipFile(video / "Custom_Sprites.osar", "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("items/9000.dat", b"fixture target custom item sprite")
         menus = video / "spritepacks/Menus.osar"
         menus.parent.mkdir(parents=True)
-        with menus.open("wb") as compressed:
-            with gzip.GzipFile(
-                filename="", mode="wb", fileobj=compressed, mtime=0
-            ) as archive:
-                archive.write(b"fixture target item and npc menu sprites")
+        with zipfile.ZipFile(menus, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("inventory/9002.dat", b"fixture target item menu sprite")
         return root
 
     def test_no_server_is_standalone_and_deterministic_without_writes(self):
@@ -836,6 +866,21 @@ public final class AdaptiveDiscoveryDriftHarness {
 
         cases["duplicate-definition"] = (duplicate_definition, "DEFINITION_MISMATCH")
 
+        def malformed_visuals(root: Path) -> None:
+            (root / "server/conf/world-builder/item-visuals-v1.json").write_bytes(
+                b"{malformed\n"
+            )
+
+        cases["malformed-item-visuals"] = (malformed_visuals, "MALFORMED_JSON")
+
+        def duplicate_visuals(root: Path) -> None:
+            path = root / "server/conf/world-builder/item-visuals-v1.json"
+            value = json.loads(path.read_text(encoding="utf-8"))
+            value["itemVisuals"].insert(1, dict(value["itemVisuals"][0]))
+            write_json(path, value)
+
+        cases["duplicate-item-visuals"] = (duplicate_visuals, "DEFINITION_MISMATCH")
+
         for name, (mutation, expected_code) in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory(
                 prefix=f"adaptive-content-{name}-"
@@ -864,6 +909,43 @@ public final class AdaptiveDiscoveryDriftHarness {
             report = self.assert_blocked(root, "UNSUPPORTED_FORMAT")
             self.assertIn("duplicate", report["issues"][0]["observed"].lower())
             self.assertIn("h0x048y037", report["issues"][0]["observed"])
+
+    def test_custom_content_definition_ids_enforce_exact_runtime_domains(self):
+        cases = {}
+
+        def too_many_floors(root: Path) -> None:
+            path = root / "server/conf/server/defs/TileDef.xml"
+            path.write_text("<TileDef-array>" +
+                "<TileDef><colour>0</colour></TileDef>" * 256 +
+                "</TileDef-array>\n", encoding="utf-8")
+
+        cases["floor-255-reserved"] = too_many_floors
+
+        def too_many_boundaries(root: Path) -> None:
+            path = root / "server/conf/server/defs/DoorDef.xml"
+            path.write_text("<DoorDef-array>" +
+                "<DoorDef><name>wall</name></DoorDef>" * 256 +
+                "</DoorDef-array>\n", encoding="utf-8")
+
+        cases["boundary-255-reserved"] = too_many_boundaries
+
+        def item_outside_runtime(root: Path) -> None:
+            write_json(root / "server/conf/server/defs/ItemDefsCustom.json",
+                {"items": [{"id": 65536}]})
+
+        cases["item-65536"] = item_outside_runtime
+
+        for name, mutation in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory(
+                prefix="adaptive-definition-bound-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                mutation(root)
+                before = self.snapshot(root)
+                result = self.run_discovery(root)
+                self.assertEqual(3, result.returncode, result.stdout + result.stderr)
+                self.assertEqual("blocked", json.loads(result.stdout)["status"])
+                self.assertEqual(before, self.snapshot(root))
 
     def test_malformed_legacy_errors_are_portable_and_path_independent(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-legacy-portable-") as temp:
