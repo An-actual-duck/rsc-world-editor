@@ -14,7 +14,6 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static final String FORMAT_ID = "legacy-packed-orsc-v1";
 	private static final String PACKAGE_SCHEMA_ID = "layered-world-package-v1";
 	private static final String MUTATION_PROFILE_ID = "spoiled-milk-layered-install-v1";
-	private static final String LEGACY_CAPABILITY_ID = "spoiled-milk-packed-fallback-v1";
 	private static final String SERVER_TERRAIN =
 		"server/conf/server/data/Custom_Landscape.orsc";
 	private static final String CLIENT_TERRAIN =
@@ -177,6 +176,16 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			files.add(target.requiredState(content[0], content[1]));
 		}
 		files.add(legacyConfig);
+		for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
+			WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(
+				"fallback-project-local-reserved", relative);
+			if (reserved.present) {
+				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, relative,
+					"Built-in fallback project-local evidence path already exists in the target.",
+					"Remove the conflicting partial descriptor evidence or add one complete truthful descriptor.");
+			}
+			files.add(reserved);
+		}
 		Collections.sort(files);
 		List<Object> records = new ArrayList<Object>(files.size());
 		for (WorldBuilderReadOnlyTarget.FileState file : files) records.add(file.toJson());
@@ -191,7 +200,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"adapter-capability", "passed",
 			"The exact bounded reviewed packed fallback layout is present.",
-			LEGACY_CAPABILITY_ID + " inferred by compiled adapter " + ID + "."));
+			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID
+				+ " inferred by compiled adapter " + ID + "."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"authoring-capability", "passed",
 			"Fallback discovery records packed conversion inputs without activating project/runtime work.",
@@ -230,7 +240,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			"The selected config declares the reviewed client/map mode used by this fallback.",
 			"clientVersion=" + legacy.clientVersion + ", basedMapData="
 				+ legacy.basedMapData + "."));
-		return new WorldBuilderAdapterInspection(ID, LEGACY_CAPABILITY_ID,
+		return new WorldBuilderAdapterInspection(ID,
+			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID,
 			WorldBuilderDiscovery.DEFAULT_CONFIG, legacy.selectedConfigSha256, "packed",
 			Collections.singletonList(candidate), candidate, files, checks);
 	}

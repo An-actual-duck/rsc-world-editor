@@ -3939,6 +3939,69 @@ public final class FakeAdaptiveClient {
             self.assertEqual(0, opened.returncode, opened.stderr)
             self.assertEqual(discovery["representation"], "packed")
 
+    def test_descriptorless_packed_fallback_creates_project_local_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-fallback-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "fallback-report.json"
+            discovery = self.discover(target, report)
+            self.assertEqual("compatible", discovery["status"])
+            self.assertFalse(discovery["descriptor"]["present"])
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Descriptorless packed fallback", 43804,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
+            snapshot = json.loads(
+                (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual("target-packed", manifest["origin"])
+            self.assertEqual("ready-detached", manifest["state"])
+            self.assertFalse(manifest["operations"]["import"])
+            self.assertEqual("no-import-v1", manifest["target"]["importProfileId"])
+            self.assertEqual(
+                "spoiled-milk-packed-fallback-v1", snapshot["capabilityId"]
+            )
+            self.assertEqual(
+                "source/original/server/world-builder-configs/primary.json",
+                snapshot["selectedConfiguration"]["relativePath"],
+            )
+            self.assertTrue(
+                (project / "source/original/server/world-builder-capabilities.json").is_file()
+            )
+            self.assertEqual(target_before, tree_bytes(target))
+
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+            refused_import = self.run_cli(
+                "import-active-adaptive", "--installation-root", installation
+            )
+            self.assertEqual(3, refused_import.returncode)
+            self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_multiple_projects_selection_and_existing_project_preservation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-multiple-") as temp:
             base = Path(temp)

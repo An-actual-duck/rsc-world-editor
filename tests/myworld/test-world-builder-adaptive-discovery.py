@@ -721,6 +721,18 @@ public final class AdaptiveDiscoveryDriftHarness {
                 "spoiled-milk-packed-fallback-v1", report["capability"]["capabilityId"]
             )
 
+    def test_legacy_fallback_refuses_partial_project_local_descriptor_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-fallback-conflict-") as temp:
+            root = self.legacy_fixture(temp)
+            conflict = root / "server/world-builder-configs/primary.json"
+            write_json(conflict, {"partial": True})
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            self.assertIn("more than one", report["issues"][0]["observed"].lower())
+            self.assertEqual(before, self.snapshot(root))
+
     def test_packed_sector_coordinate_aliases_are_rejected(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-packed-alias-") as temp:
             root = self.descriptor_fixture(temp, representation="packed")
