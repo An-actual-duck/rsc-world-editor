@@ -3950,6 +3950,32 @@ public final class FakeAdaptiveClient {
                 target / "server/conf/server/defs/locs/MyWorldSceneryRemovals.json",
                 {"scenery_removals": [{"pos": {"X": 1, "Y": 1}}]},
             )
+            write_json(
+                target / "server/conf/server/defs/locs/MyWorldNpcLocs.json",
+                {
+                    "npclocs": [
+                        {
+                            "id": 846,
+                            "start": {"X": 2, "Y": 2},
+                            "min": {"X": 1, "Y": 1},
+                            "max": {"X": 3, "Y": 3},
+                        }
+                    ]
+                },
+            )
+            write_json(
+                target / "server/conf/server/defs/locs/MyWorldGroundItemLocs.json",
+                {
+                    "ground_items": [
+                        {
+                            "id": 9000,
+                            "pos": {"X": 3, "Y": 3},
+                            "amount": 2,
+                            "respawn": 90,
+                        }
+                    ]
+                },
+            )
             (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
                 "<GameObjectDef-array>"
                 + "".join(
@@ -3957,7 +3983,7 @@ public final class FakeAdaptiveClient {
                     + ("<width>2</width><height>1</height>" if index == 54
                        else "<width>1</width><height>1</height>")
                     + "</GameObjectDef>"
-                    for index in range(55)
+                    for index in range(60)
                 )
                 + "</GameObjectDef-array>\n",
                 encoding="utf-8",
@@ -3971,6 +3997,15 @@ public final class FakeAdaptiveClient {
                 packed_sector[offset : offset + 4] = (48055).to_bytes(
                     4, byteorder="big", signed=True
                 )
+            custom_scenery_tile = 100
+            custom_scenery_offset = custom_scenery_tile * 10 + 6
+            packed_sector[
+                custom_scenery_offset : custom_scenery_offset + 4
+            ] = (48060).to_bytes(4, byteorder="big", signed=True)
+            custom_floor_tile = 200
+            packed_sector[custom_floor_tile * 10 + 2] = 32
+            custom_wall_tile = 201
+            packed_sector[custom_wall_tile * 10 + 4] = 220
             sentinel_tile = 653
             sentinel_offset = sentinel_tile * 10 + 6
             packed_sector[sentinel_offset : sentinel_offset + 4] = (12000).to_bytes(
@@ -4027,6 +4062,28 @@ public final class FakeAdaptiveClient {
             self.assertTrue(
                 (project / "source/original/server/world-builder-capabilities.json").is_file()
             )
+            source_content = project / "source/content-bundle"
+            working_content = project / "working/content-bundle"
+            source_bundle = json.loads(
+                (source_content / "manifest.json").read_text(encoding="utf-8")
+            )
+            working_bundle = json.loads(
+                (working_content / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "project-local-custom-content-v1", source_bundle["capabilityId"]
+            )
+            self.assertEqual(
+                source_bundle["bundleFingerprintSha256"],
+                working_bundle["bundleFingerprintSha256"],
+            )
+            self.assertIn(846, source_bundle["definitionCatalog"]["npcs"])
+            self.assertIn(9000, source_bundle["definitionCatalog"]["groundItems"])
+            self.assertIn(31, source_bundle["definitionCatalog"]["tiles"])
+            self.assertIn(219, source_bundle["definitionCatalog"]["boundaries"])
+            self.assertEqual(
+                tree_bytes(source_content), tree_bytes(working_content)
+            )
             package = project / "working/layered-world/package"
             package_manifest = json.loads(
                 (package / "manifest.json").read_text(encoding="utf-8")
@@ -4040,6 +4097,8 @@ public final class FakeAdaptiveClient {
             for tile in (6, 54, sentinel_tile):
                 offset = tile * 11 + 7
                 self.assertEqual(bytes(4), layered[offset : offset + 4])
+            self.assertEqual(32, layered[custom_floor_tile * 11 + 3])
+            self.assertEqual(220, layered[custom_wall_tile * 11 + 6])
             placement_record = next(
                 value for value in package_manifest["placementSets"]
                 if value["level"] == 0
@@ -4048,7 +4107,10 @@ public final class FakeAdaptiveClient {
                 (package / placement_record["path"]).read_text(encoding="utf-8")
             )
             self.assertEqual(
-                [{"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54}],
+                [
+                    {"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54},
+                    {"direction": 0, "position": {"x": 2, "y": 4}, "sceneryId": 59},
+                ],
                 [
                     {
                         "direction": value["direction"],
@@ -4058,6 +4120,10 @@ public final class FakeAdaptiveClient {
                     for value in placements["scenery"]
                 ],
             )
+            self.assertEqual([846], [value["npcId"] for value in placements["npcs"]])
+            self.assertEqual(
+                [9000], [value["itemId"] for value in placements["groundItems"]]
+            )
             copied_archive = (
                 project
                 / "source/original/server/conf/server/data/Custom_Landscape.orsc"
@@ -4065,6 +4131,17 @@ public final class FakeAdaptiveClient {
             with zipfile.ZipFile(copied_archive) as archive:
                 self.assertEqual(bytes(packed_sector), archive.read("h0x48y37"))
             self.assertEqual(target_before, tree_bytes(target))
+
+            working_model = (
+                working_content / "files/client/Cache/video/models.orsc"
+            )
+            model_before = working_model.read_bytes()
+            working_model.write_bytes(model_before + b"drift")
+            mismatched = self.run_cli("save-project", "--project", project)
+            self.assertEqual(3, mismatched.returncode, mismatched.stdout)
+            self.assertIn("SOURCE_CORRUPT", mismatched.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            working_model.write_bytes(model_before)
 
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)

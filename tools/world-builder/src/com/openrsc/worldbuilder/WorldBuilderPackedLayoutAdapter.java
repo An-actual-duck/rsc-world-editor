@@ -18,16 +18,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		"server/conf/server/data/Custom_Landscape.orsc";
 	private static final String CLIENT_TERRAIN =
 		"Client_Base/Cache/video/Custom_Landscape.orsc";
-	private static final String[][] LEGACY_CONTENT = {
-		{"server-definition.tile", "server/conf/server/defs/TileDef.xml"},
-		{"server-definition.scenery", "server/conf/server/defs/GameObjectDef.xml"},
-		{"server-definition.npc.base", "server/conf/server/defs/NpcDefs.json"},
-		{"server-definition.npc.custom", "server/conf/server/defs/NpcDefsCustom.json"},
-		{"server-definition.npc.world", "server/conf/server/defs/NpcDefsMyWorld.json"},
-		{"server-definition.npc.patch", "server/conf/server/defs/NpcDefsPatch18.json"},
-		{"client-asset.library", "Client_Base/Cache/video/library.orsc"}
-	};
-
+	private static final String TARGET_GROUND_ITEM_PLACEMENTS =
+		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	@Override
 	public String id() {
 		return ID;
@@ -172,9 +164,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				file.present, file.size, file.sha256));
 			if (file.present) validateLegacyPlacement(target, file.logicalName, file.relativePath);
 		}
-		for (String[] content : LEGACY_CONTENT) {
-			files.add(target.requiredState(content[0], content[1]));
-		}
+		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target));
+		files.add(target.optionalState("placement.ground-item-overlay",
+			TARGET_GROUND_ITEM_PLACEMENTS));
 		files.add(legacyConfig);
 		for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
 			WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(
@@ -208,9 +200,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			"Phase 1 discovery only; later creation must revalidate runtime authoring capability."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"asset-agreement", "passed",
-			"The compiled fallback's exact client asset evidence is present.",
-			"Client library is bound into content fingerprint "
-				+ legacy.contentFingerprintSha256 + "."));
+			"The compiled fallback's exact client asset closure is present and bounded.",
+			"Library, models, authentic/custom sprites, and required family bindings are inventoried."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"client-server-map-agreement", "passed",
 			"Server and client terrain archives are byte-identical.",
@@ -221,15 +212,15 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			WorldBuilderDiscovery.DEFAULT_CONFIG + " is active."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"definition-agreement", "passed",
-			"All compiled fallback definition/asset inputs are present and fingerprinted.",
-			legacy.contentFingerprintSha256 + "."));
+			"All floor, wall, scenery, NPC, and item definition inputs are present and parseable.",
+			"Target-owned authoring IDs will be derived inside the isolated UUID project."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"format-validation", "passed",
 			"Every packed terrain entry has the reviewed name and raw byte shape.",
 			legacy.terrainSectorCount + " bounded sector(s) validated."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"inventory-completeness", "passed",
-			"Terrain, active MyWorld overlays/removals, definitions, client asset, and config are inventoried.",
+			"Terrain, active overlays/removals, complete definitions, matching client assets, and config are inventoried.",
 			files.size() + " exact/required-absence evidence record(s)."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"placement-validation", "passed",

@@ -2,6 +2,7 @@
 """Adversarial temporary-fixture coverage for Phase 1 adaptive discovery."""
 
 import hashlib
+import gzip
 import json
 import os
 import shutil
@@ -614,19 +615,68 @@ public final class AdaptiveDiscoveryDriftHarness {
         }
         for name, payload in overlays.items():
             write_json(root / "server/conf/server/defs/locs" / name, payload)
-        content = (
-            "server/conf/server/defs/TileDef.xml",
-            "server/conf/server/defs/GameObjectDef.xml",
-            "server/conf/server/defs/NpcDefs.json",
-            "server/conf/server/defs/NpcDefsCustom.json",
-            "server/conf/server/defs/NpcDefsMyWorld.json",
-            "server/conf/server/defs/NpcDefsPatch18.json",
-            "Client_Base/Cache/video/library.orsc",
+        definitions = root / "server/conf/server/defs"
+        definitions.mkdir(parents=True, exist_ok=True)
+        (definitions / "TileDef.xml").write_text(
+            "<TileDef-array>"
+            + "".join("<TileDef><colour>0</colour></TileDef>" for _ in range(32))
+            + "</TileDef-array>\n",
+            encoding="utf-8",
         )
-        for index, relative in enumerate(content):
-            path = root / relative
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(f"legacy-evidence-{index}\n".encode())
+        (definitions / "DoorDef.xml").write_text(
+            "<DoorDef-array>"
+            + "".join("<DoorDef><name>wall</name></DoorDef>" for _ in range(220))
+            + "</DoorDef-array>\n",
+            encoding="utf-8",
+        )
+        (definitions / "GameObjectDef.xml").write_text(
+            "<GameObjectDef-array>"
+            + "".join(
+                "<GameObjectDef><name>fixture</name><width>1</width><height>1</height>"
+                "</GameObjectDef>"
+                for _ in range(55)
+            )
+            + "</GameObjectDef-array>\n",
+            encoding="utf-8",
+        )
+        write_json(
+            definitions / "NpcDefs.json",
+            {"npcs": [{"id": 0, "name": "base-0"}, {"id": 1, "name": "base-1"}]},
+        )
+        write_json(
+            definitions / "NpcDefsCustom.json",
+            {"npcs": [{"id": 2, "name": "custom-appended"}]},
+        )
+        write_json(
+            definitions / "NpcDefsMyWorld.json",
+            {"npcs": [{"id": 846, "name": "target-owned-846"}]},
+        )
+        write_json(
+            definitions / "NpcDefsPatch18.json",
+            {"npcs": [{"id": 100, "name": "patched-100"}]},
+        )
+        write_json(definitions / "ItemDefs.json", {"item": [{"id": 0}, {"id": 7}]})
+        write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 9000}]})
+        write_json(definitions / "ItemDefsMyWorld.json", {"items": [{"id": 9001}]})
+        write_json(definitions / "ItemDefsPatch18.json", {"items": [{"id": 9002}]})
+        video = root / "Client_Base/Cache/video"
+        video.mkdir(parents=True, exist_ok=True)
+        (video / "library.orsc").write_bytes(b"fixture target library archive\n")
+        (video / "models.orsc").write_bytes(b"fixture target model archive\n")
+        with zipfile.ZipFile(video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("sprites/base.bin", b"fixture authentic sprites")
+        with (video / "Custom_Sprites.osar").open("wb") as compressed:
+            with gzip.GzipFile(
+                filename="", mode="wb", fileobj=compressed, mtime=0
+            ) as archive:
+                archive.write(b"fixture target custom sprites and textures")
+        menus = video / "spritepacks/Menus.osar"
+        menus.parent.mkdir(parents=True)
+        with menus.open("wb") as compressed:
+            with gzip.GzipFile(
+                filename="", mode="wb", fileobj=compressed, mtime=0
+            ) as archive:
+                archive.write(b"fixture target item and npc menu sprites")
         return root
 
     def test_no_server_is_standalone_and_deterministic_without_writes(self):
@@ -720,6 +770,20 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertEqual(
                 "spoiled-milk-packed-fallback-v1", report["capability"]["capabilityId"]
             )
+            roles = {item["role"] for item in report["files"]}
+            for role in (
+                "server-definition.tile",
+                "content.definition.boundary",
+                "server-definition.scenery",
+                "server-definition.npc.world",
+                "content.definition.item.custom",
+                "client-asset.library",
+                "content.asset.model",
+                "content.asset.sprite.authentic",
+                "content.asset.sprite.custom",
+                "content.asset.spritepack",
+            ):
+                self.assertIn(role, roles)
 
     def test_legacy_fallback_refuses_partial_project_local_descriptor_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-conflict-") as temp:
@@ -732,6 +796,60 @@ public final class AdaptiveDiscoveryDriftHarness {
 
             self.assertIn("more than one", report["issues"][0]["observed"].lower())
             self.assertEqual(before, self.snapshot(root))
+
+    def test_legacy_custom_content_closure_failures_are_read_only(self):
+        cases = {}
+
+        def missing(root: Path) -> None:
+            (root / "Client_Base/Cache/video/Custom_Sprites.osar").unlink()
+
+        cases["missing-asset"] = (missing, None)
+
+        def malformed(root: Path) -> None:
+            (root / "Client_Base/Cache/video/Custom_Sprites.osar").write_bytes(
+                b"not a supported sprite archive\n"
+            )
+
+        cases["malformed-asset"] = (malformed, "UNSUPPORTED_FORMAT")
+
+        def unsafe(root: Path) -> None:
+            asset = root / "Client_Base/Cache/video/Authentic_Sprites.orsc"
+            with zipfile.ZipFile(asset, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("../escape.bin", b"unsafe")
+
+        cases["unsafe-archive"] = (unsafe, "UNSAFE_PATH")
+
+        def linked(root: Path) -> None:
+            asset = root / "Client_Base/Cache/video/models.orsc"
+            outside = root / "outside-models.orsc"
+            outside.write_bytes(asset.read_bytes())
+            asset.unlink()
+            asset.symlink_to(outside)
+
+        cases["linked-asset"] = (linked, "UNSAFE_PATH")
+
+        def duplicate_definition(root: Path) -> None:
+            write_json(
+                root / "server/conf/server/defs/ItemDefsCustom.json",
+                {"items": [{"id": 9000}, {"id": 9000}]},
+            )
+
+        cases["duplicate-definition"] = (duplicate_definition, "DEFINITION_MISMATCH")
+
+        for name, (mutation, expected_code) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-content-{name}-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                mutation(root)
+                before = self.snapshot(root)
+                result = self.run_discovery(root)
+                self.assertEqual(3, result.returncode, result.stdout + result.stderr)
+                report = json.loads(result.stdout)
+                self.assertEqual("blocked", report["status"])
+                if expected_code is not None:
+                    self.assertEqual(expected_code, report["issues"][0]["code"])
+                self.assertEqual(before, self.snapshot(root))
 
     def test_packed_sector_coordinate_aliases_are_rejected(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-packed-alias-") as temp:

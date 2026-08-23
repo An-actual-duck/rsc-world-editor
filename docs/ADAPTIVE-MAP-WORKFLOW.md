@@ -920,6 +920,14 @@ Its safe presets, PNG normalization preview, and automatic stable-ID decisions
 remain unchanged. Implementation must revise its old `workspace/` paths and
 proposed schema numbers after adaptive contracts are final.
 
+Target-owned declarative content now has a separate versioned foundation in
+[`WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md`](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md).
+Descriptorless packed onboarding captures complete floor, wall, scenery, NPC,
+and item definitions with matching client assets into immutable and working
+UUID-project bundles. The target remains read-only, application archives remain
+content-neutral, and the isolated runtime must advertise and enforce the same
+bundle fingerprint before this path can become release-ready.
+
 ## Test impact
 
 | Existing test | Required change |

@@ -31,10 +31,12 @@ final class WorldBuilderPackedFallbackEvidence {
 		"server/world-builder-fallback/boundaries.json";
 	static final String GROUND_ITEM_PLACEMENTS =
 		"server/world-builder-fallback/ground-items.json";
+	private static final String TARGET_GROUND_ITEM_PLACEMENTS =
+		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	static final String CLIENT_ASSET =
 		"Client_Base/Cache/video/library.orsc";
 	private static final String CATALOG_ID =
-		"spoiled-milk-packed-fallback-runtime-catalog-v1";
+		"target-adopted-content-v1";
 	private static final String SERVER_TERRAIN =
 		"server/conf/server/data/Custom_Landscape.orsc";
 	private static final String CLIENT_TERRAIN =
@@ -53,11 +55,12 @@ final class WorldBuilderPackedFallbackEvidence {
 			BOUNDARY_PLACEMENTS, GROUND_ITEM_PLACEMENTS);
 	}
 
-	static Result materialize(Path original, Map<String,Object> discovery,
+	static Result materialize(Path projectStage, Path original, Map<String,Object> discovery,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
 		throws IOException, WorldBuilderContractException {
-		Map<String,Object> catalog =
-			WorldBuilderStandaloneDefinitionCatalog.generate(runtime, CATALOG_ID);
+		WorldBuilderProjectContentBundle.Bundle content =
+			WorldBuilderProjectContentBundle.capture(projectStage, original);
+		Map<String,Object> catalog = content.compatibilityCatalog();
 		writeJson(original, SERVER_DEFINITIONS, catalog);
 		copyNew(original.resolve(SERVER_DEFINITIONS),
 			original.resolve(CLIENT_DEFINITIONS));
@@ -202,6 +205,8 @@ final class WorldBuilderPackedFallbackEvidence {
 			BOUNDARY_PLACEMENTS);
 		addPlacement(result, original, "ground-item-base", "ground-item", "base",
 			GROUND_ITEM_PLACEMENTS);
+		addPlacement(result, original, "ground-item-overlay", "ground-item", "overlay",
+			TARGET_GROUND_ITEM_PLACEMENTS);
 		addPlacement(result, original, "scenery-overlay", "scenery", "overlay",
 			"server/conf/server/defs/locs/MyWorldSceneryLocs.json");
 		addPlacement(result, original, "scenery-removal", "scenery", "removal",

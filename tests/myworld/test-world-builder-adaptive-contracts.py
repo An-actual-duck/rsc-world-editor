@@ -804,6 +804,65 @@ def region_operation_plan() -> dict:
     }
 
 
+def project_content_bundle() -> dict:
+    roles = (
+        ("asset.library", "client/Cache/video/library.orsc", "application/vnd.openrsc.archive"),
+        ("asset.model", "client/Cache/video/models.orsc", "application/vnd.openrsc.archive"),
+        ("asset.sprite.authentic", "client/Cache/video/Authentic_Sprites.orsc", "application/vnd.openrsc.archive"),
+        ("asset.sprite.custom", "client/Cache/video/Custom_Sprites.osar", "application/gzip"),
+        ("asset.spritepack", "client/Cache/video/spritepacks/Menus.osar", "application/gzip"),
+        ("definition.boundary", "server/conf/server/defs/DoorDef.xml", "application/xml"),
+        ("definition.item.base", "server/conf/server/defs/ItemDefs.json", "application/json"),
+        ("definition.item.custom", "server/conf/server/defs/ItemDefsCustom.json", "application/json"),
+        ("definition.item.patch", "server/conf/server/defs/ItemDefsPatch18.json", "application/json"),
+        ("definition.item.world", "server/conf/server/defs/ItemDefsMyWorld.json", "application/json"),
+        ("definition.npc.base", "server/conf/server/defs/NpcDefs.json", "application/json"),
+        ("definition.npc.custom", "server/conf/server/defs/NpcDefsCustom.json", "application/json"),
+        ("definition.npc.patch", "server/conf/server/defs/NpcDefsPatch18.json", "application/json"),
+        ("definition.npc.world", "server/conf/server/defs/NpcDefsMyWorld.json", "application/json"),
+        ("definition.scenery", "server/conf/server/defs/GameObjectDef.xml", "application/xml"),
+        ("definition.tile", "server/conf/server/defs/TileDef.xml", "application/xml"),
+    )
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-project-content-bundle",
+        "capabilityId": "project-local-custom-content-v1",
+        "sourceKind": "target-adopted",
+        "definitionCatalog": {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-definition-catalog",
+            "catalogId": "target-adopted-content-v1",
+            "tiles": [0, 31],
+            "boundaries": [0, 219],
+            "scenery": [0, 59],
+            "npcs": [0, 846],
+            "groundItems": [0, 9000],
+            "catalogSha256": HASH_A,
+        },
+        "familyBindings": [
+            {"family": "floor", "definitionRoles": ["definition.tile"], "assetRoles": ["asset.sprite.custom"]},
+            {"family": "ground-item", "definitionRoles": ["definition.item.base", "definition.item.custom", "definition.item.patch", "definition.item.world"], "assetRoles": ["asset.library", "asset.sprite.authentic", "asset.sprite.custom", "asset.spritepack"]},
+            {"family": "npc", "definitionRoles": ["definition.npc.base", "definition.npc.custom", "definition.npc.patch", "definition.npc.world"], "assetRoles": ["asset.library", "asset.sprite.authentic", "asset.sprite.custom", "asset.spritepack"]},
+            {"family": "scenery", "definitionRoles": ["definition.scenery"], "assetRoles": ["asset.library", "asset.model", "asset.sprite.custom"]},
+            {"family": "wall", "definitionRoles": ["definition.boundary"], "assetRoles": ["asset.sprite.custom"]},
+        ],
+        "files": [
+            {
+                "role": role,
+                "bundleRelativePath": f"files/{path}",
+                "runtimeRelativePath": path,
+                "mediaType": media,
+                "size": 1,
+                "sha256": HASH_B,
+            }
+            for role, path, media in roles
+        ],
+        "definitionFingerprintSha256": HASH_C,
+        "assetFingerprintSha256": HASH_D,
+        "bundleFingerprintSha256": HASH_A,
+    }
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -836,6 +895,7 @@ SCHEMA_CONTRACTS = {
     "region-bundle-manifest-v1.schema.json": (1, "world-builder-region-bundle"),
     "region-compatibility-report-v1.schema.json": (1, "world-builder-region-compatibility-report"),
     "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),
+    "project-content-bundle-v1.schema.json": (1, "world-builder-project-content-bundle"),
 }
 
 REGION_SCHEMA_VECTORS = {
@@ -844,6 +904,7 @@ REGION_SCHEMA_VECTORS = {
     "world-builder-region-bundle": region_bundle,
     "world-builder-region-compatibility-report": region_compatibility,
     "world-builder-region-operation-plan": region_operation_plan,
+    "world-builder-project-content-bundle": project_content_bundle,
 }
 
 

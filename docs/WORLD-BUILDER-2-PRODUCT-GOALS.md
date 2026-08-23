@@ -300,6 +300,14 @@ Readiness: **exploratory** beyond basic materials. Finish the material identity,
 distribution, and dependency model first so larger content does not invent a
 second incompatible package system.
 
+The first general foundation is now frozen as
+[`project-local-custom-content-v1`](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md).
+It adopts bounded declarative target definitions and matching client archives
+into only the UUID project, derives every authoring family from those bytes,
+and exposes one fingerprinted runtime boundary. It does not yet provide the
+creator-facing inbox, portable cross-project remapping, or executable behavior,
+and it never loads target plugins or scripts.
+
 ### Elevation range and color freedom
 
 The native layered terrain v2 representation now uses unsigned 16-bit

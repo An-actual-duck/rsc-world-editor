@@ -210,6 +210,11 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				stagedWorking = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
 					stagedTarget, stagedWorking);
 			}
+			if (Files.exists(stage.resolve(
+				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY),
+				LinkOption.NOFOLLOW_LINKS)) {
+				WorldBuilderProjectContentBundle.copyToWorking(stage);
+			}
 			WorldBuilderAdaptiveRuntimePreparer.prepare(stage, sourceRuntime,
 				snapshot, origin, port);
 			writeRuntimeMetadata(stage, projectId, origin, runtimeSha256, port,
@@ -317,7 +322,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if (isPackedFallbackReport(report)) {
 			WorldBuilderPackedFallbackEvidence.Result generated =
 				WorldBuilderPackedFallbackEvidence.materialize(
-					original, report, sourceRuntime);
+					stage, original, report, sourceRuntime);
 			evidence = withGeneratedFallbackEvidence(evidence, generated.generated);
 			requireExactOriginalTree(original, evidence);
 			copied = WorldBuilderReadOnlyTarget.open(original);
@@ -550,6 +555,24 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Restore the complete project from a trusted backup; do not rebuild source.");
 		}
 		verifySourceTree(project, snapshot);
+		Path immutableContent = project.resolve(
+			WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
+		Path workingContent = project.resolve(
+			WorldBuilderProjectContentBundle.WORKING_DIRECTORY);
+		if (Files.exists(immutableContent, LinkOption.NOFOLLOW_LINKS)
+			|| Files.exists(workingContent, LinkOption.NOFOLLOW_LINKS)) {
+			WorldBuilderProjectContentBundle.Bundle immutableBundle =
+				WorldBuilderProjectContentBundle.read(immutableContent);
+			WorldBuilderProjectContentBundle.Bundle workingBundle =
+				WorldBuilderProjectContentBundle.read(workingContent);
+			if (!immutableBundle.bundleFingerprintSha256.equals(
+				workingBundle.bundleFingerprintSha256)) {
+				throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+					WorldBuilderProjectContentBundle.WORKING_DIRECTORY,
+					"Working custom content differs from immutable target content evidence.",
+					"Restore the exact complete project-local content bundle.");
+			}
+		}
 		Map<String,Object> reportReference = object(snapshot.get("discoveryReport"),
 			"discoveryReport");
 		Path reportPath = safeRegularFile(project,
@@ -2382,6 +2405,18 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				}
 				(item.definitionRuntime ? definitions : original).add(recorded);
 				if ("target-capability".equals(item.role)) descriptor = item.relativePath;
+			}
+			Path bundleRoot = projectStage.resolve(
+				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
+			if (Files.exists(bundleRoot, LinkOption.NOFOLLOW_LINKS)) {
+				WorldBuilderProjectContentBundle.read(bundleRoot);
+				for (String relative : scanRegularFiles(bundleRoot, projectStage)) {
+					definitions.add(recordFor(projectStage,
+						relative.endsWith("/manifest.json")
+							? "project-content-bundle-manifest"
+							: "project-content-bundle-file",
+						relative));
+				}
 			}
 			String profile = capability.mutationProfileId.isEmpty()
 				? "no-import-v1" : capability.mutationProfileId;

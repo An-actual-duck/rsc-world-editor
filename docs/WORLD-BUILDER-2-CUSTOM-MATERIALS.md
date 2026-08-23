@@ -13,6 +13,14 @@
 | Authoring decision | Versioned safe presets; no raw definition flags |
 | Image decision | PNG input, explicit crop/resize review, 64-by-64 default, 128-by-128 opt-in |
 
+The general target-adoption foundation is now specified by
+[Project-Local Custom Content Bundles](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md).
+That versioned boundary covers exact target-owned floor, wall, scenery, NPC,
+and item definitions plus their matching client archives. It is intentionally
+broader than this document's future creator-facing PNG ingest workflow. New
+drop-in material authoring must extend the same bundle capability rather than
+inventing a second project/runtime content path.
+
 The later [product goals and readiness](WORLD-BUILDER-2-PRODUCT-GOALS.md)
 adds creator-to-creator sharing as an intended outcome. The ingest,
 normalization, safe-preset, project, and transaction design below remains the

@@ -90,7 +90,7 @@ All JSON is canonical UTF-8 with no host path or timestamp.
 
 - `definitionFingerprintSha256` is SHA-256 of the ASCII domain
   `world-builder-project-content-definitions-v1\n`, followed by each
-  definition record in canonical role order as
+  definition record in canonical runtime-path order as
   `role\0runtimeRelativePath\0size\0sha256\n`, followed by the catalog hash.
 - `assetFingerprintSha256` uses domain
   `world-builder-project-content-assets-v1\n` and the same record encoding for

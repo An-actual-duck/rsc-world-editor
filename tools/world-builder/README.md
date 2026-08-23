@@ -138,6 +138,13 @@ otherwise unsupported evidence remains blocked. Because this fallback has no
 truthful target mutation contract, its project stays detached and does not
 advertise import even when the original source is still present.
 
+The fallback also captures the target's bounded declarative floor, wall,
+scenery, NPC, and item definitions with matching client model/sprite archives
+through `project-local-custom-content-v1`. Authoring IDs come from that exact
+target bundle rather than the packaged neutral catalog. The immutable and
+working copies stay inside the UUID project; no target code runs and no custom
+content enters a release archive.
+
 ## Explicit project creation
 
 The guided command is preferred. To create from a reviewed report explicitly:
@@ -172,9 +179,11 @@ World Builder 2/
       source/
         snapshot-manifest.json
         original/
+        content-bundle/              # target-owned declarative content, if adopted
         layered-baseline/package/
         conversion/                 # packed origin only
       working/
+        content-bundle/              # explicit versioned runtime input, if adopted
         layered-world/package/
         runtime/
       snapshot-library/v1/          # content-addressed .wbr region bundles
