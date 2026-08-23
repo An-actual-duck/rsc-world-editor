@@ -111,6 +111,11 @@ each definition source and checks that the derived ID inventory is exact.
 Client archives are bounded and inspected structurally. Links, special entries,
 unsafe names or modes, duplicate and case-folded names, expansion outside the
 archive limits, malformed containers, and unsupported compression are fatal.
+Version 2 named sprite mappings use the runtime's GZIP OSAR format and media
+type `application/gzip`: a bounded sequence of named subspaces and entries,
+each with valid type/layer metadata, a nonempty frame set, palette, dimensions,
+shift and bounds metadata, and complete indexed pixels. Parsing consumes the
+archive exactly and never loads or executes target code.
 Opaque asset payloads are preserved byte-for-byte; they are never executed.
 Version 1 consumes the existing target archive files listed above. It is not a
 loose-PNG or loose-OB3 interchange format, and a runtime must not reinterpret
@@ -143,10 +148,12 @@ Exactly one mapping form is allowed. An authentic mapping supplies only
 `authenticSpriteId`; a custom mapping supplies the complete
 role/subspace/entry triple. The Editor never derives `spriteId` from `itemId`,
 never assumes `items:<itemId>`, and never executes a target client. Named
-mappings require a structurally readable ZIP container and the exact
-case-sensitive `<subspace>/<entry>` member. Malformed or duplicate evidence,
-missing evidence or archive members, and incomplete closure are precise
-read-only discovery/conversion blockers.
+mappings require a structurally readable GZIP OSAR container and the exact
+case-sensitive `<subspace>/<entry>` pair used by the runtime Unpacker. The same
+case-folded pair cannot exist in both custom and spritepack archives when it is
+declared, because its runtime role would be ambiguous after both archives are
+loaded. Malformed or duplicate evidence, missing evidence or archive entries,
+and incomplete closure are precise read-only discovery/conversion blockers.
 
 ## Canonical compatibility fixture
 
@@ -154,8 +161,9 @@ The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains
 the v1 compatibility oracle. The frozen successor oracle is
 `tests/fixtures/project-content-bundle-v2/bundle/`. Its 17-role inventory
 retains floor 31, wall 219, scenery 59, and NPC 846, and maps ordinary
-beyond-packaged items through authentic and named custom archives with
-nontrivial recolor masks. Item 9000 is not special-cased.
+beyond-packaged items through authentic sprite 417 and named `items/0` and
+`GUI/0` custom OSAR entries with real frame pixels and nontrivial recolor masks.
+Item 9000 is not special-cased.
 
 Generate an independent copy or verify the checked-in bytes with:
 

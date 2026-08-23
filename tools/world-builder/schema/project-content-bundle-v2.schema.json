@@ -95,7 +95,7 @@
         "role": {"$ref": "#/$defs/fileRole"},
         "bundleRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
         "runtimeRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
-        "mediaType": {"enum": ["application/gzip", "application/json", "application/vnd.openrsc.archive", "application/xml", "application/zip"]},
+        "mediaType": {"enum": ["application/gzip", "application/json", "application/vnd.openrsc.archive", "application/xml"]},
         "size": {"type": "integer", "minimum": 1, "maximum": 268435456},
         "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
       }

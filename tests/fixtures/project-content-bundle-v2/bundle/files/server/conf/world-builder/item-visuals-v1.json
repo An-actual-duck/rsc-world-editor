@@ -4,7 +4,7 @@
       "authenticSpriteId": null,
       "blueMask": 1122867,
       "customSpriteAssetRole": "asset.sprite.custom",
-      "customSpriteEntry": "9000.dat",
+      "customSpriteEntry": "0",
       "customSpriteSubspace": "items",
       "itemId": 9000,
       "pictureMask": 3368601
@@ -22,8 +22,8 @@
       "authenticSpriteId": null,
       "blueMask": -16776961,
       "customSpriteAssetRole": "asset.spritepack",
-      "customSpriteEntry": "9002.dat",
-      "customSpriteSubspace": "inventory",
+      "customSpriteEntry": "0",
+      "customSpriteSubspace": "GUI",
       "itemId": 9002,
       "pictureMask": 4478310
     }

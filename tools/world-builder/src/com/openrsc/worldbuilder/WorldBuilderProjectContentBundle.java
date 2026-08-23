@@ -1,5 +1,6 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -623,24 +624,11 @@ final class WorldBuilderProjectContentBundle {
 
 	private static String mediaType(Spec spec, Path path, boolean successor)
 		throws IOException {
-		if (successor && ("asset.sprite.custom".equals(spec.role)
-			|| "asset.spritepack".equals(spec.role))) {
-			byte[] magic = new byte[2];
-			try (InputStream input = Files.newInputStream(path)) {
-				int read = input.read(magic);
-				if (read == 2 && magic[0] == 'P' && magic[1] == 'K') {
-					return "application/zip";
-				}
-			}
-		}
 		return spec.mediaType;
 	}
 
 	private static boolean validMediaType(Spec spec, String mediaType, int version) {
-		return spec.mediaType.equals(mediaType) || version == 2
-			&& ("asset.sprite.custom".equals(spec.role)
-				|| "asset.spritepack".equals(spec.role))
-			&& "application/zip".equals(mediaType);
+		return spec.mediaType.equals(mediaType);
 	}
 
 	private static void validateGzip(Path path, String label)
@@ -806,41 +794,139 @@ final class WorldBuilderProjectContentBundle {
 
 	private static void validateItemVisualArchiveClosure(Path root, List<Object> visuals)
 		throws IOException, WorldBuilderContractException {
-		Map<String,Set<String>> entriesByRole = new HashMap<String,Set<String>>();
+		Map<String,SpriteArchive> archives = new HashMap<String,SpriteArchive>();
+		for (String role : Arrays.asList("asset.sprite.custom", "asset.spritepack")) {
+			archives.put(role, readSpriteArchive(contentPath(root, role), role));
+		}
 		for (Object raw : visuals) {
 			Map<String,Object> visual = object(raw, "itemVisual");
 			if (visual.get("authenticSpriteId") != null) continue;
 			String role = string(visual, "customSpriteAssetRole");
-			Set<String> entries = entriesByRole.get(role);
-			if (entries == null) {
-				Path archive = contentPath(root, role);
-				entries = zipEntries(archive, role);
-				entriesByRole.put(role, entries);
-			}
 			String required = string(visual, "customSpriteSubspace") + "/"
 				+ string(visual, "customSpriteEntry");
-			if (!entries.contains(required)) throw problem(
+			SpriteArchive selected = archives.get(role);
+			if (!selected.exactNames.contains(required)) throw problem(
 				WorldBuilderErrorCodes.DEFINITION_MISMATCH, role,
 				"Custom item visual archive entry is missing: " + required + ".",
 				"Add the exact declared entry to the selected target archive or correct the static mapping.");
+			String otherRole = "asset.sprite.custom".equals(role)
+				? "asset.spritepack" : "asset.sprite.custom";
+			if (archives.get(otherRole).caseFoldedNames.contains(
+				required.toLowerCase(Locale.ROOT))) throw problem(
+				WorldBuilderErrorCodes.DEFINITION_MISMATCH, role,
+				"Custom item visual archive mapping is role-ambiguous: " + required + ".",
+				"Keep the declared subspace and entry in exactly one selected sprite archive role.");
 		}
 	}
 
-	private static Set<String> zipEntries(Path path, String role)
+	private static SpriteArchive readSpriteArchive(Path path, String role)
 		throws IOException, WorldBuilderContractException {
-		Set<String> result = new HashSet<String>();
-		try (ZipFile archive = new ZipFile(path.toFile())) {
-			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
-			while (entries.hasMoreElements()) {
-				ZipEntry entry = entries.nextElement();
-				if (!entry.isDirectory()) result.add(entry.getName());
+		byte[] expanded;
+		try (InputStream input = new GZIPInputStream(Files.newInputStream(path));
+			ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+			byte[] buffer = new byte[8192];
+			int read;
+			long total = 0L;
+			while ((read = input.read(buffer)) >= 0) {
+				total += read;
+				if (total > MAX_EXPANDED_BYTES) throw problem(
+					WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, role,
+					"OSAR sprite archive expands beyond 512 MiB.",
+					"Reduce the exact declarative sprite archive.");
+				output.write(buffer, 0, read);
 			}
-		} catch (java.util.zip.ZipException unsupported) {
+			expanded = output.toByteArray();
+		} catch (WorldBuilderContractException invalid) {
+			throw invalid;
+		} catch (IOException unsupported) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, role,
-				"A named custom item visual mapping requires a structurally readable ZIP archive.",
-				"Provide a ZIP-contained target archive with the exact declared entry names.", unsupported);
+				"Named custom item visuals require a structurally readable GZIP OSAR archive.",
+				"Provide the exact target OSAR produced for the runtime Unpacker.", unsupported);
 		}
-		return result;
+		try {
+			OsarInput input = new OsarInput(expanded);
+			Set<String> exact = new HashSet<String>();
+			Set<String> folded = new HashSet<String>();
+			Set<String> subspaces = new HashSet<String>();
+			int subspaceCount = input.unsignedByte();
+			if (subspaceCount == 0) throw new IllegalArgumentException("no subspaces");
+			int entryCount = 0;
+			for (int subspaceIndex = 0; subspaceIndex < subspaceCount; subspaceIndex++) {
+				String subspace = input.name();
+				requireOsarName(subspace);
+				if (!subspaces.add(subspace.toLowerCase(Locale.ROOT))) {
+					throw new IllegalArgumentException("duplicate subspace name");
+				}
+				int entries = input.unsignedShort();
+				if (entries == 0) throw new IllegalArgumentException("empty subspace");
+				for (int entryIndex = 0; entryIndex < entries; entryIndex++) {
+					if (++entryCount > MAX_ARCHIVE_ENTRIES) {
+						throw new IllegalArgumentException("too many entries");
+					}
+					String entry = input.name();
+					requireOsarName(entry);
+					String combined = subspace + "/" + entry;
+					if (!folded.add(combined.toLowerCase(Locale.ROOT))) {
+						throw new IllegalArgumentException("duplicate entry name");
+					}
+					exact.add(combined);
+					readSpriteEntry(input);
+				}
+			}
+			if (input.remaining() != 0) throw new IllegalArgumentException("trailing data");
+			return new SpriteArchive(exact, folded);
+		} catch (WorldBuilderContractException unsafe) {
+			throw unsafe;
+		} catch (RuntimeException malformed) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, role,
+				"OSAR sprite archive structure, names, frames, palette, pixels, or bounds are invalid.",
+				"Rebuild a bounded GZIP OSAR with unique portable names and complete sprite frames.",
+				malformed);
+		}
+	}
+
+	private static void requireOsarName(String name)
+		throws WorldBuilderContractException {
+		WorldBuilderPortablePath.require(name, OPERATION);
+		if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
+			throw new IllegalArgumentException("OSAR names must be single components");
+		}
+	}
+
+	private static void readSpriteEntry(OsarInput input) {
+		int type = input.unsignedByte();
+		if (type < 0 || type > 4) throw new IllegalArgumentException("entry type");
+		if (type >= 1 && type <= 3 && input.unsignedByte() > 11) {
+			throw new IllegalArgumentException("entry layer");
+		}
+		int frameCount = input.unsignedByte();
+		if (frameCount == 0) throw new IllegalArgumentException("empty entry");
+		int paletteSize = input.unsignedByte() + 1;
+		input.skip(paletteSize * 3);
+		for (int frame = 0; frame < frameCount; frame++) {
+			int width = input.unsignedShort();
+			int height = input.unsignedShort();
+			int shifted = input.unsignedByte();
+			int offsetX = input.signedShort();
+			int offsetY = input.signedShort();
+			int boundWidth = input.unsignedShort();
+			int boundHeight = input.unsignedShort();
+			if (width == 0 || height == 0 || shifted > 1
+				|| boundWidth == 0 || boundHeight == 0
+				|| width > boundWidth || height > boundHeight
+				|| shifted == 1 && (offsetX < 0 || offsetY < 0
+					|| (long)offsetX + width > boundWidth
+					|| (long)offsetY + height > boundHeight)) {
+				throw new IllegalArgumentException("frame dimensions or bounds");
+			}
+			long pixels = (long)width * (long)height;
+			if (pixels > MAX_FILE_BYTES) throw new IllegalArgumentException("frame pixels");
+			for (long pixel = 0; pixel < pixels; pixel++) {
+				if (input.unsignedByte() >= paletteSize) {
+					throw new IllegalArgumentException("pixel palette index");
+				}
+			}
+		}
 	}
 
 	private static Set<Integer> differenceIds(Object target, Object packaged)
@@ -1104,6 +1190,62 @@ final class WorldBuilderProjectContentBundle {
 		StringBuilder result = new StringBuilder(value.length * 2);
 		for (byte item : value) result.append(String.format(Locale.ROOT, "%02x", item & 0xff));
 		return result.toString();
+	}
+
+	private static final class SpriteArchive {
+		final Set<String> exactNames;
+		final Set<String> caseFoldedNames;
+
+		SpriteArchive(Set<String> exactNames, Set<String> caseFoldedNames) {
+			this.exactNames = exactNames;
+			this.caseFoldedNames = caseFoldedNames;
+		}
+	}
+
+	private static final class OsarInput {
+		private final byte[] bytes;
+		private int offset;
+
+		OsarInput(byte[] bytes) {
+			this.bytes = bytes;
+		}
+
+		int unsignedByte() {
+			if (offset >= bytes.length) throw new IllegalArgumentException("truncated OSAR");
+			return bytes[offset++] & 0xff;
+		}
+
+		int unsignedShort() {
+			return unsignedByte() << 8 | unsignedByte();
+		}
+
+		int signedShort() {
+			int value = unsignedShort();
+			return value >= 0x8000 ? value - 0x10000 : value;
+		}
+
+		String name() {
+			StringBuilder result = new StringBuilder();
+			while (true) {
+				int value = unsignedByte();
+				if (value == 0) break;
+				if (result.length() >= 255) throw new IllegalArgumentException("long OSAR name");
+				result.append((char)value);
+			}
+			if (result.length() == 0) throw new IllegalArgumentException("empty OSAR name");
+			return result.toString();
+		}
+
+		void skip(int count) {
+			if (count < 0 || count > remaining()) {
+				throw new IllegalArgumentException("truncated OSAR payload");
+			}
+			offset += count;
+		}
+
+		int remaining() {
+			return bytes.length - offset;
+		}
 	}
 
 	@SuppressWarnings("unchecked")

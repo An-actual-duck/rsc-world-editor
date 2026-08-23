@@ -1,6 +1,6 @@
 {
-  "assetFingerprintSha256": "2320bfd31effa33c0e8cc47ec919e881809f69599b5504c6369e547697f844bc",
-  "bundleFingerprintSha256": "44510eb65894689c510ef55072a3e5406dfae3821d6368c5b0a6869ce516a9e1",
+  "assetFingerprintSha256": "e0ab18b793a91db852557689b9734eeb1d459e216be61b902d75a69e6e2c5bfa",
+  "bundleFingerprintSha256": "88542556c723be2c4312f48eb2b42f65fb08a169edd21afa55eda075c6d4aa8b",
   "capabilityId": "project-local-custom-content-v2",
   "definitionCatalog": {
     "boundaries": [
@@ -338,7 +338,7 @@
       31
     ]
   },
-  "definitionFingerprintSha256": "6a070461aaf4d8b304ae295e485c909bd04242017f63a539d7fa74d62872dcfe",
+  "definitionFingerprintSha256": "f97a96299023e4cf1d738c1f3520af0c2e4339ed95aab952814832cc77e52baf",
   "familyBindings": [
     {
       "assetRoles": [
@@ -406,16 +406,16 @@
       "mediaType": "application/vnd.openrsc.archive",
       "role": "asset.sprite.authentic",
       "runtimeRelativePath": "client/Cache/video/Authentic_Sprites.orsc",
-      "sha256": "8bfdd49a721e312f84a2992fa5edfd95c3b129bf372463a2d38da566bf426770",
-      "size": 177
+      "sha256": "2df670644d9001248e575e16a0bd60b11c801f279d01714caba0349c440eee37",
+      "size": 160
     },
     {
       "bundleRelativePath": "files/client/Cache/video/Custom_Sprites.osar",
-      "mediaType": "application/zip",
+      "mediaType": "application/gzip",
       "role": "asset.sprite.custom",
       "runtimeRelativePath": "client/Cache/video/Custom_Sprites.osar",
-      "sha256": "29103ee796658b4805ac968e303548ee04d843af0446a396d46504c8740bfa36",
-      "size": 164
+      "sha256": "857789e3045d4c22035b4f4eb8dc59c24a5cbd9ed008693aa4a53701d90d1dff",
+      "size": 58
     },
     {
       "bundleRelativePath": "files/client/Cache/video/library.orsc",
@@ -435,11 +435,11 @@
     },
     {
       "bundleRelativePath": "files/client/Cache/video/spritepacks/Menus.osar",
-      "mediaType": "application/zip",
+      "mediaType": "application/gzip",
       "role": "asset.spritepack",
       "runtimeRelativePath": "client/Cache/video/spritepacks/Menus.osar",
-      "sha256": "d444e621ec1871450a94d97eb985519ea83876d78cfe1db9ae08b78c9d484275",
-      "size": 162
+      "sha256": "e1531256a70be419ea2e74faca8374cb05bb7ca8de7281df7e52c532297c629c",
+      "size": 56
     },
     {
       "bundleRelativePath": "files/server/conf/server/defs/DoorDef.xml",
@@ -534,17 +534,17 @@
       "mediaType": "application/json",
       "role": "metadata.item-visuals",
       "runtimeRelativePath": "server/conf/world-builder/item-visuals-v1.json",
-      "sha256": "5683a6688a5b4a28f0aabb0aceb19030b023a4b819d1b58d4aebe646e9671c1b",
-      "size": 837
+      "sha256": "b20baeaba694212c988150ef76ca0d27aa7689178b04d88fda1768858812317a",
+      "size": 817
     }
   ],
-  "itemVisualFingerprintSha256": "aa7c9deae89d9cda0497dad1bf00ac7f2f28b0143d127b584acecb9726f9ac6c",
+  "itemVisualFingerprintSha256": "f9aaf43d6cac1c96bbf10d129e1976f9638562036e1b187f684e7219a7cda8d3",
   "itemVisuals": [
     {
       "authenticSpriteId": null,
       "blueMask": 1122867,
       "customSpriteAssetRole": "asset.sprite.custom",
-      "customSpriteEntry": "9000.dat",
+      "customSpriteEntry": "0",
       "customSpriteSubspace": "items",
       "itemId": 9000,
       "pictureMask": 3368601
@@ -562,8 +562,8 @@
       "authenticSpriteId": null,
       "blueMask": -16776961,
       "customSpriteAssetRole": "asset.spritepack",
-      "customSpriteEntry": "9002.dat",
-      "customSpriteSubspace": "inventory",
+      "customSpriteEntry": "0",
+      "customSpriteSubspace": "GUI",
       "itemId": 9002,
       "pictureMask": 4478310
     }

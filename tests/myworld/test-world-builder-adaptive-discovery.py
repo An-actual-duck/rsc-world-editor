@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import struct
 import tempfile
 import unittest
 import zipfile
@@ -41,7 +42,27 @@ def legacy_point(x: int, y: int) -> dict:
     return {"X": x, "Y": y}
 
 
+def fixture_sprite_entry(color: int = 0x123456) -> bytes:
+    return bytes((0, 1, 0)) + color.to_bytes(3, "big") + struct.pack(
+        ">HHBhhHHB", 1, 1, 0, 0, 0, 1, 1, 0,
+    )
+
+
+def fixture_osar(subspaces: list[tuple[str, list[tuple[str, bytes]]]]) -> bytes:
+    payload = bytearray((len(subspaces),))
+    for subspace, entries in subspaces:
+        payload.extend(subspace.encode("latin-1") + b"\0")
+        payload.extend(len(entries).to_bytes(2, "big"))
+        for name, entry in entries:
+            payload.extend(name.encode("latin-1") + b"\0")
+            payload.extend(entry)
+    return gzip.compress(bytes(payload), mtime=0)
+
+
 class AdaptiveDiscoveryTest(unittest.TestCase):
+    fixture_osar = staticmethod(fixture_osar)
+    fixture_sprite_entry = staticmethod(fixture_sprite_entry)
+
     @classmethod
     def setUpClass(cls):
         cls.compile_temp = tempfile.TemporaryDirectory(
@@ -670,7 +691,7 @@ public final class AdaptiveDiscoveryDriftHarness {
                         "authenticSpriteId": None,
                         "customSpriteAssetRole": "asset.sprite.custom",
                         "customSpriteSubspace": "items",
-                        "customSpriteEntry": "9000.dat",
+                        "customSpriteEntry": "0",
                         "pictureMask": 0x336699,
                         "blueMask": 0x112233,
                     },
@@ -687,8 +708,8 @@ public final class AdaptiveDiscoveryDriftHarness {
                         "itemId": 9002,
                         "authenticSpriteId": None,
                         "customSpriteAssetRole": "asset.spritepack",
-                        "customSpriteSubspace": "inventory",
-                        "customSpriteEntry": "9002.dat",
+                        "customSpriteSubspace": "GUI",
+                        "customSpriteEntry": "0",
                         "pictureMask": 0x445566,
                         "blueMask": -16776961,
                     },
@@ -701,12 +722,14 @@ public final class AdaptiveDiscoveryDriftHarness {
         (video / "models.orsc").write_bytes(b"fixture target model archive\n")
         with zipfile.ZipFile(video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("sprites/base.bin", b"fixture authentic sprites")
-        with zipfile.ZipFile(video / "Custom_Sprites.osar", "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("items/9000.dat", b"fixture target custom item sprite")
+        (video / "Custom_Sprites.osar").write_bytes(fixture_osar([
+            ("items", [("0", fixture_sprite_entry(0x336699))]),
+        ]))
         menus = video / "spritepacks/Menus.osar"
         menus.parent.mkdir(parents=True)
-        with zipfile.ZipFile(menus, "w", zipfile.ZIP_DEFLATED) as archive:
-            archive.writestr("inventory/9002.dat", b"fixture target item menu sprite")
+        menus.write_bytes(fixture_osar([
+            ("GUI", [("0", fixture_sprite_entry(0x445566))]),
+        ]))
         return root
 
     def test_no_server_is_standalone_and_deterministic_without_writes(self):

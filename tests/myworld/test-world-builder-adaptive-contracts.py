@@ -873,7 +873,7 @@ def project_content_bundle_v2() -> dict:
         "authenticSpriteId": None,
         "customSpriteAssetRole": "asset.sprite.custom",
         "customSpriteSubspace": "items",
-        "customSpriteEntry": "9000.dat",
+        "customSpriteEntry": "0",
         "pictureMask": 0x336699,
         "blueMask": -16776961,
     }]

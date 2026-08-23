@@ -4229,8 +4229,9 @@ public final class FakeAdaptiveClient {
 
         def missing_entry(target: Path) -> None:
             archive = target / "Client_Base/Cache/video/Custom_Sprites.osar"
-            with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-                output.writestr("items/not-9000.dat", b"unrelated sprite")
+            archive.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("different", self.fixtures.fixture_sprite_entry())]),
+            ]))
 
         cases["missing-entry"] = (missing_entry, "archive entry is missing")
 

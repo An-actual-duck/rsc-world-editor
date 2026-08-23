@@ -2,6 +2,7 @@
 """Canonical cross-repository project content bundle fixture coverage."""
 
 import hashlib
+import gzip
 import importlib.util
 import json
 import os
@@ -18,6 +19,66 @@ FIXTURE_V2 = ROOT / "tests/fixtures/project-content-bundle-v2/bundle"
 GENERATOR = ROOT / "scripts/generate-project-content-bundle-v1-fixture.py"
 GENERATOR_V2 = ROOT / "scripts/generate-project-content-bundle-v2-fixture.py"
 CLASSES = ROOT / "output/world-builder-tools/classes"
+
+
+def decode_osar(payload: bytes) -> dict[str, dict[str, list[dict]]]:
+    """Independent strict decoder for the runtime Unpacker wire format."""
+    data = gzip.decompress(payload)
+    offset = 0
+
+    def take(count: int) -> bytes:
+        nonlocal offset
+        if count < 0 or offset + count > len(data):
+            raise ValueError("truncated OSAR")
+        value = data[offset:offset + count]
+        offset += count
+        return value
+
+    def u8() -> int:
+        return take(1)[0]
+
+    def u16() -> int:
+        return int.from_bytes(take(2), "big")
+
+    def i16() -> int:
+        return int.from_bytes(take(2), "big", signed=True)
+
+    def name() -> str:
+        value = bytearray()
+        while (character := u8()) != 0:
+            value.append(character)
+        return value.decode("latin-1")
+
+    result = {}
+    for _ in range(u8()):
+        subspace = name()
+        entries = {}
+        for _ in range(u16()):
+            entry_name = name()
+            entry_type = u8()
+            layer = u8() if entry_type in (1, 2, 3) else None
+            frames = []
+            frame_count = u8()
+            palette = [int.from_bytes(take(3), "big") for _ in range(u8() + 1)]
+            for _ in range(frame_count):
+                width, height = u16(), u16()
+                shifted, offset_x, offset_y = u8(), i16(), i16()
+                bound_width, bound_height = u16(), u16()
+                indices = list(take(width * height))
+                frames.append({
+                    "width": width, "height": height, "shifted": shifted,
+                    "offsetX": offset_x, "offsetY": offset_y,
+                    "boundWidth": bound_width, "boundHeight": bound_height,
+                    "palette": palette,
+                    "pixels": [palette[index] for index in indices],
+                })
+            entries[entry_name] = {
+                "type": entry_type, "layer": layer, "frames": frames,
+            }
+        result[subspace] = entries
+    if offset != len(data):
+        raise ValueError("trailing OSAR data")
+    return result
 
 
 HARNESS = r'''
@@ -158,9 +219,47 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
         visuals = manifest["itemVisuals"]
         self.assertEqual([9000, 9001, 9002], [value["itemId"] for value in visuals])
         self.assertEqual("asset.sprite.custom", visuals[0]["customSpriteAssetRole"])
+        self.assertEqual(("items", "0"), (
+            visuals[0]["customSpriteSubspace"], visuals[0]["customSpriteEntry"],
+        ))
         self.assertEqual(417, visuals[1]["authenticSpriteId"])
         self.assertEqual(-1, visuals[1]["pictureMask"])
+        self.assertEqual(("GUI", "0"), (
+            visuals[2]["customSpriteSubspace"], visuals[2]["customSpriteEntry"],
+        ))
         self.assertEqual(-16776961, visuals[2]["blueMask"])
+        media = {record["role"]: record["mediaType"] for record in manifest["files"]}
+        self.assertEqual("application/gzip", media["asset.sprite.custom"])
+        self.assertEqual("application/gzip", media["asset.spritepack"])
+
+    def test_successor_osar_fixture_independently_decodes_real_nonempty_pixels(self):
+        custom = decode_osar((FIXTURE_V2 /
+            "files/client/Cache/video/Custom_Sprites.osar").read_bytes())
+        spritepack = decode_osar((FIXTURE_V2 /
+            "files/client/Cache/video/spritepacks/Menus.osar").read_bytes())
+        frames = [custom["items"]["0"]["frames"],
+                  spritepack["GUI"]["0"]["frames"]]
+        for decoded in frames:
+            self.assertEqual(1, len(decoded))
+            frame = decoded[0]
+            self.assertGreater(frame["width"], 0)
+            self.assertGreater(frame["height"], 0)
+            self.assertEqual(frame["width"] * frame["height"], len(frame["pixels"]))
+            self.assertGreater(len(set(frame["pixels"])), 1)
+            self.assertTrue(any(pixel != 0 for pixel in frame["pixels"]))
+
+        import zipfile
+        authentic_path = (FIXTURE_V2 /
+            "files/client/Cache/video/Authentic_Sprites.orsc")
+        with zipfile.ZipFile(authentic_path) as authentic:
+            self.assertEqual(["sprites/417.dat"], authentic.namelist())
+            entry = authentic.read("sprites/417.dat")
+        wrapped = bytes((1,)) + b"sprites\0\0\1" + b"417\0" + entry
+        authentic_decoded = decode_osar(gzip.compress(wrapped, mtime=0))
+        self.assertTrue(any(
+            pixel != 0
+            for pixel in authentic_decoded["sprites"]["417"]["frames"][0]["pixels"]
+        ))
 
     @staticmethod
     def rewrite_v2_manifest(root: Path, visuals: list[dict] | None = None) -> None:
@@ -214,9 +313,15 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
 
         def missing_entry(root: Path) -> None:
             archive = root / "files/client/Cache/video/Custom_Sprites.osar"
-            import zipfile
-            with zipfile.ZipFile(archive, "w") as output:
-                output.writestr("items/different.dat", b"wrong entry")
+            spec = importlib.util.spec_from_file_location("bundle_v2_mutation", GENERATOR_V2)
+            module = importlib.util.module_from_spec(spec)
+            assert spec is not None and spec.loader is not None
+            spec.loader.exec_module(module)
+            archive.write_bytes(module.deterministic_osar([
+                ("items", [("different", module.osar_entry(
+                    width=1, height=1, pixels=[0x123456],
+                ))]),
+            ]))
 
         cases["missing-entry"] = (missing_entry, None, "archive entry is missing")
 
@@ -236,6 +341,75 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
                 result = self.read_with_java(changed)
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn(expected, result.stderr)
+
+    def test_successor_rejects_cross_role_named_mapping_ambiguity(self):
+        with tempfile.TemporaryDirectory(prefix="content-bundle-v2-ambiguous-") as temp:
+            changed = Path(temp) / "bundle"
+            shutil.copytree(FIXTURE_V2, changed)
+            custom = changed / "files/client/Cache/video/Custom_Sprites.osar"
+            spec = importlib.util.spec_from_file_location("bundle_v2_ambiguity", GENERATOR_V2)
+            module = importlib.util.module_from_spec(spec)
+            assert spec is not None and spec.loader is not None
+            spec.loader.exec_module(module)
+            custom.write_bytes(module.deterministic_osar([
+                ("items", [("0", module.osar_entry(
+                    width=1, height=1, pixels=[0x123456],
+                ))]),
+                ("GUI", [("0", module.osar_entry(
+                    width=1, height=1, pixels=[0x654321],
+                ))]),
+            ]))
+            manifest_path = changed / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["itemVisuals"][2]["customSpriteAssetRole"] = "asset.sprite.custom"
+            evidence = changed / "files/server/conf/world-builder/item-visuals-v1.json"
+            evidence_document = json.loads(evidence.read_text(encoding="utf-8"))
+            evidence_document["itemVisuals"] = manifest["itemVisuals"]
+            evidence.write_text(json.dumps(
+                evidence_document, sort_keys=True, indent=2,
+            ) + "\n", encoding="utf-8")
+            self.rewrite_v2_manifest(changed, manifest["itemVisuals"])
+            result = self.read_with_java(changed)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("role-ambiguous", result.stderr)
+
+    def test_successor_rejects_malformed_osar_names_frames_pixels_and_bounds(self):
+        spec = importlib.util.spec_from_file_location("bundle_v2_invalid_osar", GENERATOR_V2)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        valid = module.osar_entry(width=1, height=1, pixels=[0x123456])
+        cases = {
+            "unsafe-name": [("items/nested", [("0", valid)])],
+            "casefold-subspace": [
+                ("items", [("0", valid)]), ("ITEMS", [("other", valid)]),
+            ],
+            "casefold-entry": [("items", [("Entry", valid), ("entry", valid)])],
+            "empty-frame-set": [("items", [("0", bytes((0, 0)))])],
+            "invalid-bounds": [("items", [("0",
+                bytes((0, 1, 0)) + b"\x12\x34\x56"
+                + b"\x00\x02\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
+                + b"\x00\x00")])],
+            "invalid-palette-index": [("items", [("0",
+                bytes((0, 1, 0)) + b"\x12\x34\x56"
+                + b"\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
+                + b"\x01")])],
+        }
+        for name, subspaces in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory(
+                prefix="content-bundle-v2-invalid-osar-"
+            ) as temp:
+                changed = Path(temp) / "bundle"
+                shutil.copytree(FIXTURE_V2, changed)
+                archive = changed / "files/client/Cache/video/Custom_Sprites.osar"
+                archive.write_bytes(module.deterministic_osar(subspaces))
+                self.rewrite_v2_manifest(changed)
+                result = self.read_with_java(changed)
+                self.assertNotEqual(0, result.returncode)
+                self.assertTrue(
+                    "OSAR" in result.stderr or "portable" in result.stderr,
+                    result.stderr,
+                )
 
 
 if __name__ == "__main__":

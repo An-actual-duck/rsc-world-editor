@@ -2,9 +2,12 @@
 """Generate the frozen project-content-bundle-v2 compatibility fixture."""
 
 import argparse
+import gzip
 import hashlib
 import importlib.util
+import io
 import json
+import struct
 import tempfile
 from pathlib import Path
 
@@ -20,9 +23,7 @@ ZERO_HASH = "0" * 64
 CAPABILITY_ID = "project-local-custom-content-v2"
 VISUAL_PATH = "server/conf/world-builder/item-visuals-v1.json"
 SPECS = tuple(sorted(tuple(
-    (role, path, "application/zip" if role in {
-        "asset.sprite.custom", "asset.spritepack"
-    } else media, definition)
+    (role, path, media, definition)
     for role, path, media, definition in legacy.SPECS
 ) + (
     ("metadata.item-visuals", VISUAL_PATH, "application/json", True),
@@ -36,7 +37,7 @@ def item_visuals() -> list[dict]:
             "authenticSpriteId": None,
             "customSpriteAssetRole": "asset.sprite.custom",
             "customSpriteSubspace": "items",
-            "customSpriteEntry": "9000.dat",
+            "customSpriteEntry": "0",
             "pictureMask": 0x336699,
             "blueMask": 0x112233,
         },
@@ -53,25 +54,76 @@ def item_visuals() -> list[dict]:
             "itemId": 9002,
             "authenticSpriteId": None,
             "customSpriteAssetRole": "asset.spritepack",
-            "customSpriteSubspace": "inventory",
-            "customSpriteEntry": "9002.dat",
+            "customSpriteSubspace": "GUI",
+            "customSpriteEntry": "0",
             "pictureMask": 0x445566,
             "blueMask": -16776961,
         },
     ]
 
 
+def osar_entry(*, width: int, height: int, pixels: list[int],
+               offset_x: int = 0, offset_y: int = 0,
+               bound_width: int | None = None,
+               bound_height: int | None = None) -> bytes:
+    """Encode one runtime-Unpacker-compatible TYPE.SPRITE entry."""
+    if len(pixels) != width * height or not pixels:
+        raise ValueError("OSAR fixture pixels must exactly fill one nonempty frame")
+    palette = list(dict.fromkeys(pixels))
+    if not 1 <= len(palette) <= 256:
+        raise ValueError("OSAR fixture palette must contain 1..256 colors")
+    bounded_width = width if bound_width is None else bound_width
+    bounded_height = height if bound_height is None else bound_height
+    output = io.BytesIO()
+    output.write(bytes((0, 1, len(palette) - 1)))  # SPRITE, one frame, palette-1
+    for color in palette:
+        output.write((color & 0xFFFFFF).to_bytes(3, "big"))
+    output.write(struct.pack(
+        ">HHBhhHH", width, height, int(offset_x != 0 or offset_y != 0),
+        offset_x, offset_y, bounded_width, bounded_height,
+    ))
+    output.write(bytes(palette.index(pixel) for pixel in pixels))
+    return output.getvalue()
+
+
+def deterministic_osar(subspaces: list[tuple[str, list[tuple[str, bytes]]]]) -> bytes:
+    """Encode a complete deterministic GZIP OSAR sprite archive."""
+    payload = io.BytesIO()
+    payload.write(bytes((len(subspaces),)))
+    for subspace, entries in subspaces:
+        payload.write(subspace.encode("latin-1") + b"\0")
+        payload.write(len(entries).to_bytes(2, "big"))
+        for name, entry in entries:
+            payload.write(name.encode("latin-1") + b"\0")
+            payload.write(entry)
+    output = io.BytesIO()
+    with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as archive:
+        archive.write(payload.getvalue())
+    return output.getvalue()
+
+
 def payloads() -> dict[str, bytes]:
     values = legacy.payloads()
     values["client/Cache/video/Authentic_Sprites.orsc"] = legacy.deterministic_zip(
-        "sprites/authentic-417.dat", b"authentic sprite 417 fixture\n"
+        "sprites/417.dat", osar_entry(
+            width=2, height=2,
+            pixels=[0x102030, 0x405060, 0x708090, 0xA0B0C0],
+        )
     )
-    values["client/Cache/video/Custom_Sprites.osar"] = legacy.deterministic_zip(
-        "items/9000.dat", b"custom sprite for arbitrary item 9000\n"
-    )
-    values["client/Cache/video/spritepacks/Menus.osar"] = legacy.deterministic_zip(
-        "inventory/9002.dat", b"custom spritepack item 9002\n"
-    )
+    values["client/Cache/video/Custom_Sprites.osar"] = deterministic_osar([
+        ("items", [("0", osar_entry(
+            width=3, height=2,
+            pixels=[0x112233, 0xD0A020, 0x112233, 0x3060C0, 0xD0A020, 0x3060C0],
+            offset_x=1, offset_y=2, bound_width=5, bound_height=6,
+        ))]),
+    ])
+    values["client/Cache/video/spritepacks/Menus.osar"] = deterministic_osar([
+        ("GUI", [("0", osar_entry(
+            width=2, height=3,
+            pixels=[0x204060, 0x80A0C0, 0xE08020, 0x204060, 0xE08020, 0x80A0C0],
+            offset_x=2, offset_y=1, bound_width=6, bound_height=5,
+        ))]),
+    ])
     values[VISUAL_PATH] = legacy.pretty({
         "schemaVersion": 1,
         "manifestType": "world-builder-item-visual-evidence",
