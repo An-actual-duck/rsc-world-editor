@@ -295,6 +295,16 @@ import java.util.List;
 
 public final class DesktopLauncherHarness {
     public static void main(String[] args) throws Exception {
+        if (WorldBuilderDesktopLauncher.closeDisposition(true, false)
+                != WorldBuilderDesktopLauncher.CloseDisposition.WAIT_FOR_EDITOR
+            || WorldBuilderDesktopLauncher.closeDisposition(true, true)
+                != WorldBuilderDesktopLauncher.CloseDisposition.WAIT_FOR_EDITOR
+            || WorldBuilderDesktopLauncher.closeDisposition(false, true)
+                != WorldBuilderDesktopLauncher.CloseDisposition.WAIT_FOR_TASK
+            || WorldBuilderDesktopLauncher.closeDisposition(false, false)
+                != WorldBuilderDesktopLauncher.CloseDisposition.CLOSE) {
+            throw new AssertionError("desktop close policy");
+        }
         final WorldBuilderDesktopLauncher.Action action =
             WorldBuilderDesktopLauncher.Action.valueOf(args[4]);
         final Path selected = "-".equals(args[5]) ? null : Paths.get(args[5]);
@@ -429,8 +439,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 public final class AdaptiveProjectSupervisorHarness {
     private static void require(boolean condition, String message) {
@@ -450,13 +462,27 @@ public final class AdaptiveProjectSupervisorHarness {
             project.toString(), Integer.toString(port));
     }
 
+    private static List<String> commandWithMode(String classes, String nested,
+        Path project, int port, String mode) {
+        List<String> result = new ArrayList<String>(
+            command(classes, nested, project, port));
+        result.add(mode);
+        return result;
+    }
+
     public static void main(String[] args) throws Exception {
         Path project = Paths.get(args[0]);
         String classes = args[1];
+        boolean finalizationMode = args.length > 2 && "finalization".equals(args[2]);
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
         String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
             StandardCharsets.UTF_8);
+        Map<String,Object> projectManifest = WorldBuilderJsonDocuments.readObject(
+            manifest.getBytes(StandardCharsets.UTF_8), "supervised project manifest");
+        @SuppressWarnings("unchecked") Map<String,Object> fingerprints =
+            (Map<String,Object>)projectManifest.get("fingerprints");
+        String workingFingerprintBefore = (String)fingerprints.get("workingSha256");
         if (!(args.length > 2 && "unsafe".equals(args[2]))) {
             String expectedOrigin = manifest.contains("\"origin\": \"target-layered\"")
                 ? "target-layered" : manifest.contains("\"origin\": \"target-packed\"")
@@ -513,7 +539,9 @@ public final class AdaptiveProjectSupervisorHarness {
         }
 
         List<String> server = command(classes, "FakeServer", project, port);
-        List<String> client = command(classes, "FakeClient", project, port);
+        List<String> client = finalizationMode
+            ? commandWithMode(classes, "FakeClient", project, port, "mutate")
+            : command(classes, "FakeClient", project, port);
         if (args.length > 2 && "unsafe".equals(args[2])) {
             boolean refused = false;
             try {
@@ -586,8 +614,19 @@ public final class AdaptiveProjectSupervisorHarness {
         int result = supervisor.superviseAdaptiveWithCommands(
             project, server, client, 5000L);
         require(result == 0, "adaptive isolated run");
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject finalized =
+            WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+        if (finalizationMode) {
+            require(!workingFingerprintBefore.equals(
+                    finalized.working.fingerprintSha256),
+                "normal client close must save the changed working fingerprint");
+        }
         require(!Files.exists(project.resolve("run/server.pid")), "server PID cleanup");
         require(!Files.exists(project.resolve("run/client.pid")), "client PID cleanup");
+        require(Files.isRegularFile(project.resolve(
+            "run/world-builder/fake-server-stopped")), "server stopped normally");
+        require(Files.isRegularFile(project.resolve(
+            "run/world-builder/fake-client-stopped")), "client stopped normally");
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
@@ -641,6 +680,8 @@ public final class AdaptiveProjectSupervisorHarness {
                     }
                 }
             }
+            Files.write(control.resolve("fake-server-stopped"),
+                "stopped\n".getBytes(StandardCharsets.US_ASCII));
         }
     }
 
@@ -650,7 +691,25 @@ public final class AdaptiveProjectSupervisorHarness {
             Path client = project.resolve("working/runtime/client");
             Files.write(client.resolve("clientSettings.conf"),
                 "generated=true\n".getBytes(StandardCharsets.UTF_8));
+            if (args.length > 2 && "mutate".equals(args[2])) {
+                Path packageRoot = project.resolve("working/layered-world/package");
+                Path manifestPath = packageRoot.resolve("manifest.json");
+                Map<String,Object> packageManifest = WorldBuilderJsonDocuments.readObject(
+                    Files.readAllBytes(manifestPath), "fake client working package");
+                @SuppressWarnings("unchecked") Map<String,Object> declaration =
+                    (Map<String,Object>)((List<?>)packageManifest.get(
+                        "terrainSectors")).get(0);
+                Path terrain = packageRoot.resolve((String)declaration.get("path"));
+                byte[] payload = Files.readAllBytes(terrain);
+                payload[1] ^= 1;
+                Files.write(terrain, payload);
+                declaration.put("sha256", WorldBuilderHashes.sha256(terrain));
+                Files.write(manifestPath, WorldBuilderJsonDocuments.pretty(packageManifest)
+                    .getBytes(StandardCharsets.UTF_8));
+            }
             Thread.sleep(250L);
+            Files.write(project.resolve("run/world-builder/fake-client-stopped"),
+                "stopped\n".getBytes(StandardCharsets.US_ASCII));
         }
     }
 
@@ -1760,7 +1819,7 @@ public final class FakeAdaptiveClient {
                 (project / "working/runtime/server/logs/default.log").is_file()
             )
             self.assertTrue((project / "logs/client-runtime.log").is_file())
-            supervised = self.run_supervision(project)
+            supervised = self.run_supervision(project, "finalization")
             self.assertEqual(0, supervised.returncode, supervised.stdout + supervised.stderr)
             self.assertEqual("adaptive-supervision-ok\n", supervised.stdout)
             self.assertTrue((project / "working/runtime/server/ipbans.txt").is_file())
@@ -3980,6 +4039,13 @@ public final class FakeAdaptiveClient {
                     self.assertFalse(list(projects.glob(".staging-*")), mode)
 
     def test_desktop_launcher_choices_and_existing_project_start_are_headless_testable(self):
+        launcher_source = (
+            SOURCE_ROOT
+            / "com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.java"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("System.exit(", launcher_source)
+        self.assertIn("Close the editor normally first", launcher_source)
+
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"

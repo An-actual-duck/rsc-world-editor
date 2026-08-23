@@ -49,6 +49,11 @@ Server Map**, **Open Existing Project**, and **Select Another Supported
 Source**. Cancelling any chooser or confirmation returns without creating a
 project or starting child processes.
 
+While an editor session is running, the project launcher remains open and
+refuses to exit. Close the editor normally so the supervisor can stop the
+private server, save the project, remove process metadata, and complete final
+validation before the launcher itself is closed.
+
 The source chooser accepts directories that satisfy a compiled packed or
 layered adapter; it does not infer a format from an arbitrary map file. The
 existing-project chooser is deliberately limited to registered UUID projects

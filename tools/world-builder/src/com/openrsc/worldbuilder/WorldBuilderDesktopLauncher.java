@@ -186,6 +186,16 @@ final class WorldBuilderDesktopLauncher {
 		return java.util.Collections.unmodifiableList(result);
 	}
 
+	static CloseDisposition closeDisposition(boolean editorRunning, boolean busy) {
+		if (editorRunning) return CloseDisposition.WAIT_FOR_EDITOR;
+		if (busy) return CloseDisposition.WAIT_FOR_TASK;
+		return CloseDisposition.CLOSE;
+	}
+
+	enum CloseDisposition {
+		CLOSE, WAIT_FOR_EDITOR, WAIT_FOR_TASK
+	}
+
 	enum Action {
 		OPEN_EXISTING, NEW_EMPTY, DETECTED_SERVER, SELECT_SOURCE, CANCEL
 	}
@@ -654,16 +664,16 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void closeRequested() {
-			if (editorRunning) {
-				int answer = JOptionPane.showConfirmDialog(frame,
-					"The editor is still running. Closing this launcher will stop its "
-						+ "private client and server. Close anyway?",
-					"Stop World Builder?", JOptionPane.YES_NO_OPTION,
-					JOptionPane.WARNING_MESSAGE);
-				if (answer != JOptionPane.YES_OPTION) return;
-				System.exit(0);
+			CloseDisposition disposition = closeDisposition(editorRunning, busy);
+			if (disposition == CloseDisposition.WAIT_FOR_EDITOR) {
+				JOptionPane.showMessageDialog(frame,
+					"The editor is still running. Close the editor normally first. "
+						+ "World Builder will then stop its private server, save the project, "
+						+ "and complete final validation before this launcher can close.",
+					"Close the Editor First", JOptionPane.INFORMATION_MESSAGE);
+				return;
 			}
-			if (busy) {
+			if (disposition == CloseDisposition.WAIT_FOR_TASK) {
 				JOptionPane.showMessageDialog(frame,
 					"A project safety check or copy is still finishing. Wait for it to "
 						+ "complete before closing; World Builder will not abandon a project "
