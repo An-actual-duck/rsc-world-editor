@@ -532,6 +532,16 @@ public final class AdaptiveProjectSupervisorHarness {
                 "-Dopenrsc.worldBuilderAssetEvidenceFile="
                     + project.resolve("working/runtime/client/evidence/adaptive-assets.sha256")),
                 "client assets");
+            for (String property : Arrays.asList(
+                    "openrsc.worldBuilderDefinitionId",
+                    "openrsc.worldBuilderDefinitionSha256",
+                    "openrsc.worldBuilderAssetId",
+                    "openrsc.worldBuilderAssetSha256")) {
+                String serverValue = propertyValue(productionServer, property);
+                String clientValue = propertyValue(productionClient, property);
+                require(!serverValue.isEmpty(), "server " + property);
+                require(serverValue.equals(clientValue), "shared " + property);
+            }
             Path contentRoot = project.resolve("working/content-bundle");
             if (Files.isDirectory(contentRoot)) {
                 WorldBuilderProjectContentBundle.Bundle content =
@@ -659,6 +669,14 @@ public final class AdaptiveProjectSupervisorHarness {
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             "bounded run receipt");
         System.out.println("adaptive-supervision-ok");
+    }
+
+    private static String propertyValue(List<String> command, String property) {
+        String prefix = "-D" + property + "=";
+        for (String argument : command) {
+            if (argument.startsWith(prefix)) return argument.substring(prefix.length());
+        }
+        return "";
     }
 
     private static void requireCleanFailure(Path project, byte[] manifestBefore,

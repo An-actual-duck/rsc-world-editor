@@ -30,11 +30,26 @@ the versioned runtime input and future creator-content authoring boundary.
 Neither tree is stored in a World Builder release. Discovery and preparation
 read the selected target, but never write it.
 
-The isolated runtime receives the absolute working bundle directory through
-the Builder-only launch property `openrsc.worldBuilderContentBundle`. The path
-is operational metadata, never part of a bundle fingerprint. A runtime that
-does not advertise and enforce `project-local-custom-content-v1` must refuse a
-nonempty target-adopted bundle before world entry.
+The isolated client and server receive the same exact bundle identity through
+these Builder-only launch properties:
+
+| Property | Value |
+| --- | --- |
+| `openrsc.worldBuilderContentBundle` | absolute `working/content-bundle/` root |
+| `openrsc.worldBuilderContentCapabilityId` | `project-local-custom-content-v1` |
+| `openrsc.worldBuilderContentBundleSha256` | manifest-bound bundle fingerprint |
+| `openrsc.worldBuilderContentDefinitionSha256` | definition/catalog fingerprint |
+| `openrsc.worldBuilderContentAssetSha256` | client-asset fingerprint |
+
+Both processes also receive the existing
+`openrsc.worldBuilderDefinitionId`,
+`openrsc.worldBuilderDefinitionSha256`,
+`openrsc.worldBuilderAssetId`, and
+`openrsc.worldBuilderAssetSha256` bindings. Server evidence paths end in
+`EvidencePath`; client evidence paths end in `EvidenceFile`. The bundle path
+is operational metadata, never part of a fingerprint. A runtime that does not
+advertise and enforce `project-local-custom-content-v1` must refuse a nonempty
+target-adopted bundle before world entry.
 
 ## Closed content surface
 
@@ -83,6 +98,34 @@ Client archives are bounded and inspected structurally. Links, special entries,
 unsafe names or modes, duplicate and case-folded names, expansion outside the
 archive limits, malformed containers, and unsupported compression are fatal.
 Opaque asset payloads are preserved byte-for-byte; they are never executed.
+Version 1 consumes the existing target archive files listed above. It is not a
+loose-PNG or loose-OB3 interchange format, and a runtime must not reinterpret
+the bundle as one. A future creator-facing loose-file importer requires its
+own versioned ingestion contract and must compile to this exact closed runtime
+surface.
+
+## Canonical compatibility fixture
+
+The compact bundle at
+`tests/fixtures/project-content-bundle-v1/bundle/` is the cross-repository
+compatibility oracle. It contains all 16 required roles in their compiled
+runtime paths, raw representative definition files, and existing-format raw,
+ZIP, and gzip client archives. Its authoring catalog includes the acceptance
+IDs floor 31, wall 219, scenery 59, NPC 846, and ground item 9000. None of
+those IDs is part of the general contract.
+
+Generate an independent copy or verify the checked-in bytes with:
+
+```bash
+python3 scripts/generate-project-content-bundle-v1-fixture.py /empty/output/bundle
+python3 scripts/generate-project-content-bundle-v1-fixture.py \
+  --check tests/fixtures/project-content-bundle-v1/bundle
+```
+
+The generator is deterministic and contains the fingerprint algorithm in a
+small language-neutral form. Runtime consumers should copy the fixture from a
+published Editor commit or independently mirror its exact bytes and expected
+fingerprints; they do not need access to an Editor worktree.
 
 ## Fingerprints
 
