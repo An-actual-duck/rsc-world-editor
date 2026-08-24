@@ -153,6 +153,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         for relative in (
             "exports/global.keep", "backups/global.keep", "receipts/global.keep",
             "diagnostics/global.keep", "logs/global.keep", "settings/editor.keep",
+            "providers/catalog.json", "providers/provider-test/item-visuals.json",
             "recovery/pending.keep", "updates/user-recovery/keep.txt",
             "unknown-user-folder/keep.bin",
         ):
@@ -161,7 +162,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             path.write_bytes(("durable:" + relative).encode())
         self.durable_targets = (
             "workspace", "projects", "project-registry.json", "active-project.json",
-            "exports", "backups", "receipts", "diagnostics", "logs", "settings",
+            "exports", "backups", "receipts", "diagnostics", "logs", "settings", "providers",
             "recovery", "updates", "unknown-user-folder", "personal-note.txt",
         )
         self.durable_snapshot = self.snapshot_targets()
