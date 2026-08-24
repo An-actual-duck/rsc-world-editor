@@ -174,6 +174,7 @@ public final class WorldBuilderCli {
 		Path runtime = null;
 		Path target = null;
 		Path report = null;
+		Path itemVisualMappings = null;
 		String displayName = null;
 		String confirmation = null;
 		int port = 0;
@@ -188,6 +189,9 @@ public final class WorldBuilderCli {
 			} else if ("--discovery-report".equals(argument)
 				&& index + 1 < args.length) {
 				report = Paths.get(args[++index]);
+			} else if ("--item-visual-mappings".equals(argument)
+				&& index + 1 < args.length) {
+				itemVisualMappings = Paths.get(args[++index]);
 			} else if ("--display-name".equals(argument) && index + 1 < args.length) {
 				displayName = args[++index];
 			} else if ("--port".equals(argument) && index + 1 < args.length) {
@@ -213,7 +217,8 @@ public final class WorldBuilderCli {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
 				new WorldBuilderAdaptiveProjectLifecycle().create(
-					installation, runtime, target, report, displayName, port, confirmation);
+					installation, runtime, target, report, displayName, port, confirmation,
+					itemVisualMappings);
 			System.out.print(created.toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
@@ -865,6 +870,7 @@ public final class WorldBuilderCli {
 		Path installation = null;
 		Path runtime = null;
 		Path target = null;
+		Path itemVisualMappings = null;
 		String configurationRole = null;
 		String displayName = null;
 		String confirmation = null;
@@ -877,6 +883,9 @@ public final class WorldBuilderCli {
 				runtime = Paths.get(args[++index]);
 			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
 				target = Paths.get(args[++index]);
+			} else if ("--item-visual-mappings".equals(argument)
+				&& index + 1 < args.length) {
+				itemVisualMappings = Paths.get(args[++index]);
 			} else if ("--configuration-role".equals(argument)
 				&& index + 1 < args.length) {
 				configurationRole = args[++index];
@@ -946,7 +955,7 @@ public final class WorldBuilderCli {
 			Files.write(temporaryReport,
 				report.toJson().getBytes(StandardCharsets.UTF_8));
 			project = lifecycle.create(installation, runtime, target, temporaryReport,
-				displayName, port, confirmation);
+				displayName, port, confirmation, itemVisualMappings);
 			Files.delete(temporaryReport);
 			temporaryReport = null;
 			System.out.print(project.toJson());
@@ -1624,7 +1633,7 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli create-project --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> [--target-root <server-root>]"
 			+ " --discovery-report <report.json> --display-name <name> --port <port>"
-			+ " --confirm CREATE"
+			+ " [--item-visual-mappings <mapping.json>] --confirm CREATE"
 			+ "\n  WorldBuilderCli list-projects --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli select-project --installation-root <World Builder 2>"
 			+ " --project-id <uuid>"
@@ -1662,6 +1671,7 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli launch-adaptive --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>] [--display-name <name>] [--confirm CREATE]"
+			+ " [--item-visual-mappings <mapping.json>]"
 			+ "\n  WorldBuilderCli desktop-launch --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>]"

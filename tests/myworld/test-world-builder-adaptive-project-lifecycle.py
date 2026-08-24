@@ -305,6 +305,19 @@ public final class DesktopLauncherHarness {
                 != WorldBuilderDesktopLauncher.CloseDisposition.CLOSE) {
             throw new AssertionError("desktop close policy");
         }
+        if ("MODEL_MAPPING".equals(args[4])) {
+            WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(
+                Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]),
+                Integer.parseInt(args[3]), null);
+            WorldBuilderLauncherModel.DiscoveryPreview preview =
+                model.inspectSource(Paths.get(args[5]));
+            WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
+                model.create(preview, "Mapped Model Test", Paths.get(args[7]));
+            Files.write(Paths.get(args[6]),
+                (created.projectRoot.toRealPath().toString() + "\\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            return;
+        }
         final WorldBuilderDesktopLauncher.Action action =
             WorldBuilderDesktopLauncher.Action.valueOf(args[4]);
         final Path selected = "-".equals(args[5]) ? null : Paths.get(args[5]);
@@ -4225,7 +4238,7 @@ public final class FakeAdaptiveClient {
         def missing_evidence(target: Path) -> None:
             (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
 
-        cases["missing-evidence"] = (missing_evidence, "authoritative item visual evidence is missing")
+        cases["missing-evidence"] = (missing_evidence, "needs explicit mappings")
 
         def missing_entry(target: Path) -> None:
             archive = target / "Client_Base/Cache/video/Custom_Sprites.osar"
@@ -4257,6 +4270,242 @@ public final class FakeAdaptiveClient {
                 self.assertIn(expected, created.stderr)
                 self.assertEqual(before, tree_bytes(target))
                 self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_item_visuals_migrate_from_inert_definitions_inside_project_only(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-item-visual-derived-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            evidence = target / "server/conf/world-builder/item-visuals-v1.json"
+            original_visuals = json.loads(evidence.read_text(encoding="utf-8"))["itemVisuals"]
+            evidence.unlink()
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsCustom.json", {"items": [{
+                "id": 9000, "sprite": "items/0",
+                "pictureMask": 0x336699, "blueMask": 0x112233,
+            }]})
+            write_json(definitions / "ItemDefsMyWorld.json", {"items": [{
+                "id": 9001, "authenticSpriteId": 417,
+                "pictureMask": -1, "blueMask": 0,
+            }]})
+            write_json(definitions / "ItemDefsPatch18.json", {"items": [{
+                "id": 9002, "sprite": "GUI/0",
+                "pictureMask": 0x445566, "blueMask": -16776961,
+            }]})
+            authentic = target / "Client_Base/Cache/video/Authentic_Sprites.orsc"
+            with zipfile.ZipFile(authentic, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("sprites/417.dat", b"captured authentic sprite")
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Derived visuals", 43818,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            generated = json.loads((project /
+                "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(original_visuals, generated["itemVisuals"])
+            self.assertFalse((project /
+                "source/original/server/conf/world-builder/item-visuals-v1.json").exists())
+            self.assertEqual(before, tree_bytes(target))
+
+    def test_explicit_item_visual_mapping_is_validated_and_target_preserving(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-item-visual-explicit-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            evidence = target / "server/conf/world-builder/item-visuals-v1.json"
+            visuals = json.loads(evidence.read_text(encoding="utf-8"))["itemVisuals"]
+            evidence.unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            mapping = base / "mapping.json"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": visuals,
+            })
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created = self.run_cli(
+                "create-project", "--installation-root", installation,
+                "--runtime-root", runtime, "--target-root", target,
+                "--discovery-report", report, "--display-name", "Mapped visuals",
+                "--port", 43819, "--item-visual-mappings", mapping,
+                "--confirm", "CREATE",
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(json.loads(created.stdout)["projectRoot"])
+            generated = json.loads((project /
+                "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(visuals, generated["itemVisuals"])
+            self.assertEqual(before, tree_bytes(target))
+
+    def test_item_visual_mapping_malformed_and_ambiguous_inputs_fail_closed(self):
+        cases = {}
+
+        def malformed(base: Path, target: Path, visuals: list[dict]) -> Path:
+            mapping = base / "mapping.json"
+            mapping.write_bytes(b"{malformed\n")
+            return mapping
+
+        cases["malformed"] = (malformed, "MALFORMED_JSON")
+
+        def contradictory(base: Path, target: Path, visuals: list[dict]) -> Path:
+            mapping = base / "mapping.json"
+            duplicate = list(visuals)
+            changed = dict(duplicate[0])
+            changed["pictureMask"] += 1
+            duplicate.insert(1, changed)
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": duplicate,
+            })
+            return mapping
+
+        cases["duplicate"] = (contradictory, "DEFINITION_MISMATCH")
+
+        def ambiguous_archive(base: Path, target: Path, visuals: list[dict]) -> Path:
+            spritepack = target / "Client_Base/Cache/video/spritepacks/Menus.osar"
+            spritepack.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("0", self.fixtures.fixture_sprite_entry())]),
+                ("GUI", [("0", self.fixtures.fixture_sprite_entry())]),
+            ]))
+            mapping = base / "mapping.json"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": visuals,
+            })
+            return mapping
+
+        cases["archive-ambiguity"] = (ambiguous_archive, "role-ambiguous")
+
+        def unsafe_path(base: Path, target: Path, visuals: list[dict]) -> Path:
+            mapping = base / "mapping.json"
+            changed = [dict(item) for item in visuals]
+            changed[0]["customSpriteSubspace"] = "../items"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": changed,
+            })
+            return mapping
+
+        cases["unsafe-path"] = (unsafe_path, "UNSAFE_PATH")
+
+        for name, (prepare, expected) in cases.items():
+            with self.subTest(name=name), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-item-visual-{name}-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.legacy_fixture(str(base))
+                evidence = target / "server/conf/world-builder/item-visuals-v1.json"
+                visuals = json.loads(evidence.read_text(encoding="utf-8"))["itemVisuals"]
+                evidence.unlink()
+                mapping = prepare(base, target, visuals)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "report.json"
+                self.discover(target, report)
+                before = tree_bytes(target)
+                created = self.run_cli(
+                    "create-project", "--installation-root", installation,
+                    "--runtime-root", runtime, "--target-root", target,
+                    "--discovery-report", report, "--display-name", "Bad mapping",
+                    "--port", 43820, "--item-visual-mappings", mapping,
+                    "--confirm", "CREATE",
+                )
+                self.assertEqual(3, created.returncode, created.stdout)
+                self.assertIn(expected, created.stderr)
+                self.assertEqual(before, tree_bytes(target))
+                self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_item_visual_mapping_creation_cancellation_publishes_nothing(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-item-visual-cancel-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            evidence = target / "server/conf/world-builder/item-visuals-v1.json"
+            visuals = json.loads(evidence.read_text(encoding="utf-8"))["itemVisuals"]
+            evidence.unlink()
+            mapping = base / "mapping.json"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": visuals,
+            })
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+            mapping_before = mapping.read_bytes()
+            cancelled = self.run_cli(
+                "create-project", "--installation-root", installation,
+                "--runtime-root", runtime, "--target-root", target,
+                "--discovery-report", report, "--display-name", "Cancelled mapping",
+                "--port", 43821, "--item-visual-mappings", mapping,
+                "--confirm", "",
+            )
+            self.assertEqual(3, cancelled.returncode, cancelled.stdout)
+            self.assertIn("exact CREATE confirmation", cancelled.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(mapping_before, mapping.read_bytes())
+            self.assertFalse((installation / "project-registry.json").exists())
+            self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_launcher_model_accepts_explicit_item_visual_mapping(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-item-visual-model-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            evidence = target / "server/conf/world-builder/item-visuals-v1.json"
+            visuals = json.loads(evidence.read_text(encoding="utf-8"))["itemVisuals"]
+            evidence.unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            mapping = base / "mapping.json"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": visuals,
+            })
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            marker = base / "model-created.txt"
+            result = subprocess.run([
+                "java", "-Djava.awt.headless=true", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.DesktopLauncherHarness",
+                str(installation), str(runtime), str(target), "43822",
+                "MODEL_MAPPING", str(target), str(marker), str(mapping),
+            ], cwd=ROOT, text=True, capture_output=True)
+            self.assertEqual(0, result.returncode, result.stderr)
+            project = Path(marker.read_text(encoding="utf-8").strip())
+            self.assertTrue((project /
+                "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+            ).is_file())
 
     def test_packaged_item_only_fallback_retains_bundle_v1_without_visual_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-content-v1-compatible-") as temp:

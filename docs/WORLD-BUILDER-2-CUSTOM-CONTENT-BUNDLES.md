@@ -155,6 +155,35 @@ declared, because its runtime role would be ambiguous after both archives are
 loaded. Malformed or duplicate evidence, missing evidence or archive entries,
 and incomplete closure are precise read-only discovery/conversion blockers.
 
+### Project-local migration
+
+When a target-backed packed project has beyond-packaged ground-item IDs but no
+`item-visuals-v1.json`, project creation does not ask the operator to add one to
+the server. After the complete target evidence has been copied into the unique
+unpublished UUID stage, the Editor first looks for complete visual fields on the
+captured item definitions. A numeric `sprite` or `authenticSpriteId` is an
+authentic mapping. A portable `sprite` location such as `items/0` is accepted
+only when that exact case-sensitive entry exists in exactly one of the captured
+custom or spritepack OSAR archives. Both signed `pictureMask` and `blueMask`
+must be present. A complete nested `worldBuilderItemVisual` record uses the same
+fields as the evidence schema. Partial, contradictory, missing, malformed, or
+archive-ambiguous data is never guessed.
+
+Unresolved IDs can be supplied during creation with
+`--item-visual-mappings <mapping.json>`, or by choosing the optional mapping
+JSON in the desktop source dialog. The strict input has `schemaVersion: 1`,
+`manifestType: "world-builder-item-visual-mapping"`, and an ascending
+`itemVisuals` array using the table above. It may name only required
+beyond-packaged IDs. Existing valid `item-visuals-v1` evidence always wins;
+otherwise declarative and explicit records must agree exactly.
+
+The Editor writes the canonical `world-builder-item-visual-evidence` document
+only to `source/content-bundle/files/server/conf/world-builder/` in project
+staging. It is not added to `source/original` and no selected-server byte is
+changed. Full bundle validation, archive-entry closure, target revalidation,
+and atomic publication still run afterward. Cancellation or any validation
+failure removes the unpublished stage and publishes no registry/project state.
+
 ## Canonical compatibility fixture
 
 The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains

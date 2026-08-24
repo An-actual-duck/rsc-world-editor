@@ -21,6 +21,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.TreeMap;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -134,6 +135,12 @@ final class WorldBuilderProjectContentBundle {
 	static Bundle capture(Path projectStage, Path copiedTarget,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
 		throws IOException, WorldBuilderContractException {
+		return capture(projectStage, copiedTarget, runtime, null);
+	}
+
+	static Bundle capture(Path projectStage, Path copiedTarget,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path explicitMappings)
+		throws IOException, WorldBuilderContractException {
 		Path sourceRoot = projectStage.resolve(SOURCE_DIRECTORY).normalize();
 		if (!sourceRoot.startsWith(projectStage.toAbsolutePath().normalize())
 			|| Files.exists(sourceRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -149,18 +156,12 @@ final class WorldBuilderProjectContentBundle {
 				"packaged-content-comparison-v1");
 		Set<Integer> beyondPackaged = differenceIds(
 			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
-		Path visualEvidence = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
 		List<Object> itemVisuals;
 		boolean successor = !beyondPackaged.isEmpty();
 		if (successor) {
-			if (!Files.isRegularFile(visualEvidence, LinkOption.NOFOLLOW_LINKS)) {
-				throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
-					ITEM_VISUAL_EVIDENCE_PATH,
-					"Target ground-item definitions exceed the packaged runtime, but authoritative item visual evidence is missing.",
-					"Add static world-builder-item-visual-evidence schema version 1 for every beyond-packaged ground-item ID and retry conversion.");
-			}
-			itemVisuals = validateItemVisualEvidence(visualEvidence);
-			requireExactVisualClosure(itemVisuals, beyondPackaged);
+			ItemVisualMigration migration = migrateItemVisuals(copiedTarget,
+				beyondPackaged, explicitMappings);
+			itemVisuals = migration.itemVisuals;
 		} else {
 			itemVisuals = Collections.emptyList();
 		}
@@ -168,16 +169,29 @@ final class WorldBuilderProjectContentBundle {
 		if (successor) captureSpecs.add(ITEM_VISUAL_SPEC);
 		List<FileRecord> records = new ArrayList<FileRecord>();
 		for (Spec spec : captureSpecs) {
-			Path source = safeRegular(copiedTarget.resolve(spec.targetPath), spec.targetPath);
-			validateFile(source, spec);
 			String bundlePath = "files/" + spec.runtimePath;
 			Path destination = sourceRoot.resolve(bundlePath).normalize();
 			if (!destination.startsWith(sourceRoot)) throw unsafe(bundlePath);
 			Files.createDirectories(destination.getParent());
-			Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+			Path source = copiedTarget.resolve(spec.targetPath);
+			if (spec == ITEM_VISUAL_SPEC
+				&& !Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
+				Map<String,Object> generated = new LinkedHashMap<String,Object>();
+				generated.put("schemaVersion", Long.valueOf(1L));
+				generated.put("manifestType", "world-builder-item-visual-evidence");
+				generated.put("itemVisuals", new ArrayList<Object>(itemVisuals));
+				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
+					.getBytes(StandardCharsets.UTF_8));
+			} else {
+				source = safeRegular(source, spec.targetPath);
+				validateFile(source, spec);
+				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+			}
 			long size = Files.size(destination);
 			String hash = WorldBuilderHashes.sha256(destination);
-			if (size != Files.size(source) || !hash.equals(WorldBuilderHashes.sha256(source))) {
+			if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
+				&& (size != Files.size(source)
+					|| !hash.equals(WorldBuilderHashes.sha256(source)))) {
 				throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, spec.targetPath,
 					"Target content changed while its project-local copy was verified.",
 					"Stop target changes, rediscover, and create a new project.");
@@ -689,6 +703,227 @@ final class WorldBuilderProjectContentBundle {
 		if (count == 0) throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, label,
 			"Client asset archive contains no entries.",
 			"Provide a complete supported target-owned archive.");
+	}
+
+	/**
+	 * Resolves successor item visuals without ever writing to the captured target
+	 * tree.  Existing v1 evidence is authoritative.  Otherwise only complete
+	 * declarative records and an optional explicit mapping contract participate.
+	 */
+	private static ItemVisualMigration migrateItemVisuals(Path copiedTarget,
+		Set<Integer> required, Path explicitMappings)
+		throws IOException, WorldBuilderContractException {
+		Path existing = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
+		if (Files.isRegularFile(existing, LinkOption.NOFOLLOW_LINKS)) {
+			List<Object> visuals = validateItemVisualEvidence(existing);
+			requireExactVisualClosure(visuals, required);
+			validateItemVisualArchiveClosure(copiedTarget, visuals);
+			return new ItemVisualMigration(visuals);
+		}
+
+		Map<Integer,Map<String,Object>> resolved =
+			new TreeMap<Integer,Map<String,Object>>();
+		Map<String,SpriteArchive> archives = new HashMap<String,SpriteArchive>();
+		for (String role : Arrays.asList("asset.sprite.custom", "asset.spritepack")) {
+			archives.put(role, readSpriteArchive(contentPath(copiedTarget, role), role));
+		}
+		Set<Integer> authenticIds = authenticSpriteIds(
+			contentPath(copiedTarget, "asset.sprite.authentic"));
+		for (String role : Arrays.asList("definition.item.base", "definition.item.custom",
+			"definition.item.world", "definition.item.patch")) {
+			for (Object raw : jsonArray(copiedTarget, role,
+				"definition.item.base".equals(role) ? new String[] {"item"}
+					: "definition.item.patch".equals(role)
+						? new String[] {"items", "item"} : new String[] {"items"})) {
+				@SuppressWarnings("unchecked") Map<String,Object> definition =
+					(Map<String,Object>)raw;
+				int itemId = (int)((Long)definition.get("id")).longValue();
+				if (!required.contains(Integer.valueOf(itemId))) continue;
+				Map<String,Object> visual = declarativeVisual(
+					definition, itemId, archives, authenticIds, role);
+				if (visual != null) mergeVisual(resolved, visual, role);
+			}
+		}
+
+		if (explicitMappings != null) {
+			Map<String,Object> mapping = readExplicitItemVisualMappings(explicitMappings);
+			for (Object raw : parseItemVisuals(mapping.get("itemVisuals"),
+				"item visual mapping input")) {
+				Map<String,Object> visual = object(raw, "item visual mapping input");
+				int itemId = (int)integer(visual, "itemId");
+				if (!required.contains(Integer.valueOf(itemId))) throw visualProblem(
+					"Explicit mappings may contain only unresolved beyond-packaged item IDs.");
+				mergeVisual(resolved, visual, "explicit item visual mapping");
+			}
+		}
+
+		Set<Integer> unresolved = new TreeSet<Integer>(required);
+		unresolved.removeAll(resolved.keySet());
+		if (!unresolved.isEmpty()) {
+			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+				ITEM_VISUAL_EVIDENCE_PATH,
+				"Project-local item visual migration needs explicit mappings for item IDs "
+					+ unresolved + ".",
+				"Supply --item-visual-mappings with schemaVersion 1, manifestType "
+					+ "world-builder-item-visual-mapping, and one itemVisuals record per ID. "
+					+ "Choose either authenticSpriteId or the exact asset.sprite.custom/"
+					+ "asset.spritepack subspace and entry, plus signed pictureMask and blueMask values.");
+		}
+		List<Object> visuals = new ArrayList<Object>();
+		for (Map<String,Object> visual : resolved.values()) {
+			visuals.add(new LinkedHashMap<String,Object>(visual));
+		}
+		requireExactVisualClosure(visuals, required);
+		validateItemVisualArchiveClosure(copiedTarget, visuals);
+		return new ItemVisualMigration(visuals);
+	}
+
+	private static Map<String,Object> declarativeVisual(Map<String,Object> definition,
+		int itemId, Map<String,SpriteArchive> archives, Set<Integer> authenticIds,
+		String role)
+		throws WorldBuilderContractException {
+		Object nested = definition.get("worldBuilderItemVisual");
+		if (nested != null) {
+			Map<String,Object> value = object(nested, role);
+			Map<String,Object> visual = new LinkedHashMap<String,Object>(value);
+			if (!visual.containsKey("itemId")) visual.put("itemId", Long.valueOf(itemId));
+			List<Object> parsed = parseItemVisuals(
+				Arrays.<Object>asList(visual), role);
+			Map<String,Object> result = object(parsed.get(0), role);
+			if (integer(result, "itemId") != itemId) throw visualProblem(
+				"Nested declarative visual itemId differs from its definition ID.");
+			if (result.get("authenticSpriteId") instanceof Long
+				&& !authenticIds.contains(Integer.valueOf(
+					(int)((Long)result.get("authenticSpriteId")).longValue()))) return null;
+			return result;
+		}
+
+		boolean mentionsVisual = definition.containsKey("sprite")
+			|| definition.containsKey("authenticSpriteId")
+			|| definition.containsKey("customSpriteAssetRole")
+			|| definition.containsKey("customSpriteSubspace")
+			|| definition.containsKey("customSpriteEntry")
+			|| definition.containsKey("pictureMask")
+			|| definition.containsKey("blueMask");
+		if (!mentionsVisual) return null;
+		Object pictureMask = definition.get("pictureMask");
+		Object blueMask = definition.get("blueMask");
+		if (!(pictureMask instanceof Long) || !(blueMask instanceof Long)) return null;
+		Map<String,Object> visual = new LinkedHashMap<String,Object>();
+		visual.put("itemId", Long.valueOf(itemId));
+		Object authentic = definition.get("authenticSpriteId");
+		Object customRole = definition.get("customSpriteAssetRole");
+		Object subspace = definition.get("customSpriteSubspace");
+		Object entry = definition.get("customSpriteEntry");
+		Object sprite = definition.get("sprite");
+		if (authentic == null && customRole == null && subspace == null && entry == null) {
+			if (sprite instanceof Long) authentic = sprite;
+			else if (sprite instanceof String) {
+				String location = (String)sprite;
+				WorldBuilderPortablePath.require(location, OPERATION);
+				int separator = location.lastIndexOf('/');
+				if (separator <= 0 || separator == location.length() - 1) return null;
+				subspace = location.substring(0, separator);
+				entry = location.substring(separator + 1);
+				List<String> owners = new ArrayList<String>();
+				for (String candidate : Arrays.asList(
+					"asset.sprite.custom", "asset.spritepack")) {
+					if (archives.get(candidate).exactNames.contains(location)) owners.add(candidate);
+				}
+				if (owners.size() != 1) throw problem(
+					WorldBuilderErrorCodes.DEFINITION_MISMATCH, role,
+					"Declarative sprite location is missing or archive-role ambiguous: "
+						+ location + ".",
+					"Use one exact case-sensitive entry in one archive, or provide an explicit role mapping.");
+				customRole = owners.get(0);
+			} else return null;
+		}
+		visual.put("authenticSpriteId", authentic);
+		visual.put("customSpriteAssetRole", customRole);
+		visual.put("customSpriteSubspace", subspace);
+		visual.put("customSpriteEntry", entry);
+		visual.put("pictureMask", pictureMask);
+		visual.put("blueMask", blueMask);
+		Map<String,Object> result = object(
+			parseItemVisuals(Arrays.<Object>asList(visual), role).get(0), role);
+		if (result.get("authenticSpriteId") instanceof Long
+			&& !authenticIds.contains(Integer.valueOf(
+				(int)((Long)result.get("authenticSpriteId")).longValue()))) return null;
+		return result;
+	}
+
+	private static Set<Integer> authenticSpriteIds(Path path)
+		throws IOException, WorldBuilderContractException {
+		Set<Integer> result = new HashSet<Integer>();
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
+			int count = 0;
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (++count > MAX_ARCHIVE_ENTRIES) throw tooManyDefinitions(
+					"asset.sprite.authentic");
+				if (entry.isDirectory()) continue;
+				String name = entry.getName();
+				WorldBuilderPortablePath.require(name, OPERATION);
+				String[] components = name.split("/");
+				String leaf = components[components.length - 1];
+				if (leaf.endsWith(".dat")) leaf = leaf.substring(0, leaf.length() - 4);
+				if (!leaf.matches("[0-9]{1,5}")) continue;
+				int id = Integer.parseInt(leaf);
+				if (id <= MAX_RUNTIME_ID) result.add(Integer.valueOf(id));
+			}
+		} catch (WorldBuilderContractException invalid) {
+			throw invalid;
+		} catch (IOException unsupported) {
+			// A captured authentic archive without inspectable named entries cannot
+			// prove an automatic numeric mapping. Explicit/static evidence remains valid.
+			return Collections.emptySet();
+		}
+		return result;
+	}
+
+	private static void mergeVisual(Map<Integer,Map<String,Object>> resolved,
+		Map<String,Object> visual, String source) throws WorldBuilderContractException {
+		int itemId = (int)integer(visual, "itemId");
+		Map<String,Object> previous = resolved.get(Integer.valueOf(itemId));
+		if (previous != null && !previous.equals(visual)) throw problem(
+			WorldBuilderErrorCodes.DEFINITION_MISMATCH, source,
+			"More than one contradictory item visual mapping exists for item "
+				+ itemId + ".",
+			"Keep one provable mapping and exact mask pair for each item ID.");
+		if (previous == null) resolved.put(Integer.valueOf(itemId),
+			new LinkedHashMap<String,Object>(visual));
+	}
+
+	private static Map<String,Object> readExplicitItemVisualMappings(Path requested)
+		throws WorldBuilderContractException {
+		Path path = requested.toAbsolutePath().normalize();
+		try {
+			if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(path) || Files.size(path) < 1L
+				|| Files.size(path) > MAX_FILE_BYTES) throw visualProblem(
+					"Explicit item visual mapping input must be one bounded regular JSON file.");
+			Map<String,Object> value = WorldBuilderJsonDocuments.readObject(path);
+			exact(value, "schemaVersion", "manifestType", "itemVisuals");
+			if (!Long.valueOf(1L).equals(value.get("schemaVersion"))
+				|| !"world-builder-item-visual-mapping".equals(value.get("manifestType"))) {
+				throw visualProblem("Explicit item visual mapping identity is unsupported.");
+			}
+			parseItemVisuals(value.get("itemVisuals"), "item visual mapping input");
+			return value;
+		} catch (WorldBuilderContractException invalid) {
+			throw invalid;
+		} catch (IOException changed) {
+			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+				"item visual mapping input",
+				"Explicit item visual mapping input changed or could not be read.",
+				"Use one stable bounded mapping file and retry.", changed);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_JSON,
+				"item visual mapping input",
+				"Explicit item visual mapping input is malformed JSON.",
+				"Use the strict world-builder-item-visual-mapping schema version 1.", malformed);
+		}
 	}
 
 	private static List<Object> validateItemVisualEvidence(Path path)
@@ -1206,6 +1441,15 @@ final class WorldBuilderProjectContentBundle {
 		SpriteArchive(Set<String> exactNames, Set<String> caseFoldedNames) {
 			this.exactNames = exactNames;
 			this.caseFoldedNames = caseFoldedNames;
+		}
+	}
+
+	private static final class ItemVisualMigration {
+		final List<Object> itemVisuals;
+
+		ItemVisualMigration(List<Object> itemVisuals) {
+			this.itemVisuals = Collections.unmodifiableList(
+				new ArrayList<Object>(itemVisuals));
 		}
 	}
 

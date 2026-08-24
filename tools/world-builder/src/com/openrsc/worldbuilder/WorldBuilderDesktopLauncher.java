@@ -511,7 +511,11 @@ final class WorldBuilderDesktopLauncher {
 				+ "\n\n" + preview.summary
 				+ "\n\nSupported packed maps are copied and converted; compatible layered "
 				+ "maps are copied unchanged. Individual arbitrary map files are not "
-				+ "guessed. The source remains unchanged.");
+				+ "guessed. The source remains unchanged.\n\nIf custom ground-item visuals "
+				+ "cannot be proven from the copied definitions and sprite archives, choose "
+				+ "a strict mapping JSON. Each unresolved ID must select authenticSpriteId "
+				+ "or an exact custom/spritepack subspace and entry, plus pictureMask and "
+				+ "blueMask. The validated evidence is generated only in project staging.");
 			report.setCaretPosition(0);
 			if (!preview.canCreateServerProject()) {
 				JOptionPane.showMessageDialog(frame, new JScrollPane(report),
@@ -519,7 +523,22 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			JTextField name = new JTextField("Imported Server Map", 28);
-			Object[] message = {new JScrollPane(report), "Project name:", name};
+			final JTextField mapping = new JTextField(28);
+			mapping.setEditable(false);
+			JButton chooseMapping = new JButton("Choose mapping JSON…");
+			chooseMapping.addActionListener(new java.awt.event.ActionListener() {
+				@Override public void actionPerformed(java.awt.event.ActionEvent event) {
+					JFileChooser chooser = new JFileChooser(preview.source.toFile());
+					chooser.setDialogTitle("Choose optional item visual mapping JSON");
+					chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+					if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
+						mapping.setText(chooser.getSelectedFile().getAbsolutePath());
+					}
+				}
+			});
+			Object[] message = {new JScrollPane(report), "Project name:", name,
+				"Optional item visual mapping JSON (for unresolved custom IDs):",
+				mapping, chooseMapping};
 			if (JOptionPane.showConfirmDialog(frame, message,
 				"Create Isolated Project from Server Map",
 				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
@@ -529,16 +548,25 @@ final class WorldBuilderDesktopLauncher {
 				showError("Enter a project name.", null);
 				return;
 			}
-			createPreviewedProject(preview, displayName);
+			Path mappingPath = mapping.getText().trim().isEmpty() ? null
+				: Paths.get(mapping.getText().trim());
+			createPreviewedProject(preview, displayName, mappingPath);
 		}
 
 		private void createPreviewedProject(
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final String displayName) {
+			createPreviewedProject(preview, displayName, null);
+		}
+
+		private void createPreviewedProject(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final String displayName, final Path itemVisualMappings) {
 			runTask("Creating isolated project…",
 				new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run()
-						throws Exception { return model.create(preview, displayName); }
+						throws Exception { return model.create(preview, displayName,
+							itemVisualMappings); }
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(
 						WorldBuilderAdaptiveProjectLifecycle.ProjectResult created) {

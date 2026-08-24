@@ -120,6 +120,12 @@ final class WorldBuilderLauncherModel {
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName)
 		throws IOException, WorldBuilderContractException {
+		return create(preview, displayName, null);
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
+		DiscoveryPreview preview, String displayName, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
 		Path reportPath = Files.createTempFile(
 			installation, ".desktop-discovery-", ".json");
 		try {
@@ -127,7 +133,8 @@ final class WorldBuilderLauncherModel {
 				StandardOpenOption.TRUNCATE_EXISTING);
 			Path target = "standalone".equals(preview.status) ? null : preview.source;
 			return new WorldBuilderAdaptiveProjectLifecycle().create(
-				installation, runtime, target, reportPath, displayName, port, "CREATE");
+				installation, runtime, target, reportPath, displayName, port, "CREATE",
+				itemVisualMappings);
 		} finally {
 			Files.deleteIfExists(reportPath);
 		}
