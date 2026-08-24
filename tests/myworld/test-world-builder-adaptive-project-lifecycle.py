@@ -4349,6 +4349,134 @@ public final class FakeAdaptiveClient {
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            npc_path = target / "server/conf/server/defs/locs/NpcLocs.json"
+            npc_document = json.loads(npc_path.read_text(encoding="utf-8"))
+            npc_document["npclocs"].append({
+                "id": 67,
+                "start": {"X": 647, "Y": 3534},
+                "min": {"X": 632, "Y": 3519},
+                "max": {"X": 662, "Y": 6549},
+            })
+            write_json(npc_path, npc_document)
+
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+                archive.writestr("h3x61y51", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            discovery_report = base / "report.json"
+            self.discover(target, discovery_report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, discovery_report,
+                "Known NPC roam typo", 43829,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.assertEqual(target_before, tree_bytes(target))
+
+            copied_original = json.loads((
+                project / "source/original/server/conf/server/defs/locs/NpcLocs.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(6549, copied_original["npclocs"][-1]["max"]["Y"])
+            normalized = json.loads((
+                project / "source/original/server/world-builder-fallback/npcs.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(3549, normalized["npclocs"][-1]["max"]["Y"])
+
+            correction = json.loads((
+                project / "diagnostics/packed-compatibility-corrections.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(
+                "world-builder-packed-compatibility-corrections",
+                correction["manifestType"],
+            )
+            self.assertEqual([{
+                "profileId": "openrsc-npc-67-max-y-transposition-v1",
+                "sourceRelativePath":
+                    "server/conf/server/defs/locs/NpcLocs.json",
+                "recordIndex": 2,
+                "npcId": 67,
+                "field": "max.Y",
+                "originalValue": 6549,
+                "correctedValue": 3549,
+                "reason": (
+                    "Exact known legacy transposition: the original bound is outside every "
+                    "supported packed plane; 3549 restores the symmetric 30x30 roam box."
+                ),
+            }], correction["corrections"])
+
+            package = project / "working/layered-world/package"
+            manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+            npcs = []
+            for declaration in manifest["placementSets"]:
+                placements = json.loads(
+                    (package / declaration["path"]).read_text(encoding="utf-8")
+                )
+                npcs.extend(placements["npcs"])
+            corrected = next(value for value in npcs if value["npcId"] == 67)
+            self.assertEqual({"x": 647, "y": 702}, corrected["start"])
+            self.assertEqual(
+                {"x": 632, "y": 687}, corrected["roamBounds"]["minimum"]
+            )
+            self.assertEqual(
+                {"x": 662, "y": 717}, corrected["roamBounds"]["maximum"]
+            )
+
+    def test_near_match_legacy_npc_roam_typo_remains_blocked(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-near-npc-roam-typo-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            npc_path = target / "server/conf/server/defs/locs/NpcLocs.json"
+            npc_document = json.loads(npc_path.read_text(encoding="utf-8"))
+            npc_document["npclocs"].append({
+                "id": 67,
+                "start": {"X": 647, "Y": 3534},
+                "min": {"X": 632, "Y": 3519},
+                "max": {"X": 662, "Y": 6550},
+            })
+            write_json(npc_path, npc_document)
+
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            discovery_report = base / "report.json"
+            self.discover(target, discovery_report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, discovery_report,
+                "Near NPC roam typo", 43830,
+            )
+            self.assertEqual(3, created.returncode, created.stdout)
+            self.assertIsNone(summary)
+            self.assertIn(
+                "Packed placement coordinate is outside the exact legacy range: 662,6550",
+                created.stderr,
+            )
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
     def test_beyond_packaged_item_visual_archive_blockers_preserve_target_bytes(self):
         cases = {}
 

@@ -556,6 +556,17 @@ definition identity, output package schema, and tool version.
 Any unknown, loss, approximation, unapproved repair, or parity delta makes
 project creation fail. A warning cannot downgrade a blocker.
 
+The descriptorless OpenRSC packed compatibility profile recognizes one exact,
+documented upstream data defect: NPC 67 at start `(647,3534)`, minimum
+`(632,3519)`, and maximum `(662,6549)`. The last value cannot identify a
+supported packed plane and breaks an otherwise symmetric 30-by-30 roaming box.
+For that complete signature only, the project-local generated NPC evidence uses
+`max.Y=3549`. The selected server and its immutable copied `NpcLocs.json` remain
+byte-exact; `diagnostics/packed-compatibility-corrections.json` records the
+source path, record index, original value, corrected value, and profile ID.
+Near matches, repeats, and every other invalid coordinate remain blockers; the
+profile never clamps or guesses arbitrary placements.
+
 ### Export
 
 An adaptive export is a new schema version containing the complete working

@@ -98,7 +98,10 @@ final class WorldBuilderPackedFallbackEvidence {
 			runtimeEvidence("client", "world-builder-fallback-client-v1",
 				catalogId, catalogHash, authoring));
 		copyNew(original.resolve(CLIENT_ASSET), original.resolve(SERVER_ASSET));
-		writeBasePlacements(original, legacy.basedMapData);
+		List<WorldBuilderPackedCompatibilityCorrections.Correction> corrections =
+			writeBasePlacements(original, legacy.basedMapData);
+		WorldBuilderPackedCompatibilityCorrections.writeReport(
+			projectStage, corrections);
 
 		List<Object> placements = placements(original);
 		Map<String,Object> configuration = configuration(placements);
@@ -239,21 +242,26 @@ final class WorldBuilderPackedFallbackEvidence {
 		return result;
 	}
 
-	private static void writeBasePlacements(Path original, int basedMapData)
+	private static List<WorldBuilderPackedCompatibilityCorrections.Correction>
+		writeBasePlacements(Path original, int basedMapData)
 		throws IOException, WorldBuilderContractException {
 		String[][] sources = WorldBuilderDiscovery.basePlacementFiles(basedMapData);
 		writeBasePlacement(original, sources[0][1], BOUNDARY_PLACEMENTS,
-			"boundaries", "boundaries");
+			"boundaries", "boundaries", false);
 		writeBasePlacement(original, sources[1][1], GROUND_ITEM_PLACEMENTS,
-			"grounditems", "ground_items");
-		writeBasePlacement(original, sources[2][1], NPC_PLACEMENTS,
-			"npclocs", "npclocs");
+			"grounditems", "ground_items", false);
+		List<WorldBuilderPackedCompatibilityCorrections.Correction> corrections =
+			writeBasePlacement(original, sources[2][1], NPC_PLACEMENTS,
+				"npclocs", "npclocs", true);
 		writeBasePlacement(original, sources[3][1], SCENERY_PLACEMENTS,
-			"sceneries", "sceneries");
+			"sceneries", "sceneries", false);
+		return corrections;
 	}
 
-	private static void writeBasePlacement(Path original, String sourceRelative,
-		String destinationRelative, String sourceKey, String destinationKey)
+	private static List<WorldBuilderPackedCompatibilityCorrections.Correction>
+		writeBasePlacement(Path original, String sourceRelative,
+		String destinationRelative, String sourceKey, String destinationKey,
+		boolean normalizeKnownNpcDefects)
 		throws IOException, WorldBuilderContractException {
 		try {
 			Map<String,Object> source = WorldBuilderJsonDocuments.readTargetDefinitionObject(
@@ -262,9 +270,21 @@ final class WorldBuilderPackedFallbackEvidence {
 				throw new WorldBuilderDiscoveryException(
 					"base placement document has the wrong root");
 			}
+			@SuppressWarnings("unchecked") List<Object> records =
+				(List<Object>)source.get(sourceKey);
+			List<WorldBuilderPackedCompatibilityCorrections.Correction> corrections =
+				Collections.emptyList();
+			if (normalizeKnownNpcDefects) {
+				WorldBuilderPackedCompatibilityCorrections.Result normalized =
+					WorldBuilderPackedCompatibilityCorrections.normalizeBaseNpcs(
+						sourceRelative, records);
+				records = normalized.records;
+				corrections = normalized.corrections;
+			}
 			Map<String,Object> normalized = new LinkedHashMap<String,Object>();
-			normalized.put(destinationKey, source.get(sourceKey));
+			normalized.put(destinationKey, records);
 			writeJson(original, destinationRelative, normalized);
+			return corrections;
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw problem(sourceRelative,
 				"Selected base placement evidence is malformed or unsupported.", malformed);
