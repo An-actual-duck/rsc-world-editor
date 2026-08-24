@@ -1848,6 +1848,8 @@ public final class FakeAdaptiveClient {
                 self.assertIn(editor_presentation, isolated_config)
             self.assertIn("want_sync_scene_baseline: true\n", isolated_config)
             self.assertIn("want_discord_bot: false\n", isolated_config)
+            self.assertIn("restrict_item_id: -1\n", isolated_config)
+            self.assertIn("restrict_scenery_id: -1\n", isolated_config)
             self.assertNotIn("unbound_fixture_setting", isolated_config)
 
             stored_report = json.loads(
