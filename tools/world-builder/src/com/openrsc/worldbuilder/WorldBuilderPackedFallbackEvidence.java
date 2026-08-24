@@ -56,8 +56,15 @@ final class WorldBuilderPackedFallbackEvidence {
 	static Result materialize(Path projectStage, Path original, Map<String,Object> discovery,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
 		throws IOException, WorldBuilderContractException {
+		return materialize(projectStage, original, discovery, runtime, null);
+	}
+
+	static Result materialize(Path projectStage, Path original, Map<String,Object> discovery,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
 		WorldBuilderProjectContentBundle.Bundle content =
-			WorldBuilderProjectContentBundle.capture(projectStage, original, runtime);
+			WorldBuilderProjectContentBundle.capture(
+				projectStage, original, runtime, itemVisualMappings);
 		Map<String,Object> catalog = content.compatibilityCatalog();
 		String catalogId = (String)catalog.get("catalogId");
 		writeJson(original, SERVER_DEFINITIONS, catalog);

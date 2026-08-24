@@ -75,6 +75,14 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	ProjectResult create(Path requestedInstallRoot, Path requestedRuntimeRoot,
 		Path requestedTargetRoot, Path discoveryReportPath, String requestedDisplayName,
 		int port, String confirmation) throws IOException, WorldBuilderContractException {
+		return create(requestedInstallRoot, requestedRuntimeRoot, requestedTargetRoot,
+			discoveryReportPath, requestedDisplayName, port, confirmation, null);
+	}
+
+	ProjectResult create(Path requestedInstallRoot, Path requestedRuntimeRoot,
+		Path requestedTargetRoot, Path discoveryReportPath, String requestedDisplayName,
+		int port, String confirmation, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
 		if (!"CREATE".equals(confirmation)) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation",
 				"Adaptive project creation requires exact CREATE confirmation.",
@@ -135,7 +143,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			try {
 				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
-					discoveryReportPath, displayName, origin, port);
+					discoveryReportPath, displayName, origin, port, itemVisualMappings);
 			} finally {
 				lock.release();
 			}
@@ -146,7 +154,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
 		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
-		int port) throws IOException, WorldBuilderContractException {
+		int port, Path itemVisualMappings) throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
 		if (existing.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, REGISTRY_FILE,
@@ -181,8 +189,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 						stage, runtimeSha256, sourceRuntime);
 				prepared = PreparedOrigin.empty(empty);
 			} else {
-				prepared = prepareTargetOrigin(
-					stage, target, report, stagedReport, origin, sourceRuntime);
+				prepared = prepareTargetOrigin(stage, target, report, stagedReport,
+					origin, sourceRuntime, itemVisualMappings);
 			}
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);
@@ -282,7 +290,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 	private PreparedOrigin prepareTargetOrigin(Path stage, Path target,
 		Map<String,Object> report, Path stagedReport, String origin,
-		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime)
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
+		Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
 		List<Evidence> evidence = evidence(report);
 		Path original = stage.resolve("source/original");
@@ -322,7 +331,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if (isPackedFallbackReport(report)) {
 			WorldBuilderPackedFallbackEvidence.Result generated =
 				WorldBuilderPackedFallbackEvidence.materialize(
-					stage, original, report, sourceRuntime);
+					stage, original, report, sourceRuntime, itemVisualMappings);
 			evidence = withGeneratedFallbackEvidence(evidence, generated.generated);
 			requireExactOriginalTree(original, evidence);
 			copied = WorldBuilderReadOnlyTarget.open(original);
