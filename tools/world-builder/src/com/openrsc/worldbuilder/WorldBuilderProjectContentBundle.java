@@ -479,7 +479,7 @@ final class WorldBuilderProjectContentBundle {
 		itemIds.addAll(jsonIds(root, "definition.item.base", "item"));
 		itemIds.addAll(jsonIds(root, "definition.item.custom", "items"));
 		itemIds.addAll(jsonIds(root, "definition.item.world", "items"));
-		itemIds.addAll(jsonIds(root, "definition.item.patch", "items"));
+		itemIds.addAll(jsonIds(root, "definition.item.patch", "items", "item"));
 		Map<String,Object> catalog = new LinkedHashMap<String,Object>();
 		catalog.put("schemaVersion", Long.valueOf(1L));
 		catalog.put("manifestType", CATALOG_TYPE);
@@ -543,10 +543,10 @@ final class WorldBuilderProjectContentBundle {
 		return jsonArray(root, role, arrayName).size();
 	}
 
-	private static Set<Integer> jsonIds(Path root, String role, String arrayName)
+	private static Set<Integer> jsonIds(Path root, String role, String... arrayNames)
 		throws IOException, WorldBuilderContractException {
 		Set<Integer> result = new TreeSet<Integer>();
-		for (Object raw : jsonArray(root, role, arrayName)) {
+		for (Object raw : jsonArray(root, role, arrayNames)) {
 			if (!(raw instanceof Map)) throw malformedDefinition(role);
 			@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)raw;
 			Object id = value.get("id");
@@ -559,19 +559,26 @@ final class WorldBuilderProjectContentBundle {
 		return result;
 	}
 
-	private static List<?> jsonArray(Path root, String role, String arrayName)
+	private static List<?> jsonArray(Path root, String role, String... arrayNames)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> value;
 		try {
-			value = WorldBuilderJsonDocuments.readObject(contentPath(root, role));
+			value = WorldBuilderJsonDocuments.readTargetDefinitionObject(
+				contentPath(root, role));
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw malformedDefinition(role, malformed);
 		}
-		if (value.size() != 1 || !(value.get(arrayName) instanceof List)
-			|| ((List<?>)value.get(arrayName)).size() > MAX_DEFINITIONS) {
+		Object entries = null;
+		if (value.size() == 1) {
+			for (String arrayName : arrayNames) {
+				if (value.containsKey(arrayName)) entries = value.get(arrayName);
+			}
+		}
+		if (!(entries instanceof List)
+			|| ((List<?>)entries).size() > MAX_DEFINITIONS) {
 			throw malformedDefinition(role);
 		}
-		return (List<?>)value.get(arrayName);
+		return (List<?>)entries;
 	}
 
 	private static Path contentPath(Path root, String role)

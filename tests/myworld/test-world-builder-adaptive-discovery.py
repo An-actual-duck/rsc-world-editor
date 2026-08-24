@@ -970,6 +970,36 @@ public final class AdaptiveDiscoveryDriftHarness {
                 self.assertEqual("blocked", json.loads(result.stdout)["status"])
                 self.assertEqual(before, self.snapshot(root))
 
+    def test_target_definition_reader_accepts_decimal_metadata(self):
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-definition-decimals-"
+        ) as temp:
+            root = self.legacy_fixture(temp)
+            write_json(
+                root / "server/conf/server/defs/NpcDefsMyWorld.json",
+                {
+                    "npcs": [
+                        {
+                            "id": 846,
+                            "meleeDefenseMultiplier": 0.25,
+                            "rangedDefenseMultiplier": 1.0,
+                            "magicDefenseMultiplier": 1.25e-1,
+                        }
+                    ]
+                },
+            )
+            write_json(
+                root / "server/conf/server/defs/ItemDefsPatch18.json",
+                {"item": [{"id": 2, "basePriceMultiplier": 1.25}]},
+            )
+            before = self.snapshot(root)
+
+            result, report = self.assert_read_only(root)
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertEqual("compatible", report["status"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_malformed_legacy_errors_are_portable_and_path_independent(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-legacy-portable-") as temp:
             first = self.legacy_fixture(str(Path(temp) / "first"))
