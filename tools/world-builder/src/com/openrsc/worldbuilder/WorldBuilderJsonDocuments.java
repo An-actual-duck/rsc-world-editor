@@ -2,6 +2,7 @@ package com.openrsc.worldbuilder;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
@@ -22,6 +23,17 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	static Map<String,Object> readObject(Path path) throws IOException, WorldBuilderDiscoveryException {
+		return readObject(path, false);
+	}
+
+	/** Reads copied target definitions without weakening integer-only contract JSON. */
+	static Map<String,Object> readTargetDefinitionObject(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		return readObject(path, true);
+	}
+
+	private static Map<String,Object> readObject(Path path, boolean allowDecimals)
+		throws IOException, WorldBuilderDiscoveryException {
 		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) {
 			throw new WorldBuilderDiscoveryException("Required JSON file is missing or unsafe: " + path);
 		}
@@ -30,11 +42,16 @@ final class WorldBuilderJsonDocuments {
 			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + path);
 		}
 		byte[] bytes = readBounded(path);
-		return readObject(bytes, path.toString());
+		return readObject(bytes, path.toString(), allowDecimals);
 	}
 
 	static Map<String,Object> readObject(byte[] bytes, String label)
 		throws WorldBuilderDiscoveryException {
+		return readObject(bytes, label, false);
+	}
+
+	private static Map<String,Object> readObject(byte[] bytes, String label,
+		boolean allowDecimals) throws WorldBuilderDiscoveryException {
 		if (bytes.length < 2) {
 			throw new WorldBuilderDiscoveryException("JSON file has an invalid size: " + label);
 		}
@@ -50,7 +67,7 @@ final class WorldBuilderJsonDocuments {
 		} catch (CharacterCodingException invalidUtf8) {
 			throw new WorldBuilderDiscoveryException("JSON file is not valid UTF-8: " + label);
 		}
-		Object parsed = new Parser(text, label).parse();
+		Object parsed = new Parser(text, label, allowDecimals).parse();
 		if (!(parsed instanceof Map)) {
 			throw new WorldBuilderDiscoveryException("JSON document root must be an object: " + label);
 		}
@@ -294,8 +311,12 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	private static final class Parser {
-		private final String text, label; private int at, values;
-		Parser(String text, String label) { this.text=text; this.label=label; }
+		private final String text, label;
+		private final boolean allowDecimals;
+		private int at, values;
+		Parser(String text, String label, boolean allowDecimals) {
+			this.text=text; this.label=label; this.allowDecimals=allowDecimals;
+		}
 		Object parse() throws WorldBuilderDiscoveryException {
 			Object value=value(0); whitespace(); if(at!=text.length())fail("Trailing data"); return value;
 		}
@@ -322,9 +343,39 @@ final class WorldBuilderJsonDocuments {
 					case 'u':if(at+4>text.length())fail("Incomplete Unicode escape");try{result.append((char)Integer.parseInt(text.substring(at,at+4),16));}catch(NumberFormatException bad){fail("Invalid Unicode escape");}at+=4;break;default:fail("Invalid escape");}}
 			fail("Unterminated string");return null;
 		}
-		private Long number() throws WorldBuilderDiscoveryException {
-			int start=at;if(text.charAt(at)=='-')at++;if(at>=text.length())fail("Incomplete number");if(text.charAt(at)=='0')at++;else{if(text.charAt(at)<'1'||text.charAt(at)>'9')fail("Invalid number");while(at<text.length()&&Character.isDigit(text.charAt(at)))at++;}
-			if(at<text.length()&&(text.charAt(at)=='.'||text.charAt(at)=='e'||text.charAt(at)=='E'))fail("Overlay numbers must be integers");try{return Long.valueOf(text.substring(start,at));}catch(NumberFormatException bad){fail("Integer out of range");return null;}
+		private Object number() throws WorldBuilderDiscoveryException {
+			int start=at;
+			if(text.charAt(at)=='-')at++;
+			if(at>=text.length())fail("Incomplete number");
+			if(text.charAt(at)=='0')at++;
+			else{
+				if(text.charAt(at)<'1'||text.charAt(at)>'9')fail("Invalid number");
+				while(at<text.length()&&Character.isDigit(text.charAt(at)))at++;
+			}
+			boolean decimal=false;
+			if(at<text.length()&&text.charAt(at)=='.'){
+				decimal=true;at++;
+				int fractionStart=at;
+				while(at<text.length()&&Character.isDigit(text.charAt(at)))at++;
+				if(at==fractionStart)fail("Invalid fractional number");
+			}
+			if(at<text.length()&&(text.charAt(at)=='e'||text.charAt(at)=='E')){
+				decimal=true;at++;
+				if(at<text.length()&&(text.charAt(at)=='+'||text.charAt(at)=='-'))at++;
+				int exponentStart=at;
+				while(at<text.length()&&Character.isDigit(text.charAt(at)))at++;
+				if(at==exponentStart)fail("Invalid exponent");
+			}
+			String token=text.substring(start,at);
+			if(decimal){
+				if(!allowDecimals)fail("Contract numbers must be integers");
+				try{return new BigDecimal(token);}catch(NumberFormatException bad){
+					fail("Decimal number is invalid");return null;
+				}
+			}
+			try{return Long.valueOf(token);}catch(NumberFormatException bad){
+				fail("Integer out of range");return null;
+			}
 		}
 		private boolean literal(String value){if(text.regionMatches(at,value,0,value.length())){at+=value.length();return true;}return false;}
 		private void whitespace(){while(at<text.length()){char c=text.charAt(at);if(c==' '||c=='\n'||c=='\r'||c=='\t')at++;else break;}}
