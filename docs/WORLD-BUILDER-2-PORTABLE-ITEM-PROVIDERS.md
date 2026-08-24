@@ -19,6 +19,22 @@ always wins over compatibility discovery. Missing or invalid optional visual
 assets do not stop source discovery; the item-visual consumer reports a local
 warning and uses the standard placeholder for affected records.
 
+The normal end-user path does not involve an AI handoff, build-output folder,
+or internal JSON filename:
+
+1. A server maintainer ships `world-builder-provider/` in the server root.
+2. The player puts `World Builder 2/` in that same root and chooses **Use
+   Detected Server Map**. The provider is selected automatically.
+3. If the maintainer distributes the provider separately, the player chooses
+   **Select Another Supported Source**, then **Choose complete provider
+   package…**, and selects the `world-builder-provider` folder itself.
+
+The complete package is copied into the installation-local provider catalog
+and remembered for that source. The player never needs to locate
+`item-visuals-full-v1.json` inside a versioned package. **Advanced provider
+import…** remains available for maintainers assembling a provider from loose
+definitions and archives.
+
 The launcher also accepts a read-only versioned provider package whose root
 contains `package-manifest-v1.json`, one inventoried
 `item-visuals-full-v1.json`, and role-labelled assets. This adapter verifies the
@@ -70,10 +86,16 @@ instead of silently choosing one. Discovery reads regular files and folders
 only. It never loads target classes, starts a target process, or changes the
 selected source.
 
-## Guided import
+## Complete-package and advanced import
 
-In **Create Isolated Project from Server Map**, choose **Guided provider
-import…** to select any combination of:
+In **Create Isolated Project from Server Map**, prefer **Choose complete
+provider package…** when a server maintainer supplied a
+`world-builder-provider` folder. Select the folder, not an individual manifest.
+World Builder validates its simple or versioned identity, locates the exact
+mapping itself, copies it into the local provider catalog, and reuses it on
+later launches.
+
+Choose **Advanced provider import…** only to select any combination of:
 
 - an existing neutral `item-visuals.json`;
 - item-definition JSON or a definition folder;
@@ -82,9 +104,10 @@ import…** to select any combination of:
 - a spritepacks folder; and
 - an external item-PNG folder.
 
-For a complete versioned package stored away from the server, select its
-inventoried `item-visuals-full-v1.json` and leave the other fields empty. Guided
-import copies the entire package byte-for-byte into the installation-local
+For automation, selecting a versioned package's inventoried
+`item-visuals-full-v1.json` remains supported. The desktop flow deliberately
+hides that implementation detail and accepts the complete folder instead.
+Import copies the entire package byte-for-byte into the installation-local
 provider catalog, so its manifest and relative asset bindings remain valid.
 
 If no manifest exists, World Builder reads only `item` or `items` arrays with
