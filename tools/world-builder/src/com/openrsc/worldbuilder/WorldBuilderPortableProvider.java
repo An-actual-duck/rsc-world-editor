@@ -42,14 +42,16 @@ final class WorldBuilderPortableProvider {
 	private static final int MAX_PROVIDER_FILES = 32768;
 	private static final List<String> VIDEO_ROOTS = Collections.unmodifiableList(Arrays.asList(
 		"Cache/video", "client/Cache/video", "Client_Base/Cache/video",
-		"builder-runtime/client/Cache/video"));
+		"builder-runtime/client/Cache/video", "server/conf/server/data",
+		"server/data"));
 	private static final List<String> DEFINITION_ROOTS = Collections.unmodifiableList(Arrays.asList(
 		"server/conf/server/defs", "server/data/definitions", "server/data/defs",
 		"conf/server/defs", "data/definitions"));
 
 	Discovery discover(Path requestedSource, Path installation) throws IOException {
 		Path source = requireDirectory(requestedSource, "provider discovery source");
-		Path explicit = source.resolve(PACKAGE_DIRECTORY);
+		Path explicit = safeFile(source.resolve(MAPPING_FILE))
+			? source : source.resolve(PACKAGE_DIRECTORY);
 		if (safeDirectory(explicit)) {
 			Candidate candidate = explicitCandidate(explicit);
 			return new Discovery(Status.EXPLICIT, source,
@@ -155,14 +157,13 @@ final class WorldBuilderPortableProvider {
 	private Candidate explicitCandidate(Path root) throws IOException {
 		Path mapping = requireFile(root.resolve(MAPPING_FILE), "explicit provider mapping");
 		Path assets = root.resolve(ASSETS_DIRECTORY);
-		if (!safeDirectory(assets)) {
-			throw new IOException("Explicit provider is missing a safe assets directory: " + assets);
-		}
+		if (!safeDirectory(assets)) assets = null;
 		return new Candidate("explicit-provider", "Explicit portable provider", root,
-			mapping, childFile(assets, AUTHENTIC_FILE), childFile(assets, CUSTOM_FILE),
-			childDirectory(assets, SPRITEPACKS_DIRECTORY),
-			childDirectory(assets, EXTERNAL_ITEMS_DIRECTORY),
-			childDirectory(assets, DEFINITIONS_DIRECTORY));
+			mapping, assets == null ? null : childFile(assets, AUTHENTIC_FILE),
+			assets == null ? null : childFile(assets, CUSTOM_FILE),
+			assets == null ? null : childDirectory(assets, SPRITEPACKS_DIRECTORY),
+			assets == null ? null : childDirectory(assets, EXTERNAL_ITEMS_DIRECTORY),
+			assets == null ? null : childDirectory(assets, DEFINITIONS_DIRECTORY));
 	}
 
 	private List<Candidate> legacyCandidates(Path source) throws IOException {
@@ -175,24 +176,33 @@ final class WorldBuilderPortableProvider {
 			Path spritepacks = childDirectory(video, SPRITEPACKS_DIRECTORY);
 			Path external = firstDirectory(video, "external-items", "external_items", "items");
 			if (authentic == null && custom == null && spritepacks == null && external == null) continue;
-			Path definitions = uniqueDefinitionRoot(source);
+			List<Path> definitions = definitionRoots(source);
+			if (definitions.isEmpty()) definitions = Collections.singletonList(null);
 			Path mapping = firstFile(source.resolve(PACKAGE_DIRECTORY), MAPPING_FILE);
-			result.add(new Candidate("legacy-" + portableKey(relative),
-				"Recognized OpenRSC layout: " + relative, video, mapping, authentic,
-				custom, spritepacks, external, definitions));
+			for (int index = 0; index < definitions.size(); index++) {
+				String profileId = "legacy-" + portableKey(relative)
+					+ (definitions.size() == 1 ? "" : "-definitions-" + (index + 1));
+				result.add(new Candidate(profileId,
+					"Recognized OpenRSC layout: " + relative, video, mapping, authentic,
+					custom, spritepacks, external, definitions.get(index)));
+			}
 		}
 		Collections.sort(result);
 		return result;
 	}
 
-	private Path uniqueDefinitionRoot(Path source) throws IOException {
-		Path found = null;
+	private List<Path> definitionRoots(Path source) throws IOException {
+		List<Path> found = new ArrayList<Path>();
 		for (String relative : DEFINITION_ROOTS) {
 			Path candidate = source.resolve(relative);
 			if (!safeDirectory(candidate)) continue;
-			if (found != null) return null;
-			found = candidate.toRealPath();
+			found.add(candidate.toRealPath());
 		}
+		Collections.sort(found, new Comparator<Path>() {
+			@Override public int compare(Path left, Path right) {
+				return left.toString().compareTo(right.toString());
+			}
+		});
 		return found;
 	}
 
@@ -581,6 +591,20 @@ final class WorldBuilderPortableProvider {
 			}
 			return text.toString();
 		}
+
+		String toJson() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("schemaVersion", Long.valueOf(1L));
+			value.put("manifestType", "world-builder-provider-discovery");
+			value.put("status", status.name().toLowerCase(java.util.Locale.ROOT));
+			value.put("source", source.toString());
+			value.put("summary", summary);
+			value.put("selectedProfileId", selected == null ? null : selected.profileId);
+			List<Object> values = new ArrayList<Object>();
+			for (Candidate candidate : candidates) values.add(candidate.toMap());
+			value.put("candidates", values);
+			return WorldBuilderJsonDocuments.pretty(value);
+		}
 	}
 
 	static final class Candidate implements Comparable<Candidate> {
@@ -623,6 +647,24 @@ final class WorldBuilderPortableProvider {
 		@Override public int compareTo(Candidate other) {
 			int byId = profileId.compareTo(other.profileId);
 			return byId != 0 ? byId : root.toString().compareTo(other.root.toString());
+		}
+
+		Map<String,Object> toMap() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("profileId", profileId);
+			value.put("label", label);
+			value.put("root", root.toString());
+			value.put("itemVisuals", path(itemVisuals));
+			value.put("definitions", path(definitions));
+			value.put("authenticArchive", path(authenticArchive));
+			value.put("customArchive", path(customArchive));
+			value.put("spritepacks", path(spritepacks));
+			value.put("externalItems", path(externalItems));
+			return value;
+		}
+
+		private static String path(Path value) {
+			return value == null ? null : value.toString();
 		}
 	}
 
@@ -683,6 +725,20 @@ final class WorldBuilderPortableProvider {
 			this.fingerprintSha256 = fingerprintSha256;
 			this.files = Collections.unmodifiableList(new ArrayList<FileRecord>(files));
 		}
+
+		String toJson() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("schemaVersion", Long.valueOf(1L));
+			value.put("manifestType", "world-builder-local-provider");
+			value.put("providerId", providerId);
+			value.put("root", root.toString());
+			value.put("itemVisuals", itemVisuals.toString());
+			value.put("providerFingerprintSha256", fingerprintSha256);
+			List<Object> inventory = new ArrayList<Object>();
+			for (FileRecord file : files) inventory.add(file.toMap());
+			value.put("files", inventory);
+			return WorldBuilderJsonDocuments.pretty(value);
+		}
 	}
 
 	static final class FileRecord implements Comparable<FileRecord> {
@@ -698,6 +754,14 @@ final class WorldBuilderPortableProvider {
 
 		@Override public int compareTo(FileRecord other) {
 			return relativePath.compareTo(other.relativePath);
+		}
+
+		Map<String,Object> toMap() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("relativePath", relativePath);
+			value.put("size", Long.valueOf(size));
+			value.put("sha256", sha256);
+			return value;
 		}
 	}
 }

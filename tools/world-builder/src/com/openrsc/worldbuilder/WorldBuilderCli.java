@@ -29,6 +29,12 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("discover-item-provider".equals(args[0])) {
+			return discoverItemProvider(args);
+		}
+		if ("import-item-provider".equals(args[0])) {
+			return importItemProvider(args);
+		}
 		if ("convert-packed".equals(args[0])) {
 			return convertPacked(args);
 		}
@@ -166,6 +172,81 @@ public final class WorldBuilderCli {
 		} catch (WorldBuilderDiscoveryException refusal) {
 			System.err.println("ERROR: " + refusal.getMessage());
 			return 3;
+		}
+	}
+
+	private static int discoverItemProvider(String[] args) {
+		Path installation = null;
+		Path source = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--source-root".equals(args[index]) && index + 1 < args.length) {
+				source = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (installation == null || source == null) {
+			System.err.println("ERROR: discover-item-provider requires --installation-root and --source-root.");
+			return 2;
+		}
+		try {
+			System.out.print(new WorldBuilderPortableProvider().discover(
+				source, installation).toJson());
+			return 0;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Item provider discovery failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int importItemProvider(String[] args) {
+		Path installation = null;
+		Path source = null;
+		Path mapping = null;
+		Path definitions = null;
+		Path authentic = null;
+		Path custom = null;
+		Path spritepacks = null;
+		Path externalItems = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if (index + 1 >= args.length) {
+				System.err.println("ERROR: Incomplete argument: " + argument);
+				return 2;
+			}
+			Path value = Paths.get(args[++index]);
+			if ("--installation-root".equals(argument)) installation = value;
+			else if ("--source-root".equals(argument)) source = value;
+			else if ("--item-visuals".equals(argument)) mapping = value;
+			else if ("--definitions".equals(argument)) definitions = value;
+			else if ("--authentic-archive".equals(argument)) authentic = value;
+			else if ("--custom-archive".equals(argument)) custom = value;
+			else if ("--spritepacks".equals(argument)) spritepacks = value;
+			else if ("--external-items".equals(argument)) externalItems = value;
+			else {
+				System.err.println("ERROR: Unknown argument: " + argument);
+				return 2;
+			}
+		}
+		if (installation == null || source == null
+			|| mapping == null && definitions == null) {
+			System.err.println("ERROR: import-item-provider requires --installation-root, "
+				+ "--source-root, and either --item-visuals or --definitions.");
+			return 2;
+		}
+		try {
+			WorldBuilderPortableProvider.GuidedSelection selection =
+				new WorldBuilderPortableProvider.GuidedSelection(mapping, definitions,
+					authentic, custom, spritepacks, externalItems);
+			System.out.print(new WorldBuilderPortableProvider().publishGuided(
+				installation, source, selection).toJson());
+			return 0;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Item provider import failed: " + failure.getMessage());
+			return 4;
 		}
 	}
 
@@ -1628,6 +1709,13 @@ public final class WorldBuilderCli {
 	private static void usage() {
 		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"
+			+ " --source-root <server-or-provider-parent>"
+			+ "\n  WorldBuilderCli import-item-provider --installation-root <World Builder 2>"
+			+ " --source-root <server-or-provider-parent>"
+			+ " (--item-visuals <item-visuals.json> | --definitions <json-or-folder>)"
+			+ " [--authentic-archive <file>] [--custom-archive <file>]"
+			+ " [--spritepacks <folder>] [--external-items <folder>]"
 			+ "\n  WorldBuilderCli convert-packed --source-root <immutable-copy>"
 			+ " --discovery-report <report.json> --output <new-directory>"
 			+ "\n  WorldBuilderCli create-project --installation-root <World Builder 2>"

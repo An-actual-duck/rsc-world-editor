@@ -157,6 +157,12 @@ and incomplete closure are precise read-only discovery/conversion blockers.
 
 ### Project-local migration
 
+Portable server discovery, explicit `world-builder-provider/` packages, and
+the desktop guided-import flow are documented in
+[`WORLD-BUILDER-2-PORTABLE-ITEM-PROVIDERS.md`](WORLD-BUILDER-2-PORTABLE-ITEM-PROVIDERS.md).
+Those neutral provider inputs are copied into the World Builder installation;
+they never authorize a write to the selected server.
+
 When a target-backed packed project has beyond-packaged ground-item IDs but no
 `item-visuals-v1.json`, project creation does not ask the operator to add one to
 the server. After the complete target evidence has been copied into the unique
