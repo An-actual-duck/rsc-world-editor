@@ -245,6 +245,45 @@ final class WorldBuilderJsonDocuments {
 		return entries.size();
 	}
 
+	static int validateBoundaryLocs(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		List<Object> entries = requiredRootArray(readObject(path), "boundaries", path);
+		java.util.HashSet<String> keys = new java.util.HashSet<String>();
+		for (Object entry : entries) {
+			Map<String,Object> object = exactObject(
+				entry, path, "id", "pos", "direction");
+			int id = integer(object.get("id"), path);
+			int direction = integer(object.get("direction"), path);
+			int[] position = position(object.get("pos"), path);
+			if (id < 0 || direction < 0
+				|| !keys.add(position[0] + "," + position[1] + "," + direction)) {
+				throw new WorldBuilderDiscoveryException(
+					"Invalid or duplicate boundary location in " + path);
+			}
+		}
+		return entries.size();
+	}
+
+	static int validateGroundItemLocs(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		List<Object> entries = requiredRootArray(readObject(path), "grounditems", path);
+		java.util.HashSet<String> keys = new java.util.HashSet<String>();
+		for (Object entry : entries) {
+			Map<String,Object> object = exactObject(
+				entry, path, "id", "pos", "amount", "respawn");
+			int id = integer(object.get("id"), path);
+			int amount = integer(object.get("amount"), path);
+			int respawn = integer(object.get("respawn"), path);
+			int[] position = position(object.get("pos"), path);
+			if (id < 0 || amount < 1 || respawn < 0
+				|| !keys.add(id + "," + position[0] + "," + position[1])) {
+				throw new WorldBuilderDiscoveryException(
+					"Invalid or duplicate ground-item location in " + path);
+			}
+		}
+		return entries.size();
+	}
+
 	static int validateSceneryRemovals(Path path) throws IOException, WorldBuilderDiscoveryException {
 		List<Object> entries = requiredRootArray(readObject(path), "scenery_removals", path);
 		java.util.HashSet<String> keys = new java.util.HashSet<String>();

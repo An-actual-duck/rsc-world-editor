@@ -231,6 +231,18 @@ public final class WorldBuilderDiscovery {
 		return files;
 	}
 
+	static String[][] basePlacementFiles(int basedMapData) {
+		String suffix = basedMapData == 14 ? "14"
+			: basedMapData == 27 ? "27" : "";
+		String root = "server/conf/server/defs/locs/";
+		return new String[][] {
+			{"boundaryBase", root + "BoundaryLocs" + suffix + ".json"},
+			{"groundItemBase", root + "GroundItems" + suffix + ".json"},
+			{"npcBase", root + "NpcLocs" + suffix + ".json"},
+			{"sceneryBase", root + "SceneryLocs" + suffix + ".json"}
+		};
+	}
+
 	private static boolean sameInventory(List<WorldBuilderDiscoveryResult.SourceFile> first,
 		List<WorldBuilderDiscoveryResult.SourceFile> second) {
 		if (first.size() != second.size()) {

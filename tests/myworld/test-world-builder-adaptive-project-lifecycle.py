@@ -4276,6 +4276,7 @@ public final class FakeAdaptiveClient {
                 [
                     {"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54},
                     {"direction": 0, "position": {"x": 2, "y": 4}, "sceneryId": 59},
+                    {"direction": 0, "position": {"x": 13, "y": 10}, "sceneryId": 1},
                 ],
                 [
                     {
@@ -4286,7 +4287,12 @@ public final class FakeAdaptiveClient {
                     for value in placements["scenery"]
                 ],
             )
-            self.assertEqual([846], [value["npcId"] for value in placements["npcs"]])
+            self.assertEqual(
+                [846, 1], [value["npcId"] for value in placements["npcs"]]
+            )
+            self.assertEqual(
+                [1], [value["boundaryId"] for value in placements["boundaries"]]
+            )
             npc_warnings = json.loads(
                 (project / "diagnostics/npc-definition-provider-warnings.json")
                 .read_text(encoding="utf-8")
@@ -4299,7 +4305,7 @@ public final class FakeAdaptiveClient {
                 ],
             )
             self.assertEqual(
-                [9000], [value["itemId"] for value in placements["groundItems"]]
+                [9000, 7], [value["itemId"] for value in placements["groundItems"]]
             )
             copied_archive = (
                 project

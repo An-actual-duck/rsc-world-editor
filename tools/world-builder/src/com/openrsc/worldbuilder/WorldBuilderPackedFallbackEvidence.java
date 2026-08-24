@@ -31,6 +31,10 @@ final class WorldBuilderPackedFallbackEvidence {
 		"server/world-builder-fallback/boundaries.json";
 	static final String GROUND_ITEM_PLACEMENTS =
 		"server/world-builder-fallback/ground-items.json";
+	static final String NPC_PLACEMENTS =
+		"server/world-builder-fallback/npcs.json";
+	static final String SCENERY_PLACEMENTS =
+		"server/world-builder-fallback/scenery.json";
 	private static final String TARGET_GROUND_ITEM_PLACEMENTS =
 		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	static final String CLIENT_ASSET =
@@ -50,7 +54,8 @@ final class WorldBuilderPackedFallbackEvidence {
 	static List<String> reservedTargetPaths() {
 		return Arrays.asList(CONFIGURATION_PATH, SERVER_DEFINITIONS,
 			CLIENT_DEFINITIONS, SERVER_RUNTIME, CLIENT_RUNTIME, SERVER_ASSET,
-			BOUNDARY_PLACEMENTS, GROUND_ITEM_PLACEMENTS);
+			BOUNDARY_PLACEMENTS, GROUND_ITEM_PLACEMENTS, NPC_PLACEMENTS,
+			SCENERY_PLACEMENTS);
 	}
 
 	static Result materialize(Path projectStage, Path original, Map<String,Object> discovery,
@@ -65,6 +70,15 @@ final class WorldBuilderPackedFallbackEvidence {
 		WorldBuilderProjectContentBundle.Bundle content =
 			WorldBuilderProjectContentBundle.capture(
 				projectStage, original, runtime, itemVisualMappings);
+		WorldBuilderDiscoveryResult legacy;
+		try {
+			legacy = new WorldBuilderDiscovery().discover(
+				original, WorldBuilderDiscovery.DEFAULT_CONFIG, null);
+		} catch (WorldBuilderDiscoveryException invalid) {
+			throw problem(WorldBuilderDiscovery.DEFAULT_CONFIG,
+				"Copied packed source no longer matches its discovered base-placement profile.",
+				invalid);
+		}
 		Map<String,Object> catalog = content.compatibilityCatalog();
 		String catalogId = (String)catalog.get("catalogId");
 		writeJson(original, SERVER_DEFINITIONS, catalog);
@@ -84,10 +98,7 @@ final class WorldBuilderPackedFallbackEvidence {
 			runtimeEvidence("client", "world-builder-fallback-client-v1",
 				catalogId, catalogHash, authoring));
 		copyNew(original.resolve(CLIENT_ASSET), original.resolve(SERVER_ASSET));
-		writeJson(original, BOUNDARY_PLACEMENTS,
-			emptyPlacement("boundaries"));
-		writeJson(original, GROUND_ITEM_PLACEMENTS,
-			emptyPlacement("ground_items"));
+		writeBasePlacements(original, legacy.basedMapData);
 
 		List<Object> placements = placements(original);
 		Map<String,Object> configuration = configuration(placements);
@@ -211,6 +222,10 @@ final class WorldBuilderPackedFallbackEvidence {
 			BOUNDARY_PLACEMENTS);
 		addPlacement(result, original, "ground-item-base", "ground-item", "base",
 			GROUND_ITEM_PLACEMENTS);
+		addPlacement(result, original, "npc-base", "npc", "base",
+			NPC_PLACEMENTS);
+		addPlacement(result, original, "scenery-base", "scenery", "base",
+			SCENERY_PLACEMENTS);
 		addPlacement(result, original, "ground-item-overlay", "ground-item", "overlay",
 			TARGET_GROUND_ITEM_PLACEMENTS);
 		addPlacement(result, original, "scenery-overlay", "scenery", "overlay",
@@ -224,10 +239,36 @@ final class WorldBuilderPackedFallbackEvidence {
 		return result;
 	}
 
-	private static Map<String,Object> emptyPlacement(String key) {
-		Map<String,Object> value = new LinkedHashMap<String,Object>();
-		value.put(key, new ArrayList<Object>());
-		return value;
+	private static void writeBasePlacements(Path original, int basedMapData)
+		throws IOException, WorldBuilderContractException {
+		String[][] sources = WorldBuilderDiscovery.basePlacementFiles(basedMapData);
+		writeBasePlacement(original, sources[0][1], BOUNDARY_PLACEMENTS,
+			"boundaries", "boundaries");
+		writeBasePlacement(original, sources[1][1], GROUND_ITEM_PLACEMENTS,
+			"grounditems", "ground_items");
+		writeBasePlacement(original, sources[2][1], NPC_PLACEMENTS,
+			"npclocs", "npclocs");
+		writeBasePlacement(original, sources[3][1], SCENERY_PLACEMENTS,
+			"sceneries", "sceneries");
+	}
+
+	private static void writeBasePlacement(Path original, String sourceRelative,
+		String destinationRelative, String sourceKey, String destinationKey)
+		throws IOException, WorldBuilderContractException {
+		try {
+			Map<String,Object> source = WorldBuilderJsonDocuments.readTargetDefinitionObject(
+				original.resolve(sourceRelative));
+			if (source.size() != 1 || !(source.get(sourceKey) instanceof List)) {
+				throw new WorldBuilderDiscoveryException(
+					"base placement document has the wrong root");
+			}
+			Map<String,Object> normalized = new LinkedHashMap<String,Object>();
+			normalized.put(destinationKey, source.get(sourceKey));
+			writeJson(original, destinationRelative, normalized);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(sourceRelative,
+				"Selected base placement evidence is malformed or unsupported.", malformed);
+		}
 	}
 
 	private static void addPlacement(List<Object> values, Path original,
@@ -259,6 +300,8 @@ final class WorldBuilderPackedFallbackEvidence {
 		result.add(target.requiredState("placement.boundary-base", BOUNDARY_PLACEMENTS));
 		result.add(target.requiredState(
 			"placement.ground-item-base", GROUND_ITEM_PLACEMENTS));
+		result.add(target.requiredState("placement.npc-base", NPC_PLACEMENTS));
+		result.add(target.requiredState("placement.scenery-base", SCENERY_PLACEMENTS));
 		Collections.sort(result);
 		return result;
 	}

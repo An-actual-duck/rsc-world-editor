@@ -736,9 +736,14 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(
 						WorldBuilderAdaptiveProjectLifecycle.ProjectResult created) {
+						String npcWarning =
+							WorldBuilderNpcDefinitionProvider.projectWarningSummary(
+								created.projectRoot);
 						int choice = JOptionPane.showConfirmDialog(frame,
 							"Project created safely at:\n" + created.projectRoot
-								+ "\n\nThe source was not changed. Open this project now?",
+								+ "\n\nThe source was not changed."
+								+ (npcWarning == null ? "" : npcWarning)
+								+ "\n\nOpen this project now?",
 							"Project Ready", JOptionPane.YES_NO_OPTION,
 							JOptionPane.INFORMATION_MESSAGE);
 						if (choice == JOptionPane.YES_OPTION) {

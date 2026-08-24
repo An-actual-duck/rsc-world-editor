@@ -629,6 +629,36 @@ public final class AdaptiveDiscoveryDriftHarness {
         client_map.parent.mkdir(parents=True)
         shutil.copyfile(server_map, client_map)
         overlays = {
+            "BoundaryLocs.json": {
+                "boundaries": [
+                    {"id": 1, "pos": {"X": 10, "Y": 10}, "direction": 0}
+                ]
+            },
+            "GroundItems.json": {
+                "grounditems": [
+                    {
+                        "id": 7,
+                        "pos": {"X": 11, "Y": 10},
+                        "amount": 1,
+                        "respawn": 60,
+                    }
+                ]
+            },
+            "NpcLocs.json": {
+                "npclocs": [
+                    {
+                        "id": 1,
+                        "start": {"X": 12, "Y": 10},
+                        "min": {"X": 12, "Y": 10},
+                        "max": {"X": 12, "Y": 10},
+                    }
+                ]
+            },
+            "SceneryLocs.json": {
+                "sceneries": [
+                    {"id": 1, "pos": {"X": 13, "Y": 10}, "direction": 0}
+                ]
+            },
             "MyWorldSceneryLocs.json": {"sceneries": []},
             "MyWorldSceneryRemovals.json": {"scenery_removals": []},
             "MyWorldNpcLocs.json": {"npclocs": []},
@@ -835,8 +865,49 @@ public final class AdaptiveDiscoveryDriftHarness {
                 "content.asset.sprite.authentic",
                 "content.asset.sprite.custom",
                 "content.asset.spritepack",
+                "placement.boundary-base-source",
+                "placement.ground-item-base-source",
+                "placement.npc-base-source",
+                "placement.scenery-base-source",
             ):
                 self.assertIn(role, roles)
+
+    def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-fallback-profile-") as temp:
+            root = self.legacy_fixture(temp)
+            config = root / "server/myworld.conf"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "based_map_data: 64", "based_map_data: 14"
+                ),
+                encoding="utf-8",
+            )
+            locs = root / "server/conf/server/defs/locs"
+            for stem in ("BoundaryLocs", "GroundItems", "NpcLocs", "SceneryLocs"):
+                source = locs / f"{stem}.json"
+                (locs / f"{stem}14.json").write_bytes(source.read_bytes())
+
+            result, report = self.assert_read_only(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            selected = {
+                value["role"]: value["relativePath"]
+                for value in report["files"]
+                if value["role"].endswith("-base-source")
+            }
+            self.assertEqual(
+                {
+                    "placement.boundary-base-source":
+                        "server/conf/server/defs/locs/BoundaryLocs14.json",
+                    "placement.ground-item-base-source":
+                        "server/conf/server/defs/locs/GroundItems14.json",
+                    "placement.npc-base-source":
+                        "server/conf/server/defs/locs/NpcLocs14.json",
+                    "placement.scenery-base-source":
+                        "server/conf/server/defs/locs/SceneryLocs14.json",
+                },
+                selected,
+            )
 
     def test_legacy_fallback_refuses_partial_project_local_descriptor_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-conflict-") as temp:

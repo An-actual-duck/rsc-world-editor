@@ -61,6 +61,14 @@ project-local placeholders with warnings while their IDs and placements remain
 stable. Exact records use only captured declarative definitions and existing
 animation assets; target code is never run for discovery.
 
+After project creation, the desktop launcher presents a visible warning with
+the exact placeholder NPC IDs when the selected provider lacks authoritative
+records. A placeholder intentionally uses NPC 0's visual data and a
+`[Missing NPC <id>]` name; it proves that placement identity was preserved, not
+that the custom NPC was imported faithfully. The provider diagnostics path is
+shown in the same dialog so a maintainer can supply a successor package and the
+user can recreate the project without guessing what went wrong.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral

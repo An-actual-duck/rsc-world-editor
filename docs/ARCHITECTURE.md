@@ -149,6 +149,13 @@ repository-owned adapter, not arbitrary-server binary patching. See [World
 Builder 2 Adaptive Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative
 contracts, phases, tests, and acceptance criteria.
 
+The built-in packed OpenRSC adapter derives the authentic boundary,
+ground-item, NPC, and scenery location set from the selected server
+configuration's `based_map_data` value. Those ordinary base placements are
+composed before supported project-local overlays and removals and are copied
+into the isolated layered package; they are never supplied by the release or
+read from only the player's initial spawn region.
+
 Phases 0-3 are implemented and merged on published `main` at
 `dac388a32aa41754a49341e3ddcc8cc196389ab4`. Phase 3 adds a UUID registry,
 atomic project creation and selection, immutable source snapshot v2, layered

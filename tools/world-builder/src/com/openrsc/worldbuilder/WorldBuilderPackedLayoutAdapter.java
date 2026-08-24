@@ -158,11 +158,21 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		roles.put("sceneryRemovals", "placement.scenery-removal");
 		roles.put("npcLocs", "placement.npc-overlay");
 		roles.put("npcRemovals", "placement.npc-removal");
+		roles.put("boundaryBase", "placement.boundary-base-source");
+		roles.put("groundItemBase", "placement.ground-item-base-source");
+		roles.put("npcBase", "placement.npc-base-source");
+		roles.put("sceneryBase", "placement.scenery-base-source");
 		for (WorldBuilderDiscoveryResult.SourceFile file : legacy.files) {
 			String role = roles.get(file.logicalName);
 			files.add(new WorldBuilderReadOnlyTarget.FileState(role, file.relativePath,
 				file.present, file.size, file.sha256));
 			if (file.present) validateLegacyPlacement(target, file.logicalName, file.relativePath);
+		}
+		for (String[] source : WorldBuilderDiscovery.basePlacementFiles(
+			legacy.basedMapData)) {
+			String role = roles.get(source[0]);
+			files.add(target.requiredState(role, source[1]));
+			validateLegacyPlacement(target, source[0], source[1]);
 		}
 		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target));
 		files.add(target.optionalState("placement.ground-item-overlay",
@@ -220,12 +230,13 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			legacy.terrainSectorCount + " bounded sector(s) validated."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"inventory-completeness", "passed",
-			"Terrain, active overlays/removals, complete definitions, matching client assets, and config are inventoried.",
+			"Terrain, selected base placements, active overlays/removals, complete definitions, matching client assets, and config are inventoried.",
 			files.size() + " exact/required-absence evidence record(s)."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"placement-validation", "passed",
-			"Known scenery/NPC overlays and removals parse strictly; boundary terrain is in packed sectors.",
-			"No separate static ground-item source is enabled by this compiled fallback profile."));
+			"Selected base boundary, ground-item, NPC, and scenery records plus known overlays/removals parse strictly.",
+			"The base population matches based_map_data=" + legacy.basedMapData
+				+ " and is converted into the isolated layered project."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"runtime-agreement", "passed",
 			"The selected config declares the reviewed client/map mode used by this fallback.",
@@ -241,11 +252,19 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderReadOnlyTarget target, String logicalName, String relative)
 		throws WorldBuilderContractException {
 		try {
-			if ("sceneryLocs".equals(logicalName)) {
+			if ("boundaryBase".equals(logicalName)) {
+				WorldBuilderJsonDocuments.validateBoundaryLocs(
+					target.requiredFile(relative));
+			} else if ("groundItemBase".equals(logicalName)) {
+				WorldBuilderJsonDocuments.validateGroundItemLocs(
+					target.requiredFile(relative));
+			} else if ("sceneryLocs".equals(logicalName)
+				|| "sceneryBase".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryLocs(target.requiredFile(relative));
 			} else if ("sceneryRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryRemovals(target.requiredFile(relative));
-			} else if ("npcLocs".equals(logicalName)) {
+			} else if ("npcLocs".equals(logicalName)
+				|| "npcBase".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateNpcLocs(target.requiredFile(relative));
 			} else if ("npcRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateNpcRemovals(target.requiredFile(relative));

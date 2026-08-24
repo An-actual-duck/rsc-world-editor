@@ -120,6 +120,38 @@ final class WorldBuilderNpcDefinitionProvider {
 			.getBytes(StandardCharsets.UTF_8));
 	}
 
+	static String projectWarningSummary(Path projectRoot) {
+		if (projectRoot == null) return null;
+		Path root = projectRoot.toAbsolutePath().normalize();
+		Path report = root.resolve(REPORT_PATH).normalize();
+		try {
+			if (!report.startsWith(root)
+				|| !Files.isRegularFile(report, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(report)
+				|| Files.size(report) > MAX_BYTES) return null;
+			Map<String,Object> value =
+				WorldBuilderJsonDocuments.readTargetDefinitionObject(report);
+			Object rawWarnings = value.get("warnings");
+			if (!(rawWarnings instanceof List) || ((List<?>)rawWarnings).isEmpty()) return null;
+			TreeSet<Integer> ids = new TreeSet<Integer>();
+			for (Object raw : (List<?>)rawWarnings) {
+				if (!(raw instanceof Map)) continue;
+				Map<?,?> warning = (Map<?,?>)raw;
+				if (!"NPC_DEFINITION_PLACEHOLDER".equals(warning.get("code"))) continue;
+				Object id = warning.get("npcId");
+				if (id instanceof Number) ids.add(Integer.valueOf(((Number)id).intValue()));
+			}
+			if (ids.isEmpty()) return null;
+			return "\n\nNPC provider warning: no authoritative definitions were supplied for "
+				+ "NPC IDs " + ids + ". They will appear as clearly named placeholders "
+				+ "using NPC 0's visuals. Install a complete provider containing "
+				+ FILE_NAME + " and recreate this project for faithful NPC visuals.\n"
+				+ "Details: " + report;
+		} catch (Exception ignored) {
+			return null;
+		}
+	}
+
 	private static Provider readProvider(Path selected) {
 		if (selected == null || selected.getParent() == null) return Provider.empty();
 		Path root = selected.toAbsolutePath().normalize().getParent();
