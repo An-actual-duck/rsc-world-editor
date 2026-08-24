@@ -77,6 +77,23 @@ the Editor verifies and normalizes it automatically. This keeps provider
 production portable without requiring end users to translate server and client
 definition shapes by hand.
 
+Before a rich provider is consumed, World Builder binds it to the immutable
+project-stage copy of the selected server. `NpcDefs.json`,
+`NpcDefsCustom.json`, `MyWorldNpcLocs.json`, `Authentic_Sprites.orsc`, and
+`Custom_Sprites.osar` must match the producer's exact SHA-256 evidence. The
+declared sequential NPC boundary and the complete set of placed extension NPC
+IDs must also agree. A stale or cross-server provider fails before project
+publication with `CAPABILITY_MISMATCH` and directs the maintainer to regenerate
+the server-root package. Unverifiable producer metadata is never silently
+treated as compatible.
+
+The ordinary distribution layout is a complete `world-builder-provider/`
+directory in the server root. Explicit provider discovery already takes
+priority, so an end user who selects that server receives the matching package
+automatically and does not use the advanced package chooser. The chooser and
+installation-local provider catalog remain recovery/developer paths for server
+distributions which have not adopted the portable layout.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral

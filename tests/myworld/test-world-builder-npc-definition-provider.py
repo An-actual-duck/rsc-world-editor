@@ -26,11 +26,16 @@ public final class NpcDefinitionProviderHarness {
     public static void main(String[] args) throws Exception {
         Map<String,Object> catalog = new LinkedHashMap<String,Object>();
         catalog.put("npcs", Arrays.<Object>asList(Long.valueOf(0L), Long.valueOf(2L)));
-        WorldBuilderNpcDefinitionProvider.Result result =
-            WorldBuilderNpcDefinitionProvider.consume(
-                Paths.get(args[1]), Paths.get(args[0]), catalog);
-        Files.write(Paths.get(args[2]), result.customDefinitions);
-        WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
+        try {
+            WorldBuilderNpcDefinitionProvider.Result result =
+                WorldBuilderNpcDefinitionProvider.consume(
+                    Paths.get(args[1]), Paths.get(args[0]), catalog);
+            Files.write(Paths.get(args[2]), result.customDefinitions);
+            WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
+        } catch (WorldBuilderContractException refusal) {
+            System.err.println(refusal.code() + ": " + refusal.getMessage());
+            System.exit(3);
+        }
     }
 }
 '''
@@ -122,6 +127,18 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             "diagnostics/npc-definition-provider-warnings.json").read_text(encoding="utf-8"))
         return json.loads(output.read_text(encoding="utf-8")), report
 
+    def consume_failure(self, target: Path, selected: Path, stage: Path) -> str:
+        output = stage.parent / "custom.json"
+        stage.mkdir()
+        classpath = os.pathsep.join((str(self.classes), str(CLASSES)))
+        result = subprocess.run([
+            "java", "-cp", classpath,
+            "com.openrsc.worldbuilder.NpcDefinitionProviderHarness",
+            str(target), str(selected), str(output), str(stage),
+        ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(0, result.returncode)
+        return result.stdout + result.stderr
+
     def bind_package(self, selected: Path) -> None:
         rows = []
         for path, role in (
@@ -142,7 +159,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             "files": rows,
         })
 
-    def producer_package(self, selected: Path, npc_id: int = 2,
+    def producer_package(self, target: Path, selected: Path, npc_id: int = 2,
                          unresolved_animation: bool = False) -> None:
         root = selected.parent
         authentic = root / "assets/archives/Authentic_Sprites.orsc"
@@ -150,6 +167,10 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         authentic.parent.mkdir(parents=True)
         authentic.write_bytes(b"authentic-fixture")
         custom.write_bytes(b"custom-fixture")
+        target_video = target / "Client_Base/Cache/video"
+        target_video.mkdir(parents=True)
+        (target_video / "Authentic_Sprites.orsc").write_bytes(authentic.read_bytes())
+        (target_video / "Custom_Sprites.osar").write_bytes(custom.read_bytes())
         authentic_hash = hashlib.sha256(authentic.read_bytes()).hexdigest()
         custom_hash = hashlib.sha256(custom.read_bytes()).hexdigest()
         npc = producer_definition(npc_id, "Neutral producer NPC")
@@ -162,9 +183,20 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "identity": "neutral-fixture", "definitionMode": "final",
                 "finalClientNpcCount": npc_id + 1,
                 "finalClientNpcCatalogSha256": "1" * 64,
-                "sources": [{
-                    "role": "declarative-npc-registry",
-                    "identity": "fixture.json", "sha256": "5" * 64,
+                "sources": [
+                    {
+                        "role": "declarative-npc-registry",
+                        "identity": name,
+                        "sha256": hashlib.sha256((target /
+                            f"server/conf/server/defs/{name}").read_bytes()).hexdigest(),
+                    }
+                    for name in ("NpcDefs.json", "NpcDefsCustom.json")
+                ] + [{
+                    "role": "authoritative-npc-placements",
+                    "identity": "MyWorldNpcLocs.json",
+                    "sha256": hashlib.sha256((target /
+                        "server/conf/server/defs/locs/MyWorldNpcLocs.json")
+                        .read_bytes()).hexdigest(),
                 }],
             },
             "assetProviders": {
@@ -302,7 +334,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="npc-provider-producer-") as temp:
             base = Path(temp)
             target, selected = self.fixture(base)
-            self.producer_package(selected)
+            self.producer_package(target, selected)
             custom, report = self.consume(target, selected, base / "stage")
             resolved = custom["npcs"][1]
             self.assertEqual("Neutral producer NPC", resolved["name"])
@@ -317,10 +349,36 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="npc-provider-animation-") as temp:
             base = Path(temp)
             target, selected = self.fixture(base)
-            self.producer_package(selected, unresolved_animation=True)
+            self.producer_package(target, selected, unresolved_animation=True)
             custom, report = self.consume(target, selected, base / "stage")
             self.assertEqual("[Missing NPC 2]", custom["npcs"][1]["name"])
             self.assertEqual([2], [row["npcId"] for row in report["warnings"]])
+
+    def test_rich_provider_refuses_target_definition_asset_and_placement_drift(self):
+        for case in ("definition", "asset", "placement"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                    prefix="npc-provider-target-mismatch-") as temp:
+                base = Path(temp)
+                target, selected = self.fixture(base)
+                self.producer_package(target, selected)
+                if case == "definition":
+                    path = target / "server/conf/server/defs/NpcDefsCustom.json"
+                    path.write_bytes(path.read_bytes() + b" ")
+                elif case == "asset":
+                    path = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+                    path.write_bytes(path.read_bytes() + b"drift")
+                else:
+                    write_json(target / "server/conf/server/defs/locs/MyWorldNpcLocs.json", {
+                        "npclocs": [
+                            {"id": 2, "start": {"X": 10, "Y": 10},
+                             "min": {"X": 10, "Y": 10}, "max": {"X": 10, "Y": 10}},
+                            {"id": 3, "start": {"X": 11, "Y": 10},
+                             "min": {"X": 11, "Y": 10}, "max": {"X": 11, "Y": 10}},
+                        ]
+                    })
+                failure = self.consume_failure(target, selected, base / "stage")
+                self.assertIn("Selected provider does not match this server revision", failure)
+                self.assertIn("CAPABILITY_MISMATCH", failure)
 
 
 if __name__ == "__main__":

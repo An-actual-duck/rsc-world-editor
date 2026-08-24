@@ -266,6 +266,13 @@ stats, animation IDs, recolor values, dimensions, and models are retained.
 Malformed rich manifests continue through the existing explicit placeholder
 and warning path rather than executing provider or target code.
 
+A structurally valid rich manifest is not sufficient by itself. Its target
+definition, placement, and sprite-archive bindings are compared with the
+immutable copied source before normalization. A mismatch is a hard
+`CAPABILITY_MISMATCH`, not a placeholder case: placeholders preserve genuinely
+unresolved records, whereas a stale provider could assign valid-looking but
+incorrect content to an existing numeric ID.
+
 ## Canonical compatibility fixture
 
 The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains

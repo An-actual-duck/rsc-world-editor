@@ -89,13 +89,15 @@ final class WorldBuilderNpcDefinitionProvider {
 			"Target NPC definitions contain no sequential base record.");
 
 		Set<Integer> required = catalogIds(targetCatalog);
-		required.addAll(placementIds(copiedTarget));
+		Set<Integer> placements = placementIds(copiedTarget);
+		required.addAll(placements);
 		int maximum = required.isEmpty() ? -1 : Collections.max(required).intValue();
 		if (maximum < appendedCount) return Result.unchanged();
 		if (maximum > MAX_ID) throw problem("npc placements",
 			"Required NPC ID exceeds the runtime domain 0..65535.");
 
-		Provider provider = readProvider(selectedProviderManifest);
+		Provider provider = readProvider(selectedProviderManifest, copiedTarget,
+			appendedCount - 1, placements);
 		Map<String,Object> template = object(baseRows.get(0), "NpcDefs.json#record=0");
 		List<Object> rewritten = new ArrayList<Object>(customRows);
 		List<Item> items = new ArrayList<Item>();
@@ -175,7 +177,9 @@ final class WorldBuilderNpcDefinitionProvider {
 		}
 	}
 
-	private static Provider readProvider(Path selected) {
+	private static Provider readProvider(Path selected, Path copiedTarget,
+		int declarativeMaximum, Set<Integer> placements)
+		throws WorldBuilderContractException {
 		if (selected == null || selected.getParent() == null) return Provider.empty();
 		Path root = selected.toAbsolutePath().normalize().getParent();
 		Path candidate = root.resolve(FILE_NAME).normalize();
@@ -191,7 +195,8 @@ final class WorldBuilderNpcDefinitionProvider {
 				return Provider.empty();
 			}
 			if (PRODUCER_TYPE.equals(document.get("manifestType"))) {
-				return readProducerProvider(root, candidate, document);
+				return readProducerProvider(root, candidate, copiedTarget,
+					declarativeMaximum, placements, document);
 			}
 			exact(document, set("schemaVersion", "manifestType", "npcs"), FILE_NAME);
 			if (!TYPE.equals(document.get("manifestType"))) return Provider.empty();
@@ -211,6 +216,8 @@ final class WorldBuilderNpcDefinitionProvider {
 				definitions.put(Integer.valueOf(id), definition);
 			}
 			return new Provider(definitions, WorldBuilderHashes.sha256(candidate));
+		} catch (TargetMismatch mismatch) {
+			throw providerMismatch(candidate.toString(), mismatch.getMessage(), mismatch);
 		} catch (Exception invalid) {
 			return Provider.empty();
 		}
@@ -224,11 +231,14 @@ final class WorldBuilderNpcDefinitionProvider {
 	 * retained exactly.
 	 */
 	private static Provider readProducerProvider(Path root, Path candidate,
+		Path copiedTarget, int declarativeMaximum, Set<Integer> placements,
 		Map<String,Object> document) throws IOException {
 		exact(document, PRODUCER_ROOT_KEYS, FILE_NAME);
-		validateProducerMetadata(object(document.get("provider"), "provider"));
+		Map<String,Object> metadata = object(document.get("provider"), "provider");
+		validateProducerMetadata(metadata);
+		Map<String,Object> assets = object(document.get("assetProviders"), "assetProviders");
 		validateProducerAssets(root,
-			object(document.get("assetProviders"), "assetProviders"));
+			assets);
 		List<Object> animations = array(document.get("animationDefinitions"),
 			"animationDefinitions");
 		Set<Integer> animationIds = new TreeSet<Integer>();
@@ -270,9 +280,78 @@ final class WorldBuilderNpcDefinitionProvider {
 			}
 			definitions.put(Integer.valueOf(id), producerDefinition(row, id, name, sprites));
 		}
-		validateProducerSelection(object(document.get("selection"), "selection"),
+		Map<String,Object> selection = object(document.get("selection"), "selection");
+		validateProducerSelection(selection,
 			definitions.keySet());
+		validateProducerTarget(copiedTarget, declarativeMaximum, placements,
+			metadata, assets, selection);
 		return new Provider(definitions, WorldBuilderHashes.sha256(candidate));
+	}
+
+	private static void validateProducerTarget(Path copiedTarget, int declarativeMaximum,
+		Set<Integer> placements,
+		Map<String,Object> provider, Map<String,Object> assets,
+		Map<String,Object> selection) throws IOException {
+		if (copiedTarget == null) throw new TargetMismatch(
+			"Provider compatibility cannot be proven without an immutable target copy.");
+		Map<String,String> expected = new TreeMap<String,String>();
+		for (Object raw : array(provider.get("sources"), "provider.sources")) {
+			Map<String,Object> source = object(raw, "provider source");
+			String role = text(source.get("role"), 1, 96, "provider source role");
+			String identity = text(source.get("identity"), 1, 512,
+				"provider source identity");
+			if (("declarative-npc-registry".equals(role)
+					&& ("NpcDefs.json".equals(identity)
+						|| "NpcDefsCustom.json".equals(identity)))
+				|| ("authoritative-npc-placements".equals(role)
+					&& "MyWorldNpcLocs.json".equals(identity))) {
+				if (expected.put(identity, hash(source.get("sha256"),
+					"provider source sha256")) != null) {
+					throw new TargetMismatch("Provider repeats target binding " + identity + ".");
+				}
+			}
+		}
+		for (String identity : Arrays.asList("NpcDefs.json", "NpcDefsCustom.json",
+			"MyWorldNpcLocs.json")) {
+			if (!expected.containsKey(identity)) throw new TargetMismatch(
+				"Provider is missing required target binding " + identity + ".");
+			String relative = "MyWorldNpcLocs.json".equals(identity)
+				? "server/conf/server/defs/locs/" + identity
+				: "server/conf/server/defs/" + identity;
+			Path actual = copiedTarget.resolve(relative);
+			if (!Files.isRegularFile(actual, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(actual)
+				|| !expected.get(identity).equals(WorldBuilderHashes.sha256(actual))) {
+				throw new TargetMismatch("Provider was generated for a different "
+					+ identity + ".");
+			}
+		}
+
+		for (String key : Arrays.asList("customSpriteArchive", "authenticSpriteArchive")) {
+			Map<String,Object> asset = object(assets.get(key), key);
+			String file = "customSpriteArchive".equals(key)
+				? "Custom_Sprites.osar" : "Authentic_Sprites.orsc";
+			Path actual = copiedTarget.resolve("Client_Base/Cache/video/" + file);
+			if (!Files.isRegularFile(actual, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(actual)
+				|| !hash(asset.get("sha256"), key + ".sha256")
+					.equals(WorldBuilderHashes.sha256(actual))) {
+				throw new TargetMismatch("Provider was generated for a different " + file + ".");
+			}
+		}
+
+		if (integer(selection.get("declarativeMaximumNpcId"), 0, MAX_ID,
+			"declarativeMaximumNpcId") != declarativeMaximum) {
+			throw new TargetMismatch("Provider declarative NPC boundary differs from the target.");
+		}
+		Set<Integer> extensionPlacements = new TreeSet<Integer>(placements);
+		extensionPlacements.removeIf(id -> id.intValue() <= declarativeMaximum);
+		Set<Integer> selected = new TreeSet<Integer>();
+		for (Object raw : array(selection.get("placedNpcIds"), "placedNpcIds")) {
+			selected.add(Integer.valueOf(integer(raw, 0, MAX_ID, "placedNpcId")));
+		}
+		if (!extensionPlacements.equals(selected)) throw new TargetMismatch(
+			"Provider placed extension NPC set differs from the target.");
 	}
 
 	private static Map<String,Object> producerDefinition(Map<String,Object> row,
@@ -704,6 +783,20 @@ final class WorldBuilderNpcDefinitionProvider {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
 			"npc-definition-provider", path, false, message,
 			"Correct the declarative NPC evidence or use a neutral provider package.", cause);
+	}
+
+	private static WorldBuilderContractException providerMismatch(
+		String path, String message, Throwable cause) {
+		return new WorldBuilderContractException(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+			"npc-definition-provider-compatibility", path, false,
+			"Selected provider does not match this server revision: " + message,
+			"Regenerate the server-root world-builder-provider package from this exact "
+				+ "server revision and create the project again.", cause);
+	}
+
+	private static final class TargetMismatch extends IOException {
+		private static final long serialVersionUID = 1L;
+		TargetMismatch(String message) { super(message); }
 	}
 
 	static final class Result {
