@@ -197,7 +197,8 @@ beyond-packaged IDs. Authentic archives, custom OSARs, any selected spritepack,
 and external RGB PNGs are hash-checked without loading target JARs. Custom,
 spritepack, and external frames are normalized into a generated project-local
 custom OSAR subspace; authentic records retain their exact archive ID and bind
-the selected authentic archive.
+the selected authentic archive. Only selected authentic entries are merged into
+the captured target archive copy; unrelated authentic entries are retained.
 
 Provider input is resilient by design. A missing manifest, malformed manifest,
 unknown role, unsafe path, bad selector, missing/hash-mismatched asset, unreadable

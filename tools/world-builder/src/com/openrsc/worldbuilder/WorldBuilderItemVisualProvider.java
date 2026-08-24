@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.awt.image.BufferedImage;
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
@@ -10,8 +9,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -157,6 +154,23 @@ final class WorldBuilderItemVisualProvider {
 			}
 		}
 
+		byte[] authenticOverride = null;
+		if (!authenticSelections.isEmpty()) {
+			try {
+				authenticOverride = mergeAuthenticArchive(copiedTarget.resolve(
+					"Client_Base/Cache/video/Authentic_Sprites.orsc"), authenticSelections);
+			} catch (IOException invalid) {
+				authenticOverride = null;
+				fallbackAuthentic(resolved, warnings, "PROVIDER_AUTHENTIC_MERGE_FAILED",
+					"Selected authentic sprite could not be merged safely; a placeholder was generated.");
+			} catch (WorldBuilderContractException invalid) {
+				authenticOverride = null;
+				fallbackAuthentic(resolved, warnings, "PROVIDER_AUTHENTIC_MERGE_UNSAFE",
+					"Selected authentic sprite collides with target archive content; a placeholder was generated.");
+			}
+		}
+		String generatedSubspace = generatedSubspace(copiedTarget.resolve(
+			"Client_Base/Cache/video/Custom_Sprites.osar"));
 		List<GeneratedEntry> generated = new ArrayList<GeneratedEntry>();
 		List<Object> canonical = new ArrayList<Object>();
 		List<ItemReport> items = new ArrayList<ItemReport>();
@@ -168,7 +182,7 @@ final class WorldBuilderItemVisualProvider {
 			if (value == null) {
 				String entry = "item_" + itemId;
 				generated.add(new GeneratedEntry(entry, placeholderEntry(itemId)));
-				Map<String,Object> visual = canonicalCustom(itemId, GENERATED_SUBSPACE,
+				Map<String,Object> visual = canonicalCustom(itemId, generatedSubspace,
 					entry, 0, 0);
 				canonical.add(visual);
 				warnings.add(new Warning(itemId, "PROVIDER_VISUAL_PLACEHOLDER",
@@ -179,7 +193,7 @@ final class WorldBuilderItemVisualProvider {
 			} else if (value.spriteEntry != null) {
 				String entry = "item_" + itemId;
 				generated.add(new GeneratedEntry(entry, value.spriteEntry));
-				canonical.add(canonicalCustom(itemId, GENERATED_SUBSPACE, entry,
+				canonical.add(canonicalCustom(itemId, generatedSubspace, entry,
 					value.pictureMask, value.blueMask));
 				items.add(new ItemReport(itemId, value.name, "resolved",
 					value.sourceRole, value.logicalLocation));
@@ -193,12 +207,19 @@ final class WorldBuilderItemVisualProvider {
 		Collections.sort(warnings);
 		byte[] customOverride = generated.isEmpty() ? null
 			: appendGeneratedSubspace(copiedTarget.resolve(
-				"Client_Base/Cache/video/Custom_Sprites.osar"), generated);
-		byte[] authenticOverride = authenticSelections.isEmpty() ? null
-			: mergeAuthenticArchive(copiedTarget.resolve(
-				"Client_Base/Cache/video/Authentic_Sprites.orsc"), authenticSelections);
+				"Client_Base/Cache/video/Custom_Sprites.osar"), generatedSubspace, generated);
 		return new Result(canonical, customOverride, authenticOverride,
 			manifestHash, items, warnings);
+	}
+
+	private static void fallbackAuthentic(Map<Integer,Resolved> resolved,
+		List<Warning> warnings, String code, String message) {
+		for (Map.Entry<Integer,Resolved> entry :
+			new ArrayList<Map.Entry<Integer,Resolved>>(resolved.entrySet())) {
+			if (entry.getValue().authenticAsset == null) continue;
+			resolved.remove(entry.getKey());
+			warnings.add(new Warning(entry.getKey().intValue(), code, message));
+		}
 	}
 
 	private static void validateRoot(Map<String,Object> root) throws Rejected {
@@ -249,6 +270,18 @@ final class WorldBuilderItemVisualProvider {
 		String sourceAsset = text(value.get("sourceAsset"), 1, 512, "sourceAsset");
 		String sourceHash = hash(value.get("sourceAssetSha256"), "sourceAssetSha256");
 		Path asset = safeAsset(providerRoot, sourceAsset);
+		boolean rolePathMatches = "asset.sprite.authentic".equals(role)
+				&& "assets/Authentic_Sprites.orsc".equals(sourceAsset)
+			|| CUSTOM_ROLE.equals(role)
+				&& "assets/Custom_Sprites.osar".equals(sourceAsset)
+			|| "asset.spritepack".equals(role)
+				&& sourceAsset.startsWith("assets/spritepacks/")
+				&& sourceAsset.endsWith(".osar")
+			|| "asset.sprite.external".equals(role)
+				&& sourceAsset.startsWith("assets/external-items/")
+				&& sourceAsset.toLowerCase(Locale.ROOT).endsWith(".png");
+		if (!rolePathMatches) throw new Rejected("PROVIDER_ASSET_ROLE_MISMATCH",
+			"Provider sourceAsset is outside the canonical directory for its sourceRole.");
 		Object authentic = value.get("authenticSpriteId");
 		Object subspace = value.get("customSpriteSubspace");
 		Object entry = value.get("customSpriteEntry");
@@ -510,8 +543,11 @@ final class WorldBuilderItemVisualProvider {
 			if (subspaces < 1) throw new IllegalArgumentException("no subspaces");
 			Map<String,byte[]> entries = new LinkedHashMap<String,byte[]>();
 			Set<String> folded = new HashSet<String>();
+			Set<String> subspaceNames = new HashSet<String>();
 			for (int s = 0; s < subspaces; s++) {
 				String subspace = input.name();
+				if (!subspaceNames.add(subspace)) throw new IllegalArgumentException(
+					"duplicate subspace");
 				int count = input.u16();
 				for (int e = 0; e < count; e++) {
 					String name = input.name();
@@ -528,14 +564,31 @@ final class WorldBuilderItemVisualProvider {
 			if (input.offset != expanded.length || entries.size() > MAX_ENTRIES) {
 				throw new IllegalArgumentException("trailing or excessive entries");
 			}
-			return new Osar(entries);
+			return new Osar(entries, subspaceNames);
 		} catch (RuntimeException invalid) {
 			throw new Rejected("PROVIDER_OSAR_INVALID",
 				"OSAR structure, names, frames, palette, pixels, or bounds are invalid.");
 		}
 	}
 
-	private static byte[] appendGeneratedSubspace(Path target,
+	private static String generatedSubspace(Path target)
+		throws IOException, WorldBuilderContractException {
+		try {
+			Osar archive = readOsar(target);
+			String candidate = GENERATED_SUBSPACE;
+			for (int suffix = 2; archive.subspaces.contains(candidate); suffix++) {
+				candidate = GENERATED_SUBSPACE + "_" + suffix;
+			}
+			return candidate;
+		} catch (Rejected invalid) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT,
+				"item-visual-provider", target.toString(), false,
+				"Target custom sprite archive cannot safely receive project-local visuals.",
+				"Repair the target's bounded OSAR structure and retry.");
+		}
+	}
+
+	private static byte[] appendGeneratedSubspace(Path target, String subspace,
 		List<GeneratedEntry> additions) throws IOException, WorldBuilderContractException {
 		byte[] expanded;
 		try (InputStream input = new GZIPInputStream(Files.newInputStream(target));
@@ -552,7 +605,7 @@ final class WorldBuilderItemVisualProvider {
 		ByteArrayOutputStream raw = new ByteArrayOutputStream();
 		raw.write(count + 1);
 		raw.write(expanded, 1, expanded.length - 1);
-		raw.write(GENERATED_SUBSPACE.getBytes(StandardCharsets.ISO_8859_1));
+		raw.write(subspace.getBytes(StandardCharsets.ISO_8859_1));
 		raw.write(0);
 		raw.write(additions.size() >>> 8);
 		raw.write(additions.size());
@@ -721,7 +774,10 @@ final class WorldBuilderItemVisualProvider {
 
 	private static final class Osar {
 		final Map<String,byte[]> entries;
-		Osar(Map<String,byte[]> entries) { this.entries = entries; }
+		final Set<String> subspaces;
+		Osar(Map<String,byte[]> entries, Set<String> subspaces) {
+			this.entries = entries; this.subspaces = subspaces;
+		}
 	}
 
 	private static final class GeneratedEntry {

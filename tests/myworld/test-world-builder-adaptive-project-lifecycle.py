@@ -4406,6 +4406,14 @@ public final class FakeAdaptiveClient {
             base = Path(temp)
             target = self.fixtures.legacy_fixture(str(base))
             (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            (target / "Client_Base/Cache/video/Custom_Sprites.osar").write_bytes(
+                self.fixtures.fixture_osar([
+                    ("items", [("0", self.fixtures.fixture_sprite_entry(0x336699))]),
+                    ("world_builder_provider", [
+                        ("existing", self.fixtures.fixture_sprite_entry(0x010203)),
+                    ]),
+                ])
+            )
             definitions = target / "server/conf/server/defs"
             write_json(definitions / "ItemDefsPatch18.json", {
                 "items": [{"id": 9002}, {"id": 9003}],
@@ -4482,9 +4490,9 @@ public final class FakeAdaptiveClient {
             self.assertEqual([(0x102030, -1), (-2, 3), (4, 5), (6, -7)],
                 [(record["pictureMask"], record["blueMask"]) for record in evidence])
             self.assertEqual(417, evidence[1]["authenticSpriteId"])
-            self.assertEqual("world_builder_provider", evidence[0]["customSpriteSubspace"])
-            self.assertEqual("world_builder_provider", evidence[2]["customSpriteSubspace"])
-            self.assertEqual("world_builder_provider", evidence[3]["customSpriteSubspace"])
+            self.assertEqual("world_builder_provider_2", evidence[0]["customSpriteSubspace"])
+            self.assertEqual("world_builder_provider_2", evidence[2]["customSpriteSubspace"])
+            self.assertEqual("world_builder_provider_2", evidence[3]["customSpriteSubspace"])
             merged_authentic = (project /
                 "source/content-bundle/files/client/Cache/video/Authentic_Sprites.orsc")
             with zipfile.ZipFile(merged_authentic) as archive:
