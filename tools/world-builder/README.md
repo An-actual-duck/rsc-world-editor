@@ -147,6 +147,15 @@ IDs come from exact target bytes rather than the neutral catalog. The immutable
 and working copies stay inside the UUID project; no target code runs and no
 custom content enters a release archive.
 
+If that static visual file is absent, creation can migrate provable visual
+fields from the captured declarative item definitions and captured sprite
+archives. Unresolved IDs require an explicit strict mapping JSON selected in
+the desktop dialog or passed as `--item-visual-mappings <mapping.json>`.
+Mappings select an authentic sprite ID or one exact custom/spritepack
+subspace-entry pair and always provide signed picture and blue masks. The
+resulting evidence is generated and validated only inside unpublished project
+staging; it is never written into the selected server or `source/original`.
+
 ## Explicit project creation
 
 The guided command is preferred. To create from a reviewed report explicitly:

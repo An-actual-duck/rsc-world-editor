@@ -728,6 +728,8 @@ final class WorldBuilderProjectContentBundle {
 		for (String role : Arrays.asList("asset.sprite.custom", "asset.spritepack")) {
 			archives.put(role, readSpriteArchive(contentPath(copiedTarget, role), role));
 		}
+		Set<Integer> authenticIds = authenticSpriteIds(
+			contentPath(copiedTarget, "asset.sprite.authentic"));
 		for (String role : Arrays.asList("definition.item.base", "definition.item.custom",
 			"definition.item.world", "definition.item.patch")) {
 			for (Object raw : jsonArray(copiedTarget, role,
@@ -739,7 +741,7 @@ final class WorldBuilderProjectContentBundle {
 				int itemId = (int)((Long)definition.get("id")).longValue();
 				if (!required.contains(Integer.valueOf(itemId))) continue;
 				Map<String,Object> visual = declarativeVisual(
-					definition, itemId, archives, role);
+					definition, itemId, archives, authenticIds, role);
 				if (visual != null) mergeVisual(resolved, visual, role);
 			}
 		}
@@ -779,7 +781,8 @@ final class WorldBuilderProjectContentBundle {
 	}
 
 	private static Map<String,Object> declarativeVisual(Map<String,Object> definition,
-		int itemId, Map<String,SpriteArchive> archives, String role)
+		int itemId, Map<String,SpriteArchive> archives, Set<Integer> authenticIds,
+		String role)
 		throws WorldBuilderContractException {
 		Object nested = definition.get("worldBuilderItemVisual");
 		if (nested != null) {
@@ -791,6 +794,9 @@ final class WorldBuilderProjectContentBundle {
 			Map<String,Object> result = object(parsed.get(0), role);
 			if (integer(result, "itemId") != itemId) throw visualProblem(
 				"Nested declarative visual itemId differs from its definition ID.");
+			if (result.get("authenticSpriteId") instanceof Long
+				&& !authenticIds.contains(Integer.valueOf(
+					(int)((Long)result.get("authenticSpriteId")).longValue()))) return null;
 			return result;
 		}
 
@@ -840,7 +846,42 @@ final class WorldBuilderProjectContentBundle {
 		visual.put("customSpriteEntry", entry);
 		visual.put("pictureMask", pictureMask);
 		visual.put("blueMask", blueMask);
-		return object(parseItemVisuals(Arrays.<Object>asList(visual), role).get(0), role);
+		Map<String,Object> result = object(
+			parseItemVisuals(Arrays.<Object>asList(visual), role).get(0), role);
+		if (result.get("authenticSpriteId") instanceof Long
+			&& !authenticIds.contains(Integer.valueOf(
+				(int)((Long)result.get("authenticSpriteId")).longValue()))) return null;
+		return result;
+	}
+
+	private static Set<Integer> authenticSpriteIds(Path path)
+		throws IOException, WorldBuilderContractException {
+		Set<Integer> result = new HashSet<Integer>();
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
+			int count = 0;
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (++count > MAX_ARCHIVE_ENTRIES) throw tooManyDefinitions(
+					"asset.sprite.authentic");
+				if (entry.isDirectory()) continue;
+				String name = entry.getName();
+				WorldBuilderPortablePath.require(name, OPERATION);
+				String[] components = name.split("/");
+				String leaf = components[components.length - 1];
+				if (leaf.endsWith(".dat")) leaf = leaf.substring(0, leaf.length() - 4);
+				if (!leaf.matches("[0-9]{1,5}")) continue;
+				int id = Integer.parseInt(leaf);
+				if (id <= MAX_RUNTIME_ID) result.add(Integer.valueOf(id));
+			}
+		} catch (WorldBuilderContractException invalid) {
+			throw invalid;
+		} catch (IOException unsupported) {
+			// A captured authentic archive without inspectable named entries cannot
+			// prove an automatic numeric mapping. Explicit/static evidence remains valid.
+			return Collections.emptySet();
+		}
+		return result;
 	}
 
 	private static void mergeVisual(Map<Integer,Map<String,Object>> resolved,

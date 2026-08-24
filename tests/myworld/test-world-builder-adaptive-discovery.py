@@ -919,6 +919,21 @@ public final class AdaptiveDiscoveryDriftHarness {
                     self.assertEqual(expected_code, report["issues"][0]["code"])
                 self.assertEqual(before, self.snapshot(root))
 
+    def test_missing_item_visual_evidence_is_inventoried_read_only_for_staged_migration(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-visual-migration-discovery-") as temp:
+            root = self.legacy_fixture(temp)
+            evidence = root / "server/conf/world-builder/item-visuals-v1.json"
+            evidence.unlink()
+            before = self.snapshot(root)
+            result = self.run_discovery(root)
+            self.assertEqual(0, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual("compatible", report["status"])
+            record = next(item for item in report["files"]
+                if item["role"] == "content.metadata.item-visuals")
+            self.assertFalse(record["present"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_packed_sector_coordinate_aliases_are_rejected(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-packed-alias-") as temp:
             root = self.descriptor_fixture(temp, representation="packed")
