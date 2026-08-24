@@ -1096,11 +1096,10 @@ final class WorldBuilderProjectContentBundle {
 			for (int subspaceIndex = 0; subspaceIndex < subspaceCount; subspaceIndex++) {
 				String subspace = input.name();
 				requireOsarName(subspace);
-				if (!subspaces.add(subspace.toLowerCase(Locale.ROOT))) {
+				if (!subspaces.add(subspace)) {
 					throw new IllegalArgumentException("duplicate subspace name");
 				}
 				int entries = input.unsignedShort();
-				if (entries == 0) throw new IllegalArgumentException("empty subspace");
 				for (int entryIndex = 0; entryIndex < entries; entryIndex++) {
 					if (++entryCount > MAX_ARCHIVE_ENTRIES) {
 						throw new IllegalArgumentException("too many entries");
@@ -1108,10 +1107,10 @@ final class WorldBuilderProjectContentBundle {
 					String entry = input.name();
 					requireOsarName(entry);
 					String combined = subspace + "/" + entry;
-					if (!folded.add(combined.toLowerCase(Locale.ROOT))) {
+					if (!exact.add(combined)) {
 						throw new IllegalArgumentException("duplicate entry name");
 					}
-					exact.add(combined);
+					folded.add(combined.toLowerCase(Locale.ROOT));
 					readSpriteEntry(input);
 				}
 			}
@@ -1120,18 +1119,19 @@ final class WorldBuilderProjectContentBundle {
 		} catch (WorldBuilderContractException unsafe) {
 			throw unsafe;
 		} catch (RuntimeException malformed) {
+			String reason = malformed.getMessage() == null
+				? "unclassified structural failure" : malformed.getMessage();
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, role,
-				"OSAR sprite archive structure, names, frames, palette, pixels, or bounds are invalid.",
-				"Rebuild a bounded GZIP OSAR with unique portable names and complete sprite frames.",
+				"OSAR sprite archive structure is invalid: " + reason + ".",
+				"Rebuild a bounded GZIP OSAR with unique runtime-safe names and complete sprite frames.",
 				malformed);
 		}
 	}
 
 	private static void requireOsarName(String name)
 		throws WorldBuilderContractException {
-		WorldBuilderPortablePath.require(name, OPERATION);
-		if (name.indexOf('/') >= 0 || name.indexOf('\\') >= 0) {
-			throw new IllegalArgumentException("OSAR names must be single components");
+		if (!name.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
+			throw new IllegalArgumentException("unsafe OSAR name");
 		}
 	}
 
@@ -1149,20 +1149,15 @@ final class WorldBuilderProjectContentBundle {
 			int width = input.unsignedShort();
 			int height = input.unsignedShort();
 			int shifted = input.unsignedByte();
-			int offsetX = input.signedShort();
-			int offsetY = input.signedShort();
-			int boundWidth = input.unsignedShort();
-			int boundHeight = input.unsignedShort();
-			if (width == 0 || height == 0 || shifted > 1
-				|| boundWidth == 0 || boundHeight == 0
-				|| width > boundWidth || height > boundHeight
-				|| shifted == 1 && (offsetX < 0 || offsetY < 0
-					|| (long)offsetX + width > boundWidth
-					|| (long)offsetY + height > boundHeight)) {
-				throw new IllegalArgumentException("frame dimensions or bounds");
+			input.signedShort();
+			input.signedShort();
+			input.unsignedShort();
+			input.unsignedShort();
+			if (width == 0 || height == 0 || shifted > 1) {
+				throw new IllegalArgumentException("frame dimensions");
 			}
 			long pixels = (long)width * (long)height;
-			if (pixels > MAX_FILE_BYTES) throw new IllegalArgumentException("frame pixels");
+			if (pixels > 16777216L) throw new IllegalArgumentException("frame pixels");
 			for (long pixel = 0; pixel < pixels; pixel++) {
 				if (input.unsignedByte() >= paletteSize) {
 					throw new IllegalArgumentException("pixel palette index");
