@@ -73,6 +73,11 @@ import…** to select any combination of:
 - a spritepacks folder; and
 - an external item-PNG folder.
 
+For a complete versioned package stored away from the server, select its
+inventoried `item-visuals-full-v1.json` and leave the other fields empty. Guided
+import copies the entire package byte-for-byte into the installation-local
+provider catalog, so its manifest and relative asset bindings remain valid.
+
 If no manifest exists, World Builder reads only `item` or `items` arrays with
 integer `id` and string `name` fields. It creates deterministic sorted
 `unresolved` records using the canonical mapping-v1 keys. This preserves each

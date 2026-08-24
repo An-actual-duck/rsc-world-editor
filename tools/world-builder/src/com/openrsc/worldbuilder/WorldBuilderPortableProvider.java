@@ -100,27 +100,35 @@ final class WorldBuilderPortableProvider {
 		boolean published = false;
 		try {
 			Path packageStage = stage;
-			Path assets = packageStage.resolve(ASSETS_DIRECTORY);
-			Files.createDirectories(assets);
-			if (selection.itemVisuals != null) {
-				copyRegular(selection.itemVisuals, packageStage.resolve(MAPPING_FILE));
+			Path mappingRelative = java.nio.file.Paths.get(MAPPING_FILE);
+			Path versionedPackage = versionedPackageRoot(selection);
+			if (versionedPackage != null) {
+				copyTree(versionedPackage, packageStage);
+				mappingRelative = versionedPackage.relativize(
+					requireFile(selection.itemVisuals, "versioned provider mapping"));
 			} else {
-				writeUnresolvedMapping(selection.definitions,
-					packageStage.resolve(MAPPING_FILE));
-			}
-			if (selection.authenticArchive != null) copyRegular(selection.authenticArchive,
-				assets.resolve(AUTHENTIC_FILE));
-			if (selection.customArchive != null) copyRegular(selection.customArchive,
-				assets.resolve(CUSTOM_FILE));
-			if (selection.spritepacks != null) copyTree(selection.spritepacks,
-				assets.resolve(SPRITEPACKS_DIRECTORY));
-			if (selection.externalItems != null) copyTree(selection.externalItems,
-				assets.resolve(EXTERNAL_ITEMS_DIRECTORY));
-			if (selection.definitions != null) {
-				if (safeFile(selection.definitions)) copyRegular(selection.definitions,
-					assets.resolve(DEFINITIONS_DIRECTORY).resolve(
-						selection.definitions.getFileName().toString()));
-				else copyTree(selection.definitions, assets.resolve(DEFINITIONS_DIRECTORY));
+				Path assets = packageStage.resolve(ASSETS_DIRECTORY);
+				Files.createDirectories(assets);
+				if (selection.itemVisuals != null) {
+					copyRegular(selection.itemVisuals, packageStage.resolve(MAPPING_FILE));
+				} else {
+					writeUnresolvedMapping(selection.definitions,
+						packageStage.resolve(MAPPING_FILE));
+				}
+				if (selection.authenticArchive != null) copyRegular(selection.authenticArchive,
+					assets.resolve(AUTHENTIC_FILE));
+				if (selection.customArchive != null) copyRegular(selection.customArchive,
+					assets.resolve(CUSTOM_FILE));
+				if (selection.spritepacks != null) copyTree(selection.spritepacks,
+					assets.resolve(SPRITEPACKS_DIRECTORY));
+				if (selection.externalItems != null) copyTree(selection.externalItems,
+					assets.resolve(EXTERNAL_ITEMS_DIRECTORY));
+				if (selection.definitions != null) {
+					if (safeFile(selection.definitions)) copyRegular(selection.definitions,
+						assets.resolve(DEFINITIONS_DIRECTORY).resolve(
+							selection.definitions.getFileName().toString()));
+					else copyTree(selection.definitions, assets.resolve(DEFINITIONS_DIRECTORY));
+				}
 			}
 
 			List<FileRecord> files = inventory(packageStage);
@@ -143,7 +151,7 @@ final class WorldBuilderPortableProvider {
 				}
 			}
 			Provider provider = new Provider(providerId, destination,
-				destination.resolve(MAPPING_FILE), fingerprint, files);
+				destination.resolve(mappingRelative), fingerprint, files);
 			updateCatalog(providers, source, provider);
 			published = true;
 			return provider;
@@ -154,6 +162,22 @@ final class WorldBuilderPortableProvider {
 				// the catalog remains the only source association authority.
 			}
 		}
+	}
+
+	private Path versionedPackageRoot(GuidedSelection selection) throws IOException {
+		if (selection.itemVisuals == null) return null;
+		Path mapping = requireFile(selection.itemVisuals, "item-visual mapping JSON");
+		Path root = mapping.getParent();
+		if (root == null || !safeFile(root.resolve(PACKAGE_MANIFEST_FILE))) return null;
+		Path selected = packagedMapping(root);
+		if (!selected.equals(mapping)) return null;
+		if (selection.definitions != null || selection.authenticArchive != null
+			|| selection.customArchive != null || selection.spritepacks != null
+			|| selection.externalItems != null) {
+			throw new IOException("A versioned provider package is already complete. "
+				+ "Select its full mapping without additional guided-import assets.");
+		}
+		return root;
 	}
 
 	private Candidate explicitCandidate(Path root) throws IOException {
