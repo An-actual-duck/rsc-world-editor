@@ -151,7 +151,7 @@ def provider_visual(
     role: str,
     source_asset: str | None,
     source_hash: str | None,
-    logical: str,
+    logical: str | None,
     *,
     authentic: int | None = None,
     subspace: str | None = None,
@@ -4436,7 +4436,7 @@ public final class FakeAdaptiveClient {
             external.write_bytes(one_pixel_png(0xABCDEF))
             records = [
                 provider_visual(42, "Unrelated packaged item", "unresolved", None,
-                    None, "unresolved/42"),
+                    None, None),
                 provider_visual(9000, "Custom item", "asset.sprite.custom",
                     "assets/Custom_Sprites.osar", sha256(custom),
                     "custom/items/custom_9000", subspace="items", entry="custom_9000",
@@ -4485,6 +4485,15 @@ public final class FakeAdaptiveClient {
             self.assertEqual("world_builder_provider", evidence[0]["customSpriteSubspace"])
             self.assertEqual("world_builder_provider", evidence[2]["customSpriteSubspace"])
             self.assertEqual("world_builder_provider", evidence[3]["customSpriteSubspace"])
+            merged_authentic = (project /
+                "source/content-bundle/files/client/Cache/video/Authentic_Sprites.orsc")
+            with zipfile.ZipFile(merged_authentic) as archive:
+                self.assertEqual(
+                    {"sprites/base.bin", "sprites/417.dat"}, set(archive.namelist())
+                )
+                self.assertEqual(b"fixture authentic sprites",
+                    archive.read("sprites/base.bin"))
+                self.assertEqual(b"authentic-417", archive.read("sprites/417.dat"))
             provider_report = json.loads((project /
                 "diagnostics/item-visual-provider-warnings.json").read_text(encoding="utf-8"))
             self.assertEqual([], provider_report["warnings"])
@@ -4499,6 +4508,7 @@ public final class FakeAdaptiveClient {
             "unsafe-path": None,
             "hash-mismatch": None,
             "duplicate": None,
+            "unresolved": None,
         }
         for case, raw_manifest in cases.items():
             with self.subTest(case=case), tempfile.TemporaryDirectory(
@@ -4536,6 +4546,19 @@ public final class FakeAdaptiveClient {
                         changed = dict(record)
                         changed["name"] = "Contradictory duplicate"
                         records.append(changed)
+                    elif case == "unresolved":
+                        record.update({
+                            "logicalSpriteLocation": None,
+                            "sourceRole": "unresolved",
+                            "sourceAsset": None,
+                            "sourceAssetSha256": None,
+                            "authenticSpriteId": None,
+                            "customSpriteSubspace": None,
+                            "customSpriteEntry": None,
+                            "externalPng": None,
+                            "pictureMask": 0,
+                            "blueMask": 0,
+                        })
                     write_json(manifest, {"schemaVersion": 1,
                         "manifestType": "world-builder-item-visual-mapping",
                         "itemVisuals": records})
@@ -4571,6 +4594,9 @@ public final class FakeAdaptiveClient {
                     self.assertTrue(all(item["status"] == "placeholder"
                         for item in warning["items"]))
                     self.assertTrue(warning["warnings"])
+                    if case == "unresolved":
+                        self.assertIn("PROVIDER_UNRESOLVED",
+                            [item["code"] for item in warning["warnings"]])
                     generated.append((evidence, custom))
                 self.assertEqual(generated[0], generated[1])
                 self.assertEqual(target_before, tree_bytes(target))

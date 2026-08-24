@@ -28,6 +28,7 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
+import java.util.zip.ZipOutputStream;
 
 import javax.imageio.ImageIO;
 
@@ -105,9 +106,10 @@ final class WorldBuilderItemVisualProvider {
 		}
 
 		Map<Path,Osar> osars = new HashMap<Path,Osar>();
-		Map<Path,Set<Integer>> authentic = new HashMap<Path,Set<Integer>>();
-		Path authenticOverride = null;
-		String authenticOverrideHash = null;
+		Map<Path,Map<Integer,String>> authentic =
+			new HashMap<Path,Map<Integer,String>>();
+		Map<Path,Set<String>> authenticSelections =
+			new TreeMap<Path,Set<String>>();
 		if (root != null) {
 			@SuppressWarnings("unchecked") List<Object> records = (List<Object>)root.get("itemVisuals");
 			long previousId = -1L;
@@ -137,13 +139,12 @@ final class WorldBuilderItemVisualProvider {
 					if (!required.contains(Integer.valueOf(record.itemId))) continue;
 					Resolved value = resolve(record, osars, authentic);
 					if (value.authenticAsset != null) {
-						if (authenticOverrideHash != null
-							&& !authenticOverrideHash.equals(record.sourceAssetSha256)) {
-							throw new Rejected("PROVIDER_AUTHENTIC_CONFLICT",
-								"Required authentic visuals select more than one archive.");
+						Set<String> selected = authenticSelections.get(value.authenticAsset);
+						if (selected == null) {
+							selected = new TreeSet<String>();
+							authenticSelections.put(value.authenticAsset, selected);
 						}
-						authenticOverride = value.authenticAsset;
-						authenticOverrideHash = record.sourceAssetSha256;
+						selected.add(value.authenticEntry);
 					}
 					resolved.put(Integer.valueOf(record.itemId), value);
 				} catch (Rejected invalid) {
@@ -193,6 +194,9 @@ final class WorldBuilderItemVisualProvider {
 		byte[] customOverride = generated.isEmpty() ? null
 			: appendGeneratedSubspace(copiedTarget.resolve(
 				"Client_Base/Cache/video/Custom_Sprites.osar"), generated);
+		byte[] authenticOverride = authenticSelections.isEmpty() ? null
+			: mergeAuthenticArchive(copiedTarget.resolve(
+				"Client_Base/Cache/video/Authentic_Sprites.orsc"), authenticSelections);
 		return new Result(canonical, customOverride, authenticOverride,
 			manifestHash, items, warnings);
 	}
@@ -221,15 +225,22 @@ final class WorldBuilderItemVisualProvider {
 			"Provider item visual has missing or unfamiliar fields.");
 		int itemId = integer(value.get("itemId"), 0, 65535, "itemId");
 		String name = text(value.get("name"), 1, 256, "name");
-		String logical = text(value.get("logicalSpriteLocation"), 1, 512,
-			"logicalSpriteLocation");
 		String role = text(value.get("sourceRole"), 1, 64, "sourceRole");
 		int pictureMask = integer(value.get("pictureMask"), Integer.MIN_VALUE,
 			Integer.MAX_VALUE, "pictureMask");
 		int blueMask = integer(value.get("blueMask"), Integer.MIN_VALUE,
 			Integer.MAX_VALUE, "blueMask");
-		if ("unresolved".equals(role)) throw new Rejected("PROVIDER_UNRESOLVED",
-			"Provider explicitly marks item " + itemId + " unresolved.");
+		if ("unresolved".equals(role)) {
+			for (String field : Arrays.asList("logicalSpriteLocation", "sourceAsset",
+				"sourceAssetSha256", "authenticSpriteId", "customSpriteSubspace",
+				"customSpriteEntry", "externalPng")) requireNull(value.get(field), field);
+			if (pictureMask != 0 || blueMask != 0) throw new Rejected(
+				"PROVIDER_UNRESOLVED_INVALID", "Unresolved provider masks must default to zero.");
+			throw new Rejected("PROVIDER_UNRESOLVED",
+				"Provider explicitly marks item " + itemId + " unresolved.");
+		}
+		String logical = text(value.get("logicalSpriteLocation"), 1, 512,
+			"logicalSpriteLocation");
 		if (!("asset.sprite.authentic".equals(role) || CUSTOM_ROLE.equals(role)
 			|| "asset.spritepack".equals(role) || "asset.sprite.external".equals(role))) {
 			throw new Rejected("PROVIDER_ROLE_UNKNOWN",
@@ -275,7 +286,7 @@ final class WorldBuilderItemVisualProvider {
 	}
 
 	private static Resolved resolve(ProviderRecord record, Map<Path,Osar> osars,
-		Map<Path,Set<Integer>> authentic) throws Rejected {
+		Map<Path,Map<Integer,String>> authentic) throws Rejected {
 		try {
 			if (Files.size(record.sourceAsset) < 1L
 				|| Files.size(record.sourceAsset) > MAX_ASSET_BYTES
@@ -284,14 +295,15 @@ final class WorldBuilderItemVisualProvider {
 					"Provider asset is missing, oversized, or differs from its bound SHA-256.");
 			}
 			if ("asset.sprite.authentic".equals(record.sourceRole)) {
-				Set<Integer> ids = authentic.get(record.sourceAsset);
+				Map<Integer,String> ids = authentic.get(record.sourceAsset);
 				if (ids == null) {
-					ids = authenticIds(record.sourceAsset);
+					ids = authenticEntries(record.sourceAsset);
 					authentic.put(record.sourceAsset, ids);
 				}
-				if (!ids.contains(Integer.valueOf(record.authenticSpriteId))) throw new Rejected(
+				String entry = ids.get(Integer.valueOf(record.authenticSpriteId));
+				if (entry == null) throw new Rejected(
 					"PROVIDER_ASSET_ENTRY_MISSING", "Authentic archive lacks the declared sprite ID.");
-				return Resolved.authentic(record, record.sourceAsset);
+				return Resolved.authentic(record, record.sourceAsset, entry);
 			}
 			if (CUSTOM_ROLE.equals(record.sourceRole) || "asset.spritepack".equals(record.sourceRole)) {
 				Osar archive = osars.get(record.sourceAsset);
@@ -396,8 +408,8 @@ final class WorldBuilderItemVisualProvider {
 		return bytes.toByteArray();
 	}
 
-	private static Set<Integer> authenticIds(Path path) throws IOException, Rejected {
-		Set<Integer> ids = new HashSet<Integer>();
+	private static Map<Integer,String> authenticEntries(Path path) throws IOException, Rejected {
+		Map<Integer,String> ids = new HashMap<Integer,String>();
 		Set<String> folded = new HashSet<String>();
 		try (ZipFile archive = new ZipFile(path.toFile())) {
 			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
@@ -412,10 +424,70 @@ final class WorldBuilderItemVisualProvider {
 					"PROVIDER_AUTHENTIC_INVALID", "Authentic archive names collide.");
 				String leaf = name.substring(name.lastIndexOf('/') + 1);
 				if (leaf.endsWith(".dat")) leaf = leaf.substring(0, leaf.length() - 4);
-				if (leaf.matches("[0-9]{1,5}")) ids.add(Integer.valueOf(Integer.parseInt(leaf)));
+				if (leaf.matches("[0-9]{1,5}")) {
+					Integer id = Integer.valueOf(Integer.parseInt(leaf));
+					if (ids.put(id, name) != null) throw new Rejected(
+						"PROVIDER_AUTHENTIC_INVALID", "Authentic archive repeats a sprite ID.");
+				}
 			}
 		}
 		return ids;
+	}
+
+	private static byte[] mergeAuthenticArchive(Path target,
+		Map<Path,Set<String>> selections)
+		throws IOException, WorldBuilderContractException {
+		TreeMap<String,byte[]> entries = new TreeMap<String,byte[]>();
+		Set<String> folded = new HashSet<String>();
+		readZipEntries(target, null, entries, folded);
+		for (Map.Entry<Path,Set<String>> selection : selections.entrySet()) {
+			readZipEntries(selection.getKey(), selection.getValue(), entries, folded);
+		}
+		ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+		try (ZipOutputStream output = new ZipOutputStream(bytes)) {
+			for (Map.Entry<String,byte[]> entry : entries.entrySet()) {
+				ZipEntry zip = new ZipEntry(entry.getKey());
+				zip.setTime(0L);
+				output.putNextEntry(zip);
+				output.write(entry.getValue());
+				output.closeEntry();
+			}
+		}
+		return bytes.toByteArray();
+	}
+
+	private static void readZipEntries(Path path, Set<String> selected,
+		Map<String,byte[]> destination, Set<String> folded)
+		throws IOException, WorldBuilderContractException {
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (entry.isDirectory() || selected != null && !selected.contains(entry.getName())) continue;
+				String name = entry.getName();
+				WorldBuilderPortablePath.require(name, "item-visual-provider");
+				String lower = name.toLowerCase(Locale.ROOT);
+				String exactExisting = null;
+				for (String candidate : destination.keySet()) {
+					if (candidate.toLowerCase(Locale.ROOT).equals(lower)) exactExisting = candidate;
+				}
+				if (exactExisting != null && !exactExisting.equals(name)) throw new WorldBuilderContractException(
+					WorldBuilderErrorCodes.UNSAFE_PATH, "item-visual-provider", name, false,
+					"Selected authentic sprite name collides with existing archive content.",
+					"Use an authentic provider archive with exact portable entry names.");
+				try (InputStream input = archive.getInputStream(entry);
+					ByteArrayOutputStream payload = new ByteArrayOutputStream()) {
+					byte[] buffer = new byte[8192];
+					for (int read; (read = input.read(buffer)) >= 0;) {
+						if ((long)payload.size() + read > MAX_ASSET_BYTES) throw new IOException(
+							"authentic entry exceeds bound");
+						payload.write(buffer, 0, read);
+					}
+					destination.put(name, payload.toByteArray());
+					folded.add(lower);
+				}
+			}
+		}
 	}
 
 	private static Osar readOsar(Path path) throws IOException, Rejected {
@@ -604,11 +676,11 @@ final class WorldBuilderItemVisualProvider {
 	static final class Result {
 		final List<Object> itemVisuals;
 		final byte[] customArchiveOverride;
-		final Path authenticArchiveOverride;
+		final byte[] authenticArchiveOverride;
 		final String manifestSha256;
 		final List<ItemReport> items;
 		final List<Warning> warnings;
-		Result(List<Object> visuals, byte[] custom, Path authentic, String manifestHash,
+		Result(List<Object> visuals, byte[] custom, byte[] authentic, String manifestHash,
 			List<ItemReport> items, List<Warning> warnings) {
 			this.itemVisuals = Collections.unmodifiableList(new ArrayList<Object>(visuals));
 			this.customArchiveOverride = custom;
@@ -624,18 +696,21 @@ final class WorldBuilderItemVisualProvider {
 		final int authenticSpriteId, pictureMask, blueMask;
 		final byte[] spriteEntry;
 		final Path authenticAsset;
-		private Resolved(ProviderRecord record, byte[] entry, Path authenticAsset) {
+		final String authenticEntry;
+		private Resolved(ProviderRecord record, byte[] entry, Path authenticAsset,
+			String authenticEntry) {
 			this.name = record.name; this.sourceRole = record.sourceRole;
 			this.logicalLocation = record.logicalSpriteLocation;
 			this.authenticSpriteId = record.authenticSpriteId;
 			this.pictureMask = record.pictureMask; this.blueMask = record.blueMask;
 			this.spriteEntry = entry; this.authenticAsset = authenticAsset;
+			this.authenticEntry = authenticEntry;
 		}
 		static Resolved sprite(ProviderRecord record, byte[] entry) {
-			return new Resolved(record, entry, null);
+			return new Resolved(record, entry, null, null);
 		}
-		static Resolved authentic(ProviderRecord record, Path path) {
-			return new Resolved(record, null, path);
+		static Resolved authentic(ProviderRecord record, Path path, String entry) {
+			return new Resolved(record, null, path, entry);
 		}
 	}
 

@@ -195,8 +195,7 @@ final class WorldBuilderProjectContentBundle {
 				overridden = true;
 			} else if (migration != null && "asset.sprite.authentic".equals(spec.role)
 				&& migration.authenticArchiveOverride != null) {
-				Files.copy(migration.authenticArchiveOverride, destination,
-					StandardCopyOption.REPLACE_EXISTING);
+				Files.write(destination, migration.authenticArchiveOverride);
 				overridden = true;
 			}
 			long size = Files.size(destination);
@@ -1512,7 +1511,7 @@ final class WorldBuilderProjectContentBundle {
 	private static final class ItemVisualMigration {
 		final List<Object> itemVisuals;
 		final byte[] customArchiveOverride;
-		final Path authenticArchiveOverride;
+		final byte[] authenticArchiveOverride;
 		final WorldBuilderItemVisualProvider.Result provider;
 
 		ItemVisualMigration(List<Object> itemVisuals,

@@ -33,7 +33,12 @@
       "properties": {
         "itemId": {"type": "integer", "minimum": 0, "maximum": 65535},
         "name": {"type": "string", "minLength": 1, "maxLength": 256},
-        "logicalSpriteLocation": {"type": "string", "minLength": 1, "maxLength": 512},
+        "logicalSpriteLocation": {
+          "anyOf": [
+            {"type": "string", "minLength": 1, "maxLength": 512},
+            {"type": "null"}
+          ]
+        },
         "sourceRole": {
           "enum": [
             "asset.sprite.authentic", "asset.sprite.custom",
@@ -53,7 +58,25 @@
         "externalPng": {"anyOf": [{"$ref": "#/$defs/externalPng"}, {"type": "null"}]},
         "pictureMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "blueMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"sourceRole": {"const": "unresolved"}}},
+          "then": {
+            "properties": {
+              "logicalSpriteLocation": {"type": "null"},
+              "sourceAsset": {"type": "null"},
+              "sourceAssetSha256": {"type": "null"},
+              "authenticSpriteId": {"type": "null"},
+              "customSpriteSubspace": {"type": "null"},
+              "customSpriteEntry": {"type": "null"},
+              "externalPng": {"type": "null"},
+              "pictureMask": {"const": 0},
+              "blueMask": {"const": 0}
+            }
+          }
+        }
+      ]
     },
     "externalPng": {
       "type": "object",
