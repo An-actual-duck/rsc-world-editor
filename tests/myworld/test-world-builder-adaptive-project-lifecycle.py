@@ -4517,6 +4517,7 @@ public final class FakeAdaptiveClient {
             "hash-mismatch": None,
             "duplicate": None,
             "unresolved": None,
+            "nested-symlink-escape": None,
         }
         for case, raw_manifest in cases.items():
             with self.subTest(case=case), tempfile.TemporaryDirectory(
@@ -4536,13 +4537,23 @@ public final class FakeAdaptiveClient {
                 asset.write_bytes(self.fixtures.fixture_osar([
                     ("items", [("0", self.fixtures.fixture_sprite_entry())]),
                 ]))
+                asset_hash = sha256(asset)
+                outside_asset = None
+                if case == "nested-symlink-escape":
+                    outside = base / "outside-provider-root"
+                    outside.mkdir()
+                    outside_asset = outside / "Custom_Sprites.osar"
+                    asset.replace(outside_asset)
+                    asset.parent.rmdir()
+                    os.symlink(outside, asset.parent, target_is_directory=True)
+                    outside_asset.chmod(0)
                 manifest = provider / "item-visuals.json"
                 if raw_manifest is not None:
                     manifest.write_bytes(raw_manifest)
                 else:
                     record = provider_visual(9000, "Target 9000",
                         "asset.sprite.custom", "assets/Custom_Sprites.osar",
-                        sha256(asset), "custom/items/0", subspace="items", entry="0")
+                        asset_hash, "custom/items/0", subspace="items", entry="0")
                     records = [record]
                     if case == "unknown-role":
                         record["sourceRole"] = "future.sprite.role"
@@ -4605,9 +4616,14 @@ public final class FakeAdaptiveClient {
                     if case == "unresolved":
                         self.assertIn("PROVIDER_UNRESOLVED",
                             [item["code"] for item in warning["warnings"]])
+                    if case == "nested-symlink-escape":
+                        self.assertIn("PROVIDER_ASSET_PATH_UNSAFE",
+                            [item["code"] for item in warning["warnings"]])
                     generated.append((evidence, custom))
                 self.assertEqual(generated[0], generated[1])
                 self.assertEqual(target_before, tree_bytes(target))
+                if outside_asset is not None:
+                    outside_asset.chmod(0o600)
 
     def test_item_visual_mapping_malformed_and_ambiguous_inputs_fail_closed(self):
         cases = {}

@@ -19,7 +19,7 @@
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "portablePath": {
       "type": "string", "minLength": 1, "maxLength": 512,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[A-Za-z0-9._ -]+(?:/[A-Za-z0-9._ -]+)*$"
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*[. ](?:/|$))(?!.*\\\\)[A-Za-z0-9._ -]+(?:/[A-Za-z0-9._ -]+)*$"
     },
     "itemVisual": {
       "type": "object",
@@ -59,21 +59,77 @@
         "pictureMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "blueMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
       },
-      "allOf": [
+      "oneOf": [
         {
-          "if": {"properties": {"sourceRole": {"const": "unresolved"}}},
-          "then": {
-            "properties": {
-              "logicalSpriteLocation": {"type": "null"},
-              "sourceAsset": {"type": "null"},
-              "sourceAssetSha256": {"type": "null"},
-              "authenticSpriteId": {"type": "null"},
-              "customSpriteSubspace": {"type": "null"},
-              "customSpriteEntry": {"type": "null"},
-              "externalPng": {"type": "null"},
-              "pictureMask": {"const": 0},
-              "blueMask": {"const": 0}
-            }
+          "properties": {
+            "sourceRole": {"const": "asset.sprite.authentic"},
+            "logicalSpriteLocation": {"type": "string", "pattern": "^authentic/(?:0|[1-9][0-9]{0,4})$"},
+            "sourceAsset": {"const": "assets/Authentic_Sprites.orsc"},
+            "sourceAssetSha256": {"$ref": "#/$defs/sha256"},
+            "authenticSpriteId": {"type": "integer", "minimum": 0, "maximum": 65535},
+            "customSpriteSubspace": {"type": "null"},
+            "customSpriteEntry": {"type": "null"},
+            "externalPng": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "sourceRole": {"const": "asset.sprite.custom"},
+            "logicalSpriteLocation": {"type": "string", "pattern": "^custom/.+/.+$"},
+            "sourceAsset": {"const": "assets/Custom_Sprites.osar"},
+            "sourceAssetSha256": {"$ref": "#/$defs/sha256"},
+            "authenticSpriteId": {"type": "null"},
+            "customSpriteSubspace": {"$ref": "#/$defs/portablePath"},
+            "customSpriteEntry": {"$ref": "#/$defs/portablePath"},
+            "externalPng": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "sourceRole": {"const": "asset.spritepack"},
+            "logicalSpriteLocation": {"type": "string", "pattern": "^spritepack/.+/.+$"},
+            "sourceAsset": {
+              "allOf": [
+                {"$ref": "#/$defs/portablePath"},
+                {"type": "string", "pattern": "^assets/spritepacks/.+\\.osar$"}
+              ]
+            },
+            "sourceAssetSha256": {"$ref": "#/$defs/sha256"},
+            "authenticSpriteId": {"type": "null"},
+            "customSpriteSubspace": {"$ref": "#/$defs/portablePath"},
+            "customSpriteEntry": {"$ref": "#/$defs/portablePath"},
+            "externalPng": {"type": "null"}
+          }
+        },
+        {
+          "properties": {
+            "sourceRole": {"const": "asset.sprite.external"},
+            "logicalSpriteLocation": {"type": "string", "pattern": "^external/assets/external-items/.+\\.[Pp][Nn][Gg]$"},
+            "sourceAsset": {
+              "allOf": [
+                {"$ref": "#/$defs/portablePath"},
+                {"type": "string", "pattern": "^assets/external-items/.+\\.[Pp][Nn][Gg]$"}
+              ]
+            },
+            "sourceAssetSha256": {"$ref": "#/$defs/sha256"},
+            "authenticSpriteId": {"type": "null"},
+            "customSpriteSubspace": {"type": "null"},
+            "customSpriteEntry": {"type": "null"},
+            "externalPng": {"$ref": "#/$defs/externalPng"}
+          }
+        },
+        {
+          "properties": {
+            "sourceRole": {"const": "unresolved"},
+            "logicalSpriteLocation": {"type": "null"},
+            "sourceAsset": {"type": "null"},
+            "sourceAssetSha256": {"type": "null"},
+            "authenticSpriteId": {"type": "null"},
+            "customSpriteSubspace": {"type": "null"},
+            "customSpriteEntry": {"type": "null"},
+            "externalPng": {"type": "null"},
+            "pictureMask": {"const": 0},
+            "blueMask": {"const": 0}
           }
         }
       ]

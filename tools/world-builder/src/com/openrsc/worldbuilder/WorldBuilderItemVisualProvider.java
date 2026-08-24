@@ -363,11 +363,42 @@ final class WorldBuilderItemVisualProvider {
 		String safe = portable(relative);
 		if (!safe.startsWith("assets/")) throw new Rejected("PROVIDER_ASSET_PATH_UNSAFE",
 			"Provider assets must be beneath the assets directory.");
-		Path value = root.resolve(safe).normalize();
-		if (!value.startsWith(root) || !Files.isRegularFile(value, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(value)) throw new Rejected("PROVIDER_ASSET_MISSING",
+		Path normalizedRoot = root.toAbsolutePath().normalize();
+		Path value = normalizedRoot.resolve(safe).normalize();
+		if (!value.startsWith(normalizedRoot)) throw new Rejected(
+			"PROVIDER_ASSET_PATH_UNSAFE", "Provider asset escapes its declared root.");
+		try {
+			Path realRoot = normalizedRoot.toRealPath();
+			if (!realRoot.equals(normalizedRoot)) throw new Rejected(
+				"PROVIDER_ASSET_PATH_UNSAFE",
+				"Provider root is reached through a symbolic-link component.");
+			Path current = normalizedRoot;
+			Path relativePath = normalizedRoot.relativize(value);
+			for (int index = 0; index < relativePath.getNameCount(); index++) {
+				current = current.resolve(relativePath.getName(index));
+				if (Files.isSymbolicLink(current)) throw new Rejected(
+					"PROVIDER_ASSET_PATH_UNSAFE",
+					"Provider asset is reached through a symbolic-link component.");
+				boolean last = index == relativePath.getNameCount() - 1;
+				if (!last && !Files.isDirectory(current, LinkOption.NOFOLLOW_LINKS)) {
+					throw new Rejected("PROVIDER_ASSET_MISSING",
+						"Provider asset parent is absent or not a real directory.");
+				}
+			}
+			if (!Files.isRegularFile(value, LinkOption.NOFOLLOW_LINKS)) throw new Rejected(
+				"PROVIDER_ASSET_MISSING",
 				"Provider asset is absent or not a safe regular file: " + safe + ".");
-		return value;
+			Path realValue = value.toRealPath();
+			if (!realValue.startsWith(realRoot) || !realValue.equals(value)) throw new Rejected(
+				"PROVIDER_ASSET_PATH_UNSAFE",
+				"Provider asset resolves outside its real provider root.");
+			return realValue;
+		} catch (Rejected invalid) {
+			throw invalid;
+		} catch (IOException unavailable) {
+			throw new Rejected("PROVIDER_ASSET_MISSING",
+				"Provider asset could not be resolved without following links: " + safe + ".");
+		}
 	}
 
 	private static String portable(String value) throws Rejected {
