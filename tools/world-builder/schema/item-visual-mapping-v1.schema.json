@@ -1,7 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://openrsc.com/world-builder/item-visual-mapping-v1.schema.json",
-  "title": "World Builder item visual mapping input v1",
+  "$id": "https://rsc-world-editor.invalid/world-builder/item-visual-mapping-v1.schema.json",
+  "title": "Neutral World Builder item-visual provider v1",
+  "$comment": "Producer schema. Consumers quarantine safely invalid manifests or records into deterministic project-local placeholders and warnings rather than opening untrusted paths or blocking project launch.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "manifestType", "itemVisuals"],
@@ -10,43 +11,60 @@
     "manifestType": {"const": "world-builder-item-visual-mapping"},
     "itemVisuals": {
       "type": "array",
-      "minItems": 1,
       "maxItems": 65536,
       "items": {"$ref": "#/$defs/itemVisual"}
     }
   },
   "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "portablePath": {
+      "type": "string", "minLength": 1, "maxLength": 512,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\)[A-Za-z0-9._ -]+(?:/[A-Za-z0-9._ -]+)*$"
+    },
     "itemVisual": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["itemId", "authenticSpriteId", "customSpriteAssetRole", "customSpriteSubspace", "customSpriteEntry", "pictureMask", "blueMask"],
+      "required": [
+        "itemId", "name", "logicalSpriteLocation", "sourceRole",
+        "sourceAsset", "sourceAssetSha256", "authenticSpriteId",
+        "customSpriteSubspace", "customSpriteEntry", "externalPng",
+        "pictureMask", "blueMask"
+      ],
       "properties": {
         "itemId": {"type": "integer", "minimum": 0, "maximum": 65535},
-        "authenticSpriteId": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
-        "customSpriteAssetRole": {"enum": ["asset.sprite.custom", "asset.spritepack", null]},
-        "customSpriteSubspace": {"type": ["string", "null"]},
-        "customSpriteEntry": {"type": ["string", "null"]},
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "logicalSpriteLocation": {"type": "string", "minLength": 1, "maxLength": 512},
+        "sourceRole": {
+          "enum": [
+            "asset.sprite.authentic", "asset.sprite.custom",
+            "asset.spritepack", "asset.sprite.external", "unresolved"
+          ]
+        },
+        "sourceAsset": {"anyOf": [{"$ref": "#/$defs/portablePath"}, {"type": "null"}]},
+        "sourceAssetSha256": {"anyOf": [{"$ref": "#/$defs/sha256"}, {"type": "null"}]},
+        "authenticSpriteId": {
+          "anyOf": [
+            {"type": "integer", "minimum": 0, "maximum": 65535},
+            {"type": "null"}
+          ]
+        },
+        "customSpriteSubspace": {"anyOf": [{"$ref": "#/$defs/portablePath"}, {"type": "null"}]},
+        "customSpriteEntry": {"anyOf": [{"$ref": "#/$defs/portablePath"}, {"type": "null"}]},
+        "externalPng": {"anyOf": [{"$ref": "#/$defs/externalPng"}, {"type": "null"}]},
         "pictureMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647},
         "blueMask": {"type": "integer", "minimum": -2147483648, "maximum": 2147483647}
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "authenticSpriteId": {"type": "integer"},
-            "customSpriteAssetRole": {"type": "null"},
-            "customSpriteSubspace": {"type": "null"},
-            "customSpriteEntry": {"type": "null"}
-          }
-        },
-        {
-          "properties": {
-            "authenticSpriteId": {"type": "null"},
-            "customSpriteAssetRole": {"enum": ["asset.sprite.custom", "asset.spritepack"]},
-            "customSpriteSubspace": {"type": "string", "minLength": 1},
-            "customSpriteEntry": {"type": "string", "minLength": 1}
-          }
-        }
-      ]
+      }
+    },
+    "externalPng": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["relativePath", "sha256", "width", "height"],
+      "properties": {
+        "relativePath": {"$ref": "#/$defs/portablePath"},
+        "sha256": {"$ref": "#/$defs/sha256"},
+        "width": {"type": "integer", "minimum": 1, "maximum": 4096},
+        "height": {"type": "integer", "minimum": 1, "maximum": 4096}
+      }
     }
   }
 }
