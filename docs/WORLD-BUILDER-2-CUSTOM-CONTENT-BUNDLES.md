@@ -170,14 +170,47 @@ fields as the evidence schema. Partial, contradictory, missing, malformed, or
 archive-ambiguous data is never guessed.
 
 Unresolved IDs can be supplied during creation with
-`--item-visual-mappings <mapping.json>`, or by choosing the optional mapping
-JSON in the desktop source dialog. The strict input has `schemaVersion: 1`,
-`manifestType: "world-builder-item-visual-mapping"`, and an ascending
-`itemVisuals` array using the table above. It may name only required
-beyond-packaged IDs. Existing valid `item-visuals-v1` evidence always wins;
-otherwise declarative and explicit records must agree exactly.
+`--item-visual-mappings <world-builder-provider/item-visuals.json>`, or by
+choosing that file in the desktop source dialog. The neutral provider layout is:
 
-The Editor writes the canonical `world-builder-item-visual-evidence` document
+```text
+world-builder-provider/
+  item-visuals.json
+  assets/
+    Authentic_Sprites.orsc
+    Custom_Sprites.osar
+    spritepacks/
+    external-items/
+```
+
+The producer contract has `schemaVersion: 1`, `manifestType:
+"world-builder-item-visual-mapping"`, and unique ascending `itemVisuals` records.
+Each record binds `itemId` and `name` to `logicalSpriteLocation`, `sourceRole`, a
+portable `sourceAsset`, its lowercase `sourceAssetSha256`, exact selectors,
+signed `pictureMask`/`blueMask`, and (for external PNGs) the repeated path/hash
+plus bounded width and height. The exact schema is
+`tools/world-builder/schema/item-visual-mapping-v1.schema.json`.
+
+A provider may contain a complete catalog, including packaged or unrelated
+items. Creation deterministically selects only the target's required
+beyond-packaged IDs. Authentic archives, custom OSARs, any selected spritepack,
+and external RGB PNGs are hash-checked without loading target JARs. Custom,
+spritepack, and external frames are normalized into a generated project-local
+custom OSAR subspace; authentic records retain their exact archive ID and bind
+the selected authentic archive. Only selected authentic entries are merged into
+the captured target archive copy; unrelated authentic entries are retained.
+
+Provider input is resilient by design. A missing manifest, malformed manifest,
+unknown role, unsafe path, bad selector, missing/hash-mismatched asset, unreadable
+frame, unresolved record, or newly encountered item ID is never executed and
+never prevents project creation or launch. Unsafe content is not opened. Each
+affected required ID receives a deterministic one-frame placeholder while its
+ID/name association is retained. Sorted actionable results are written to
+`diagnostics/item-visual-provider-warnings.json`. Producer/schema violations
+remain visible there; they are not silently accepted as valid visuals.
+
+The Editor writes the canonical runtime-compatible
+`world-builder-item-visual-evidence` document
 only to `source/content-bundle/files/server/conf/world-builder/` in project
 staging. It is not added to `source/original` and no selected-server byte is
 changed. Full bundle validation, archive-entry closure, target revalidation,

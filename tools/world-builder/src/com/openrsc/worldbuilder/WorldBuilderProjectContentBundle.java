@@ -157,9 +157,10 @@ final class WorldBuilderProjectContentBundle {
 		Set<Integer> beyondPackaged = differenceIds(
 			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
 		List<Object> itemVisuals;
+		ItemVisualMigration migration = null;
 		boolean successor = !beyondPackaged.isEmpty();
 		if (successor) {
-			ItemVisualMigration migration = migrateItemVisuals(copiedTarget,
+			migration = migrateItemVisuals(copiedTarget,
 				beyondPackaged, explicitMappings);
 			itemVisuals = migration.itemVisuals;
 		} else {
@@ -187,9 +188,19 @@ final class WorldBuilderProjectContentBundle {
 				validateFile(source, spec);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
+			boolean overridden = false;
+			if (migration != null && "asset.sprite.custom".equals(spec.role)
+				&& migration.customArchiveOverride != null) {
+				Files.write(destination, migration.customArchiveOverride);
+				overridden = true;
+			} else if (migration != null && "asset.sprite.authentic".equals(spec.role)
+				&& migration.authenticArchiveOverride != null) {
+				Files.write(destination, migration.authenticArchiveOverride);
+				overridden = true;
+			}
 			long size = Files.size(destination);
 			String hash = WorldBuilderHashes.sha256(destination);
-			if (Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
+			if (!overridden && Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
 				&& (size != Files.size(source)
 					|| !hash.equals(WorldBuilderHashes.sha256(source)))) {
 				throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, spec.targetPath,
@@ -198,6 +209,9 @@ final class WorldBuilderProjectContentBundle {
 			}
 			records.add(new FileRecord(spec, bundlePath, size, hash,
 				mediaType(spec, source, successor)));
+		}
+		if (migration != null && migration.provider != null) {
+			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
@@ -713,12 +727,27 @@ final class WorldBuilderProjectContentBundle {
 	private static ItemVisualMigration migrateItemVisuals(Path copiedTarget,
 		Set<Integer> required, Path explicitMappings)
 		throws IOException, WorldBuilderContractException {
+		Map<Integer,String> itemNames = targetItemNames(copiedTarget, required);
+		if (explicitMappings != null) {
+			if (isLegacyItemVisualMapping(explicitMappings)) {
+				Map<String,Object> mapping = readExplicitItemVisualMappings(explicitMappings);
+				List<Object> visuals = parseItemVisuals(mapping.get("itemVisuals"),
+					"legacy item visual mapping input");
+				requireExactVisualClosure(visuals, required);
+				validateItemVisualArchiveClosure(copiedTarget, visuals);
+				return new ItemVisualMigration(visuals, null);
+			}
+			WorldBuilderItemVisualProvider.Result provider =
+				WorldBuilderItemVisualProvider.consume(explicitMappings, copiedTarget,
+					required, itemNames);
+			return new ItemVisualMigration(provider.itemVisuals, provider);
+		}
 		Path existing = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
 		if (Files.isRegularFile(existing, LinkOption.NOFOLLOW_LINKS)) {
 			List<Object> visuals = validateItemVisualEvidence(existing);
 			requireExactVisualClosure(visuals, required);
 			validateItemVisualArchiveClosure(copiedTarget, visuals);
-			return new ItemVisualMigration(visuals);
+			return new ItemVisualMigration(visuals, null);
 		}
 
 		Map<Integer,Map<String,Object>> resolved =
@@ -759,23 +788,63 @@ final class WorldBuilderProjectContentBundle {
 
 		Set<Integer> unresolved = new TreeSet<Integer>(required);
 		unresolved.removeAll(resolved.keySet());
+		WorldBuilderItemVisualProvider.Result provider = null;
 		if (!unresolved.isEmpty()) {
-			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
-				ITEM_VISUAL_EVIDENCE_PATH,
-				"Project-local item visual migration needs explicit mappings for item IDs "
-					+ unresolved + ".",
-				"Supply --item-visual-mappings with schemaVersion 1, manifestType "
-					+ "world-builder-item-visual-mapping, and one itemVisuals record per ID. "
-					+ "Choose either authenticSpriteId or the exact asset.sprite.custom/"
-					+ "asset.spritepack subspace and entry, plus signed pictureMask and blueMask values.");
+			provider = WorldBuilderItemVisualProvider.consume(null, copiedTarget,
+				unresolved, itemNames);
+			for (Object raw : provider.itemVisuals) {
+				Map<String,Object> visual = object(raw, "generated item visual placeholder");
+				mergeVisual(resolved, visual, "generated item visual placeholder");
+			}
 		}
 		List<Object> visuals = new ArrayList<Object>();
 		for (Map<String,Object> visual : resolved.values()) {
 			visuals.add(new LinkedHashMap<String,Object>(visual));
 		}
 		requireExactVisualClosure(visuals, required);
-		validateItemVisualArchiveClosure(copiedTarget, visuals);
-		return new ItemVisualMigration(visuals);
+		return new ItemVisualMigration(visuals, provider);
+	}
+
+	private static boolean isLegacyItemVisualMapping(Path requested) {
+		try {
+			Map<String,Object> value = WorldBuilderJsonDocuments.readObject(
+				requested.toAbsolutePath().normalize());
+			Object raw = value.get("itemVisuals");
+			if (!(raw instanceof List) || ((List<?>)raw).isEmpty()
+				|| !(((List<?>)raw).get(0) instanceof Map)) return false;
+			@SuppressWarnings("unchecked") Map<String,Object> first =
+				(Map<String,Object>)((List<?>)raw).get(0);
+			return first.containsKey("authenticSpriteId") && !first.containsKey("name")
+				&& first.keySet().equals(new HashSet<String>(Arrays.asList("itemId",
+					"authenticSpriteId", "customSpriteAssetRole", "customSpriteSubspace",
+					"customSpriteEntry", "pictureMask", "blueMask")));
+		} catch (Exception invalidOrUnreadable) {
+			return false;
+		}
+	}
+
+	private static Map<Integer,String> targetItemNames(Path root, Set<Integer> required)
+		throws IOException, WorldBuilderContractException {
+		Map<Integer,String> result = new TreeMap<Integer,String>();
+		for (String role : Arrays.asList("definition.item.base", "definition.item.custom",
+			"definition.item.world", "definition.item.patch")) {
+			for (Object raw : jsonArray(root, role,
+				"definition.item.base".equals(role) ? new String[] {"item"}
+					: "definition.item.patch".equals(role)
+						? new String[] {"items", "item"} : new String[] {"items"})) {
+				@SuppressWarnings("unchecked") Map<String,Object> definition =
+					(Map<String,Object>)raw;
+				int itemId = (int)((Long)definition.get("id")).longValue();
+				if (!required.contains(Integer.valueOf(itemId))) continue;
+				Object name = definition.get("name");
+				String resolved = name instanceof String && !((String)name).trim().isEmpty()
+					? (String)name : "Item " + itemId;
+				// Later declarative patch/world records are the effective name, matching
+				// the catalog's established override order for a repeated item ID.
+				result.put(Integer.valueOf(itemId), resolved);
+			}
+		}
+		return result;
 	}
 
 	private static Map<String,Object> declarativeVisual(Map<String,Object> definition,
@@ -1441,10 +1510,19 @@ final class WorldBuilderProjectContentBundle {
 
 	private static final class ItemVisualMigration {
 		final List<Object> itemVisuals;
+		final byte[] customArchiveOverride;
+		final byte[] authenticArchiveOverride;
+		final WorldBuilderItemVisualProvider.Result provider;
 
-		ItemVisualMigration(List<Object> itemVisuals) {
+		ItemVisualMigration(List<Object> itemVisuals,
+			WorldBuilderItemVisualProvider.Result provider) {
 			this.itemVisuals = Collections.unmodifiableList(
 				new ArrayList<Object>(itemVisuals));
+			this.provider = provider;
+			this.customArchiveOverride = provider == null
+				? null : provider.customArchiveOverride;
+			this.authenticArchiveOverride = provider == null
+				? null : provider.authenticArchiveOverride;
 		}
 	}
 

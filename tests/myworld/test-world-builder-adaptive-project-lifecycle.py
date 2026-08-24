@@ -6,11 +6,13 @@ import importlib.util
 import json
 import os
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 
 
@@ -125,6 +127,53 @@ def write_json(path: Path, value: dict) -> None:
         json.dumps(value, sort_keys=True, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
+
+
+def one_pixel_png(color: int) -> bytes:
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(data)) + kind + data
+            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+        )
+
+    rgb = bytes((color >> 16 & 0xFF, color >> 8 & 0xFF, color & 0xFF))
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
+        + chunk(b"IDAT", zlib.compress(b"\0" + rgb))
+        + chunk(b"IEND", b"")
+    )
+
+
+def provider_visual(
+    item_id: int,
+    name: str,
+    role: str,
+    source_asset: str | None,
+    source_hash: str | None,
+    logical: str | None,
+    *,
+    authentic: int | None = None,
+    subspace: str | None = None,
+    entry: str | None = None,
+    external: dict | None = None,
+    picture_mask: int = 0,
+    blue_mask: int = 0,
+) -> dict:
+    return {
+        "itemId": item_id,
+        "name": name,
+        "logicalSpriteLocation": logical,
+        "sourceRole": role,
+        "sourceAsset": source_asset,
+        "sourceAssetSha256": source_hash,
+        "authenticSpriteId": authentic,
+        "customSpriteSubspace": subspace,
+        "customSpriteEntry": entry,
+        "externalPng": external,
+        "pictureMask": picture_mask,
+        "blueMask": blue_mask,
+    }
 
 
 def tree_bytes(root: Path, excluded: Path | None = None) -> dict[str, tuple]:
@@ -4232,13 +4281,8 @@ public final class FakeAdaptiveClient {
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
 
-    def test_beyond_packaged_item_visual_blockers_preserve_target_bytes(self):
+    def test_beyond_packaged_item_visual_archive_blockers_preserve_target_bytes(self):
         cases = {}
-
-        def missing_evidence(target: Path) -> None:
-            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
-
-        cases["missing-evidence"] = (missing_evidence, "needs explicit mappings")
 
         def missing_entry(target: Path) -> None:
             archive = target / "Client_Base/Cache/video/Custom_Sprites.osar"
@@ -4357,15 +4401,232 @@ public final class FakeAdaptiveClient {
             self.assertEqual(visuals, generated["itemVisuals"])
             self.assertEqual(before, tree_bytes(target))
 
+    def test_neutral_provider_resolves_all_asset_roles_and_preserves_masks(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-neutral-provider-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            (target / "Client_Base/Cache/video/Custom_Sprites.osar").write_bytes(
+                self.fixtures.fixture_osar([
+                    ("items", [("0", self.fixtures.fixture_sprite_entry(0x336699))]),
+                    ("world_builder_provider", [
+                        ("existing", self.fixtures.fixture_sprite_entry(0x010203)),
+                    ]),
+                ])
+            )
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsPatch18.json", {
+                "items": [{"id": 9002}, {"id": 9003}],
+            })
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+
+            provider = base / "world-builder-provider"
+            assets = provider / "assets"
+            assets.mkdir(parents=True)
+            authentic = assets / "Authentic_Sprites.orsc"
+            with zipfile.ZipFile(authentic, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("sprites/417.dat", b"authentic-417")
+            custom = assets / "Custom_Sprites.osar"
+            custom.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("custom_9000", self.fixtures.fixture_sprite_entry(0x123456))]),
+            ]))
+            spritepack = assets / "spritepacks/Items.osar"
+            spritepack.parent.mkdir()
+            spritepack.write_bytes(self.fixtures.fixture_osar([
+                ("pack", [("sprite_9002", self.fixtures.fixture_sprite_entry(0x654321))]),
+            ]))
+            external = assets / "external-items/9003.png"
+            external.parent.mkdir()
+            external.write_bytes(one_pixel_png(0xABCDEF))
+            records = [
+                provider_visual(42, "Unrelated packaged item", "unresolved", None,
+                    None, None),
+                provider_visual(9000, "Custom item", "asset.sprite.custom",
+                    "assets/Custom_Sprites.osar", sha256(custom),
+                    "custom/items/custom_9000", subspace="items", entry="custom_9000",
+                    picture_mask=0x102030, blue_mask=-1),
+                provider_visual(9001, "Authentic item", "asset.sprite.authentic",
+                    "assets/Authentic_Sprites.orsc", sha256(authentic),
+                    "authentic/417", authentic=417, picture_mask=-2, blue_mask=3),
+                provider_visual(9002, "Spritepack item", "asset.spritepack",
+                    "assets/spritepacks/Items.osar", sha256(spritepack),
+                    "spritepack/pack/sprite_9002", subspace="pack", entry="sprite_9002",
+                    picture_mask=4, blue_mask=5),
+                provider_visual(9003, "External item", "asset.sprite.external",
+                    "assets/external-items/9003.png", sha256(external),
+                    "external/assets/external-items/9003.png",
+                    external={"relativePath": "assets/external-items/9003.png",
+                              "sha256": sha256(external), "width": 1, "height": 1},
+                    picture_mask=6, blue_mask=-7),
+            ]
+            manifest = provider / "item-visuals.json"
+            write_json(manifest, {"schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": records})
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created = self.run_cli(
+                "create-project", "--installation-root", installation,
+                "--runtime-root", runtime, "--target-root", target,
+                "--discovery-report", report, "--display-name", "Neutral provider",
+                "--port", 43823, "--item-visual-mappings", manifest,
+                "--confirm", "CREATE",
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(json.loads(created.stdout)["projectRoot"])
+            evidence = json.loads((project /
+                "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+            ).read_text(encoding="utf-8"))["itemVisuals"]
+            self.assertEqual([9000, 9001, 9002, 9003],
+                [record["itemId"] for record in evidence])
+            self.assertEqual([(0x102030, -1), (-2, 3), (4, 5), (6, -7)],
+                [(record["pictureMask"], record["blueMask"]) for record in evidence])
+            self.assertEqual(417, evidence[1]["authenticSpriteId"])
+            self.assertEqual("world_builder_provider_2", evidence[0]["customSpriteSubspace"])
+            self.assertEqual("world_builder_provider_2", evidence[2]["customSpriteSubspace"])
+            self.assertEqual("world_builder_provider_2", evidence[3]["customSpriteSubspace"])
+            merged_authentic = (project /
+                "source/content-bundle/files/client/Cache/video/Authentic_Sprites.orsc")
+            with zipfile.ZipFile(merged_authentic) as archive:
+                self.assertEqual(
+                    {"sprites/base.bin", "sprites/417.dat"}, set(archive.namelist())
+                )
+                self.assertEqual(b"fixture authentic sprites",
+                    archive.read("sprites/base.bin"))
+                self.assertEqual(b"authentic-417", archive.read("sprites/417.dat"))
+            provider_report = json.loads((project /
+                "diagnostics/item-visual-provider-warnings.json").read_text(encoding="utf-8"))
+            self.assertEqual([], provider_report["warnings"])
+            self.assertEqual(["Custom item", "Authentic item", "Spritepack item", "External item"],
+                [record["name"] for record in provider_report["items"]])
+            self.assertEqual(before, tree_bytes(target))
+
+    def test_neutral_provider_invalid_and_unknown_visuals_fall_back_deterministically(self):
+        cases = {
+            "malformed": b"{malformed\n",
+            "unknown-role": None,
+            "unsafe-path": None,
+            "hash-mismatch": None,
+            "duplicate": None,
+            "unresolved": None,
+            "nested-symlink-escape": None,
+        }
+        for case, raw_manifest in cases.items():
+            with self.subTest(case=case), tempfile.TemporaryDirectory(
+                prefix=f"adaptive-neutral-provider-{case}-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.legacy_fixture(str(base))
+                (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+                server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+                with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                    archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+                shutil.copy2(server_terrain,
+                    target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+                provider = base / "world-builder-provider"
+                asset = provider / "assets/Custom_Sprites.osar"
+                asset.parent.mkdir(parents=True)
+                asset.write_bytes(self.fixtures.fixture_osar([
+                    ("items", [("0", self.fixtures.fixture_sprite_entry())]),
+                ]))
+                asset_hash = sha256(asset)
+                outside_asset = None
+                if case == "nested-symlink-escape":
+                    outside = base / "outside-provider-root"
+                    outside.mkdir()
+                    outside_asset = outside / "Custom_Sprites.osar"
+                    asset.replace(outside_asset)
+                    asset.parent.rmdir()
+                    os.symlink(outside, asset.parent, target_is_directory=True)
+                    outside_asset.chmod(0)
+                manifest = provider / "item-visuals.json"
+                if raw_manifest is not None:
+                    manifest.write_bytes(raw_manifest)
+                else:
+                    record = provider_visual(9000, "Target 9000",
+                        "asset.sprite.custom", "assets/Custom_Sprites.osar",
+                        asset_hash, "custom/items/0", subspace="items", entry="0")
+                    records = [record]
+                    if case == "unknown-role":
+                        record["sourceRole"] = "future.sprite.role"
+                    elif case == "unsafe-path":
+                        record["sourceAsset"] = "../outside.osar"
+                    elif case == "hash-mismatch":
+                        record["sourceAssetSha256"] = "0" * 64
+                    elif case == "duplicate":
+                        changed = dict(record)
+                        changed["name"] = "Contradictory duplicate"
+                        records.append(changed)
+                    elif case == "unresolved":
+                        record.update({
+                            "logicalSpriteLocation": None,
+                            "sourceRole": "unresolved",
+                            "sourceAsset": None,
+                            "sourceAssetSha256": None,
+                            "authenticSpriteId": None,
+                            "customSpriteSubspace": None,
+                            "customSpriteEntry": None,
+                            "externalPng": None,
+                            "pictureMask": 0,
+                            "blueMask": 0,
+                        })
+                    write_json(manifest, {"schemaVersion": 1,
+                        "manifestType": "world-builder-item-visual-mapping",
+                        "itemVisuals": records})
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "report.json"
+                self.discover(target, report)
+                target_before = tree_bytes(target)
+                generated = []
+                for index in range(2):
+                    created = self.run_cli(
+                        "create-project", "--installation-root", installation,
+                        "--runtime-root", runtime, "--target-root", target,
+                        "--discovery-report", report,
+                        "--display-name", f"Fallback {case} {index}",
+                        "--port", 43824 + index,
+                        "--item-visual-mappings", manifest, "--confirm", "CREATE",
+                    )
+                    self.assertEqual(0, created.returncode, created.stderr)
+                    project = Path(json.loads(created.stdout)["projectRoot"])
+                    evidence = (project /
+                        "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+                    ).read_bytes()
+                    custom = (project /
+                        "source/content-bundle/files/client/Cache/video/Custom_Sprites.osar"
+                    ).read_bytes()
+                    warning = json.loads((project /
+                        "diagnostics/item-visual-provider-warnings.json"
+                    ).read_text(encoding="utf-8"))
+                    self.assertEqual([9000, 9001, 9002],
+                        [item["itemId"] for item in warning["items"]])
+                    self.assertTrue(all(item["status"] == "placeholder"
+                        for item in warning["items"]))
+                    self.assertTrue(warning["warnings"])
+                    if case == "unresolved":
+                        self.assertIn("PROVIDER_UNRESOLVED",
+                            [item["code"] for item in warning["warnings"]])
+                    if case == "nested-symlink-escape":
+                        self.assertIn("PROVIDER_ASSET_PATH_UNSAFE",
+                            [item["code"] for item in warning["warnings"]])
+                    generated.append((evidence, custom))
+                self.assertEqual(generated[0], generated[1])
+                self.assertEqual(target_before, tree_bytes(target))
+                if outside_asset is not None:
+                    outside_asset.chmod(0o600)
+
     def test_item_visual_mapping_malformed_and_ambiguous_inputs_fail_closed(self):
         cases = {}
-
-        def malformed(base: Path, target: Path, visuals: list[dict]) -> Path:
-            mapping = base / "mapping.json"
-            mapping.write_bytes(b"{malformed\n")
-            return mapping
-
-        cases["malformed"] = (malformed, "MALFORMED_JSON")
 
         def contradictory(base: Path, target: Path, visuals: list[dict]) -> Path:
             mapping = base / "mapping.json"

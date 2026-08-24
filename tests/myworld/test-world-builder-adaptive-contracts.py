@@ -1153,6 +1153,79 @@ class AdaptiveContractTests(unittest.TestCase):
             )
             self.assertEqual([], errors, [error.message for error in errors])
 
+    @unittest.skipUnless(jsonschema is not None, "optional jsonschema module unavailable")
+    def test_item_visual_provider_schema_enforces_roles_and_portable_paths(self):
+        schema = json.loads((SCHEMA_ROOT / "item-visual-mapping-v1.schema.json")
+            .read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(schema)
+        validator = jsonschema.Draft202012Validator(schema)
+        digest = "a" * 64
+
+        def record(role, logical, source, **selectors):
+            value = {
+                "itemId": selectors.pop("itemId", 1),
+                "name": "Provider item",
+                "logicalSpriteLocation": logical,
+                "sourceRole": role,
+                "sourceAsset": source,
+                "sourceAssetSha256": None if source is None else digest,
+                "authenticSpriteId": None,
+                "customSpriteSubspace": None,
+                "customSpriteEntry": None,
+                "externalPng": None,
+                "pictureMask": 0,
+                "blueMask": 0,
+            }
+            value.update(selectors)
+            return value
+
+        valid = [
+            record("asset.sprite.authentic", "authentic/417",
+                "assets/Authentic_Sprites.orsc", authenticSpriteId=417),
+            record("asset.sprite.custom", "custom/items/one",
+                "assets/Custom_Sprites.osar", itemId=2,
+                customSpriteSubspace="items", customSpriteEntry="one"),
+            record("asset.spritepack", "spritepack/items/two",
+                "assets/spritepacks/Items.osar", itemId=3,
+                customSpriteSubspace="items", customSpriteEntry="two"),
+            record("asset.sprite.external",
+                "external/assets/external-items/three.png",
+                "assets/external-items/three.png", itemId=4,
+                externalPng={"relativePath": "assets/external-items/three.png",
+                    "sha256": digest, "width": 1, "height": 1}),
+            record("unresolved", None, None, itemId=5),
+        ]
+        document = {"schemaVersion": 1,
+            "manifestType": "world-builder-item-visual-mapping",
+            "itemVisuals": valid}
+        self.assertEqual([], list(validator.iter_errors(document)))
+
+        invalid = []
+        changed = dict(valid[0]); changed["customSpriteSubspace"] = "items"
+        invalid.append(changed)
+        changed = dict(valid[1]); changed["authenticSpriteId"] = 417
+        invalid.append(changed)
+        changed = dict(valid[2]); changed["sourceAsset"] = "assets/Custom_Sprites.osar"
+        invalid.append(changed)
+        changed = dict(valid[3]); changed["externalPng"] = None
+        invalid.append(changed)
+        changed = dict(valid[4]); changed["logicalSpriteLocation"] = "unresolved/5"
+        invalid.append(changed)
+        for unsafe in (".", "..", "items.", "items "):
+            changed = dict(valid[1]); changed["customSpriteSubspace"] = unsafe
+            invalid.append(changed)
+        changed = dict(valid[2]); changed["sourceAsset"] = \
+            "assets/spritepacks/./Items.osar"
+        invalid.append(changed)
+        changed = dict(valid[3]); changed["externalPng"] = dict(valid[3]["externalPng"])
+        changed["externalPng"]["relativePath"] = "assets/external-items/item.png."
+        invalid.append(changed)
+        for item in invalid:
+            with self.subTest(role=item["sourceRole"], item=item):
+                bad = dict(document)
+                bad["itemVisuals"] = [item]
+                self.assertTrue(list(validator.iter_errors(bad)))
+
     def test_every_contract_rejects_unknown_keys_versions_and_types(self):
         for kind, factory in VALID_CONTRACTS.items():
             with self.subTest(kind=kind, case="unknown-key"):
