@@ -132,6 +132,25 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual(str(full), report["candidates"][0]["itemVisuals"])
             self.assertEqual(before, snapshot(provider))
 
+            server = base / "separate-server"
+            server.mkdir()
+            imported = self.run_cli(
+                "import-item-provider",
+                "--installation-root", installation,
+                "--source-root", server,
+                "--item-visuals", full,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            local = json.loads(imported.stdout)
+            local_root = Path(local["root"])
+            self.assertTrue((local_root / "package-manifest-v1.json").is_file())
+            self.assertTrue((local_root / full.name).is_file())
+            self.assertEqual(before, snapshot(provider))
+            reloaded = self.discover(installation, server)
+            self.assertEqual("local", reloaded["status"])
+            self.assertEqual(str(local_root / full.name),
+                reloaded["candidates"][0]["itemVisuals"])
+
     def test_common_openrsc_layouts_are_recognized_without_execution(self):
         for relative in ("Cache/video", "Client_Base/Cache/video"):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory(
