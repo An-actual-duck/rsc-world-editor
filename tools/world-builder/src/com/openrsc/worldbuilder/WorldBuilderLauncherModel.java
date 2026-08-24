@@ -117,6 +117,18 @@ final class WorldBuilderLauncherModel {
 			"A new standalone empty world will be created. No server map will be read or changed.");
 	}
 
+	WorldBuilderPortableProvider.Discovery inspectPortableProvider(Path source)
+		throws IOException {
+		return new WorldBuilderPortableProvider().discover(source, installation);
+	}
+
+	WorldBuilderPortableProvider.Provider importPortableProvider(Path source,
+		WorldBuilderPortableProvider.GuidedSelection selection)
+		throws IOException, WorldBuilderDiscoveryException {
+		return new WorldBuilderPortableProvider().publishGuided(
+			installation, source, selection);
+	}
+
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName)
 		throws IOException, WorldBuilderContractException {

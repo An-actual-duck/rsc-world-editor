@@ -503,6 +503,12 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview) {
+			WorldBuilderPortableProvider.Discovery providerDiscovery;
+			try {
+				providerDiscovery = model.inspectPortableProvider(preview.source);
+			} catch (Exception unavailable) {
+				providerDiscovery = null;
+			}
 			JTextArea report = readOnlyText();
 			report.setRows(9);
 			report.setText("Source folder: " + preview.source
@@ -511,11 +517,12 @@ final class WorldBuilderDesktopLauncher {
 				+ "\n\n" + preview.summary
 				+ "\n\nSupported packed maps are copied and converted; compatible layered "
 				+ "maps are copied unchanged. Individual arbitrary map files are not "
-				+ "guessed. The source remains unchanged.\n\nIf custom ground-item visuals "
-				+ "cannot be proven from the copied definitions and sprite archives, choose "
-				+ "a strict mapping JSON. Each unresolved ID must select authenticSpriteId "
-				+ "or an exact custom/spritepack subspace and entry, plus pictureMask and "
-				+ "blueMask. The validated evidence is generated only in project staging.");
+				+ "guessed. The source remains unchanged.\n\nItem visual provider: "
+				+ (providerDiscovery == null
+					? "Provider discovery could not inspect this layout. Guided import remains available."
+					: providerDiscovery.describe())
+				+ "\n\nProvider content is copied into this World Builder installation. "
+				+ "The selected server remains read-only and no target JAR is executed.");
 			report.setCaretPosition(0);
 			if (!preview.canCreateServerProject()) {
 				JOptionPane.showMessageDialog(frame, new JScrollPane(report),
@@ -523,22 +530,34 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			JTextField name = new JTextField("Imported Server Map", 28);
-			final JTextField mapping = new JTextField(28);
-			mapping.setEditable(false);
-			JButton chooseMapping = new JButton("Choose mapping JSON…");
-			chooseMapping.addActionListener(new java.awt.event.ActionListener() {
+			final JTextField providerStatus = new JTextField(36);
+			providerStatus.setEditable(false);
+			final Path automaticMapping = providerDiscovery != null
+				&& providerDiscovery.selected != null
+				? providerDiscovery.selected.itemVisuals : null;
+			final WorldBuilderPortableProvider.GuidedSelection[] guided = {
+				providerDiscovery != null
+					&& providerDiscovery.status == WorldBuilderPortableProvider.Status.RECOGNIZED
+					&& providerDiscovery.selected != null
+					? selectionFrom(providerDiscovery.selected) : null
+			};
+			providerStatus.setText(automaticMapping != null
+				? "Automatic provider: " + automaticMapping
+				: guided[0] != null ? "Recognized layout will be imported locally"
+				: "No provider selected");
+			JButton chooseProvider = new JButton("Guided provider import…");
+			chooseProvider.addActionListener(new java.awt.event.ActionListener() {
 				@Override public void actionPerformed(java.awt.event.ActionEvent event) {
-					JFileChooser chooser = new JFileChooser(preview.source.toFile());
-					chooser.setDialogTitle("Choose optional item visual mapping JSON");
-					chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
-					if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
-						mapping.setText(chooser.getSelectedFile().getAbsolutePath());
+					WorldBuilderPortableProvider.GuidedSelection selected =
+						guidedProviderSelection(preview.source, guided[0]);
+					if (selected != null) {
+						guided[0] = selected;
+						providerStatus.setText("Guided provider selections ready for local import");
 					}
 				}
 			});
 			Object[] message = {new JScrollPane(report), "Project name:", name,
-				"Optional item visual mapping JSON (for unresolved custom IDs):",
-				mapping, chooseMapping};
+				"Custom item visual provider:", providerStatus, chooseProvider};
 			if (JOptionPane.showConfirmDialog(frame, message,
 				"Create Isolated Project from Server Map",
 				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
@@ -548,9 +567,112 @@ final class WorldBuilderDesktopLauncher {
 				showError("Enter a project name.", null);
 				return;
 			}
-			Path mappingPath = mapping.getText().trim().isEmpty() ? null
-				: Paths.get(mapping.getText().trim());
-			createPreviewedProject(preview, displayName, mappingPath);
+			if (providerDiscovery != null
+				&& providerDiscovery.status == WorldBuilderPortableProvider.Status.AMBIGUOUS
+				&& guided[0] == null) {
+				showError("More than one item visual layout was found. Use Guided provider "
+					+ "import to choose the exact definitions and assets before continuing.", null);
+				return;
+			}
+			createPreviewedProject(preview, displayName, automaticMapping, guided[0]);
+		}
+
+		private static WorldBuilderPortableProvider.GuidedSelection selectionFrom(
+			WorldBuilderPortableProvider.Candidate candidate) {
+			return new WorldBuilderPortableProvider.GuidedSelection(candidate.itemVisuals,
+				candidate.definitions, candidate.authenticArchive, candidate.customArchive,
+				candidate.spritepacks, candidate.externalItems);
+		}
+
+		private WorldBuilderPortableProvider.GuidedSelection guidedProviderSelection(
+			Path source, WorldBuilderPortableProvider.GuidedSelection initial) {
+			final JTextField mapping = pathField(initial == null ? null : initial.itemVisuals);
+			final JTextField definitions = pathField(initial == null ? null : initial.definitions);
+			final JTextField authentic = pathField(initial == null ? null : initial.authenticArchive);
+			final JTextField custom = pathField(initial == null ? null : initial.customArchive);
+			final JTextField spritepacks = pathField(initial == null ? null : initial.spritepacks);
+			final JTextField external = pathField(initial == null ? null : initial.externalItems);
+			JPanel panel = new JPanel(new GridBagLayout());
+			panel.setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
+			addSelectionRow(panel, 0, "Existing item-visuals JSON (optional)", mapping,
+				fileChooser(mapping, source, "Choose item-visual provider JSON", JFileChooser.FILES_ONLY));
+			addSelectionRow(panel, 1, "Item definitions JSON or folder", definitions,
+				fileChooser(definitions, source, "Choose item definitions", JFileChooser.FILES_AND_DIRECTORIES));
+			addSelectionRow(panel, 2, "Authentic sprite archive", authentic,
+				fileChooser(authentic, source, "Choose Authentic_Sprites.orsc", JFileChooser.FILES_ONLY));
+			addSelectionRow(panel, 3, "Custom sprite archive", custom,
+				fileChooser(custom, source, "Choose Custom_Sprites.osar", JFileChooser.FILES_ONLY));
+			addSelectionRow(panel, 4, "Spritepacks folder", spritepacks,
+				fileChooser(spritepacks, source, "Choose spritepacks folder", JFileChooser.DIRECTORIES_ONLY));
+			addSelectionRow(panel, 5, "External item PNG folder", external,
+				fileChooser(external, source, "Choose external item assets", JFileChooser.DIRECTORIES_ONLY));
+			JTextArea explanation = readOnlyText();
+			explanation.setRows(4);
+			explanation.setText("Choose an existing neutral item-visual manifest, or choose "
+				+ "item definitions so World Builder can preserve every item ID and name with "
+				+ "a placeholder until its exact visual is available. Selected files are copied "
+				+ "into a local provider; the source is never changed.");
+			GridBagConstraints help = new GridBagConstraints();
+			help.gridx = 0; help.gridy = 6; help.gridwidth = 3;
+			help.weightx = 1; help.fill = GridBagConstraints.HORIZONTAL;
+			help.insets = new Insets(8, 2, 2, 2);
+			panel.add(explanation, help);
+			if (JOptionPane.showConfirmDialog(frame, new JScrollPane(panel),
+				"Guided Item Visual Provider Import", JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
+			Path mappingPath = fieldPath(mapping);
+			Path definitionsPath = fieldPath(definitions);
+			if (mappingPath == null && definitionsPath == null) {
+				showError("Choose either an item-visuals JSON file or item definitions.", null);
+				return null;
+			}
+			return new WorldBuilderPortableProvider.GuidedSelection(mappingPath,
+				definitionsPath, fieldPath(authentic), fieldPath(custom),
+				fieldPath(spritepacks), fieldPath(external));
+		}
+
+		private static JTextField pathField(Path value) {
+			JTextField field = new JTextField(34);
+			field.setEditable(false);
+			if (value != null) field.setText(value.toString());
+			return field;
+		}
+
+		private JButton fileChooser(final JTextField field, final Path source,
+			final String title, final int mode) {
+			JButton choose = new JButton("Choose…");
+			choose.addActionListener(event -> {
+				Path current = fieldPath(field);
+				JFileChooser chooser = new JFileChooser(
+					(current == null ? source : current).toFile());
+				chooser.setDialogTitle(title);
+				chooser.setFileSelectionMode(mode);
+				if (chooser.showOpenDialog(frame) == JFileChooser.APPROVE_OPTION) {
+					field.setText(chooser.getSelectedFile().getAbsolutePath());
+				}
+			});
+			return choose;
+		}
+
+		private static void addSelectionRow(JPanel panel, int row, String label,
+			JTextField field, JButton chooser) {
+			GridBagConstraints left = new GridBagConstraints();
+			left.gridx = 0; left.gridy = row; left.anchor = GridBagConstraints.WEST;
+			left.insets = new Insets(3, 3, 3, 8);
+			panel.add(new JLabel(label), left);
+			GridBagConstraints center = new GridBagConstraints();
+			center.gridx = 1; center.gridy = row; center.weightx = 1;
+			center.fill = GridBagConstraints.HORIZONTAL;
+			center.insets = new Insets(3, 3, 3, 3);
+			panel.add(field, center);
+			GridBagConstraints right = new GridBagConstraints();
+			right.gridx = 2; right.gridy = row; right.insets = new Insets(3, 3, 3, 3);
+			panel.add(chooser, right);
+		}
+
+		private static Path fieldPath(JTextField field) {
+			String value = field.getText().trim();
+			return value.isEmpty() ? null : Paths.get(value).toAbsolutePath().normalize();
 		}
 
 		private void createPreviewedProject(
@@ -562,11 +684,24 @@ final class WorldBuilderDesktopLauncher {
 		private void createPreviewedProject(
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final String displayName, final Path itemVisualMappings) {
+			createPreviewedProject(preview, displayName, itemVisualMappings, null);
+		}
+
+		private void createPreviewedProject(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final String displayName, final Path itemVisualMappings,
+			final WorldBuilderPortableProvider.GuidedSelection guidedProvider) {
 			runTask("Creating isolated project…",
 				new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run()
-						throws Exception { return model.create(preview, displayName,
-							itemVisualMappings); }
+						throws Exception {
+						Path mapping = itemVisualMappings;
+						if (guidedProvider != null) {
+							mapping = model.importPortableProvider(
+								preview.source, guidedProvider).itemVisuals;
+						}
+						return model.create(preview, displayName, mapping);
+					}
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(
 						WorldBuilderAdaptiveProjectLifecycle.ProjectResult created) {
