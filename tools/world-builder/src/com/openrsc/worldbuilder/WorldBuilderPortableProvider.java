@@ -28,6 +28,7 @@ import java.util.UUID;
 final class WorldBuilderPortableProvider {
 	static final String PACKAGE_DIRECTORY = "world-builder-provider";
 	static final String MAPPING_FILE = "item-visuals.json";
+	static final String PACKAGE_MANIFEST_FILE = "package-manifest-v1.json";
 	static final String ASSETS_DIRECTORY = "assets";
 	static final String AUTHENTIC_FILE = "Authentic_Sprites.orsc";
 	static final String CUSTOM_FILE = "Custom_Sprites.osar";
@@ -51,6 +52,7 @@ final class WorldBuilderPortableProvider {
 	Discovery discover(Path requestedSource, Path installation) throws IOException {
 		Path source = requireDirectory(requestedSource, "provider discovery source");
 		Path explicit = safeFile(source.resolve(MAPPING_FILE))
+			|| safeFile(source.resolve(PACKAGE_MANIFEST_FILE))
 			? source : source.resolve(PACKAGE_DIRECTORY);
 		if (safeDirectory(explicit)) {
 			Candidate candidate = explicitCandidate(explicit);
@@ -155,7 +157,9 @@ final class WorldBuilderPortableProvider {
 	}
 
 	private Candidate explicitCandidate(Path root) throws IOException {
-		Path mapping = requireFile(root.resolve(MAPPING_FILE), "explicit provider mapping");
+		Path mapping = safeFile(root.resolve(MAPPING_FILE))
+			? requireFile(root.resolve(MAPPING_FILE), "explicit provider mapping")
+			: packagedMapping(root);
 		Path assets = root.resolve(ASSETS_DIRECTORY);
 		if (!safeDirectory(assets)) assets = null;
 		return new Candidate("explicit-provider", "Explicit portable provider", root,
@@ -164,6 +168,41 @@ final class WorldBuilderPortableProvider {
 			assets == null ? null : childDirectory(assets, SPRITEPACKS_DIRECTORY),
 			assets == null ? null : childDirectory(assets, EXTERNAL_ITEMS_DIRECTORY),
 			assets == null ? null : childDirectory(assets, DEFINITIONS_DIRECTORY));
+	}
+
+	private Path packagedMapping(Path root) throws IOException {
+		Path manifest = requireFile(root.resolve(PACKAGE_MANIFEST_FILE),
+			"versioned provider package manifest");
+		if (Files.size(manifest) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw new IOException("Versioned provider package manifest exceeds its JSON bound.");
+		}
+		try {
+			Map<String,Object> document = WorldBuilderJsonDocuments.readObject(manifest);
+			if (!Long.valueOf(1L).equals(document.get("schemaVersion"))
+				|| !"world-builder-item-visual-provider-package".equals(
+					document.get("manifestType"))
+				|| !(document.get("files") instanceof List)) {
+				throw new IOException("Versioned provider package identity is unsupported.");
+			}
+			Path selected = null;
+			for (Object raw : (List<?>)document.get("files")) {
+				if (!(raw instanceof Map)) continue;
+				@SuppressWarnings("unchecked") Map<String,Object> file = (Map<String,Object>)raw;
+				if (!"full-item-visual-manifest".equals(file.get("role"))) continue;
+				if (!(file.get("path") instanceof String) || selected != null) {
+					throw new IOException("Versioned provider package has an ambiguous full mapping.");
+				}
+				try {
+					selected = WorldBuilderPortablePath.resolveContained(root,
+						(String)file.get("path"), "portable-provider-discovery");
+				} catch (WorldBuilderContractException unsafe) {
+					throw new IOException(unsafe.getMessage(), unsafe);
+				}
+			}
+			return requireFile(selected, "versioned provider full mapping");
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw new IOException("Versioned provider package manifest is malformed.", malformed);
+		}
 	}
 
 	private List<Candidate> legacyCandidates(Path source) throws IOException {

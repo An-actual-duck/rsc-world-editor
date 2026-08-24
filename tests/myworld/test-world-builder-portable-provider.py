@@ -104,6 +104,34 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual("explicit-provider", report["selectedProfileId"])
             self.assertEqual(before, snapshot(source))
 
+    def test_versioned_provider_package_selects_inventoried_full_mapping(self):
+        with tempfile.TemporaryDirectory(prefix="portable-provider-package-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            provider = base / "world-builder-provider"
+            installation.mkdir()
+            full = provider / "item-visuals-full-v1.json"
+            self.write_json(full, {"schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "provider": {}, "assetProviders": {}, "selection": {},
+                "itemVisuals": []})
+            self.write_json(provider / "package-manifest-v1.json", {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-provider-package",
+                "providerDirectory": "world-builder-provider",
+                "catalogSha256": "a" * 64,
+                "files": [{"path": full.name, "role": "full-item-visual-manifest",
+                    "size": full.stat().st_size,
+                    "sha256": hashlib.sha256(full.read_bytes()).hexdigest()}],
+            })
+            before = snapshot(provider)
+
+            report = self.discover(installation, provider)
+
+            self.assertEqual("explicit", report["status"])
+            self.assertEqual(str(full), report["candidates"][0]["itemVisuals"])
+            self.assertEqual(before, snapshot(provider))
+
     def test_common_openrsc_layouts_are_recognized_without_execution(self):
         for relative in ("Cache/video", "Client_Base/Cache/video"):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory(

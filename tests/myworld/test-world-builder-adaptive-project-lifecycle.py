@@ -4509,6 +4509,152 @@ public final class FakeAdaptiveClient {
                 [record["name"] for record in provider_report["items"]])
             self.assertEqual(before, tree_bytes(target))
 
+    def test_versioned_provider_package_adapter_resolves_without_target_code(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-versioned-provider-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+
+            provider = base / "world-builder-provider"
+            archives = provider / "assets/archives"
+            archives.mkdir(parents=True)
+            authentic = archives / "Authentic_Sprites.orsc"
+            with zipfile.ZipFile(authentic, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("sprites/417.dat", b"packaged-authentic-417")
+            custom = archives / "Custom_Sprites.osar"
+            custom.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("0", self.fixtures.fixture_sprite_entry(0x123456))]),
+            ]))
+            external = provider / "assets/external-png/items/9002.png"
+            external.parent.mkdir(parents=True)
+            external.write_bytes(one_pixel_png(0xABCDEF))
+            catalog_hash = "a" * 64
+            records = [
+                {
+                    "itemId": 9000, "diagnosticName": "Packaged custom",
+                    "spriteLocation": "items:0", "spriteId": 0,
+                    "resolvedBaseSourceRole": "custom-sprite-archive",
+                    "authenticArchive": None,
+                    "customOrSpritepack": {"subspace": "items", "entry": "0",
+                        "baseArchiveEntrySha256": "b" * 64,
+                        "spritepackOverrideKey": "items:0"},
+                    "externalPng": None, "pictureMask": 1, "blueMask": 2,
+                },
+                {
+                    "itemId": 9001, "diagnosticName": "Packaged authentic",
+                    "spriteLocation": "authentic:417", "spriteId": 417,
+                    "resolvedBaseSourceRole": "authentic-archive-fallback",
+                    "authenticArchive": {"archiveId": 417,
+                        "entrySha256": "c" * 64},
+                    "customOrSpritepack": None, "externalPng": None,
+                    "pictureMask": -3, "blueMask": 4,
+                },
+                {
+                    "itemId": 9002, "diagnosticName": "Packaged external",
+                    "spriteLocation": "external-png:9002@1x1", "spriteId": -1,
+                    "resolvedBaseSourceRole": "external-png",
+                    "authenticArchive": None, "customOrSpritepack": None,
+                    "externalPng": {"specification": "9002@1x1",
+                        "assetName": "9002", "targetWidth": 1, "targetHeight": 1,
+                        "providerPath": "assets/external-png/items/9002.png",
+                        "sha256": sha256(external)},
+                    "pictureMask": 5, "blueMask": -6,
+                },
+            ]
+            mapping = provider / "item-visuals-full-v1.json"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "provider": {"identity": "neutral-fixture", "definitionMode": "final",
+                    "catalogItemCount": 3, "catalogSha256": catalog_hash, "inputs": []},
+                "assetProviders": {
+                    "customSpriteArchive": {"path": "assets/archives/Custom_Sprites.osar",
+                        "sha256": sha256(custom), "entryCount": 1},
+                    "authenticSpriteArchive": {"path": "assets/archives/Authentic_Sprites.orsc",
+                        "sha256": sha256(authentic), "numericEntryCount": 1,
+                        "itemArchiveBaseId": 0},
+                    "externalPngPackaging": {"providerRoot": "assets/external-png",
+                        "referencedPngCount": 1},
+                },
+                "selection": {"kind": "complete-final-catalog", "itemCount": 3,
+                    "itemIdsSha256": "d" * 64, "mappingSha256": "e" * 64,
+                    "minimumItemId": 9000, "maximumItemId": 9002},
+                "itemVisuals": records,
+            })
+            package_files = []
+            for path, role in (
+                (authentic, "authentic-sprite-archive"),
+                (custom, "custom-sprite-archive"),
+                (external, "external-png"),
+                (mapping, "full-item-visual-manifest"),
+            ):
+                package_files.append({"path": path.relative_to(provider).as_posix(),
+                    "role": role, "size": path.stat().st_size, "sha256": sha256(path)})
+            package_files.sort(key=lambda value: value["path"])
+            write_json(provider / "package-manifest-v1.json", {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-provider-package",
+                "providerDirectory": "world-builder-provider",
+                "catalogSha256": catalog_hash,
+                "files": package_files,
+            })
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created = self.run_cli(
+                "create-project", "--installation-root", installation,
+                "--runtime-root", runtime, "--target-root", target,
+                "--discovery-report", report, "--display-name", "Versioned provider",
+                "--port", 43828, "--item-visual-mappings", mapping,
+                "--confirm", "CREATE",
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(json.loads(created.stdout)["projectRoot"])
+            evidence = json.loads((project /
+                "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
+            ).read_text(encoding="utf-8"))["itemVisuals"]
+            self.assertEqual([9000, 9001, 9002],
+                [record["itemId"] for record in evidence])
+            self.assertEqual([(1, 2), (-3, 4), (5, -6)],
+                [(record["pictureMask"], record["blueMask"]) for record in evidence])
+            warning = json.loads((project /
+                "diagnostics/item-visual-provider-warnings.json").read_text(encoding="utf-8"))
+            self.assertEqual([], warning["warnings"])
+            self.assertTrue(all(item["status"] == "resolved" for item in warning["items"]))
+            self.assertEqual(before, tree_bytes(target))
+
+            custom.write_bytes(custom.read_bytes() + b"package-drift")
+            fallback_installation = base / "World Builder 2 fallback"
+            fallback_installation.mkdir()
+            fallback_runtime = self.make_runtime(fallback_installation)
+            fallback_report = base / "fallback-report.json"
+            self.discover(target, fallback_report)
+            fallback = self.run_cli(
+                "create-project", "--installation-root", fallback_installation,
+                "--runtime-root", fallback_runtime, "--target-root", target,
+                "--discovery-report", fallback_report,
+                "--display-name", "Versioned provider fallback", "--port", 43829,
+                "--item-visual-mappings", mapping, "--confirm", "CREATE",
+            )
+            self.assertEqual(0, fallback.returncode, fallback.stderr)
+            fallback_project = Path(json.loads(fallback.stdout)["projectRoot"])
+            fallback_warning = json.loads((fallback_project /
+                "diagnostics/item-visual-provider-warnings.json").read_text(encoding="utf-8"))
+            self.assertIn("PROVIDER_PACKAGE_HASH_MISMATCH",
+                [record["code"] for record in fallback_warning["warnings"]])
+            self.assertTrue(all(item["status"] == "placeholder"
+                for item in fallback_warning["items"]))
+            self.assertEqual(before, tree_bytes(target))
+
     def test_neutral_provider_invalid_and_unknown_visuals_fall_back_deterministically(self):
         cases = {
             "malformed": b"{malformed\n",
