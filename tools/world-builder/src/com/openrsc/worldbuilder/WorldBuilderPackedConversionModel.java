@@ -208,24 +208,38 @@ final class WorldBuilderPackedConversionModel {
 				} else if ("base".equals(placementSource.kind)) {
 					String effectiveKey = placement.slot;
 					Placement existing = family.get(effectiveKey);
+					boolean explicitSceneryCompletesTerrainMarker = existing != null
+						&& "scenery".equals(placementSource.family)
+						&& "server-terrain".equals(existing.sourceRole)
+						&& existing.definitionId == placement.definitionId;
 					if (existing != null) {
-						if (!repeatedExactBaseNpc
+						if (explicitSceneryCompletesTerrainMarker) {
+							family.remove(effectiveKey);
+							addDecision(decisions, new Decision("replacement", inputRole,
+								placement.provenance + " supplies direction for "
+									+ existing.provenance,
+								existing.placementId, "replaced"), cumulativeRecordLimit,
+								placement.sourcePath);
+						} else if (!repeatedExactBaseNpc
 							|| !existing.semantic().equals(placement.semantic())) {
 							throw placementProblem(placement,
 								"Packed base placement collides at record "
 									+ placement.recordIndex + ".");
+						} else {
+							effectiveKey = placement.slot + "\u0000duplicate\u0000"
+								+ placement.recordIndex;
 						}
-						effectiveKey = placement.slot + "\u0000duplicate\u0000"
-							+ placement.recordIndex;
 					}
-					requireEffectiveCapacity(effectiveRecordCount,
-						cumulativeRecordLimit, placement.sourcePath);
+					if (!explicitSceneryCompletesTerrainMarker) {
+						requireEffectiveCapacity(effectiveRecordCount,
+							cumulativeRecordLimit, placement.sourcePath);
+					}
 					if (family.put(effectiveKey, placement) != null) {
 						throw placementProblem(placement,
 							"Packed duplicate NPC identity is not unique at record "
 								+ placement.recordIndex + ".");
 					}
-					effectiveRecordCount++;
+					if (!explicitSceneryCompletesTerrainMarker) effectiveRecordCount++;
 				} else if ("overlay".equals(placementSource.kind)) {
 					List<String> replacementKeys = matchingKeys(
 						family, placement, false);

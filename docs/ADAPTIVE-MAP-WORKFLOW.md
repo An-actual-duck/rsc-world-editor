@@ -567,6 +567,14 @@ source path, record index, original value, corrected value, and profile ID.
 Near matches, repeats, and every other invalid coordinate remain blockers; the
 profile never clamps or guesses arbitrary placements.
 
+Legacy packed scenery can encode the same object twice by design: a terrain
+diagonal marker identifies its scenery ID and anchor, while `SceneryLocs`
+supplies the direction. When—and only when—the explicit base record has the
+same scenery ID and exact decoded anchor as an embedded marker, conversion
+retains one placement using the explicit direction and records a replacement
+decision naming both provenances. A different ID at the same anchor, repeated
+explicit records, or any other collision remains a blocker.
+
 ### Export
 
 An adaptive export is a new schema version containing the complete working

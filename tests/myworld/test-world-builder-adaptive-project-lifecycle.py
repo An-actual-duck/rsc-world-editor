@@ -4122,6 +4122,18 @@ public final class FakeAdaptiveClient {
                     ]
                 },
             )
+            base_scenery_path = (
+                target / "server/conf/server/defs/locs/SceneryLocs.json"
+            )
+            base_scenery = json.loads(
+                base_scenery_path.read_text(encoding="utf-8")
+            )
+            base_scenery["sceneries"].append({
+                "id": 54,
+                "pos": {"X": 0, "Y": 6},
+                "direction": 4,
+            })
+            write_json(base_scenery_path, base_scenery)
             (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
                 "<GameObjectDef-array>"
                 + "".join(
@@ -4206,6 +4218,18 @@ public final class FakeAdaptiveClient {
                 "MyWorldSceneryRemovals.json#record=0 matched no effective placement",
                 inert_removals[0]["provenance"],
             )
+            embedded_completions = [
+                value for value in conversion["decisions"]
+                if value["kind"] == "replacement"
+                and "supplies direction for" in value["provenance"]
+            ]
+            self.assertEqual(1, len(embedded_completions))
+            self.assertIn(
+                "server/world-builder-fallback/scenery.json#record=1 "
+                "supplies direction for server/conf/server/data/Custom_Landscape.orsc"
+                "#entry=h0x48y37&tile=6",
+                embedded_completions[0]["provenance"],
+            )
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             snapshot = json.loads(
                 (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
@@ -4274,7 +4298,7 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(
                 [
-                    {"direction": 0, "position": {"x": 0, "y": 6}, "sceneryId": 54},
+                    {"direction": 4, "position": {"x": 0, "y": 6}, "sceneryId": 54},
                     {"direction": 0, "position": {"x": 2, "y": 4}, "sceneryId": 59},
                     {"direction": 0, "position": {"x": 13, "y": 10}, "sceneryId": 1},
                 ],
@@ -4474,6 +4498,48 @@ public final class FakeAdaptiveClient {
                 "Packed placement coordinate is outside the exact legacy range: 662,6550",
                 created.stderr,
             )
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+
+    def test_embedded_and_explicit_scenery_id_mismatch_remains_blocked(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-scenery-id-collision-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            scenery_path = target / "server/conf/server/defs/locs/SceneryLocs.json"
+            scenery = json.loads(scenery_path.read_text(encoding="utf-8"))
+            scenery["sceneries"].append({
+                "id": 53,
+                "pos": {"X": 0, "Y": 6},
+                "direction": 4,
+            })
+            write_json(scenery_path, scenery)
+
+            packed_sector = bytearray(48 * 48 * 10)
+            packed_sector[6 * 10 + 6 : 6 * 10 + 10] = (48055).to_bytes(
+                4, byteorder="big", signed=True
+            )
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", packed_sector)
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation, scenery_count=55)
+            discovery_report = base / "report.json"
+            self.discover(target, discovery_report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, discovery_report,
+                "Mismatched scenery collision", 43832,
+            )
+            self.assertEqual(3, created.returncode, created.stdout)
+            self.assertIsNone(summary)
+            self.assertIn("Packed base placement collides at record 1", created.stderr)
             self.assertEqual(target_before, tree_bytes(target))
             self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
 
