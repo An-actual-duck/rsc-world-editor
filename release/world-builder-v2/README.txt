@@ -20,11 +20,11 @@ verified rollback/recovery, changed-after refusal, and exact undo are also
 implemented. The generic Phase 4 client/server capability is published and
 pinned. This update adds portable region snapshot copy/cut/paste primitives,
 lossless unsigned 16-bit terrain elevation, foreground-aware elevated-terrain
-picking, and a contextual two-column editor toolbar. Exact archive,
-packaged-runtime, transaction, and owner-run native validation passed for the
-accepted release candidate. Current development replaces the terminal-first
-project prompt with a persistent desktop project screen while retaining the
-same validated project and process-supervision contracts.
+picking, a contextual two-column editor toolbar, a persistent desktop project
+screen, portable custom-content providers, full project-backed client
+presentation options, and remembered Builder position after the initial
+120,648 spawn. Exact archive, packaged-runtime, transaction, and owner-run
+native validation are required for every accepted release candidate.
 
 INSTALLATION
 ------------
@@ -52,6 +52,25 @@ Choose New Empty World, Use Detected Server Map, Open Existing Project, or
 Select Another Supported Source. Closing or cancelling a screen changes
 nothing. The advanced launch-adaptive command remains available for headless
 CLI automation.
+
+Servers with custom item or NPC content should distribute one data-only folder:
+
+  Your Server/
+    world-builder-provider/
+    World Builder 2/
+
+Use Detected Server Map selects that provider automatically. If the server
+maintainer distributes it separately, choose Select Another Supported Source,
+then Choose complete provider package, and select the
+world-builder-provider folder itself. Do not browse for an internal JSON file.
+World Builder copies the validated package into its own local provider catalog
+and remembers it for later launches. Advanced provider import is only for
+maintainers assembling a package from separate definition and asset files.
+
+A missing, unfamiliar, or invalid optional custom visual does not prevent the
+editor from launching. The affected ID and name are retained, a deterministic
+placeholder is shown, and an actionable warning is saved in the project's
+diagnostics folder. No selected target JAR is executed for discovery.
 
 The project screen always shows the World Builder installation folder and its
 registered projects, so starting a second extracted copy cannot be mistaken for

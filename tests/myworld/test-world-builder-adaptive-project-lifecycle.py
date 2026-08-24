@@ -354,6 +354,20 @@ public final class DesktopLauncherHarness {
                 != WorldBuilderDesktopLauncher.CloseDisposition.CLOSE) {
             throw new AssertionError("desktop close policy");
         }
+        if ("PACKAGE_SELECTION".equals(args[4])) {
+            WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(
+                Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]),
+                Integer.parseInt(args[3]), null);
+            WorldBuilderPortableProvider.GuidedSelection selection =
+                WorldBuilderDesktopLauncher.completeProviderSelection(
+                    model.inspectPortableProvider(Paths.get(args[5])));
+            WorldBuilderPortableProvider.Provider provider =
+                model.importPortableProvider(Paths.get(args[2]), selection);
+            Files.write(Paths.get(args[6]),
+                (provider.itemVisuals.toRealPath().toString() + "\\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            return;
+        }
         if ("MODEL_MAPPING".equals(args[4])) {
             WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(
                 Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]),
@@ -5099,6 +5113,8 @@ public final class FakeAdaptiveClient {
         ).read_text(encoding="utf-8")
         self.assertNotIn("System.exit(", launcher_source)
         self.assertIn("Close the editor normally first", launcher_source)
+        self.assertIn("Choose complete provider package…", launcher_source)
+        self.assertIn("Advanced provider import…", launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)
@@ -5116,6 +5132,46 @@ public final class FakeAdaptiveClient {
             self.assertEqual(0, cancelled.returncode, cancelled.stderr)
             self.assertFalse(marker.exists())
             self.assertFalse((installation / "project-registry.json").exists())
+            self.assertEqual(detected_before, tree_bytes(detected))
+
+            provider = base / "external/world-builder-provider"
+            provider.mkdir(parents=True)
+            full_mapping = provider / "item-visuals-full-v1.json"
+            write_json(full_mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": [],
+            })
+            write_json(provider / "package-manifest-v1.json", {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-provider-package",
+                "providerDirectory": "world-builder-provider",
+                "catalogSha256": "a" * 64,
+                "files": [{
+                    "path": full_mapping.name,
+                    "role": "full-item-visual-manifest",
+                    "size": full_mapping.stat().st_size,
+                    "sha256": hashlib.sha256(full_mapping.read_bytes()).hexdigest(),
+                }],
+            })
+            package_marker = base / "package-selection.txt"
+            package_selection = subprocess.run(
+                [
+                    "java", "-cp", str(self.classes),
+                    "com.openrsc.worldbuilder.DesktopLauncherHarness",
+                    str(installation), str(runtime), str(detected), "44100",
+                    "PACKAGE_SELECTION", str(provider), str(package_marker),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, package_selection.returncode, package_selection.stderr)
+            imported_mapping = Path(
+                package_marker.read_text(encoding="utf-8").strip()
+            )
+            self.assertEqual(full_mapping.name, imported_mapping.name)
+            self.assertTrue((imported_mapping.parent / "package-manifest-v1.json").is_file())
             self.assertEqual(detected_before, tree_bytes(detected))
 
             created_empty = self.run_desktop_launcher(

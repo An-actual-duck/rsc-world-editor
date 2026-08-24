@@ -192,6 +192,24 @@ final class WorldBuilderDesktopLauncher {
 		return CloseDisposition.CLOSE;
 	}
 
+	static WorldBuilderPortableProvider.GuidedSelection completeProviderSelection(
+		WorldBuilderPortableProvider.Discovery discovery) throws IOException {
+		if (discovery == null
+			|| discovery.status != WorldBuilderPortableProvider.Status.EXPLICIT
+			|| discovery.selected == null) {
+			throw new IOException("Choose a complete world-builder-provider folder. "
+				+ "It must contain item-visuals.json or package-manifest-v1.json.");
+		}
+		return selectionFrom(discovery.selected);
+	}
+
+	private static WorldBuilderPortableProvider.GuidedSelection selectionFrom(
+		WorldBuilderPortableProvider.Candidate candidate) {
+		return new WorldBuilderPortableProvider.GuidedSelection(candidate.itemVisuals,
+			candidate.definitions, candidate.authenticArchive, candidate.customArchive,
+			candidate.spritepacks, candidate.externalItems);
+	}
+
 	enum CloseDisposition {
 		CLOSE, WAIT_FOR_EDITOR, WAIT_FOR_TASK
 	}
@@ -547,19 +565,38 @@ final class WorldBuilderDesktopLauncher {
 				? "Automatic provider: " + automaticMapping
 				: guided[0] != null ? "Recognized layout will be imported locally"
 				: "No provider selected");
-			JButton chooseProvider = new JButton("Guided provider import…");
+			JButton choosePackage = new JButton("Choose complete provider package…");
+			choosePackage.addActionListener(new java.awt.event.ActionListener() {
+				@Override public void actionPerformed(java.awt.event.ActionEvent event) {
+					JFileChooser chooser = new JFileChooser(preview.source.toFile());
+					chooser.setDialogTitle("Choose the world-builder-provider folder");
+					chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+					chooser.setAcceptAllFileFilterUsed(false);
+					if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) return;
+					Path selected = chooser.getSelectedFile().toPath();
+					try {
+						guided[0] = completeProviderSelection(
+							model.inspectPortableProvider(selected));
+						providerStatus.setText("Complete provider ready: "
+							+ selected.toAbsolutePath().normalize());
+					} catch (Exception failure) {
+						showError("That folder is not a complete provider package.", failure);
+					}
+				}
+			});
+			JButton chooseProvider = new JButton("Advanced provider import…");
 			chooseProvider.addActionListener(new java.awt.event.ActionListener() {
 				@Override public void actionPerformed(java.awt.event.ActionEvent event) {
 					WorldBuilderPortableProvider.GuidedSelection selected =
 						guidedProviderSelection(preview.source, guided[0]);
 					if (selected != null) {
 						guided[0] = selected;
-						providerStatus.setText("Guided provider selections ready for local import");
+						providerStatus.setText("Advanced provider selections ready for local import");
 					}
 				}
 			});
 			Object[] message = {new JScrollPane(report), "Project name:", name,
-				"Custom item visual provider:", providerStatus, chooseProvider};
+				"Custom content provider:", providerStatus, choosePackage, chooseProvider};
 			if (JOptionPane.showConfirmDialog(frame, message,
 				"Create Isolated Project from Server Map",
 				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
@@ -572,18 +609,11 @@ final class WorldBuilderDesktopLauncher {
 			if (providerDiscovery != null
 				&& providerDiscovery.status == WorldBuilderPortableProvider.Status.AMBIGUOUS
 				&& guided[0] == null) {
-				showError("More than one item visual layout was found. Use Guided provider "
-					+ "import to choose the exact definitions and assets before continuing.", null);
+				showError("More than one content layout was found. Choose a complete provider "
+					+ "package or use Advanced provider import before continuing.", null);
 				return;
 			}
 			createPreviewedProject(preview, displayName, automaticMapping, guided[0]);
-		}
-
-		private static WorldBuilderPortableProvider.GuidedSelection selectionFrom(
-			WorldBuilderPortableProvider.Candidate candidate) {
-			return new WorldBuilderPortableProvider.GuidedSelection(candidate.itemVisuals,
-				candidate.definitions, candidate.authenticArchive, candidate.customArchive,
-				candidate.spritepacks, candidate.externalItems);
 		}
 
 		private WorldBuilderPortableProvider.GuidedSelection guidedProviderSelection(
@@ -620,7 +650,7 @@ final class WorldBuilderDesktopLauncher {
 			help.insets = new Insets(8, 2, 2, 2);
 			panel.add(explanation, help);
 			if (JOptionPane.showConfirmDialog(frame, new JScrollPane(panel),
-				"Guided Item Visual Provider Import", JOptionPane.OK_CANCEL_OPTION,
+				"Advanced Provider Import", JOptionPane.OK_CANCEL_OPTION,
 				JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return null;
 			Path mappingPath = fieldPath(mapping);
 			Path definitionsPath = fieldPath(definitions);
