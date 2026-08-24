@@ -40,6 +40,7 @@ included in, deleted by, or replaced by an update:
   diagnostics/
   logs/
   settings/
+  providers/                (local neutral item-visual provider packages)
   credentials/
   recovery/
   locks/

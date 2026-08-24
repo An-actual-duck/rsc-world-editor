@@ -59,17 +59,8 @@ final class WorldBuilderPortableProvider {
 				"Explicit world-builder-provider package found and selected.");
 		}
 
-		List<Candidate> legacy = legacyCandidates(source);
 		List<Candidate> local = localCandidates(source, installation);
-		if (legacy.size() == 1) {
-			Candidate candidate = legacy.get(0);
-			return new Discovery(Status.RECOGNIZED, source, legacy, candidate,
-				"One recognized neutral OpenRSC content layout was found.");
-		}
-		if (legacy.size() > 1) {
-			return new Discovery(Status.AMBIGUOUS, source, legacy, null,
-				"More than one recognized content layout was found. Choose the exact files in guided import.");
-		}
+		List<Candidate> legacy = legacyCandidates(source);
 		if (local.size() == 1) {
 			Candidate selected = local.get(0);
 			return new Discovery(Status.LOCAL, source, local, selected,
@@ -78,6 +69,15 @@ final class WorldBuilderPortableProvider {
 		if (local.size() > 1) {
 			return new Discovery(Status.AMBIGUOUS, source, local, null,
 				"More than one local provider matches this source. Choose one explicitly.");
+		}
+		if (legacy.size() == 1) {
+			Candidate candidate = legacy.get(0);
+			return new Discovery(Status.RECOGNIZED, source, legacy, candidate,
+				"One recognized neutral OpenRSC content layout was found.");
+		}
+		if (legacy.size() > 1) {
+			return new Discovery(Status.AMBIGUOUS, source, legacy, null,
+				"More than one recognized content layout was found. Choose the exact files in guided import.");
 		}
 		return new Discovery(Status.NONE, source, Collections.<Candidate>emptyList(),
 			null, "No complete provider layout was found. Use guided import to select the content files.");
@@ -234,10 +234,14 @@ final class WorldBuilderPortableProvider {
 				@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)entry;
 				if (!sourceId.equals(value.get("sourceIdentitySha256"))) continue;
 				Object relative = value.get("providerRelativePath");
-				if (!(relative instanceof String)) continue;
+				Object expectedFingerprint = value.get("providerFingerprintSha256");
+				if (!(relative instanceof String) || !(expectedFingerprint instanceof String)) continue;
 				Path provider = root.resolve(PROVIDERS_DIRECTORY).resolve((String)relative).normalize();
 				if (!provider.getParent().equals(root.resolve(PROVIDERS_DIRECTORY))) continue;
-				if (safeDirectory(provider)) result.add(explicitCandidate(provider));
+				if (safeDirectory(provider)
+					&& expectedFingerprint.equals(providerFingerprint(inventory(provider)))) {
+					result.add(explicitCandidate(provider));
+				}
 			}
 			Collections.sort(result);
 			return result;
@@ -258,8 +262,11 @@ final class WorldBuilderPortableProvider {
 					if (!(entry instanceof Map)) continue;
 					@SuppressWarnings("unchecked") Map<String,Object> record = (Map<String,Object>)entry;
 					Object id = record.get("providerId");
-					if (id instanceof String) byProvider.put((String)id,
-						new LinkedHashMap<String,Object>(record));
+					Object sourceId = record.get("sourceIdentitySha256");
+					if (id instanceof String && sourceId instanceof String) {
+						byProvider.put((String)id + "\u0000" + (String)sourceId,
+							new LinkedHashMap<String,Object>(record));
+					}
 				}
 			}
 		}
@@ -268,7 +275,7 @@ final class WorldBuilderPortableProvider {
 		record.put("providerRelativePath", provider.providerId);
 		record.put("providerFingerprintSha256", provider.fingerprintSha256);
 		record.put("sourceIdentitySha256", sourceIdentity(source));
-		byProvider.put(provider.providerId, record);
+		byProvider.put(provider.providerId + "\u0000" + sourceIdentity(source), record);
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
 		document.put("schemaVersion", Long.valueOf(1L));
 		document.put("manifestType", "world-builder-local-provider-catalog");

@@ -4,6 +4,7 @@
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -193,15 +194,15 @@ class PortableProviderTest(unittest.TestCase):
             self.write_json(definitions / "ItemDefsCustom.json", {
                 "items": [{"id": 3310, "name": "Second item, final"}]
             })
-            authentic = source / "selected/Authentic_Sprites.orsc"
+            authentic = source / "Client_Base/Cache/video/Authentic_Sprites.orsc"
             authentic.parent.mkdir(parents=True)
             authentic.write_bytes(b"authentic archive bytes")
-            custom = source / "selected/Custom_Sprites.osar"
+            custom = authentic.parent / "Custom_Sprites.osar"
             custom.write_bytes(b"custom archive bytes")
-            spritepacks = source / "selected/spritepacks"
+            spritepacks = authentic.parent / "spritepacks"
             spritepacks.mkdir()
             (spritepacks / "Items.osar").write_bytes(b"spritepack bytes")
-            external = source / "selected/external-items"
+            external = authentic.parent / "external-items"
             external.mkdir()
             (external / "3309.png").write_bytes(b"png placeholder bytes")
             before = snapshot(source)
@@ -246,6 +247,23 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual("local", discovered["status"])
             self.assertEqual("explicit-provider", discovered["selectedProfileId"])
             self.assertEqual(provider, Path(discovered["candidates"][0]["root"]))
+
+            # One content-addressed provider can remain associated with more than
+            # one equivalent local source; importing the second must not evict the first.
+            second_source = base / "equivalent-server"
+            shutil.copytree(source, second_source)
+            third_command = tuple(
+                second_source if value == source else
+                second_source / value.relative_to(source)
+                if isinstance(value, Path) and value.is_relative_to(source)
+                else value
+                for value in command
+            )
+            third = self.run_cli(*third_command)
+            self.assertEqual(0, third.returncode, third.stderr)
+            self.assertEqual(first_summary["providerId"], json.loads(third.stdout)["providerId"])
+            self.assertEqual("local", self.discover(installation, source)["status"])
+            self.assertEqual("local", self.discover(installation, second_source)["status"])
 
 
 if __name__ == "__main__":

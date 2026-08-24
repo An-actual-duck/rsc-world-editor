@@ -539,6 +539,8 @@ final class WorldBuilderDesktopLauncher {
 				providerDiscovery != null
 					&& providerDiscovery.status == WorldBuilderPortableProvider.Status.RECOGNIZED
 					&& providerDiscovery.selected != null
+					&& (providerDiscovery.selected.itemVisuals != null
+						|| providerDiscovery.selected.definitions != null)
 					? selectionFrom(providerDiscovery.selected) : null
 			};
 			providerStatus.setText(automaticMapping != null
@@ -633,7 +635,6 @@ final class WorldBuilderDesktopLauncher {
 
 		private static JTextField pathField(Path value) {
 			JTextField field = new JTextField(34);
-			field.setEditable(false);
 			if (value != null) field.setText(value.toString());
 			return field;
 		}

@@ -213,7 +213,7 @@ function Test-DurablePath([string]$Relative) {
     return $Top -in @(
         "projects", "project-registry.json", "active-project.json", "workspace",
         "updates", "exports", "backups", "receipts", "diagnostics", "logs",
-        "settings", "credentials", "recovery", ".world-builder-v2-update.lock",
+        "settings", "providers", "credentials", "recovery", ".world-builder-v2-update.lock",
         ".workspace.world-builder.lock", ".project-registry.lock"
     )
 }
@@ -723,7 +723,7 @@ try {
 
     Write-Host "World Builder 2 updated successfully to $LatestVersion."
     if ((Test-Path -LiteralPath $Projects -PathType Container) -or (Test-Path -LiteralPath $Workspace -PathType Container)) {
-        Write-Host "All adaptive projects, registries, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved."
+        Write-Host "All adaptive projects, registries, providers, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved."
         Write-Host "The selected project passed the compatibility checks available in this runtime."
     }
 } catch {

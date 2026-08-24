@@ -367,7 +367,7 @@ is_durable_path() {
 	local top="${1%%/*}"
 	case "$top" in
 		projects|project-registry.json|active-project.json|workspace|updates|\
-		exports|backups|receipts|diagnostics|logs|settings|credentials|recovery|\
+		exports|backups|receipts|diagnostics|logs|settings|providers|credentials|recovery|\
 		.world-builder-v2-update.lock|.workspace.world-builder.lock|\
 		.project-registry.lock)
 			return 0
@@ -871,6 +871,6 @@ ROLLBACK_ARMED=false
 
 printf 'World Builder 2 updated successfully to %s.\n' "$LATEST_VERSION"
 if [[ -d "$PROJECTS" || -d "$WORKSPACE" ]]; then
-	printf 'All adaptive projects, registries, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved.\n'
+	printf 'All adaptive projects, registries, providers, exports, backups, receipts, diagnostics, settings, logs, and historical workspace state were preserved.\n'
 	printf 'The selected project passed the compatibility checks available in this runtime.\n'
 fi
