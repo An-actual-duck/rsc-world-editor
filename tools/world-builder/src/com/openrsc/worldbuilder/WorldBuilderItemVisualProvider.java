@@ -60,7 +60,8 @@ final class WorldBuilderItemVisualProvider {
 	private static final Set<String> PACKAGE_ROLES = Collections.unmodifiableSet(
 		new HashSet<String>(Arrays.asList("authentic-sprite-archive",
 			"custom-sprite-archive", "external-png", "item-visual-schema",
-			"compatibility-item-visual-manifest", "full-item-visual-manifest")));
+			"compatibility-item-visual-manifest", "full-item-visual-manifest",
+			"npc-definition-schema", "full-npc-definition-manifest")));
 
 	private WorldBuilderItemVisualProvider() {
 	}

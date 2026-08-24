@@ -4074,6 +4074,13 @@ public final class FakeAdaptiveClient {
                     ]
                 },
             )
+            # The selected source intentionally has no declarative definition
+            # for placed NPC 846. Project creation must preserve the placement
+            # with a project-local placeholder instead of blocking conversion.
+            write_json(
+                target / "server/conf/server/defs/NpcDefsMyWorld.json",
+                {"npcs": []},
+            )
             write_json(
                 target / "server/conf/server/defs/locs/MyWorldGroundItemLocs.json",
                 {
@@ -4236,6 +4243,17 @@ public final class FakeAdaptiveClient {
                 ],
             )
             self.assertEqual([846], [value["npcId"] for value in placements["npcs"]])
+            npc_warnings = json.loads(
+                (project / "diagnostics/npc-definition-provider-warnings.json")
+                .read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                846,
+                [
+                    value["npcId"] for value in npc_warnings["warnings"]
+                    if value["code"] == "NPC_DEFINITION_PLACEHOLDER"
+                ],
+            )
             self.assertEqual(
                 [9000], [value["itemId"] for value in placements["groundItems"]]
             )

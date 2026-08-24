@@ -36,6 +36,15 @@ only IDs required by the selected target are materialized. A malformed package
 or unusable individual record yields the established placeholder and warning
 path instead of authorizing execution or target mutation.
 
+The same package may include an inventory-bound `npc-definitions-v1.json` with
+role `full-npc-definition-manifest` (and optional
+`npc-definition-mapping-v1.schema.json` with role `npc-definition-schema`).
+World Builder automatically consumes it from the selected package; the user
+does not choose a second file. Missing or unusable NPC records become explicit
+project-local placeholders with warnings while their IDs and placements remain
+stable. Exact records use only captured declarative definitions and existing
+animation assets; target code is never run for discovery.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral

@@ -1226,6 +1226,42 @@ class AdaptiveContractTests(unittest.TestCase):
                 bad["itemVisuals"] = [item]
                 self.assertTrue(list(validator.iter_errors(bad)))
 
+    @unittest.skipUnless(jsonschema is not None, "optional jsonschema module unavailable")
+    def test_npc_definition_provider_schema_enforces_complete_data_only_records(self):
+        schema = json.loads((SCHEMA_ROOT / "npc-definition-mapping-v1.schema.json")
+            .read_text(encoding="utf-8"))
+        jsonschema.Draft202012Validator.check_schema(schema)
+        validator = jsonschema.Draft202012Validator(schema)
+        definition = {
+            "id": 846, "name": "Provider NPC", "description": "fixture",
+            "command": "", "command2": "", "attack": 1, "strength": 1,
+            "hits": 1, "defense": 1, "ranged": False, "combatlvl": 1,
+            "isMembers": 0, "attackable": 0, "aggressive": 0,
+            "respawnTime": 30, "hairColour": 0, "topColour": 0,
+            "bottomColour": 0, "skinColour": 0, "camera1": 145,
+            "camera2": 220, "walkModel": 1, "combatModel": 1,
+            "combatSprite": 0, "roundMode": 0,
+        }
+        for index in range(1, 13):
+            definition[f"sprites{index}"] = 0 if index == 1 else -1
+        document = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-npc-definition-mapping",
+            "npcs": [{"npcId": 846, "name": "Provider NPC",
+                      "definition": definition}],
+        }
+        self.assertEqual([], list(validator.iter_errors(document)))
+        for mutate in ("missing", "unknown", "wrong-type"):
+            changed = json.loads(json.dumps(document))
+            if mutate == "missing":
+                del changed["npcs"][0]["definition"]["sprites12"]
+            elif mutate == "unknown":
+                changed["npcs"][0]["definition"]["executableClass"] = "Unsafe"
+            else:
+                changed["npcs"][0]["definition"]["ranged"] = 1
+            with self.subTest(mutate=mutate):
+                self.assertTrue(list(validator.iter_errors(changed)))
+
     def test_every_contract_rejects_unknown_keys_versions_and_types(self):
         for kind, factory in VALID_CONTRACTS.items():
             with self.subTest(kind=kind, case="unknown-key"):
