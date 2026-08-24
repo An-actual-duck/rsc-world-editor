@@ -373,7 +373,7 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("role-ambiguous", result.stderr)
 
-    def test_successor_rejects_malformed_osar_names_frames_pixels_and_bounds(self):
+    def test_successor_rejects_malformed_osar_names_frames_and_pixels(self):
         spec = importlib.util.spec_from_file_location("bundle_v2_invalid_osar", GENERATOR_V2)
         module = importlib.util.module_from_spec(spec)
         assert spec is not None and spec.loader is not None
@@ -381,15 +381,7 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
         valid = module.osar_entry(width=1, height=1, pixels=[0x123456])
         cases = {
             "unsafe-name": [("items/nested", [("0", valid)])],
-            "casefold-subspace": [
-                ("items", [("0", valid)]), ("ITEMS", [("other", valid)]),
-            ],
-            "casefold-entry": [("items", [("Entry", valid), ("entry", valid)])],
             "empty-frame-set": [("items", [("0", bytes((0, 0)))])],
-            "invalid-bounds": [("items", [("0",
-                bytes((0, 1, 0)) + b"\x12\x34\x56"
-                + b"\x00\x02\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
-                + b"\x00\x00")])],
             "invalid-palette-index": [("items", [("0",
                 bytes((0, 1, 0)) + b"\x12\x34\x56"
                 + b"\x00\x01\x00\x01\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
@@ -410,6 +402,33 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
                     "OSAR" in result.stderr or "portable" in result.stderr,
                     result.stderr,
                 )
+
+    def test_successor_accepts_runtime_legacy_case_and_frame_geometry(self):
+        spec = importlib.util.spec_from_file_location("bundle_v2_legacy_osar", GENERATOR_V2)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        legacy_geometry = (
+            bytes((0, 1, 0)) + b"\x12\x34\x56"
+            + b"\x00\x02\x00\x01\x01\xff\xff\xff\xfe\x00\x01\x00\x01"
+            + b"\x00\x00"
+        )
+        with tempfile.TemporaryDirectory(prefix="content-bundle-v2-legacy-osar-") as temp:
+            changed = Path(temp) / "bundle"
+            shutil.copytree(FIXTURE_V2, changed)
+            archive = changed / "files/client/Cache/video/Custom_Sprites.osar"
+            archive.write_bytes(module.deterministic_osar([
+                ("items", [("0", legacy_geometry), ("Entry", module.osar_entry(
+                    width=1, height=1, pixels=[0x123456],
+                ))]),
+                ("ITEMS", [("entry", module.osar_entry(
+                    width=1, height=1, pixels=[0x654321],
+                ))]),
+                ("unused", []),
+            ]))
+            self.rewrite_v2_manifest(changed)
+            result = self.read_with_java(changed)
+            self.assertEqual(0, result.returncode, result.stderr)
 
 
 if __name__ == "__main__":
