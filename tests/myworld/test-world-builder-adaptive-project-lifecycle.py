@@ -4398,6 +4398,19 @@ public final class FakeAdaptiveClient {
 
         cases["archive-ambiguity"] = (ambiguous_archive, "role-ambiguous")
 
+        def unsafe_path(base: Path, target: Path, visuals: list[dict]) -> Path:
+            mapping = base / "mapping.json"
+            changed = [dict(item) for item in visuals]
+            changed[0]["customSpriteSubspace"] = "../items"
+            write_json(mapping, {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-item-visual-mapping",
+                "itemVisuals": changed,
+            })
+            return mapping
+
+        cases["unsafe-path"] = (unsafe_path, "UNSAFE_PATH")
+
         for name, (prepare, expected) in cases.items():
             with self.subTest(name=name), tempfile.TemporaryDirectory(
                 prefix=f"adaptive-item-visual-{name}-"

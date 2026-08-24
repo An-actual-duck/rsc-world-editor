@@ -366,6 +366,7 @@ function Assert-ApplicationAllowlist(
         "import-receipt-v3.schema.json", "project-manifest-v1.schema.json",
         "project-manifest-v2.schema.json", "project-registry-v1.schema.json",
         "project-content-bundle-v1.schema.json", "project-content-bundle-v2.schema.json",
+        "item-visual-mapping-v1.schema.json",
         "region-bundle-manifest-v1.schema.json",
         "region-compatibility-report-v1.schema.json",
         "region-operation-plan-v1.schema.json", "region-selection-v1.schema.json",

@@ -156,7 +156,6 @@ final class WorldBuilderProjectContentBundle {
 				"packaged-content-comparison-v1");
 		Set<Integer> beyondPackaged = differenceIds(
 			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
-		Path visualEvidence = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
 		List<Object> itemVisuals;
 		boolean successor = !beyondPackaged.isEmpty();
 		if (successor) {
@@ -719,7 +718,7 @@ final class WorldBuilderProjectContentBundle {
 			List<Object> visuals = validateItemVisualEvidence(existing);
 			requireExactVisualClosure(visuals, required);
 			validateItemVisualArchiveClosure(copiedTarget, visuals);
-			return new ItemVisualMigration("existing-item-visuals-v1", visuals);
+			return new ItemVisualMigration(visuals);
 		}
 
 		Map<Integer,Map<String,Object>> resolved =
@@ -776,8 +775,7 @@ final class WorldBuilderProjectContentBundle {
 		}
 		requireExactVisualClosure(visuals, required);
 		validateItemVisualArchiveClosure(copiedTarget, visuals);
-		return new ItemVisualMigration(explicitMappings == null
-			? "derived-declarative-v1" : "derived-and-explicit-v1", visuals);
+		return new ItemVisualMigration(visuals);
 	}
 
 	private static Map<String,Object> declarativeVisual(Map<String,Object> definition,
@@ -1447,11 +1445,9 @@ final class WorldBuilderProjectContentBundle {
 	}
 
 	private static final class ItemVisualMigration {
-		final String source;
 		final List<Object> itemVisuals;
 
-		ItemVisualMigration(String source, List<Object> itemVisuals) {
-			this.source = source;
+		ItemVisualMigration(List<Object> itemVisuals) {
 			this.itemVisuals = Collections.unmodifiableList(
 				new ArrayList<Object>(itemVisuals));
 		}
