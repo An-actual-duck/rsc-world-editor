@@ -223,6 +223,36 @@ changed. Full bundle validation, archive-entry closure, target revalidation,
 and atomic publication still run afterward. Cancellation or any validation
 failure removes the unpublished stage and publishes no registry/project state.
 
+### Sparse and unresolved NPC definitions
+
+OpenRSC NPC base/custom JSON is loaded as one sequential registry even when a
+record contains an `id` field. A placement or override can therefore name an ID
+that is not actually backed by the combined base/custom row count. World
+Builder no longer blocks project creation in that case. It extends only the
+project-local copied custom definition file through the highest required ID,
+uses deterministic nonaggressive placeholders for unresolved IDs, retains the
+exact placement, and writes sorted diagnostics to
+`diagnostics/npc-definition-provider-warnings.json`. The selected server and
+immutable source copy are unchanged.
+
+An exact neutral provider may place `npc-definitions-v1.json` beside the
+selected item-visual manifest. Its contract is `schemaVersion: 1`,
+`manifestType: "world-builder-npc-definition-mapping"`, and strictly ascending
+records containing `npcId`, `name`, and one complete declarative NPC definition.
+The exact data-only schema is
+`tools/world-builder/schema/npc-definition-mapping-v1.schema.json`. In a
+versioned provider package the file must be inventory-bound with role
+`full-npc-definition-manifest`; its optional schema uses role
+`npc-definition-schema`. No target JAR or class is consulted.
+
+Provider definitions replace the placeholder at the exact sequential ID.
+Unrepresented gaps remain inert placeholders so sparse IDs stay stable. Both
+runtime consumers independently prove that every catalog NPC and every
+patch/world override is backed by the resulting sequential registry before
+authentication. New animation families remain a separately versioned provider
+extension; v1 definitions may reference only animation IDs already available
+through the captured target/runtime assets.
+
 ## Canonical compatibility fixture
 
 The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains

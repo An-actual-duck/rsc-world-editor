@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/npc-definition-mapping-v1.schema.json",
+  "title": "World Builder neutral NPC definition mapping v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "npcs"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-npc-definition-mapping"},
+    "npcs": {
+      "type": "array",
+      "maxItems": 65536,
+      "items": {"$ref": "#/$defs/npcRecord"}
+    }
+  },
+  "$defs": {
+    "npcRecord": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["npcId", "name", "definition"],
+      "properties": {
+        "npcId": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "definition": {"$ref": "#/$defs/npcDefinition"}
+      }
+    },
+    "npcDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "description", "command", "command2", "attack",
+        "strength", "hits", "defense", "ranged", "combatlvl", "isMembers",
+        "attackable", "aggressive", "respawnTime", "sprites1", "sprites2",
+        "sprites3", "sprites4", "sprites5", "sprites6", "sprites7", "sprites8",
+        "sprites9", "sprites10", "sprites11", "sprites12", "hairColour",
+        "topColour", "bottomColour", "skinColour", "camera1", "camera2",
+        "walkModel", "combatModel", "combatSprite", "roundMode"
+      ],
+      "properties": {
+        "id": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "name": {"type": "string", "minLength": 1, "maxLength": 256},
+        "description": {"type": "string", "maxLength": 1024},
+        "command": {"type": "string", "maxLength": 1024},
+        "command2": {"type": "string", "maxLength": 1024},
+        "attack": {"type": "integer"},
+        "strength": {"type": "integer"},
+        "hits": {"type": "integer"},
+        "defense": {"type": "integer"},
+        "ranged": {"type": "boolean"},
+        "projectileRange": {"type": "integer"},
+        "meleeOffense": {"type": "integer"},
+        "rangedOffense": {"type": "integer"},
+        "magicOffense": {"type": "integer"},
+        "meleeDefense": {"type": "integer"},
+        "rangedDefense": {"type": "integer"},
+        "magicDefense": {"type": "integer"},
+        "meleeDefenseMultiplier": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "rangedDefenseMultiplier": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "magicDefenseMultiplier": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "meleeDefenseDivisor": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "rangedDefenseDivisor": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "magicDefenseDivisor": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+        "combatlvl": {"type": "integer"},
+        "isMembers": {"type": "integer"},
+        "attackable": {"type": "integer"},
+        "aggressive": {"type": "integer"},
+        "respawnTime": {"type": "integer"},
+        "sprites1": {"type": "integer"},
+        "sprites2": {"type": "integer"},
+        "sprites3": {"type": "integer"},
+        "sprites4": {"type": "integer"},
+        "sprites5": {"type": "integer"},
+        "sprites6": {"type": "integer"},
+        "sprites7": {"type": "integer"},
+        "sprites8": {"type": "integer"},
+        "sprites9": {"type": "integer"},
+        "sprites10": {"type": "integer"},
+        "sprites11": {"type": "integer"},
+        "sprites12": {"type": "integer"},
+        "hairColour": {"type": "integer"},
+        "topColour": {"type": "integer"},
+        "bottomColour": {"type": "integer"},
+        "skinColour": {"type": "integer"},
+        "camera1": {"type": "integer"},
+        "camera2": {"type": "integer"},
+        "walkModel": {"type": "integer"},
+        "combatModel": {"type": "integer"},
+        "combatSprite": {"type": "integer"},
+        "roundMode": {"type": "integer"}
+      }
+    }
+  }
+}

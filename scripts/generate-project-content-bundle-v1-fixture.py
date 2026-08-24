@@ -134,7 +134,12 @@ def payloads() -> dict[str, bytes]:
             {"npcs": [{"id": 0, "name": "fixture-base-npc"}]}
         ),
         "server/conf/server/defs/NpcDefsCustom.json": pretty(
-            {"npcs": [{"id": 12, "name": "fixture-appended-npc"}]}
+            {"npcs": [
+                {"id": npc_id,
+                 "name": ("fixture-appended-npc" if npc_id == 846
+                          else f"fixture-gap-npc-{npc_id}")}
+                for npc_id in range(1, 847)
+            ]}
         ),
         "server/conf/server/defs/NpcDefsPatch18.json": pretty(
             {"npcs": [{"id": 100, "name": "fixture-patch-npc"}]}
@@ -163,7 +168,7 @@ def catalog() -> dict:
         "tiles": list(range(32)),
         "boundaries": list(range(220)),
         "scenery": list(range(60)),
-        "npcs": [0, 1, 100, 846],
+        "npcs": list(range(847)),
         "groundItems": [0, 9000, 9001, 9002],
         "catalogSha256": ZERO_HASH,
     }
