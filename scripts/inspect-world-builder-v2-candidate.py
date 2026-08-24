@@ -968,6 +968,8 @@ def validate_runtime_configuration(data: bytes, display: str) -> None:
         "world_builder_mode": "true",
         "world_builder_adaptive_mode": "true",
         "layered_native_world_runtime_profile": "adaptive-world-builder",
+        "restrict_item_id": "-1",
+        "restrict_scenery_id": "-1",
     }
     for key, expected in required.items():
         if values.get(key) != expected:

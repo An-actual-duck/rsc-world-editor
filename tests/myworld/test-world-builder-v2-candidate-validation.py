@@ -136,6 +136,8 @@ RUNTIME_CONFIGURATION = (
     b"world_builder_mode: true\n"
     b"world_builder_adaptive_mode: true\n"
     b"layered_native_world_runtime_profile: adaptive-world-builder\n"
+    b"restrict_item_id: -1\n"
+    b"restrict_scenery_id: -1\n"
 )
 TOP_FILES = (
     "ASSET-SOURCES.txt",

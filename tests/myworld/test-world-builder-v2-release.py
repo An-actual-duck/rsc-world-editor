@@ -1259,6 +1259,11 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         f"{runtime_provider_commit}\n",
                         archive.read(prefix + "RUNTIME-PROVIDER-COMMIT.txt").decode(),
                     )
+                    builder_config = archive.read(
+                        prefix + "builder-runtime/server/world-builder.conf"
+                    ).decode()
+                    self.assertIn("restrict_item_id: -1", builder_config)
+                    self.assertIn("restrict_scenery_id: -1", builder_config)
                     identity = json.loads(
                         archive.read(prefix + "RELEASE-IDENTITY.json").decode()
                     )
