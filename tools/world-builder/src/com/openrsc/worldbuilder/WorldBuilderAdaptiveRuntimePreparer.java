@@ -265,6 +265,17 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("based_map_data", "64");
 		values.put("want_myworld", "false");
 		values.put("custom_landscape", "false");
+		values.put("want_custom_ui", "true");
+		values.put("side_menu_toggle", "true");
+		values.put("fog_toggle", "true");
+		values.put("ground_item_toggle", "true");
+		values.put("ground_item_names", "true");
+		values.put("auto_message_switch_toggle", "true");
+		values.put("inventory_count_toggle", "true");
+		values.put("zoom_view_toggle", "true");
+		values.put("show_roof_toggle", "true");
+		values.put("show_underground_flicker_toggle", "true");
+		values.put("allow_resize", "true");
 		values.put("server_bind_address", "127.0.0.1");
 		values.put("server_port", Integer.toString(port));
 		values.put("ws_server_port", Integer.toString(port == 65534 ? 65533 : port + 1));

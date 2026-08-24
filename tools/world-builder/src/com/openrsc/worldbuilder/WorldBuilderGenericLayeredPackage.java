@@ -22,6 +22,9 @@ final class WorldBuilderGenericLayeredPackage {
 	private static final int MAX_LEVELS = 4096;
 	private static final int MAX_TERRAIN = 65536;
 	private static final int MAX_PLACEMENTS_PER_SET = 65536;
+	private static final int PREFERRED_INITIAL_LEVEL = 0;
+	private static final int PREFERRED_INITIAL_X = 120;
+	private static final int PREFERRED_INITIAL_Y = 648;
 
 	final String packageId;
 	final String packageVersion;
@@ -239,6 +242,15 @@ final class WorldBuilderGenericLayeredPackage {
 					"Stop package changes and retry validation.");
 			}
 			register(referenced, state, manifestRelative);
+		}
+		String preferredInitialSector = coordinateKey(
+			PREFERRED_INITIAL_LEVEL,
+			Math.floorDiv(PREFERRED_INITIAL_X, 48),
+			Math.floorDiv(PREFERRED_INITIAL_Y, 48));
+		if (terrainCoverage.contains(preferredInitialSector)) {
+			initialLevel = Integer.valueOf(PREFERRED_INITIAL_LEVEL);
+			initialX = Integer.valueOf(PREFERRED_INITIAL_X);
+			initialY = Integer.valueOf(PREFERRED_INITIAL_Y);
 		}
 
 		List<?> rawPlacementSets = array(manifest.get("placementSets"), manifestRelative,
