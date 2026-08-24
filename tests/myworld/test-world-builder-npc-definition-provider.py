@@ -18,12 +18,17 @@ package com.openrsc.worldbuilder;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.Arrays;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public final class NpcDefinitionProviderHarness {
     public static void main(String[] args) throws Exception {
+        Map<String,Object> catalog = new LinkedHashMap<String,Object>();
+        catalog.put("npcs", Arrays.<Object>asList(Long.valueOf(0L), Long.valueOf(2L)));
         WorldBuilderNpcDefinitionProvider.Result result =
             WorldBuilderNpcDefinitionProvider.consume(
-                Paths.get(args[1]), Paths.get(args[0]));
+                Paths.get(args[1]), Paths.get(args[0]), catalog);
         Files.write(Paths.get(args[2]), result.customDefinitions);
         WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
     }
@@ -41,6 +46,7 @@ def definition(npc_id: int, name: str) -> dict:
         "bottomColour": 0, "skinColour": 0, "camera1": 145,
         "camera2": 220, "walkModel": 1, "combatModel": 1,
         "combatSprite": 0, "roundMode": 0,
+        "meleeDefenseMultiplier": 1.25,
     }
     for index in range(1, 13):
         value[f"sprites{index}"] = 0 if index == 1 else -1
@@ -161,6 +167,20 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 )
                 self.assertEqual("NPC_DEFINITION_PLACEHOLDER",
                                  report["warnings"][0]["code"])
+
+    def test_consumes_catalog_without_integer_only_overlay_reparse(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-derived-catalog-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            # Discovery owns definition parsing. Its derived catalog already
+            # represents overlays with legitimate decimal combat metadata.
+            write_json(target / "server/conf/server/defs/NpcDefsMyWorld.json", {
+                "npcs": [definition(2, "Decimal overlay")],
+            })
+            custom, report = self.consume(target, selected, base / "stage")
+            self.assertEqual("[Missing NPC 2]", custom["npcs"][1]["name"])
+            self.assertEqual(1.25, custom["npcs"][1]["meleeDefenseMultiplier"])
+            self.assertEqual([2], [row["npcId"] for row in report["warnings"]])
 
     def test_versioned_package_inventory_binds_exact_npc_manifest(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-package-") as temp:

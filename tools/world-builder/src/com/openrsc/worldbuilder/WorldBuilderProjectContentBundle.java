@@ -152,7 +152,8 @@ final class WorldBuilderProjectContentBundle {
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
 			"target-adopted-content-v2");
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
-			WorldBuilderNpcDefinitionProvider.consume(explicitMappings, copiedTarget);
+			WorldBuilderNpcDefinitionProvider.consume(
+				explicitMappings, copiedTarget, targetCatalog);
 		Map<String,Object> packagedCatalog =
 			WorldBuilderStandaloneDefinitionCatalog.generate(runtime,
 				"packaged-content-comparison-v1");
