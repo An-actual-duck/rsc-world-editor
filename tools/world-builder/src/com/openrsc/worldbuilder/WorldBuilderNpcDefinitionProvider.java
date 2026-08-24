@@ -52,7 +52,8 @@ final class WorldBuilderNpcDefinitionProvider {
 	private WorldBuilderNpcDefinitionProvider() {
 	}
 
-	static Result consume(Path selectedProviderManifest, Path copiedTarget)
+	static Result consume(Path selectedProviderManifest, Path copiedTarget,
+		Map<String,Object> targetCatalog)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> base = definitionDocument(copiedTarget,
 			"server/conf/server/defs/NpcDefs.json", "npcs");
@@ -64,11 +65,8 @@ final class WorldBuilderNpcDefinitionProvider {
 		if (appendedCount < 1) throw problem("server/conf/server/defs/NpcDefs.json",
 			"Target NPC definitions contain no sequential base record.");
 
-		Set<Integer> required = placementIds(copiedTarget);
-		required.addAll(overlayIds(copiedTarget,
-			"server/conf/server/defs/NpcDefsMyWorld.json"));
-		required.addAll(overlayIds(copiedTarget,
-			"server/conf/server/defs/NpcDefsPatch18.json"));
+		Set<Integer> required = catalogIds(targetCatalog);
+		required.addAll(placementIds(copiedTarget));
 		int maximum = required.isEmpty() ? -1 : Collections.max(required).intValue();
 		if (maximum < appendedCount) return Result.unchanged();
 		if (maximum > MAX_ID) throw problem("npc placements",
@@ -132,7 +130,8 @@ final class WorldBuilderNpcDefinitionProvider {
 				|| Files.isSymbolicLink(candidate) || Files.size(candidate) < 1L
 				|| Files.size(candidate) > MAX_BYTES) return Provider.empty();
 			validatePackageInventory(root, candidate);
-			Map<String,Object> document = WorldBuilderJsonDocuments.readObject(candidate);
+			Map<String,Object> document =
+				WorldBuilderJsonDocuments.readTargetDefinitionObject(candidate);
 			exact(document, set("schemaVersion", "manifestType", "npcs"), FILE_NAME);
 			if (!Long.valueOf(1L).equals(document.get("schemaVersion"))
 				|| !TYPE.equals(document.get("manifestType"))) return Provider.empty();
@@ -287,34 +286,42 @@ final class WorldBuilderNpcDefinitionProvider {
 		return result;
 	}
 
+	private static Set<Integer> catalogIds(Map<String,Object> targetCatalog)
+		throws IOException {
+		if (targetCatalog == null || !targetCatalog.containsKey("npcs")) {
+			throw new IOException("Derived target catalog has no NPC family");
+		}
+		Set<Integer> result = new TreeSet<Integer>();
+		int previous = -1;
+		for (Object raw : array(targetCatalog.get("npcs"), "derived target NPC catalog")) {
+			int id = integer(raw, 0, MAX_ID, "derived target NPC ID");
+			if (id <= previous) throw new IOException(
+				"Derived target NPC catalog is not sorted and unique");
+			previous = id;
+			result.add(Integer.valueOf(id));
+		}
+		return result;
+	}
+
 	private static Set<Integer> placementIds(Path root)
 		throws IOException, WorldBuilderContractException {
 		Path path = root.resolve("server/conf/server/defs/locs/MyWorldNpcLocs.json");
-		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return new TreeSet<Integer>();
-		return ids(path, "npclocs");
-	}
-
-	private static Set<Integer> overlayIds(Path root, String relative)
-		throws IOException, WorldBuilderContractException {
-		Path path = root.resolve(relative);
-		return Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
-			? ids(path, "npcs") : new TreeSet<Integer>();
-	}
-
-	private static Set<Integer> ids(Path path, String key)
-		throws IOException, WorldBuilderContractException {
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+			return new TreeSet<Integer>();
+		}
 		try {
 			Map<String,Object> value = WorldBuilderJsonDocuments.readObject(path);
-			if (value.size() != 1 || !value.containsKey(key)) throw new IOException("wrong root");
+			if (value.size() != 1 || !value.containsKey("npclocs")) {
+				throw new WorldBuilderDiscoveryException("wrong NPC placement root");
+			}
 			Set<Integer> result = new TreeSet<Integer>();
-			for (Object raw : array(value.get(key), path.toString())) {
+			for (Object raw : array(value.get("npclocs"), path.toString())) {
 				Map<String,Object> row = object(raw, path.toString());
-				int id = integer(row.get("id"), 0, MAX_ID, "id");
-				result.add(Integer.valueOf(id));
+				result.add(Integer.valueOf(integer(row.get("id"), 0, MAX_ID, "id")));
 			}
 			return result;
 		} catch (WorldBuilderDiscoveryException malformed) {
-			throw problem(path.toString(), "NPC definition/placement JSON is malformed.", malformed);
+			throw problem(path.toString(), "NPC placement JSON is malformed.", malformed);
 		}
 	}
 
@@ -322,7 +329,8 @@ final class WorldBuilderNpcDefinitionProvider {
 		String key) throws IOException, WorldBuilderContractException {
 		Path path = root.resolve(relative);
 		try {
-			Map<String,Object> value = WorldBuilderJsonDocuments.readObject(path);
+			Map<String,Object> value =
+				WorldBuilderJsonDocuments.readTargetDefinitionObject(path);
 			if (value.size() != 1 || !value.containsKey(key)) throw new IOException("wrong root");
 			array(value.get(key), relative);
 			return value;

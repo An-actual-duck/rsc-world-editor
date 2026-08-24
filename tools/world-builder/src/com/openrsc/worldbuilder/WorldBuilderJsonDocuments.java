@@ -116,6 +116,8 @@ final class WorldBuilderJsonDocuments {
 			|| value instanceof Short || value instanceof Integer
 			|| value instanceof Long) {
 			output.append(value);
+		} else if (value instanceof BigDecimal) {
+			output.append(((BigDecimal)value).toPlainString());
 		} else if (value instanceof Map) {
 			@SuppressWarnings("unchecked") Map<String,Object> object =
 				(Map<String,Object>)value;
@@ -152,6 +154,8 @@ final class WorldBuilderJsonDocuments {
 			|| value instanceof Short || value instanceof Integer
 			|| value instanceof Long) {
 			output.append(value);
+		} else if (value instanceof BigDecimal) {
+			output.append(((BigDecimal)value).toPlainString());
 		} else if (value instanceof Map) {
 			@SuppressWarnings("unchecked") Map<String,Object> object =
 				(Map<String,Object>)value;
