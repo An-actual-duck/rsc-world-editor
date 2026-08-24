@@ -253,6 +253,19 @@ authentication. New animation families remain a separately versioned provider
 extension; v1 definitions may reference only animation IDs already available
 through the captured target/runtime assets.
 
+The consumer also accepts the richer neutral producer form with
+`manifestType: "world-builder-npc-definitions"`. That form carries
+`npcDefinitions`, the complete referenced `animationDefinitions`, exact sprite
+archive bindings, and a sorted placed-extension selection. World Builder
+validates the package inventory, archive hashes, NPC/definition identities,
+selection closure, and every referenced animation before normalizing it to the
+isolated Builder registry. Producer fields which have no Builder runtime
+equivalent are never inferred from target code: server-only movement and combat
+process fields are set to inert Builder values, while names, commands, visible
+stats, animation IDs, recolor values, dimensions, and models are retained.
+Malformed rich manifests continue through the existing explicit placeholder
+and warning path rather than executing provider or target code.
+
 ## Canonical compatibility fixture
 
 The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains

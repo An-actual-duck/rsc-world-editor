@@ -69,6 +69,14 @@ that the custom NPC was imported faithfully. The provider diagnostics path is
 shown in the same dialog so a maintainer can supply a successor package and the
 user can recreate the project without guessing what went wrong.
 
+`npc-definitions-v1.json` may use either the normalized
+`world-builder-npc-definition-mapping` contract or the richer
+`world-builder-npc-definitions` producer contract. The latter includes exact
+archive bindings and the complete animation closure for placed extension NPCs;
+the Editor verifies and normalizes it automatically. This keeps provider
+production portable without requiring end users to translate server and client
+definition shapes by hand.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral
