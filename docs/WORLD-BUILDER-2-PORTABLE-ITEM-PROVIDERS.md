@@ -19,6 +19,23 @@ always wins over compatibility discovery. Missing or invalid optional visual
 assets do not stop source discovery; the item-visual consumer reports a local
 warning and uses the standard placeholder for affected records.
 
+The launcher also accepts a read-only versioned provider package whose root
+contains `package-manifest-v1.json`, one inventoried
+`item-visuals-full-v1.json`, and role-labelled assets. This adapter verifies the
+complete sorted package inventory, file sizes and SHA-256 values, catalog
+binding, mapping selection, archive bindings, and external PNG bindings before
+opening content. Producer paths such as `assets/archives/` and
+`assets/external-png/` are normalized into the same internal evidence as the
+simple layout; producer identity and source-path metadata remain inert and no
+referenced source checkout is inspected.
+
+For versioned mappings, `custom-sprite-archive`, `external-png`, and
+`authentic-archive-fallback` are data roles rather than product-specific
+behavior. A complete mapping may contain packaged and unrelated item records;
+only IDs required by the selected target are materialized. A malformed package
+or unusable individual record yields the established placeholder and warning
+path instead of authorizing execution or target mutation.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral

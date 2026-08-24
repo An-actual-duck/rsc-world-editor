@@ -7,8 +7,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -54,6 +57,10 @@ final class WorldBuilderItemVisualProvider {
 			"sourceRole", "sourceAsset", "sourceAssetSha256", "authenticSpriteId",
 			"customSpriteSubspace", "customSpriteEntry", "externalPng",
 			"pictureMask", "blueMask")));
+	private static final Set<String> PACKAGE_ROLES = Collections.unmodifiableSet(
+		new HashSet<String>(Arrays.asList("authentic-sprite-archive",
+			"custom-sprite-archive", "external-png", "item-visual-schema",
+			"compatibility-item-visual-manifest", "full-item-visual-manifest")));
 
 	private WorldBuilderItemVisualProvider() {
 	}
@@ -68,6 +75,7 @@ final class WorldBuilderItemVisualProvider {
 		String manifestHash = ZERO_HASH;
 		Map<String,Object> root = null;
 		Path providerRoot = null;
+		PackageContext packageContext = null;
 		if (manifest == null) {
 			warnings.add(new Warning(-1, "PROVIDER_NOT_SELECTED",
 				"No neutral item-visual provider was selected; unresolved items use placeholders."));
@@ -87,7 +95,11 @@ final class WorldBuilderItemVisualProvider {
 					throw new Rejected("PROVIDER_ROOT_UNSAFE",
 						"Provider root is not a real directory.");
 				}
-				validateRoot(root);
+				if (isPackagedProvider(root)) {
+					packageContext = validatePackagedProvider(manifest, providerRoot, root);
+				} else {
+					validateRoot(root);
+				}
 			} catch (Rejected invalid) {
 				warnings.add(new Warning(-1, invalid.code, invalid.getMessage()));
 				root = null;
@@ -103,6 +115,7 @@ final class WorldBuilderItemVisualProvider {
 		}
 
 		Map<Path,Osar> osars = new HashMap<Path,Osar>();
+		Map<Path,String> validatedAssets = new HashMap<Path,String>();
 		Map<Path,Map<Integer,String>> authentic =
 			new HashMap<Path,Map<Integer,String>>();
 		Map<Path,Set<String>> authenticSelections =
@@ -128,13 +141,15 @@ final class WorldBuilderItemVisualProvider {
 			for (Object raw : records) {
 				int hintedId = safeItemId(raw);
 				try {
-					ProviderRecord record = parseRecord(raw, providerRoot);
+					ProviderRecord record = packageContext == null
+						? parseRecord(raw, providerRoot)
+						: parsePackagedRecord(raw, packageContext);
 					if (!seen.add(Integer.valueOf(record.itemId))) {
 						throw new Rejected("PROVIDER_DUPLICATE_ITEM",
 							"Provider repeats item ID " + record.itemId + ".");
 					}
 					if (!required.contains(Integer.valueOf(record.itemId))) continue;
-					Resolved value = resolve(record, osars, authentic);
+					Resolved value = resolve(record, osars, authentic, validatedAssets);
 					if (value.authenticAsset != null) {
 						Set<String> selected = authenticSelections.get(value.authenticAsset);
 						if (selected == null) {
@@ -237,6 +252,196 @@ final class WorldBuilderItemVisualProvider {
 		}
 	}
 
+	private static boolean isPackagedProvider(Map<String,Object> root) {
+		return root != null && root.keySet().equals(new HashSet<String>(Arrays.asList(
+			"schemaVersion", "manifestType", "provider", "assetProviders",
+			"selection", "itemVisuals")))
+			&& Long.valueOf(1L).equals(root.get("schemaVersion"))
+			&& TYPE.equals(root.get("manifestType"));
+	}
+
+	private static PackageContext validatePackagedProvider(Path mapping, Path providerRoot,
+		Map<String,Object> root) throws IOException, Rejected {
+		Map<String,Object> provider = object(root.get("provider"), "provider");
+		requireKeys(provider, "provider", "identity", "definitionMode",
+			"catalogItemCount", "catalogSha256", "inputs");
+		text(provider.get("identity"), 1, 256, "provider.identity");
+		text(provider.get("definitionMode"), 1, 256, "provider.definitionMode");
+		integer(provider.get("catalogItemCount"), 0, MAX_ITEMS, "provider.catalogItemCount");
+		String catalogHash = hash(provider.get("catalogSha256"), "provider.catalogSha256");
+		if (!(provider.get("inputs") instanceof List)
+			|| ((List<?>)provider.get("inputs")).size() > MAX_ENTRIES) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider input inventory is missing or excessive.");
+		}
+		for (Object raw : (List<?>)provider.get("inputs")) {
+			Map<String,Object> input = object(raw, "provider input");
+			requireKeys(input, "provider input", "path", "sha256");
+			text(input.get("path"), 1, 1024, "provider input path");
+			hash(input.get("sha256"), "provider input sha256");
+		}
+
+		Map<String,Object> selection = object(root.get("selection"), "selection");
+		if (!selection.keySet().containsAll(Arrays.asList("kind", "itemCount",
+			"itemIdsSha256", "mappingSha256"))) throw new Rejected(
+			"PROVIDER_PACKAGE_INVALID", "Provider selection metadata is incomplete.");
+		String kind = text(selection.get("kind"), 1, 64, "selection.kind");
+		Set<String> selectionKeys = new HashSet<String>(selection.keySet());
+		selectionKeys.removeAll(Arrays.asList("kind", "itemCount", "itemIdsSha256",
+			"mappingSha256", "minimumItemId", "maximumItemId"));
+		if (!selectionKeys.isEmpty()) throw new Rejected("PROVIDER_PACKAGE_INVALID",
+			"Provider selection metadata has unfamiliar fields.");
+		if (!("complete-final-catalog".equals(kind) || "filtered-compatibility".equals(kind))) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID", "Provider selection kind is unsupported.");
+		}
+		int selectionCount = integer(selection.get("itemCount"), 0, MAX_ITEMS,
+			"selection.itemCount");
+		hash(selection.get("itemIdsSha256"), "selection.itemIdsSha256");
+		hash(selection.get("mappingSha256"), "selection.mappingSha256");
+		if (!(root.get("itemVisuals") instanceof List)
+			|| ((List<?>)root.get("itemVisuals")).size() != selectionCount) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider selection count does not match itemVisuals.");
+		}
+		int catalogCount = integer(provider.get("catalogItemCount"), 0, MAX_ITEMS,
+			"provider.catalogItemCount");
+		if ("complete-final-catalog".equals(kind) && catalogCount != selectionCount) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Complete provider selection does not match the catalog item count.");
+		}
+
+		Path packageManifest = safeProviderFile(providerRoot,
+			"package-manifest-v1.json", false);
+		if (Files.size(packageManifest) > MAX_MANIFEST_BYTES) throw new Rejected(
+			"PROVIDER_PACKAGE_INVALID", "Provider package manifest exceeds its bound.");
+		Map<String,Object> packageRoot;
+		try {
+			packageRoot = WorldBuilderJsonDocuments.readObject(packageManifest);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider package manifest is malformed.");
+		}
+		requireKeys(packageRoot, "package manifest", "schemaVersion", "manifestType",
+			"providerDirectory", "catalogSha256", "files");
+		if (!Long.valueOf(1L).equals(packageRoot.get("schemaVersion"))
+			|| !"world-builder-item-visual-provider-package".equals(
+				packageRoot.get("manifestType"))
+			|| !"world-builder-provider".equals(packageRoot.get("providerDirectory"))
+			|| !catalogHash.equals(packageRoot.get("catalogSha256"))
+			|| !(packageRoot.get("files") instanceof List)
+			|| ((List<?>)packageRoot.get("files")).size() > MAX_ENTRIES) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider package identity, catalog, or inventory is unsupported.");
+		}
+
+		TreeMap<String,PackageFile> declared = new TreeMap<String,PackageFile>();
+		String previous = null;
+		for (Object raw : (List<?>)packageRoot.get("files")) {
+			Map<String,Object> file = object(raw, "package file");
+			requireKeys(file, "package file", "path", "role", "size", "sha256");
+			String relative = portable(text(file.get("path"), 1, 512, "package file path"));
+			String role = text(file.get("role"), 1, 96, "package file role");
+			if (!PACKAGE_ROLES.contains(role)) throw new Rejected(
+				"PROVIDER_PACKAGE_INVALID", "Provider package contains an unsupported role.");
+			long size = longInteger(file.get("size"), 1L, MAX_ASSET_BYTES,
+				"package file size");
+			String sha = hash(file.get("sha256"), "package file sha256");
+			if (previous != null && previous.compareTo(relative) >= 0
+				|| declared.put(relative, new PackageFile(role, size, sha)) != null) {
+				throw new Rejected("PROVIDER_PACKAGE_INVALID",
+					"Provider package paths must be unique and strictly sorted.");
+			}
+			previous = relative;
+			Path actual = safeProviderFile(providerRoot, relative, false);
+			if (Files.size(actual) != size || !sha.equals(WorldBuilderHashes.sha256(actual))) {
+				throw new Rejected("PROVIDER_PACKAGE_HASH_MISMATCH",
+					"Provider package file differs from its size or SHA-256: " + relative + ".");
+			}
+		}
+		Set<String> actual = providerFiles(providerRoot);
+		actual.remove("package-manifest-v1.json");
+		if (!actual.equals(declared.keySet())) throw new Rejected(
+			"PROVIDER_PACKAGE_INVENTORY_MISMATCH",
+			"Provider package has missing, unfamiliar, or unlisted files.");
+		String mappingRelative = portable(providerRoot.relativize(mapping).toString()
+			.replace('\\', '/'));
+		PackageFile mappingFile = declared.get(mappingRelative);
+		if (mappingFile == null || !("full-item-visual-manifest".equals(mappingFile.role)
+			|| "compatibility-item-visual-manifest".equals(mappingFile.role))) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Selected mapping is not an inventoried package mapping.");
+		}
+
+		Map<String,Object> assets = object(root.get("assetProviders"), "assetProviders");
+		if (!assets.keySet().equals(new HashSet<String>(Arrays.asList(
+			"customSpriteArchive", "authenticSpriteArchive", "externalPngPackaging")))) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider assetProviders fields are unsupported.");
+		}
+		ArchiveBinding custom = archiveBinding(providerRoot,
+			object(assets.get("customSpriteArchive"), "customSpriteArchive"),
+			declared, "custom-sprite-archive");
+		ArchiveBinding authentic = archiveBinding(providerRoot,
+			object(assets.get("authenticSpriteArchive"), "authenticSpriteArchive"),
+			declared, "authentic-sprite-archive");
+		Map<String,Object> external = object(assets.get("externalPngPackaging"),
+			"externalPngPackaging");
+		requireKeys(external, "externalPngPackaging", "providerRoot",
+			"referencedPngCount");
+		String externalRoot = portable(text(external.get("providerRoot"), 1, 512,
+			"externalPngPackaging.providerRoot"));
+		int externalCount = integer(external.get("referencedPngCount"), 0, MAX_ENTRIES,
+			"externalPngPackaging.referencedPngCount");
+		int declaredExternal = 0;
+		for (PackageFile file : declared.values()) {
+			if ("external-png".equals(file.role)) declaredExternal++;
+		}
+		if (externalCount != declaredExternal) throw new Rejected(
+			"PROVIDER_PACKAGE_INVALID",
+			"External PNG provider count does not match the package inventory.");
+		if (!externalRoot.startsWith("assets/")) throw new Rejected(
+			"PROVIDER_PACKAGE_INVALID", "External PNG provider root is outside assets.");
+		return new PackageContext(providerRoot, custom, authentic, externalRoot, declared);
+	}
+
+	private static ArchiveBinding archiveBinding(Path root, Map<String,Object> value,
+		Map<String,PackageFile> declared, String role) throws Rejected {
+		if (!value.keySet().containsAll(Arrays.asList("path", "sha256"))) throw new Rejected(
+			"PROVIDER_PACKAGE_INVALID", "Archive provider metadata is incomplete.");
+		Set<String> unfamiliar = new HashSet<String>(value.keySet());
+		unfamiliar.removeAll(Arrays.asList("path", "sha256", "entryCount",
+			"numericEntryCount", "itemArchiveBaseId"));
+		if (!unfamiliar.isEmpty()) throw new Rejected("PROVIDER_PACKAGE_INVALID",
+			"Archive provider metadata has unfamiliar fields.");
+		for (String optional : Arrays.asList("entryCount", "numericEntryCount",
+			"itemArchiveBaseId")) {
+			if (value.containsKey(optional)) integer(value.get(optional), 0, 65535, optional);
+		}
+		String path = portable(text(value.get("path"), 1, 512, role + " path"));
+		String sha = hash(value.get("sha256"), role + " sha256");
+		PackageFile file = declared.get(path);
+		if (file == null || !role.equals(file.role) || !sha.equals(file.sha256)) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Archive provider does not match the package inventory: " + role + ".");
+		}
+		return new ArchiveBinding(safeProviderFile(root, path, false), path, sha);
+	}
+
+	private static Map<String,Object> object(Object raw, String name) throws Rejected {
+		if (!(raw instanceof Map)) throw new Rejected("PROVIDER_PACKAGE_INVALID",
+			"Provider " + name + " must be an object.");
+		@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)raw;
+		return value;
+	}
+
+	private static void requireKeys(Map<String,Object> value, String name,
+		String... keys) throws Rejected {
+		if (!value.keySet().equals(new HashSet<String>(Arrays.asList(keys)))) {
+			throw new Rejected("PROVIDER_PACKAGE_INVALID",
+				"Provider " + name + " has missing or unfamiliar fields.");
+		}
+	}
+
 	private static ProviderRecord parseRecord(Object raw, Path providerRoot)
 		throws Rejected {
 		if (!(raw instanceof Map)) throw new Rejected("PROVIDER_RECORD_INVALID",
@@ -318,12 +523,90 @@ final class WorldBuilderItemVisualProvider {
 			entry == null ? null : (String)entry, external, pictureMask, blueMask);
 	}
 
+	private static ProviderRecord parsePackagedRecord(Object raw, PackageContext context)
+		throws Rejected {
+		Map<String,Object> value = object(raw, "packaged item visual");
+		requireKeys(value, "packaged item visual", "itemId", "diagnosticName",
+			"spriteLocation", "spriteId", "resolvedBaseSourceRole", "authenticArchive",
+			"customOrSpritepack", "externalPng", "pictureMask", "blueMask");
+		int itemId = integer(value.get("itemId"), 0, 65535, "itemId");
+		String name = value.get("diagnosticName") == null ? "Item " + itemId
+			: text(value.get("diagnosticName"), 1, 256, "diagnosticName");
+		if (value.get("spriteLocation") != null) {
+			text(value.get("spriteLocation"), 1, 512, "spriteLocation");
+		}
+		integer(value.get("spriteId"), -1, 65535, "spriteId");
+		String role = text(value.get("resolvedBaseSourceRole"), 1, 64,
+			"resolvedBaseSourceRole");
+		int pictureMask = integer(value.get("pictureMask"), Integer.MIN_VALUE,
+			Integer.MAX_VALUE, "pictureMask");
+		int blueMask = integer(value.get("blueMask"), Integer.MIN_VALUE,
+			Integer.MAX_VALUE, "blueMask");
+		if ("custom-sprite-archive".equals(role)) {
+			Map<String,Object> custom = object(value.get("customOrSpritepack"),
+				"customOrSpritepack");
+			requireKeys(custom, "customOrSpritepack", "subspace", "entry",
+				"baseArchiveEntrySha256", "spritepackOverrideKey");
+			String subspace = portable(text(custom.get("subspace"), 1, 128, "subspace"));
+			String entry = portable(text(custom.get("entry"), 1, 128, "entry"));
+			text(custom.get("spritepackOverrideKey"), 1, 512, "spritepackOverrideKey");
+			// This is producer provenance for its decoded/base record. The package
+			// manifest and archive binding authenticate the actual OSAR bytes that
+			// the Editor parses; the provenance hash is intentionally not compared
+			// with the Editor's normalized raw sprite-entry encoding.
+			hash(custom.get("baseArchiveEntrySha256"), "baseArchiveEntrySha256");
+			return new ProviderRecord(itemId, name, "custom/" + subspace + "/" + entry,
+				CUSTOM_ROLE, context.custom.path, context.custom.sha256, -1,
+				subspace, entry, null, pictureMask, blueMask);
+		}
+		if ("external-png".equals(role)) {
+			Map<String,Object> png = object(value.get("externalPng"), "externalPng");
+			requireKeys(png, "externalPng", "specification", "assetName",
+				"targetWidth", "targetHeight", "providerPath", "sha256");
+			text(png.get("specification"), 1, 512, "externalPng.specification");
+			text(png.get("assetName"), 1, 256, "externalPng.assetName");
+			String path = portable(text(png.get("providerPath"), 1, 512, "providerPath"));
+			if (!(path.equals(context.externalRoot) || path.startsWith(context.externalRoot + "/"))) {
+				throw new Rejected("PROVIDER_ASSET_ROLE_MISMATCH",
+					"Packaged external PNG is outside its declared provider root.");
+			}
+			String sha = hash(png.get("sha256"), "externalPng.sha256");
+			PackageFile file = context.files.get(path);
+			if (file == null || !"external-png".equals(file.role) || !sha.equals(file.sha256)) {
+				throw new Rejected("PROVIDER_PACKAGE_INVALID",
+					"External PNG does not match the package inventory.");
+			}
+			int width = integer(png.get("targetWidth"), 1, 4096, "targetWidth");
+			int height = integer(png.get("targetHeight"), 1, 4096, "targetHeight");
+			Path asset = safeProviderFile(context.root, path, false);
+			return new ProviderRecord(itemId, name, "external/" + path,
+				"asset.sprite.external", asset, sha, -1, null, null,
+				new ExternalPng(width, height), pictureMask, blueMask);
+		}
+		if ("authentic-archive-fallback".equals(role)) {
+			Map<String,Object> authentic = object(value.get("authenticArchive"),
+				"authenticArchive");
+			requireKeys(authentic, "authenticArchive", "archiveId", "entrySha256");
+			int spriteId = integer(authentic.get("archiveId"), 0, 65535, "archiveId");
+			hash(authentic.get("entrySha256"), "entrySha256");
+			return new ProviderRecord(itemId, name, "authentic/" + spriteId,
+				"asset.sprite.authentic", context.authentic.path, context.authentic.sha256,
+				spriteId, null, null, null, pictureMask, blueMask);
+		}
+		throw new Rejected("PROVIDER_ROLE_UNKNOWN",
+			"Packaged provider source role is unfamiliar for item " + itemId + ".");
+	}
+
 	private static Resolved resolve(ProviderRecord record, Map<Path,Osar> osars,
-		Map<Path,Map<Integer,String>> authentic) throws Rejected {
+		Map<Path,Map<Integer,String>> authentic, Map<Path,String> validatedAssets) throws Rejected {
 		try {
-			if (Files.size(record.sourceAsset) < 1L
-				|| Files.size(record.sourceAsset) > MAX_ASSET_BYTES
-				|| !record.sourceAssetSha256.equals(WorldBuilderHashes.sha256(record.sourceAsset))) {
+			String actualHash = validatedAssets.get(record.sourceAsset);
+			if (actualHash == null && Files.size(record.sourceAsset) >= 1L
+				&& Files.size(record.sourceAsset) <= MAX_ASSET_BYTES) {
+				actualHash = WorldBuilderHashes.sha256(record.sourceAsset);
+				validatedAssets.put(record.sourceAsset, actualHash);
+			}
+			if (!record.sourceAssetSha256.equals(actualHash)) {
 				throw new Rejected("PROVIDER_ASSET_HASH_MISMATCH",
 					"Provider asset is missing, oversized, or differs from its bound SHA-256.");
 			}
@@ -363,6 +646,14 @@ final class WorldBuilderItemVisualProvider {
 		String safe = portable(relative);
 		if (!safe.startsWith("assets/")) throw new Rejected("PROVIDER_ASSET_PATH_UNSAFE",
 			"Provider assets must be beneath the assets directory.");
+		return safeProviderFile(root, safe, false);
+	}
+
+	private static Path safeProviderFile(Path root, String relative, boolean requireAssets)
+		throws Rejected {
+		String safe = portable(relative);
+		if (requireAssets && !safe.startsWith("assets/")) throw new Rejected(
+			"PROVIDER_ASSET_PATH_UNSAFE", "Provider file must be beneath assets.");
 		Path normalizedRoot = root.toAbsolutePath().normalize();
 		Path value = normalizedRoot.resolve(safe).normalize();
 		if (!value.startsWith(normalizedRoot)) throw new Rejected(
@@ -399,6 +690,39 @@ final class WorldBuilderItemVisualProvider {
 			throw new Rejected("PROVIDER_ASSET_MISSING",
 				"Provider asset could not be resolved without following links: " + safe + ".");
 		}
+	}
+
+	private static Set<String> providerFiles(final Path root) throws IOException, Rejected {
+		final Set<String> files = new TreeSet<String>();
+		final Rejected[] rejected = {null};
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) {
+				if (!attributes.isDirectory() || attributes.isSymbolicLink()) {
+					rejected[0] = new Rejected("PROVIDER_ASSET_PATH_UNSAFE",
+						"Provider package contains a linked or special directory.");
+					return FileVisitResult.TERMINATE;
+				}
+				return FileVisitResult.CONTINUE;
+			}
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) {
+				if (!attributes.isRegularFile() || attributes.isSymbolicLink()) {
+					rejected[0] = new Rejected("PROVIDER_ASSET_PATH_UNSAFE",
+						"Provider package contains a linked or special file.");
+					return FileVisitResult.TERMINATE;
+				}
+				try {
+					files.add(portable(root.relativize(file).toString().replace('\\', '/')));
+				} catch (Rejected invalid) {
+					rejected[0] = invalid;
+					return FileVisitResult.TERMINATE;
+				}
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		if (rejected[0] != null) throw rejected[0];
+		return files;
 	}
 
 	private static String portable(String value) throws Rejected {
@@ -719,6 +1043,14 @@ final class WorldBuilderItemVisualProvider {
 		return ((Long)raw).intValue();
 	}
 
+	private static long longInteger(Object raw, long minimum, long maximum, String name)
+		throws Rejected {
+		if (!(raw instanceof Long) || ((Long)raw).longValue() < minimum
+			|| ((Long)raw).longValue() > maximum) throw new Rejected(
+			"PROVIDER_FIELD_INVALID", "Provider " + name + " is outside its integer bounds.");
+		return ((Long)raw).longValue();
+	}
+
 	private static String text(Object raw, int minimum, int maximum, String name)
 		throws Rejected {
 		if (!(raw instanceof String) || ((String)raw).length() < minimum
@@ -754,6 +1086,33 @@ final class WorldBuilderItemVisualProvider {
 			this.authenticSpriteId = authenticSpriteId; this.customSpriteSubspace = subspace;
 			this.customSpriteEntry = entry; this.external = external;
 			this.pictureMask = pictureMask; this.blueMask = blueMask;
+		}
+	}
+
+	private static final class PackageContext {
+		final Path root;
+		final ArchiveBinding custom, authentic;
+		final String externalRoot;
+		final Map<String,PackageFile> files;
+		PackageContext(Path root, ArchiveBinding custom, ArchiveBinding authentic,
+			String externalRoot, Map<String,PackageFile> files) {
+			this.root = root; this.custom = custom; this.authentic = authentic;
+			this.externalRoot = externalRoot;
+			this.files = Collections.unmodifiableMap(new TreeMap<String,PackageFile>(files));
+		}
+	}
+
+	private static final class ArchiveBinding {
+		final Path path; final String relative, sha256;
+		ArchiveBinding(Path path, String relative, String sha256) {
+			this.path = path; this.relative = relative; this.sha256 = sha256;
+		}
+	}
+
+	private static final class PackageFile {
+		final String role; final long size; final String sha256;
+		PackageFile(String role, long size, String sha256) {
+			this.role = role; this.size = size; this.sha256 = sha256;
 		}
 	}
 
