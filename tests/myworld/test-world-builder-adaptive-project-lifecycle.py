@@ -1818,6 +1818,20 @@ public final class FakeAdaptiveClient {
             ).read_text(encoding="utf-8")
             self.assertIn("server_bind_address: 127.0.0.1\n", isolated_config)
             self.assertIn("custom_landscape: false\n", isolated_config)
+            for editor_presentation in (
+                "want_custom_ui: true\n",
+                "side_menu_toggle: true\n",
+                "fog_toggle: true\n",
+                "ground_item_toggle: true\n",
+                "ground_item_names: true\n",
+                "auto_message_switch_toggle: true\n",
+                "inventory_count_toggle: true\n",
+                "zoom_view_toggle: true\n",
+                "show_roof_toggle: true\n",
+                "show_underground_flicker_toggle: true\n",
+                "allow_resize: true\n",
+            ):
+                self.assertIn(editor_presentation, isolated_config)
             self.assertIn("want_sync_scene_baseline: true\n", isolated_config)
             self.assertIn("want_discord_bot: false\n", isolated_config)
             self.assertNotIn("unbound_fixture_setting", isolated_config)
@@ -4131,6 +4145,7 @@ public final class FakeAdaptiveClient {
             )
             with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
                 archive.writestr("h0x48y37", packed_sector)
+                archive.writestr("h0x50y50", bytes(48 * 48 * 10))
             shutil.copy2(
                 server_terrain,
                 target / "Client_Base/Cache/video/Custom_Landscape.orsc",
@@ -4150,6 +4165,21 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(0, created.returncode, created.stderr)
             project = Path(summary["projectRoot"])
+            runtime_metadata = json.loads(
+                (project / "working/runtime/runtime.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["level"],
+                runtime_metadata["initialLayer"],
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["x"], runtime_metadata["initialX"]
+            )
+            self.assertEqual(
+                STANDALONE_INITIAL_LOCATION["y"], runtime_metadata["initialY"]
+            )
             conversion = json.loads(
                 (project / "source/conversion/report.json").read_text(encoding="utf-8")
             )
