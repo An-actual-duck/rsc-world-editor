@@ -166,14 +166,18 @@ final class WorldBuilderPackedConversionModel {
 			Map<String,Placement> family = effective.get(placementSource.family);
 			Set<String> sourceSlots = new HashSet<String>();
 			for (Placement placement : records) {
-				if (!sourceSlots.add(placement.slot)) {
+				boolean repeatedSlot = !sourceSlots.add(placement.slot);
+				boolean repeatedExactBaseNpc = repeatedSlot
+					&& "base".equals(placementSource.kind)
+					&& "npc".equals(placementSource.family);
+				if (repeatedSlot && !repeatedExactBaseNpc) {
 					throw placementProblem(placement,
 						"Packed placement source repeats effective slot at record "
 							+ placement.recordIndex + ".");
 				}
 				if ("removal".equals(placementSource.kind)) {
-					Placement removed = family.get(placement.slot);
-					if (removed == null || !placement.removesExactly(removed)) {
+					List<String> removalKeys = matchingKeys(family, placement, true);
+					if (removalKeys.isEmpty()) {
 						if (allowInertLegacyRemovals
 							&& ("scenery".equals(placementSource.family)
 								|| "npc".equals(placementSource.family))) {
@@ -193,36 +197,53 @@ final class WorldBuilderPackedConversionModel {
 							"Packed removal at record " + placement.recordIndex
 								+ " does not exactly match an earlier effective placement.");
 					}
-					family.remove(placement.slot);
-					effectiveRecordCount--;
-					addDecision(decisions, new Decision("removal", inputRole,
-						placement.provenance + " removes " + removed.provenance,
-						removed.placementId, "removed"), cumulativeRecordLimit,
-						placement.sourcePath);
+					for (String removalKey : removalKeys) {
+						Placement removed = family.remove(removalKey);
+						effectiveRecordCount--;
+						addDecision(decisions, new Decision("removal", inputRole,
+							placement.provenance + " removes " + removed.provenance,
+							removed.placementId, "removed"), cumulativeRecordLimit,
+							placement.sourcePath);
+					}
 				} else if ("base".equals(placementSource.kind)) {
-					if (family.containsKey(placement.slot)) {
-						throw placementProblem(placement,
-							"Packed base placement collides at record "
-								+ placement.recordIndex + ".");
+					String effectiveKey = placement.slot;
+					Placement existing = family.get(effectiveKey);
+					if (existing != null) {
+						if (!repeatedExactBaseNpc
+							|| !existing.semantic().equals(placement.semantic())) {
+							throw placementProblem(placement,
+								"Packed base placement collides at record "
+									+ placement.recordIndex + ".");
+						}
+						effectiveKey = placement.slot + "\u0000duplicate\u0000"
+							+ placement.recordIndex;
 					}
 					requireEffectiveCapacity(effectiveRecordCount,
 						cumulativeRecordLimit, placement.sourcePath);
-					family.put(placement.slot, placement);
+					if (family.put(effectiveKey, placement) != null) {
+						throw placementProblem(placement,
+							"Packed duplicate NPC identity is not unique at record "
+								+ placement.recordIndex + ".");
+					}
 					effectiveRecordCount++;
 				} else if ("overlay".equals(placementSource.kind)) {
-					Placement replaced = family.get(placement.slot);
-					if (replaced == null) {
+					List<String> replacementKeys = matchingKeys(
+						family, placement, false);
+					if (replacementKeys.isEmpty()) {
 						requireEffectiveCapacity(effectiveRecordCount,
 							cumulativeRecordLimit, placement.sourcePath);
 						effectiveRecordCount++;
+					} else {
+						for (String replacementKey : replacementKeys) {
+							Placement replaced = family.remove(replacementKey);
+							addDecision(decisions, new Decision("replacement", inputRole,
+								placement.provenance + " replaces " + replaced.provenance,
+								replaced.placementId, "replaced"), cumulativeRecordLimit,
+								placement.sourcePath);
+						}
+						effectiveRecordCount -= replacementKeys.size() - 1;
 					}
 					family.put(placement.slot, placement);
-					if (replaced != null) {
-						addDecision(decisions, new Decision("replacement", inputRole,
-							placement.provenance + " replaces " + replaced.provenance,
-							replaced.placementId, "replaced"), cumulativeRecordLimit,
-							placement.sourcePath);
-					}
 				} else {
 					throw blocked(placementSource.relativePath,
 						"Packed placement source has an unsupported composition kind.");
@@ -462,6 +483,19 @@ final class WorldBuilderPackedConversionModel {
 					if (candidate != null
 						&& candidate.definitionId == marker.definitionId) consumed.add(key);
 				}
+			}
+		}
+		return result;
+	}
+
+	private static List<String> matchingKeys(Map<String,Placement> family,
+		Placement requested, boolean exactRemoval) {
+		List<String> result = new ArrayList<String>();
+		for (Map.Entry<String,Placement> entry : family.entrySet()) {
+			Placement existing = entry.getValue();
+			if (exactRemoval ? requested.removesExactly(existing)
+				: requested.slot.equals(existing.slot)) {
+				result.add(entry.getKey());
 			}
 		}
 		return result;

@@ -463,7 +463,6 @@ final class WorldBuilderGenericLayeredPackage {
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		Set<String> placementIds, List<String> semantics, List<String> identities)
 		throws WorldBuilderContractException {
-		Set<String> slots = new HashSet<String>();
 		String previous = null;
 		for (Object raw : records) {
 			Map<String,Object> record = object(raw, path, "npc");
@@ -482,9 +481,8 @@ final class WorldBuilderGenericLayeredPackage {
 			}
 			String placement = placementId(record, path, placementIds);
 			String key = orderedPoint(start.x, start.y) + "\u0000" + placement;
-			if (!slots.add(start.x + ":" + start.y + ":" + id)
-				|| previous != null && previous.compareTo(key) >= 0) {
-				invalid(path, "NPC placements collide, duplicate, or are not canonical.");
+			if (previous != null && previous.compareTo(key) >= 0) {
+				invalid(path, "NPC placements are not canonical.");
 			}
 			previous = key;
 			definitions.require("npc", id, path);

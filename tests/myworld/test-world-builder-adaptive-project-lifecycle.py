@@ -4288,7 +4288,7 @@ public final class FakeAdaptiveClient {
                 ],
             )
             self.assertEqual(
-                [846, 1], [value["npcId"] for value in placements["npcs"]]
+                [846, 1, 1], [value["npcId"] for value in placements["npcs"]]
             )
             self.assertEqual(
                 [1], [value["boundaryId"] for value in placements["boundaries"]]

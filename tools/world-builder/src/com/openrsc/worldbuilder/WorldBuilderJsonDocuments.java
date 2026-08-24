@@ -298,14 +298,19 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	static int validateNpcLocs(Path path) throws IOException, WorldBuilderDiscoveryException {
-		return validateNpcArray(path, "npclocs");
+		return validateNpcArray(path, "npclocs", true);
+	}
+
+	static int validateBaseNpcLocs(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		return validateNpcArray(path, "npclocs", false);
 	}
 
 	static int validateNpcRemovals(Path path) throws IOException, WorldBuilderDiscoveryException {
-		return validateNpcArray(path, "npc_removals");
+		return validateNpcArray(path, "npc_removals", true);
 	}
 
-	private static int validateNpcArray(Path path, String root)
+	private static int validateNpcArray(Path path, String root, boolean requireUnique)
 		throws IOException, WorldBuilderDiscoveryException {
 		List<Object> entries = requiredRootArray(readObject(path), root, path);
 		java.util.HashSet<String> keys = new java.util.HashSet<String>();
@@ -315,7 +320,8 @@ final class WorldBuilderJsonDocuments {
 			int[] minimum = position(object.get("min"), path); int[] maximum = position(object.get("max"), path);
 			if (id < 0 || minimum[0] > start[0] || start[0] > maximum[0]
 				|| minimum[1] > start[1] || start[1] > maximum[1]
-				|| !keys.add(id + "," + start[0] + "," + start[1])) {
+				|| (requireUnique
+					&& !keys.add(id + "," + start[0] + "," + start[1]))) {
 				throw new WorldBuilderDiscoveryException("Invalid or duplicate NPC location in " + path);
 			}
 		}

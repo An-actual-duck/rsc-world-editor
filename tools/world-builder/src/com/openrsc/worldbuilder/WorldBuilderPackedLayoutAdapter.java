@@ -263,8 +263,10 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				WorldBuilderJsonDocuments.validateSceneryLocs(target.requiredFile(relative));
 			} else if ("sceneryRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryRemovals(target.requiredFile(relative));
-			} else if ("npcLocs".equals(logicalName)
-				|| "npcBase".equals(logicalName)) {
+			} else if ("npcBase".equals(logicalName)) {
+				WorldBuilderJsonDocuments.validateBaseNpcLocs(
+					target.requiredFile(relative));
+			} else if ("npcLocs".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateNpcLocs(target.requiredFile(relative));
 			} else if ("npcRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateNpcRemovals(target.requiredFile(relative));

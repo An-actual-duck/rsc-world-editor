@@ -651,7 +651,13 @@ public final class AdaptiveDiscoveryDriftHarness {
                         "start": {"X": 12, "Y": 10},
                         "min": {"X": 12, "Y": 10},
                         "max": {"X": 12, "Y": 10},
-                    }
+                    },
+                    {
+                        "id": 1,
+                        "start": {"X": 12, "Y": 10},
+                        "min": {"X": 12, "Y": 10},
+                        "max": {"X": 12, "Y": 10},
+                    },
                 ]
             },
             "SceneryLocs.json": {
