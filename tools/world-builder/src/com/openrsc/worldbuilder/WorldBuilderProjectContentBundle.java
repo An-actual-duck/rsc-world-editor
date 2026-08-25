@@ -523,8 +523,7 @@ final class WorldBuilderProjectContentBundle {
 			"TileDef-array", "TileDef", layout));
 		List<Object> boundaries = range(rawByteXmlCount(root, "definition.boundary",
 			"DoorDef-array", "DoorDef", layout));
-		List<Object> scenery = range(xmlCount(root, "definition.scenery",
-			"GameObjectDef-array", "GameObjectDef", layout));
+		List<Object> scenery = range(sceneryCount(root, layout));
 		Set<Integer> npcIds = new TreeSet<Integer>();
 		int appendedNpcCount = jsonCount(root, "definition.npc.base", layout, "npcs")
 			+ jsonCount(root, "definition.npc.custom", layout, "npcs");
@@ -548,6 +547,21 @@ final class WorldBuilderProjectContentBundle {
 		catalog.put("catalogSha256", ZERO_HASH);
 		catalog.put("catalogSha256", selfHash(catalog, "catalogSha256"));
 		return catalog;
+	}
+
+	private static int sceneryCount(Path root, WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
+		try {
+			return WorldBuilderSceneryDefinitionCatalog.read(
+				contentPath(root, "definition.scenery", layout)).definitions.size();
+		} catch (IOException malformed) {
+			throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+				"definition.scenery",
+				"Target scenery definition content is malformed or unsupported: "
+					+ malformed.getMessage() + ".",
+				"Correct the exact GameObjectDef scenery record and retry discovery.",
+				malformed);
+		}
 	}
 
 	private static int rawByteXmlCount(Path root, String role, String rootName,

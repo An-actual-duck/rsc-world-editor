@@ -521,6 +521,21 @@ folder is not enough: the complete definitions, selected placements, terrain,
 client assets, and configuration must all validate before the layout is
 accepted. Canonical aliases continue to exist only in the isolated project.
 
+Phase 2 begins by replacing the former scenery count-only check and duplicate
+XML readers with one bounded declarative scenery catalog parser. Discovery,
+packed conversion, and content reconciliation now agree on the exact indexed
+`GameObjectDef-array` contract. Every definition—not only the objects near the
+initial player region—is parsed before project creation. The parser preserves
+the runtime defaults for omitted fields and validates `name`, `objectModel`,
+`type`, `width`, `height`, and `groundItemVar`; repeated known fields,
+non-integer or overflowing numeric values, footprints outside the compiled
+128-tile bound, unsafe XML features, empty catalogs, and oversized content are
+actionable definition blockers. This prevents a semantically malformed
+scenery catalog from passing discovery merely because its element count and
+placement IDs look valid. Model-entry resolution and warnings remain in the
+existing content reconciliation ledger; additional declarative scenery formats
+must enter through later versioned adapters rather than being guessed.
+
 ## Implementation phases
 
 ### Phase 0 — Baseline inventory and acceptance fixtures

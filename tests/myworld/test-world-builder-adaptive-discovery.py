@@ -904,6 +904,46 @@ public final class AdaptiveDiscoveryDriftHarness {
             ):
                 self.assertIn(role, roles)
 
+    def test_scenery_definition_semantics_are_validated_before_project_creation(self):
+        malformed_records = (
+            (
+                "non-numeric-width",
+                "<GameObjectDef><name>bad width</name><width>wide</width>"
+                "<height>1</height><objectModel>tree</objectModel></GameObjectDef>",
+                "malformed width",
+            ),
+            (
+                "oversized-footprint",
+                "<GameObjectDef><name>too wide</name><width>129</width>"
+                "<height>1</height><objectModel>tree</objectModel></GameObjectDef>",
+                "out-of-range width",
+            ),
+            (
+                "duplicate-model",
+                "<GameObjectDef><name>two models</name><width>1</width>"
+                "<height>1</height><objectModel>tree</objectModel>"
+                "<objectModel>rock</objectModel></GameObjectDef>",
+                "repeats objectModel",
+            ),
+        )
+        for label, record, expected in malformed_records:
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="adaptive-scenery-semantics-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                path = root / "server/conf/server/defs/GameObjectDef.xml"
+                path.write_text(
+                    "<GameObjectDef-array>" + record + "</GameObjectDef-array>\n",
+                    encoding="utf-8",
+                )
+
+                report = self.assert_blocked(root, "DEFINITION_MISMATCH")
+
+                self.assertIn(expected, report["issues"][0]["observed"])
+                self.assertEqual(
+                    "definition.scenery", report["issues"][0]["relativePath"]
+                )
+
     def test_packed_client_cache_layout_variants_are_selected_read_only(self):
         for video_root in ("client/Cache/video", "Cache/video"):
             with self.subTest(video_root=video_root), tempfile.TemporaryDirectory(

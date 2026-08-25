@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
@@ -18,14 +17,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-
 /**
  * Canonical diagnostic proving effective placement IDs resolve to captured
  * definitions and, where the native archive is inspectable, scenery models.
@@ -36,7 +27,6 @@ final class WorldBuilderContentReconciliation {
 	private static final String TYPE = "world-builder-content-reconciliation";
 	private static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
-	private static final int MAX_DEFINITIONS = 65536;
 	private static final int MAX_ARCHIVE_ENTRIES = 8192;
 
 	private static final List<String> FAMILIES = Collections.unmodifiableList(
@@ -75,19 +65,18 @@ final class WorldBuilderContentReconciliation {
 				"asset.model", models.detail,
 				"Keep the exact model archive; a later format adapter can add entry-level verification."));
 		}
-		List<Definition> targetDefinitions = null;
-		List<Definition> packagedDefinitions = null;
+		WorldBuilderSceneryDefinitionCatalog targetDefinitions;
+		WorldBuilderSceneryDefinitionCatalog packagedDefinitions = null;
 		try {
-			targetDefinitions = definitions(bundle.pathForRole("definition.scenery"));
-		} catch (Exception unsupported) {
-			issues.add(issue("SCENERY_DEFINITION_DETAILS_UNVERIFIED", "scenery", -1,
-				"definition.scenery",
-				"Scenery IDs are catalog-resolved, but model fields could not be inspected safely.",
-				"Use a bounded GameObjectDef-array XML document for model-level diagnostics."));
+			targetDefinitions = WorldBuilderSceneryDefinitionCatalog.read(
+				bundle.pathForRole("definition.scenery"));
+		} catch (IOException malformed) {
+			throw problem("Placed scenery definitions do not have complete parseable "
+				+ "collision and model semantics: " + malformed.getMessage() + ".");
 		}
 		try {
-			packagedDefinitions = definitions(runtime.verifiedSourcePath(
-				"server/conf/server/defs/GameObjectDef.xml"));
+			packagedDefinitions = WorldBuilderSceneryDefinitionCatalog.read(
+				runtime.verifiedSourcePath("server/conf/server/defs/GameObjectDef.xml"));
 		} catch (Exception unavailable) {
 			issues.add(issue("PACKAGED_SCENERY_BASELINE_UNVERIFIED", "scenery", -1,
 				"definition.scenery",
@@ -97,13 +86,21 @@ final class WorldBuilderContentReconciliation {
 
 		List<Object> scenery = new ArrayList<Object>();
 		for (Integer id : required.get("scenery")) {
-			if (targetDefinitions == null || id.intValue() >= targetDefinitions.size()) {
-				continue;
+			WorldBuilderSceneryDefinitionCatalog.Definition target;
+			try {
+				target = targetDefinitions.require(id.intValue());
+			} catch (IOException missing) {
+				throw problem("Placed scenery ID " + id
+					+ " is absent from the parsed scenery definition catalog.");
 			}
-			Definition target = targetDefinitions.get(id.intValue());
-			Definition packaged = packagedDefinitions != null
-				&& id.intValue() < packagedDefinitions.size()
-				? packagedDefinitions.get(id.intValue()) : null;
+			WorldBuilderSceneryDefinitionCatalog.Definition packaged = null;
+			if (packagedDefinitions != null) {
+				try {
+					packaged = packagedDefinitions.require(id.intValue());
+				} catch (IOException absentFromPackaged) {
+					packaged = null;
+				}
+			}
 			String resolution;
 			String modelHash = "";
 			if (target.modelName.isEmpty() || "na".equalsIgnoreCase(target.modelName)) {
@@ -252,7 +249,8 @@ final class WorldBuilderContentReconciliation {
 		return WorldBuilderHashes.hex(digest.digest());
 	}
 
-	private static Map<String,Object> scenery(int id, Definition definition,
+	private static Map<String,Object> scenery(int id,
+		WorldBuilderSceneryDefinitionCatalog.Definition definition,
 		String hash, String resolution) {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
 		value.put("sceneryId", Long.valueOf(id));
@@ -281,42 +279,6 @@ final class WorldBuilderContentReconciliation {
 		return issue.get("code") + "\u0000" + issue.get("family") + "\u0000"
 			+ String.format("%06d", ((Long)issue.get("definitionId")).longValue())
 			+ "\u0000" + issue.get("assetRole");
-	}
-
-	private static List<Definition> definitions(Path path) throws Exception {
-		try (InputStream input = Files.newInputStream(path)) {
-			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-			factory.setXIncludeAware(false);
-			factory.setExpandEntityReferences(false);
-			factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-			factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-			factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-			factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-			Document document = factory.newDocumentBuilder().parse(input);
-			Element root = document.getDocumentElement();
-			if (root == null || !"GameObjectDef-array".equals(root.getNodeName())) {
-				throw new IOException("wrong scenery definition root");
-			}
-			List<Definition> result = new ArrayList<Definition>();
-			NodeList children = root.getChildNodes();
-			for (int index = 0; index < children.getLength(); index++) {
-				Node child = children.item(index);
-				if (child.getNodeType() != Node.ELEMENT_NODE
-					|| !"GameObjectDef".equals(child.getNodeName())) continue;
-				if (result.size() >= MAX_DEFINITIONS) throw new IOException("too many scenery definitions");
-				Element element = (Element)child;
-				result.add(new Definition(text(element, "name"), text(element, "objectModel")));
-			}
-			if (result.isEmpty()) throw new IOException("empty scenery definitions");
-			return result;
-		}
-	}
-
-	private static String text(Element parent, String name) {
-		NodeList values = parent.getElementsByTagName(name);
-		if (values.getLength() == 0) return "";
-		String value = values.item(0).getTextContent().trim();
-		return value.length() <= 256 ? value : value.substring(0, 256);
 	}
 
 	private static ArchiveIndex inspectModelArchive(Path path) {
@@ -400,15 +362,6 @@ final class WorldBuilderContentReconciliation {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
 			"content-reconciliation", PROJECT_RELATIVE_PATH, false, message,
 			"Recreate the project from one stable complete content set.");
-	}
-
-	private static final class Definition {
-		final String name;
-		final String modelName;
-		Definition(String name, String modelName) {
-			this.name = name;
-			this.modelName = modelName;
-		}
 	}
 
 	private static final class ArchiveIndex {
