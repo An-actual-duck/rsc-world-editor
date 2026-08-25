@@ -15,6 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 CLASSES = ROOT / "output/world-builder-tools/classes"
+JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 
 HARNESS = r'''
 package com.openrsc.worldbuilder;
@@ -444,6 +445,42 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 for path in (target / "Client_Base/Cache/video").iterdir()
                 if path.is_file()
             })
+
+    def test_providerless_import_discovers_and_consumes_neutral_producer_output(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-auto-import-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            self.producer_package(target, selected)
+            generated = target / "tools/item-visual-provider/generated/npc-definitions-v1.json"
+            generated.parent.mkdir(parents=True)
+            generated.write_bytes((selected.parent / "npc-definitions-v1.json").read_bytes())
+            write_json(target / "server/conf/server/defs/ItemDefs.json", {
+                "item": [{"id": 0, "name": "Fixture item"}],
+            })
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            video = target / "Client_Base/Cache/video"
+            imported = subprocess.run([
+                "java", "-jar", str(JAR), "import-item-provider",
+                "--installation-root", str(installation),
+                "--source-root", str(target),
+                "--definitions", str(target / "server/conf/server/defs"),
+                "--authentic-archive", str(video / "Authentic_Sprites.orsc"),
+                "--custom-archive", str(video / "Custom_Sprites.osar"),
+            ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            self.assertEqual(0, imported.returncode, imported.stdout + imported.stderr)
+            local = Path(json.loads(imported.stdout)["root"])
+            self.assertEqual(generated.read_bytes(),
+                             (local / "npc-definitions-v1.json").read_bytes())
+
+            custom, report = self.consume(
+                target, local / "item-visuals.json", base / "stage"
+            )
+
+            self.assertEqual("Neutral producer NPC", custom["npcs"][1]["name"])
+            self.assertEqual("resolved", report["npcs"][1]["status"])
+            self.assertEqual([], report["warnings"])
+            self.assertEqual(1, len(report["animations"]))
 
     def test_rich_animation_assets_and_renderer_shape_fail_soft_with_detail(self):
         def mutate_custom_hash(document: dict) -> None:

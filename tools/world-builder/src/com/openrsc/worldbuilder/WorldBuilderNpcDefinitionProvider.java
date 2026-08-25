@@ -118,7 +118,9 @@ final class WorldBuilderNpcDefinitionProvider {
 				if (requiredId) warnings.add(new Warning(id,
 					provider.animationFailure == null
 						? "NPC_DEFINITION_PLACEHOLDER" : "NPC_ANIMATION_PLACEHOLDER",
-					provider.animationFailure == null
+					provider.unavailableReason != null
+						? provider.unavailableReason
+						: provider.animationFailure == null
 						? "No authoritative provider definition exists for NPC " + id
 							+ "; a deterministic project-local placeholder was generated."
 						: "NPC " + id + " animation evidence is unusable: "
@@ -176,6 +178,7 @@ final class WorldBuilderNpcDefinitionProvider {
 			Object rawWarnings = value.get("warnings");
 			if (!(rawWarnings instanceof List) || ((List<?>)rawWarnings).isEmpty()) return null;
 			TreeSet<Integer> ids = new TreeSet<Integer>();
+			String firstReason = null;
 			for (Object raw : (List<?>)rawWarnings) {
 				if (!(raw instanceof Map)) continue;
 				Map<?,?> warning = (Map<?,?>)raw;
@@ -184,12 +187,16 @@ final class WorldBuilderNpcDefinitionProvider {
 					|| !((String)warning.get("code")).endsWith("_PLACEHOLDER")) continue;
 				Object id = warning.get("npcId");
 				if (id instanceof Number) ids.add(Integer.valueOf(((Number)id).intValue()));
+				if (firstReason == null && warning.get("message") instanceof String) {
+					firstReason = (String)warning.get("message");
+				}
 			}
 			if (ids.isEmpty()) return null;
 			return "\n\nNPC provider warning: complete definitions and animation visuals were not "
 				+ "available for NPC IDs " + ids + ". They will appear as clearly named placeholders "
 				+ "using NPC 0's visuals. Install a complete provider containing "
 				+ FILE_NAME + " and recreate this project for faithful NPC visuals.\n"
+				+ (firstReason == null ? "" : "Reason: " + firstReason + "\n")
 				+ "Details: " + report;
 		} catch (Exception ignored) {
 			return null;
@@ -199,26 +206,29 @@ final class WorldBuilderNpcDefinitionProvider {
 	private static Provider readProvider(Path selected, Path copiedTarget,
 		int declarativeMaximum, Set<Integer> placements)
 		throws WorldBuilderContractException {
-		if (selected == null || selected.getParent() == null) return Provider.empty();
+		if (selected == null || selected.getParent() == null) return Provider.unavailable(
+			"No local custom-content provider was selected for the project.");
 		Path root = selected.toAbsolutePath().normalize().getParent();
 		Path candidate = root.resolve(FILE_NAME).normalize();
 		try {
 			if (!candidate.startsWith(root)
 				|| !Files.isRegularFile(candidate, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(candidate) || Files.size(candidate) < 1L
-				|| Files.size(candidate) > MAX_BYTES) return Provider.empty();
+				|| Files.size(candidate) > MAX_BYTES) return Provider.unavailable(
+					"The selected local provider has no safe bounded " + FILE_NAME + ".");
 			validatePackageInventory(root, candidate);
 			Map<String,Object> document =
 				WorldBuilderJsonDocuments.readTargetDefinitionObject(candidate);
 			if (!Long.valueOf(1L).equals(document.get("schemaVersion"))) {
-				return Provider.empty();
+				return Provider.unavailable("The discovered NPC provider uses an unsupported schema version.");
 			}
 			if (PRODUCER_TYPE.equals(document.get("manifestType"))) {
 				return readProducerProvider(root, candidate, copiedTarget,
 					declarativeMaximum, placements, document);
 			}
 			exact(document, set("schemaVersion", "manifestType", "npcs"), FILE_NAME);
-			if (!TYPE.equals(document.get("manifestType"))) return Provider.empty();
+			if (!TYPE.equals(document.get("manifestType"))) return Provider.unavailable(
+				"The discovered NPC provider uses an unsupported manifest type.");
 			List<Object> rows = array(document.get("npcs"), FILE_NAME);
 			TreeMap<Integer,Map<String,Object>> definitions =
 				new TreeMap<Integer,Map<String,Object>>();
@@ -227,7 +237,8 @@ final class WorldBuilderNpcDefinitionProvider {
 				Map<String,Object> row = object(rows.get(index), FILE_NAME + "#record=" + index);
 				exact(row, RECORD_KEYS, FILE_NAME + "#record=" + index);
 				int id = integer(row.get("npcId"), 0, MAX_ID, "npcId");
-				if (id <= previous) return Provider.empty();
+				if (id <= previous) return Provider.unavailable(
+					"The discovered NPC provider records are not sorted and unique.");
 				previous = id;
 				String name = text(row.get("name"), 1, 256, "name");
 				Map<String,Object> definition = normalizeDefinition(
@@ -235,14 +246,27 @@ final class WorldBuilderNpcDefinitionProvider {
 				definitions.put(Integer.valueOf(id), definition);
 			}
 			return new Provider(definitions, WorldBuilderHashes.sha256(candidate),
-				Collections.<Animation>emptyList(), null);
+				Collections.<Animation>emptyList(), null, null);
 		} catch (TargetMismatch mismatch) {
 			throw providerMismatch(candidate.toString(), mismatch.getMessage(), mismatch);
 		} catch (AnimationFailure invalid) {
 			return Provider.animationFailure(invalid.getMessage());
 		} catch (Exception invalid) {
-			return Provider.empty();
+			return Provider.unavailable(stableProviderFailure(invalid, root, candidate));
 		}
+	}
+
+	private static String stableProviderFailure(Exception failure, Path root, Path candidate) {
+		String message = failure.getMessage();
+		if (message == null || message.trim().isEmpty()) {
+			return "The discovered NPC provider is malformed or incompatible."
+				+ " Validation failed with " + failure.getClass().getSimpleName() + ".";
+		}
+		String stable = message.replace(candidate.toString(), "<npc-manifest>")
+			.replace(root.toString(), "<provider-root>")
+			.replace('\n', ' ').replace('\r', ' ').trim();
+		if (stable.length() > 512) stable = stable.substring(0, 512) + "…";
+		return "The discovered NPC provider was rejected: " + stable;
 	}
 
 	/**
@@ -329,7 +353,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		validateProducerTarget(copiedTarget, declarativeMaximum, placements,
 			metadata, assets, selection);
 		return new Provider(definitions, WorldBuilderHashes.sha256(candidate),
-			new ArrayList<Animation>(animationEvidence.values()), null);
+			new ArrayList<Animation>(animationEvidence.values()), null, null);
 	}
 
 	private static void validateProducerTarget(Path copiedTarget, int declarativeMaximum,
@@ -1062,18 +1086,21 @@ final class WorldBuilderNpcDefinitionProvider {
 		final String sha256;
 		final List<Animation> animations;
 		final String animationFailure;
+		final String unavailableReason;
 		Provider(Map<Integer,Map<String,Object>> definitions, String sha256,
-			List<Animation> animations, String animationFailure) {
+			List<Animation> animations, String animationFailure,
+			String unavailableReason) {
 			this.definitions = definitions; this.sha256 = sha256;
 			this.animations = animations; this.animationFailure = animationFailure;
+			this.unavailableReason = unavailableReason;
 		}
-		static Provider empty() {
+		static Provider unavailable(String reason) {
 			return new Provider(Collections.<Integer,Map<String,Object>>emptyMap(), "",
-				Collections.<Animation>emptyList(), null);
+				Collections.<Animation>emptyList(), null, reason);
 		}
 		static Provider animationFailure(String message) {
 			return new Provider(Collections.<Integer,Map<String,Object>>emptyMap(), "",
-				Collections.<Animation>emptyList(), message);
+				Collections.<Animation>emptyList(), message, null);
 		}
 	}
 
