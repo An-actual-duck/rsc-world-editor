@@ -11,6 +11,7 @@ import java.util.TreeSet;
 /** Descriptor-backed adapter for arbitrary compatible signed-layered packages. */
 final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapter {
 	static final String ID = "generic-layered-v1";
+	private static final String PROFILE_ID = "signed-layered-config-root-v1";
 	private static final String FORMAT_ID = "signed-layered-v1";
 	private static final String PACKAGE_SCHEMA_ID = "layered-world-package-v1";
 	private static final String MUTATION_PROFILE_ID = "generic-layered-install-v1";
@@ -22,9 +23,16 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 	}
 
 	@Override
-	public Probe probe(WorldBuilderReadOnlyTarget target)
+	public ProbeResult probe(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
-		return target.exists(CONFIG_ROOT) ? Probe.RECOGNIZABLE : Probe.NO_EVIDENCE;
+		boolean configurations = target.exists(CONFIG_ROOT);
+		return new ProbeResult(PROFILE_ID,
+			configurations ? Probe.RECOGNIZABLE : Probe.NO_EVIDENCE,
+			Arrays.asList(
+				new ProbeResult.Anchor("capability-descriptor",
+					WorldBuilderTargetCapability.RELATIVE_PATH, false, true),
+				new ProbeResult.Anchor("configuration-root", CONFIG_ROOT,
+					configurations, false)));
 	}
 
 	@Override

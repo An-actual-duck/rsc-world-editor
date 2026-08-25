@@ -2,6 +2,7 @@ package com.openrsc.worldbuilder;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 /** Generic read-only discovery orchestration with bounded drift restarts. */
@@ -42,7 +43,8 @@ final class WorldBuilderAdaptiveDiscovery {
 		} catch (WorldBuilderContractException refusal) {
 			return WorldBuilderAdaptiveDiscoveryReport.blocked(display, registry.ids(),
 				WorldBuilderAdaptiveDiscoveryReport.absentStateReference(), null, null,
-				"", "unknown", refusal);
+				"", "unknown", refusal,
+				Collections.<WorldBuilderAdapterInspection.Check>emptyList());
 		}
 		display = target.root.toString();
 		Pass second = null;
@@ -71,7 +73,8 @@ final class WorldBuilderAdaptiveDiscovery {
 		return second == null
 			? WorldBuilderAdaptiveDiscoveryReport.blocked(display, registry.ids(),
 				WorldBuilderAdaptiveDiscoveryReport.absentStateReference(), null, null,
-				"", "unknown", drift)
+				"", "unknown", drift,
+				Collections.<WorldBuilderAdapterInspection.Check>emptyList())
 			: second.blockedReport(display, registry.ids(), drift);
 	}
 
@@ -89,45 +92,65 @@ final class WorldBuilderAdaptiveDiscovery {
 						"unknown", problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
 							WorldBuilderTargetCapability.RELATIVE_PATH,
 							"Capability selects unregistered adapter " + capability.adapterId + ".",
-							"Use one of the compiled adapters: " + registry.ids() + "."));
+							"Use one of the compiled adapters: " + registry.ids() + "."),
+						Collections.<WorldBuilderLayoutAdapter.ProbeResult>emptyList());
 				}
 				return inspectAdapter(
-					target, descriptor, capability, adapter, requestedRole);
+					target, descriptor, capability, adapter, requestedRole,
+					Collections.<WorldBuilderLayoutAdapter.ProbeResult>emptyList());
 			}
 
 			List<WorldBuilderLayoutAdapter> recognizable =
 				new ArrayList<WorldBuilderLayoutAdapter>();
 			List<WorldBuilderLayoutAdapter> supported =
 				new ArrayList<WorldBuilderLayoutAdapter>();
+			List<WorldBuilderLayoutAdapter.ProbeResult> probes =
+				new ArrayList<WorldBuilderLayoutAdapter.ProbeResult>();
+			List<String> profileIds = new ArrayList<String>();
 			for (WorldBuilderLayoutAdapter adapter : registry.adapters()) {
-				WorldBuilderLayoutAdapter.Probe probe = adapter.probe(target);
-				if (probe != WorldBuilderLayoutAdapter.Probe.NO_EVIDENCE) {
+				WorldBuilderLayoutAdapter.ProbeResult probe = adapter.probe(target);
+				if (profileIds.contains(probe.profileId)) {
+					return Pass.blocked(null, null, null, adapter.id(), "unknown",
+						problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, "target-root",
+							"More than one compiled adapter returned format profile identity "
+								+ probe.profileId + ".",
+							"Give every compiled project-neutral structural profile a unique versioned identity."),
+						probes);
+				}
+				profileIds.add(probe.profileId);
+				probes.add(probe);
+				if (probe.state != WorldBuilderLayoutAdapter.Probe.NO_EVIDENCE) {
 					recognizable.add(adapter);
 				}
-				if (probe == WorldBuilderLayoutAdapter.Probe.SUPPORTED) supported.add(adapter);
+				if (probe.state == WorldBuilderLayoutAdapter.Probe.SUPPORTED) {
+					supported.add(adapter);
+				}
 			}
-			if (recognizable.isEmpty()) return Pass.standalone();
+			if (recognizable.isEmpty()) return Pass.standalone(probes);
 			if (recognizable.size() > 1 || supported.size() > 1) {
 				return Pass.blocked(null, null, null, "", "unknown",
 					problem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, "target-root",
 						"More than one bounded adapter probe found recognizable target evidence: "
 							+ adapterIds(recognizable) + ".",
-						"Add one truthful descriptor selecting the active layout; discovery will not guess."));
+						"Add one truthful descriptor selecting the active layout; discovery will not guess."),
+					probes);
 			}
 			if (supported.isEmpty()) {
 				return Pass.blocked(null, null, null, recognizable.get(0).id(), "unknown",
 					problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER, "target-root",
 						"Recognizable server evidence is incomplete or requires a capability descriptor for "
 							+ recognizable.get(0).id() + ".",
-						"Restore the adapter's exact probe layout or add a truthful descriptor."));
+						"Restore the adapter's exact probe layout or add a truthful descriptor."),
+					probes);
 			}
-			return inspectAdapter(target, null, null, supported.get(0), requestedRole);
+			return inspectAdapter(target, null, null, supported.get(0), requestedRole, probes);
 		} catch (WorldBuilderContractException refusal) {
 			String adapterId = capability == null ? "" : capability.adapterId;
 			String representation = capability == null || capability.sourceRepresentations.size() != 1
 				? "unknown" : capability.sourceRepresentations.get(0);
 			return Pass.blocked(descriptor, capability, null, adapterId,
-				representation, refusal);
+				representation, refusal,
+				Collections.<WorldBuilderLayoutAdapter.ProbeResult>emptyList());
 		}
 	}
 
@@ -136,16 +159,17 @@ final class WorldBuilderAdaptiveDiscovery {
 		WorldBuilderReadOnlyTarget.FileState descriptor,
 		WorldBuilderTargetCapability capability,
 		WorldBuilderLayoutAdapter adapter,
-		String requestedRole) {
+		String requestedRole,
+		List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
 		try {
 			return Pass.compatible(descriptor, capability,
-				adapter.inspect(target, capability, requestedRole));
+				adapter.inspect(target, capability, requestedRole), probes);
 		} catch (WorldBuilderContractException refusal) {
 			String representation = capability == null
 				? "packed" : capability.sourceRepresentations.size() == 1
 					? capability.sourceRepresentations.get(0) : "unknown";
 			return Pass.blocked(descriptor, capability, null, adapter.id(),
-				representation, refusal);
+				representation, refusal, probes);
 		}
 	}
 
@@ -168,6 +192,7 @@ final class WorldBuilderAdaptiveDiscovery {
 		final String adapterId;
 		final String representation;
 		final WorldBuilderContractException refusal;
+		final List<WorldBuilderLayoutAdapter.ProbeResult> probes;
 
 		private Pass(String state,
 			WorldBuilderReadOnlyTarget.FileState descriptor,
@@ -175,7 +200,8 @@ final class WorldBuilderAdaptiveDiscovery {
 			WorldBuilderAdapterInspection inspection,
 			String adapterId,
 			String representation,
-			WorldBuilderContractException refusal) {
+			WorldBuilderContractException refusal,
+			List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
 			this.state = state;
 			this.descriptor = descriptor;
 			this.capability = capability;
@@ -183,18 +209,21 @@ final class WorldBuilderAdaptiveDiscovery {
 			this.adapterId = adapterId;
 			this.representation = representation;
 			this.refusal = refusal;
+			this.probes = Collections.unmodifiableList(
+				new ArrayList<WorldBuilderLayoutAdapter.ProbeResult>(probes));
 		}
 
-		static Pass standalone() {
-			return new Pass("standalone", null, null, null, "", "none", null);
+		static Pass standalone(List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
+			return new Pass("standalone", null, null, null, "", "none", null, probes);
 		}
 
 		static Pass compatible(
 			WorldBuilderReadOnlyTarget.FileState descriptor,
 			WorldBuilderTargetCapability capability,
-			WorldBuilderAdapterInspection inspection) {
+			WorldBuilderAdapterInspection inspection,
+			List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
 			return new Pass("compatible", descriptor, capability, inspection,
-				inspection.adapterId, inspection.representation, null);
+				inspection.adapterId, inspection.representation, null, probes);
 		}
 
 		static Pass blocked(
@@ -203,9 +232,10 @@ final class WorldBuilderAdaptiveDiscovery {
 			WorldBuilderAdapterInspection inspection,
 			String adapterId,
 			String representation,
-			WorldBuilderContractException refusal) {
+			WorldBuilderContractException refusal,
+			List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
 			return new Pass("blocked", descriptor, capability, inspection,
-				adapterId, representation, refusal);
+				adapterId, representation, refusal, probes);
 		}
 
 		String stableKey() {
@@ -220,7 +250,19 @@ final class WorldBuilderAdaptiveDiscovery {
 			if (refusal != null) value.append('\u0004').append(refusal.code())
 				.append('\u0000').append(refusal.relativePath()).append('\u0000')
 				.append(refusal.getMessage()).append('\u0000').append(refusal.nextStep());
+			for (WorldBuilderLayoutAdapter.ProbeResult probe : probes) {
+				value.append('\u0005').append(probe.stableKey());
+			}
 			return value.toString();
+		}
+
+		List<WorldBuilderAdapterInspection.Check> profileChecks() {
+			List<WorldBuilderAdapterInspection.Check> checks =
+				new ArrayList<WorldBuilderAdapterInspection.Check>();
+			for (WorldBuilderLayoutAdapter.ProbeResult probe : probes) {
+				checks.add(probe.toCheck());
+			}
+			return checks;
 		}
 
 		String primaryEvidencePath() {
@@ -237,14 +279,14 @@ final class WorldBuilderAdaptiveDiscovery {
 			throws WorldBuilderContractException {
 			if ("standalone".equals(state)) {
 				return WorldBuilderAdaptiveDiscoveryReport.standalone(
-					targetDisplay, adapterIds);
+					targetDisplay, adapterIds, profileChecks());
 			}
 			if ("compatible".equals(state)) {
 				return WorldBuilderAdaptiveDiscoveryReport.compatible(targetDisplay, adapterIds,
 					descriptor == null
 						? WorldBuilderAdaptiveDiscoveryReport.absentStateReference()
 						: WorldBuilderAdaptiveDiscoveryReport.descriptorReference(descriptor),
-					inspection);
+					inspection, profileChecks());
 			}
 			return blockedReport(targetDisplay, adapterIds, refusal);
 		}
@@ -256,7 +298,8 @@ final class WorldBuilderAdaptiveDiscovery {
 				descriptor == null
 					? WorldBuilderAdaptiveDiscoveryReport.absentStateReference()
 					: WorldBuilderAdaptiveDiscoveryReport.descriptorReference(descriptor),
-				capability, inspection, adapterId, representation, reason);
+				capability, inspection, adapterId, representation, reason,
+				profileChecks());
 		}
 	}
 }

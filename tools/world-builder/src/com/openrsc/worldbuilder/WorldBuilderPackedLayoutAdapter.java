@@ -11,6 +11,7 @@ import java.util.Map;
 /** Descriptor-backed packed adapter plus the narrow reviewed legacy fallback probe. */
 final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter {
 	static final String ID = "spoiled-milk-packed-v1";
+	private static final String PROFILE_ID = "openrsc-packed-source-tree-v1";
 	private static final String FORMAT_ID = "legacy-packed-orsc-v1";
 	private static final String PACKAGE_SCHEMA_ID = "layered-world-package-v1";
 	private static final String MUTATION_PROFILE_ID = "spoiled-milk-layered-install-v1";
@@ -26,15 +27,28 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	}
 
 	@Override
-	public Probe probe(WorldBuilderReadOnlyTarget target)
+	public ProbeResult probe(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
 		boolean config = target.exists(WorldBuilderDiscovery.DEFAULT_CONFIG);
-		boolean evidence = config || target.exists(SERVER_TERRAIN)
-			|| target.exists(CLIENT_TERRAIN)
-			|| target.exists("server/conf/server/defs/locs")
-			|| target.exists("server/conf/server/defs/TileDef.xml");
-		if (!evidence) return Probe.NO_EVIDENCE;
-		return config ? Probe.SUPPORTED : Probe.RECOGNIZABLE;
+		boolean serverTerrain = target.exists(SERVER_TERRAIN);
+		boolean clientTerrain = target.exists(CLIENT_TERRAIN);
+		boolean locations = target.exists("server/conf/server/defs/locs");
+		boolean tileDefinitions = target.exists("server/conf/server/defs/TileDef.xml");
+		boolean evidence = config || serverTerrain || clientTerrain || locations
+			|| tileDefinitions;
+		Probe state = !evidence ? Probe.NO_EVIDENCE
+			: config ? Probe.SUPPORTED : Probe.RECOGNIZABLE;
+		return new ProbeResult(PROFILE_ID, state, Arrays.asList(
+			new ProbeResult.Anchor("active-configuration",
+				WorldBuilderDiscovery.DEFAULT_CONFIG, config, true),
+			new ProbeResult.Anchor("server-terrain", SERVER_TERRAIN,
+				serverTerrain, false),
+			new ProbeResult.Anchor("client-terrain", CLIENT_TERRAIN,
+				clientTerrain, false),
+			new ProbeResult.Anchor("placement-root",
+				"server/conf/server/defs/locs", locations, false),
+			new ProbeResult.Anchor("tile-definitions",
+				"server/conf/server/defs/TileDef.xml", tileDefinitions, false)));
 	}
 
 	@Override

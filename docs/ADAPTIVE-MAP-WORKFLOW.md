@@ -498,6 +498,9 @@ profile. It MUST NOT require copying that server's world into this repository.
 `discovery-report-v2` is safe to create even when discovery fails. It records:
 
 - tool/schema version and adapters considered;
+- versioned project-neutral format-profile probes, their bounded structural
+  anchors, and the exact evidence behind no-match, incomplete, selected, or
+  ambiguous outcomes;
 - descriptor presence/hash and configuration candidates;
 - selected active configuration and its hash;
 - active packed/layered representation and every logical source role;

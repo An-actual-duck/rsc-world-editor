@@ -32,7 +32,8 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		String targetDisplay,
 		List<String> adapterIds,
 		Map<String,Object> descriptor,
-		WorldBuilderAdapterInspection inspection)
+		WorldBuilderAdapterInspection inspection,
+		List<WorldBuilderAdapterInspection.Check> profileChecks)
 		throws WorldBuilderContractException {
 		Map<String,Object> root = base(targetDisplay, adapterIds, descriptor);
 		root.put("status", "compatible");
@@ -41,7 +42,10 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		root.put("representation", inspection.representation);
 		root.put("capability", capabilityReference(inspection));
 		root.put("files", files(inspection.files));
-		root.put("checks", checks(inspection.checks));
+		List<WorldBuilderAdapterInspection.Check> allChecks =
+			new ArrayList<WorldBuilderAdapterInspection.Check>(profileChecks);
+		allChecks.addAll(inspection.checks);
+		root.put("checks", checks(allChecks));
 		root.put("operations", operations(true));
 		root.put("issues", new ArrayList<Object>());
 		root.put("discoveryFingerprintSha256", zeroHash());
@@ -53,7 +57,8 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 	}
 
 	static WorldBuilderAdaptiveDiscoveryReport standalone(
-		String targetDisplay, List<String> adapterIds)
+		String targetDisplay, List<String> adapterIds,
+		List<WorldBuilderAdapterInspection.Check> profileChecks)
 		throws WorldBuilderContractException {
 		Map<String,Object> root = base(targetDisplay, adapterIds, absentStateReference());
 		root.put("status", "standalone");
@@ -62,11 +67,13 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		root.put("representation", "none");
 		root.put("capability", unresolvedCapability());
 		root.put("files", new ArrayList<Object>());
-		List<Object> checks = new ArrayList<Object>();
-		checks.add(check("server-evidence", "not-applicable",
+		List<WorldBuilderAdapterInspection.Check> allChecks =
+			new ArrayList<WorldBuilderAdapterInspection.Check>(profileChecks);
+		allChecks.add(new WorldBuilderAdapterInspection.Check(
+			"server-evidence", "not-applicable",
 			"A recognized descriptor or exact built-in adapter probe root.",
 			"No recognizable server/map evidence exists at the target root."));
-		root.put("checks", checks);
+		root.put("checks", checks(allChecks));
 		root.put("operations", operations(true));
 		List<Object> issues = new ArrayList<Object>();
 		issues.add(issue(WorldBuilderErrorCodes.NO_SERVER, "warning", "", "target-root",
@@ -87,7 +94,8 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		WorldBuilderAdapterInspection evidence,
 		String adapterId,
 		String representation,
-		WorldBuilderContractException refusal)
+		WorldBuilderContractException refusal,
+		List<WorldBuilderAdapterInspection.Check> profileChecks)
 		throws WorldBuilderContractException {
 		Map<String,Object> root = base(targetDisplay, adapterIds, descriptor);
 		root.put("status", "blocked");
@@ -109,8 +117,10 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 				? unresolvedCapability() : capability.reference());
 		root.put("files", evidence == null
 			? new ArrayList<Object>() : files(evidence.files));
-		List<Object> checkValues = evidence == null
-			? new ArrayList<Object>() : checks(evidence.checks);
+		List<WorldBuilderAdapterInspection.Check> allChecks =
+			new ArrayList<WorldBuilderAdapterInspection.Check>(profileChecks);
+		if (evidence != null) allChecks.addAll(evidence.checks);
+		List<Object> checkValues = checks(allChecks);
 		root.put("checks", checkValues);
 		root.put("operations", operations(false));
 		String resolvedAdapter = refusal.adapterId().isEmpty() ? adapterId : refusal.adapterId();
@@ -246,12 +256,6 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		value.put("import", Boolean.FALSE);
 		value.put("undo", Boolean.FALSE);
 		return value;
-	}
-
-	private static Map<String,Object> check(
-		String id, String status, String expected, String observed) {
-		return new WorldBuilderAdapterInspection.Check(
-			id, status, expected, observed).toJson();
 	}
 
 	private static Map<String,Object> issue(

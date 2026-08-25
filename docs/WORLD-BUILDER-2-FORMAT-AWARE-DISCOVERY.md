@@ -1,6 +1,6 @@
 # World Builder 2 Format-Aware Discovery and Streamlined Launch
 
-Status: **approved product direction; implementation in progress — Phase 0**
+Status: **approved product direction; implementation in progress — Phase 1**
 
 Product: `rsc-world-editor-v2` / **World Builder 2**
 
@@ -454,6 +454,24 @@ model dependency instead of treating archive capture as proof that every
 object can render. Full texture/material dependency parsing, NPC animation
 closure, additional definition/archive formats, and additional root adapters
 remain pending.
+
+Phase 1 now begins from the existing compiled layout-adapter registry rather
+than introducing a second discovery framework. Descriptorless adapters return
+a bounded format-profile probe contract (version 1) before parsing. Each probe
+has a project-neutral, versioned profile identity and records its exact
+structural anchors, whether each anchor is present, and whether it is required
+for automatic selection or is only a positive signal. These results are
+included in the existing strict discovery-report `checks`, participate in both
+verification passes, and therefore detect anchor drift even when the coarse
+supported/recognizable state does not change. Incomplete recognizable evidence
+is reported rather than becoming an empty project, and multiple positive
+profiles show their separate evidence instead of being silently resolved.
+
+The first profiles describe the common packed OpenRSC source-tree anchors and
+the signed-layered configuration root. Their neutral profile identities are
+separate from legacy adapter IDs retained for compatibility. Further source
+tree and packaged-distribution layouts can now add anchors and parsers without
+changing the public discovery-report schema or the canonical project model.
 
 ## Implementation phases
 

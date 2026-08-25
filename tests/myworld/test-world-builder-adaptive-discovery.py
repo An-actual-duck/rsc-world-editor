@@ -108,6 +108,17 @@ public final class AdaptiveDiscoveryDriftHarness {
                             root.resolve("server/maps/active").toString()
                                 + ": callback failure");
                     }
+					if ("profile-always".equals(mode)) {
+						Path anchor = root.resolve(
+							"Client_Base/Cache/video/Custom_Landscape.orsc");
+						if (Files.exists(anchor)) {
+							Files.delete(anchor);
+						} else {
+							Files.createDirectories(anchor.getParent());
+							Files.write(anchor, new byte[] {0});
+						}
+						return;
+					}
                     if ("always".equals(mode) || calls++ == 0) {
                         Files.write(
                             root.resolve("server/world-builder-configs/primary.json"),
@@ -784,6 +795,21 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertEqual("NO_SERVER", report["issues"][0]["code"])
             self.assertTrue(report["operations"]["createProject"])
             self.assertFalse(report["capability"]["resolved"])
+            probe_checks = {
+                check["checkId"]: check for check in report["checks"]
+                if check["checkId"].startswith("format-profile-probe:")
+            }
+            self.assertEqual(
+                {
+                    "format-profile-probe:openrsc-packed-source-tree-v1",
+                    "format-profile-probe:signed-layered-config-root-v1",
+                },
+                set(probe_checks),
+            )
+            self.assertEqual(
+                {"not-applicable"},
+                {check["status"] for check in probe_checks.values()},
+            )
 
     def test_descriptor_layered_map_is_generic_complete_and_read_only(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-layered-") as temp:
@@ -925,6 +951,37 @@ public final class AdaptiveDiscoveryDriftHarness {
             report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
 
             self.assertIn("more than one", report["issues"][0]["observed"].lower())
+            profile_checks = {
+                check["checkId"]: check for check in report["checks"]
+                if check["checkId"].startswith("format-profile-probe:")
+            }
+            self.assertEqual(2, len(profile_checks))
+            self.assertEqual(
+                {"failed", "passed"},
+                {check["status"] for check in profile_checks.values()},
+            )
+            self.assertEqual(
+                "passed",
+                profile_checks[
+                    "format-profile-probe:openrsc-packed-source-tree-v1"
+                ]["status"],
+            )
+            self.assertEqual(
+                "failed",
+                profile_checks[
+                    "format-profile-probe:signed-layered-config-root-v1"
+                ]["status"],
+            )
+            self.assertIn(
+                "server/world-builder-configs=present(signal)",
+                profile_checks["format-profile-probe:signed-layered-config-root-v1"]["observed"],
+            )
+            self.assertIn(
+                "server/world-builder-capabilities.json=absent(required)",
+                profile_checks[
+                    "format-profile-probe:signed-layered-config-root-v1"
+                ]["observed"],
+            )
             self.assertEqual(before, self.snapshot(root))
 
     def test_legacy_custom_content_closure_failures_are_read_only(self):
@@ -1194,6 +1251,30 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.write_archive(terrain)
             report = self.assert_blocked(root, "UNSUPPORTED_ADAPTER")
             self.assertFalse(report["operations"]["createProject"])
+            packed_probe = next(
+                check for check in report["checks"]
+                if check["checkId"]
+                == "format-profile-probe:openrsc-packed-source-tree-v1"
+            )
+            self.assertEqual("failed", packed_probe["status"])
+            self.assertIn(
+                "server/conf/server/data/Custom_Landscape.orsc=present(signal)",
+                packed_probe["observed"],
+            )
+            self.assertIn(
+                "server/myworld.conf=absent(required)", packed_probe["observed"]
+            )
+
+    def test_profile_anchor_drift_is_detected_even_when_probe_state_is_unchanged(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-profile-drift-") as temp:
+            root = Path(temp) / "target"
+            self.write_archive(
+                root / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            result = self.run_drift(root, "profile-always")
+            self.assertEqual(3, result.returncode, result.stderr)
+            report = json.loads(result.stdout)
+            self.assertEqual("DISCOVERY_DRIFT", report["issues"][0]["code"])
 
     def test_malformed_and_unknown_descriptors_fail_with_reports(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-descriptor-") as temp:
