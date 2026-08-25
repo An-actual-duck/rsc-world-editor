@@ -1,6 +1,7 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -45,6 +46,8 @@ final class WorldBuilderGenericLayeredPackage {
 	final List<String> placementSemantics;
 	final List<String> placementIdentities;
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
+	final List<Integer> terrainFloorDefinitionIds;
+	final List<Integer> terrainBoundaryDefinitionIds;
 	private final Set<String> terrainCoverage;
 
 	private WorldBuilderGenericLayeredPackage(
@@ -67,6 +70,8 @@ final class WorldBuilderGenericLayeredPackage {
 		List<String> placementSemantics,
 		List<String> placementIdentities,
 		List<WorldBuilderReadOnlyTarget.FileState> files,
+		Set<Integer> terrainFloorDefinitionIds,
+		Set<Integer> terrainBoundaryDefinitionIds,
 		Set<String> terrainCoverage) {
 		this.packageId = packageId;
 		this.packageVersion = packageVersion;
@@ -90,6 +95,10 @@ final class WorldBuilderGenericLayeredPackage {
 			new ArrayList<String>(placementIdentities));
 		this.files = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files));
+		this.terrainFloorDefinitionIds = Collections.unmodifiableList(
+			new ArrayList<Integer>(terrainFloorDefinitionIds));
+		this.terrainBoundaryDefinitionIds = Collections.unmodifiableList(
+			new ArrayList<Integer>(terrainBoundaryDefinitionIds));
 		this.terrainCoverage = Collections.unmodifiableSet(
 			new HashSet<String>(terrainCoverage));
 	}
@@ -112,7 +121,43 @@ final class WorldBuilderGenericLayeredPackage {
 			worldSpace, fingerprintSha256, nativeInventorySha256, manifestSha256,
 			level, x, y, levelCount, terrainCount, placementSetCount,
 			boundaryCount, groundItemCount, npcCount, sceneryCount,
-			placementSemantics, placementIdentities, files, terrainCoverage);
+			placementSemantics, placementIdentities, files,
+			new TreeSet<Integer>(terrainFloorDefinitionIds),
+			new TreeSet<Integer>(terrainBoundaryDefinitionIds), terrainCoverage);
+	}
+
+	/** Definition IDs actually required by the validated effective package. */
+	Map<String,List<Integer>> requiredDefinitionIds() {
+		Map<String,Set<Integer>> collected = new LinkedHashMap<String,Set<Integer>>();
+		for (String family : Arrays.asList(
+			"floor", "boundary", "ground-item", "npc", "scenery")) {
+			collected.put(family, new TreeSet<Integer>());
+		}
+		collected.get("floor").addAll(terrainFloorDefinitionIds);
+		collected.get("boundary").addAll(terrainBoundaryDefinitionIds);
+		for (String semantic : placementSemantics) {
+			int first = semantic.indexOf('\u0000');
+			int second = first < 0 ? -1 : semantic.indexOf('\u0000', first + 1);
+			int third = second < 0 ? -1 : semantic.indexOf('\u0000', second + 1);
+			String family = first < 0 ? "" : semantic.substring(0, first);
+			if (second < 0 || !collected.containsKey(family)) {
+				throw new AssertionError("validated placement semantic is malformed");
+			}
+			try {
+				String id = semantic.substring(second + 1,
+					third < 0 ? semantic.length() : third);
+				collected.get(family).add(Integer.valueOf(id));
+			} catch (NumberFormatException impossible) {
+				throw new AssertionError("validated placement definition ID is malformed");
+			}
+		}
+		Map<String,List<Integer>> result =
+			new LinkedHashMap<String,List<Integer>>();
+		for (Map.Entry<String,Set<Integer>> entry : collected.entrySet()) {
+			result.put(entry.getKey(), Collections.unmodifiableList(
+				new ArrayList<Integer>(entry.getValue())));
+		}
+		return Collections.unmodifiableMap(result);
 	}
 
 	static WorldBuilderGenericLayeredPackage inspect(
@@ -183,6 +228,8 @@ final class WorldBuilderGenericLayeredPackage {
 			side + "-map-manifest", manifestRelative);
 		referenced.put(manifestRelative, manifestState);
 		Set<String> terrainCoverage = new HashSet<String>();
+		Set<Integer> terrainFloorDefinitionIds = new TreeSet<Integer>();
+		Set<Integer> terrainBoundaryDefinitionIds = new TreeSet<Integer>();
 		Integer initialLevel = null;
 		Integer initialX = null;
 		Integer initialY = null;
@@ -234,8 +281,10 @@ final class WorldBuilderGenericLayeredPackage {
 						+ " declared sector payload.");
 			}
 			try {
-				WorldBuilderRawLayeredTerrainCodec.requireDecodable(
-					Files.readAllBytes(target.requiredFile(targetPath)), encoding);
+				byte[] terrainBytes = Files.readAllBytes(target.requiredFile(targetPath));
+				WorldBuilderRawLayeredTerrainCodec.requireDecodable(terrainBytes, encoding);
+				collectTerrainDefinitionIds(terrainBytes, encoding,
+					terrainFloorDefinitionIds, terrainBoundaryDefinitionIds);
 			} catch (IOException failure) {
 				throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, targetPath,
 					"Layered terrain changed while it was decoded.",
@@ -346,7 +395,29 @@ final class WorldBuilderGenericLayeredPackage {
 			initialLevel.intValue(), initialX.intValue(), initialY.intValue(), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
 			npcs, scenery, placementSemantics, placementIdentities, files,
+			terrainFloorDefinitionIds, terrainBoundaryDefinitionIds,
 			terrainCoverage);
+	}
+
+	private static void collectTerrainDefinitionIds(byte[] payload, String encoding,
+		Set<Integer> floors, Set<Integer> boundaries) {
+		int tileBytes = WorldBuilderRawLayeredTerrainCodec.tileBytes(encoding);
+		int shift = WorldBuilderRawLayeredTerrainCodec.isWide(encoding) ? 1 : 0;
+		for (int offset = 0; offset < payload.length; offset += tileBytes) {
+			int overlay = payload[offset + shift + 2] & 0xff;
+			int effectiveOverlay = overlay == 250 ? 2 : overlay;
+			if (effectiveOverlay > 0) floors.add(Integer.valueOf(effectiveOverlay - 1));
+			int vertical = payload[offset + shift + 4] & 0xff;
+			int horizontal = payload[offset + shift + 5] & 0xff;
+			if (vertical > 0) boundaries.add(Integer.valueOf(vertical - 1));
+			if (horizontal > 0) boundaries.add(Integer.valueOf(horizontal - 1));
+			int diagonal = ByteBuffer.wrap(payload, offset + shift + 6, 4).getInt();
+			if (diagonal > 0 && diagonal < 12000) {
+				boundaries.add(Integer.valueOf(diagonal - 1));
+			} else if (diagonal > 12000 && diagonal < 24000) {
+				boundaries.add(Integer.valueOf(diagonal - 12001));
+			}
+		}
 	}
 
 	private static PlacementCounts validatePlacements(

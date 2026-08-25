@@ -1627,6 +1627,20 @@ final class WorldBuilderProjectContentBundle {
 			result.remove("catalogSha256");
 			return result;
 		}
+
+		Path pathForRole(String role) {
+			for (FileRecord file : files) {
+				if (file.spec.role.equals(role)) return root.resolve(file.bundlePath);
+			}
+			throw new IllegalArgumentException("Unknown content-bundle role: " + role);
+		}
+
+		Map<String,Object> evidenceForRole(String role) {
+			for (FileRecord file : files) {
+				if (file.spec.role.equals(role)) return file.toJson();
+			}
+			throw new IllegalArgumentException("Unknown content-bundle role: " + role);
+		}
 	}
 
 	static final class FileRecord implements Comparable<FileRecord> {

@@ -361,6 +361,7 @@ function Assert-ApplicationAllowlist(
     foreach ($Schema in @(
         "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
         "conversion-plan-v1.schema.json", "conversion-report-v1.schema.json",
+        "content-reconciliation-v1.schema.json",
         "discovery-reconciliation-v1.schema.json",
         "discovery-report-v2.schema.json", "export-manifest-v1.schema.json",
         "export-manifest-v2.schema.json", "import-receipt-v1.schema.json",

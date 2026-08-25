@@ -573,6 +573,22 @@ For a created packed-origin project the report is retained at
 `diagnostics/discovery-reconciliation-v1.json`; it is support evidence rather
 than target authority and never weakens the immutable source snapshot.
 
+`content-reconciliation-v1` complements the placement ledger after the
+project's effective layered package and captured content bundle both validate.
+It retains the exact floor IDs and terrain-encoded boundary IDs used by terrain,
+the unique definition IDs used by all placement families, their catalog and
+resolved-ID fingerprints, and the captured definition/asset roles and hashes.
+Placed scenery additionally records its definition name, `objectModel`, native
+model filename hash, and one of these truthful outcomes: exact packaged-runtime
+definition/archive reuse, project-archive, generated-or-unspecified,
+archive-unverified, or missing. The
+native uncompressed `models.orsc` index is inspected structurally and by the
+same case-insensitive filename hash used by the client; target code is never
+loaded or executed. Unsupported outer compression, malformed indexes, absent
+models, and unspecified model names are persisted as warnings at
+`diagnostics/content-reconciliation-v1.json`. They do not erase placements or
+weaken definition-ID closure, and the selected target remains read-only.
+
 The descriptorless OpenRSC packed compatibility profile recognizes one exact,
 documented upstream data defect: NPC 67 at start `(647,3534)`, minimum
 `(632,3519)`, and maximum `(662,6549)`. The last value cannot identify a

@@ -221,7 +221,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			if (Files.exists(stage.resolve(
 				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY),
 				LinkOption.NOFOLLOW_LINKS)) {
-				WorldBuilderProjectContentBundle.copyToWorking(stage);
+				WorldBuilderProjectContentBundle.Bundle content =
+					WorldBuilderProjectContentBundle.copyToWorking(stage);
+				WorldBuilderContentReconciliation.write(
+					stage, sourceRuntime, stagedWorking, content);
 			}
 			WorldBuilderAdaptiveRuntimePreparer.prepare(stage, sourceRuntime,
 				snapshot, origin, port);

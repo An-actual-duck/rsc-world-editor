@@ -129,6 +129,23 @@ def write_json(path: Path, value: dict) -> None:
     )
 
 
+def native_model_archive(entries: dict[str, bytes]) -> bytes:
+    """Deterministic uncompressed outer/native JAG archive."""
+    ordered = sorted(entries.items())
+    directory = bytearray(struct.pack(">H", len(ordered)))
+    payload = bytearray()
+    for name, data in ordered:
+        name_hash = 0
+        for character in name.upper():
+            name_hash = (name_hash * 61 + ord(character) - 32) & 0xFFFFFFFF
+        directory.extend(struct.pack(">I", name_hash))
+        directory.extend(len(data).to_bytes(3, "big"))
+        directory.extend(len(data).to_bytes(3, "big"))
+        payload.extend(data)
+    expanded = bytes(directory + payload)
+    return len(expanded).to_bytes(3, "big") * 2 + expanded
+
+
 def one_pixel_png(color: int) -> bytes:
     def chunk(kind: bytes, data: bytes) -> bytes:
         return (
@@ -4135,6 +4152,11 @@ public final class FakeAdaptiveClient {
                 "pos": {"X": 0, "Y": 6},
                 "direction": 4,
             })
+            base_scenery["sceneries"].append({
+                "id": 58,
+                "pos": {"X": 0, "Y": 7},
+                "direction": 0,
+            })
             write_json(base_scenery_path, base_scenery)
             (target / "server/conf/server/defs/GameObjectDef.xml").write_text(
                 "<GameObjectDef-array>"
@@ -4142,11 +4164,20 @@ public final class FakeAdaptiveClient {
                     "<GameObjectDef><name>fixture</name>"
                     + ("<width>2</width><height>1</height>" if index == 54
                        else "<width>1</width><height>1</height>")
+                    + ("<objectModel>collaborator_scenery</objectModel>"
+                       if index == 59 else
+                       "<objectModel>absent_scenery</objectModel>"
+                       if index == 58 else "")
                     + "</GameObjectDef>"
                     for index in range(60)
                 )
                 + "</GameObjectDef-array>\n",
                 encoding="utf-8",
+            )
+            (target / "Client_Base/Cache/video/models.orsc").write_bytes(
+                native_model_archive({
+                    "collaborator_scenery.ob3": b"fixture-ob3-model\n",
+                })
             )
             server_terrain = (
                 target / "server/conf/server/data/Custom_Landscape.orsc"
@@ -4263,6 +4294,36 @@ public final class FakeAdaptiveClient {
                 scenery_reconciliation["effectiveIdentitySha256"],
                 scenery_reconciliation["packageIdentitySha256"],
             )
+            content_reconciliation = json.loads((
+                project / "diagnostics/content-reconciliation-v1.json"
+            ).read_text(encoding="utf-8"))
+            required_by_family = {
+                family["family"]: family["requiredPlacementDefinitionIds"]
+                for family in content_reconciliation["families"]
+            }
+            self.assertIn(31, required_by_family["floor"])
+            self.assertIn(219, required_by_family["boundary"])
+            self.assertIn(9000, required_by_family["ground-item"])
+            self.assertIn(846, required_by_family["npc"])
+            self.assertIn(59, required_by_family["scenery"])
+            self.assertEqual("indexed", content_reconciliation["modelArchive"]["indexStatus"])
+            custom_scenery = next(
+                value for value in content_reconciliation["sceneryModels"]
+                if value["sceneryId"] == 59
+            )
+            self.assertEqual("collaborator_scenery", custom_scenery["modelName"])
+            self.assertEqual("project-archive", custom_scenery["resolution"])
+            self.assertEqual(8, len(custom_scenery["modelFileHash"]))
+            missing_scenery = next(
+                value for value in content_reconciliation["sceneryModels"]
+                if value["sceneryId"] == 58
+            )
+            self.assertEqual("missing", missing_scenery["resolution"])
+            self.assertTrue(any(
+                issue["code"] == "SCENERY_MODEL_MISSING"
+                and issue["definitionId"] == 58
+                for issue in content_reconciliation["issues"]
+            ))
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             snapshot = json.loads(
                 (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
@@ -4332,6 +4393,7 @@ public final class FakeAdaptiveClient {
             self.assertEqual(
                 [
                     {"direction": 4, "position": {"x": 0, "y": 6}, "sceneryId": 54},
+                    {"direction": 0, "position": {"x": 0, "y": 7}, "sceneryId": 58},
                     {"direction": 0, "position": {"x": 2, "y": 4}, "sceneryId": 59},
                     {"direction": 0, "position": {"x": 13, "y": 10}, "sceneryId": 1},
                 ],

@@ -437,7 +437,22 @@ Implementation note: Phase 0 began with the versioned
 `discovery-reconciliation-v1` placement ledger. Packed conversion now measures
 all declared placement sources, embedded scenery normalization, effective
 composition, emitted/package counts, and exact family identity fingerprints.
-The broader canonical definition/asset graph and additional format adapters
+The second Phase 0 increment adds `content-reconciliation-v1` to every
+target-backed project with a captured content bundle. It records the exact
+floor and terrain-wall IDs used by layered terrain, the exact definition IDs
+used by all four placement families, catalog closure, definition roles, and
+whole-file asset evidence. For placed scenery it also reads bounded
+`GameObjectDef-array` model names and the native hash-indexed `models.orsc`
+directory without executing target code. Project-specific model entries,
+packaged-runtime model reuse, missing entries, unspecified models, and archive
+formats that cannot yet be inspected are distinguished explicitly. Missing or
+opaque presentation evidence remains a durable warning; an ID absent from the
+captured definition catalog remains a blocker.
+
+This narrows the observed missing-scenery problem to a concrete definition or
+model dependency instead of treating archive capture as proof that every
+object can render. Full texture/material dependency parsing, NPC animation
+closure, additional definition/archive formats, and additional root adapters
 remain pending.
 
 ## Implementation phases

@@ -45,6 +45,9 @@ final class WorldBuilderAdaptiveContracts {
 		DISCOVERY_RECONCILIATION("discovery-reconciliation", 1,
 			"world-builder-discovery-reconciliation",
 			"discovery-reconciliation-v1.schema.json"),
+		CONTENT_RECONCILIATION("content-reconciliation", 1,
+			"world-builder-content-reconciliation",
+			"content-reconciliation-v1.schema.json"),
 		ADAPTIVE_EXPORT("adaptive-export", 2,
 			"world-builder-adaptive-export", "export-manifest-v2.schema.json"),
 		MUTATION_PLAN("mutation-plan", 1,
@@ -150,6 +153,8 @@ final class WorldBuilderAdaptiveContracts {
 			case CONVERSION_REPORT: validateConversionReport(root); return;
 			case DISCOVERY_RECONCILIATION:
 				validateDiscoveryReconciliation(root); return;
+			case CONTENT_RECONCILIATION:
+				validateContentReconciliation(root); return;
 			case ADAPTIVE_EXPORT: validateExport(root); return;
 			case MUTATION_PLAN: validateMutationPlan(root); return;
 			case ADAPTIVE_RECEIPT: validateReceipt(root); return;
@@ -667,6 +672,152 @@ final class WorldBuilderAdaptiveContracts {
 			|| !issues(root.get("issues"), op).isEmpty()) {
 			invalid(op, "A successful discovery reconciliation cannot contain issues.");
 		}
+		hash(root, "reconciliationFingerprintSha256", op);
+	}
+
+	private static void validateContentReconciliation(Map<String,Object> root)
+		throws WorldBuilderContractException {
+		String op = "validate-content-reconciliation";
+		exact(root, op, "schemaVersion", "manifestType",
+			"contentBundleFingerprintSha256", "outputPackageFingerprintSha256",
+			"families", "modelArchive", "sceneryModels", "status", "issues",
+			"reconciliationFingerprintSha256");
+		hash(root, "contentBundleFingerprintSha256", op);
+		hash(root, "outputPackageFingerprintSha256", op);
+		List<?> families = array(root.get("families"), op, "families", 5, 5);
+		String[] expected = {"floor", "boundary", "ground-item", "npc", "scenery"};
+		for (int index = 0; index < families.size(); index++) {
+			Map<String,Object> family = object(families.get(index), op, "family");
+			exact(family, op, "family", "catalogDefinitionCount",
+				"catalogDefinitionIdsSha256", "requiredPlacementDefinitionIds",
+				"requiredPlacementDefinitionIdsSha256", "resolvedDefinitionCount",
+				"resolvedDefinitionIdsSha256", "definitionRoles", "assets", "status");
+			String name = enumeration(family, "family", op,
+				"floor", "boundary", "ground-item", "npc", "scenery");
+			if (!expected[index].equals(name)) invalid(op,
+				"Content reconciliation families are not canonical.");
+			long catalogCount = boundedCount(family, "catalogDefinitionCount", op);
+			hash(family, "catalogDefinitionIdsSha256", op);
+			List<?> ids = array(family.get("requiredPlacementDefinitionIds"), op,
+				"requiredPlacementDefinitionIds", 0, 65536);
+			long previous = -1L;
+			for (Object raw : ids) {
+				if (!(raw instanceof Long)) invalid(op, "Required definition ID is not an integer.");
+				long id = ((Long)raw).longValue();
+				if (id <= previous || id > 65535L) invalid(op,
+					"Required definition IDs are duplicated, unordered, or out of range.");
+				previous = id;
+			}
+			String requiredHash = hash(family,
+				"requiredPlacementDefinitionIdsSha256", op);
+			long resolved = boundedCount(family, "resolvedDefinitionCount", op);
+			String resolvedHash = hash(family, "resolvedDefinitionIdsSha256", op);
+			if (resolved != ids.size() || resolved > catalogCount
+				|| !requiredHash.equals(resolvedHash)) invalid(op,
+				"Content definition closure counts or fingerprints disagree.");
+			List<String> definitionRoles = identifierList(family.get("definitionRoles"), op,
+				"definitionRoles", 1, 4, true);
+			List<String> expectedDefinitions;
+			if ("floor".equals(name)) expectedDefinitions = Arrays.asList("definition.tile");
+			else if ("boundary".equals(name)) expectedDefinitions =
+				Arrays.asList("definition.boundary");
+			else if ("ground-item".equals(name)) expectedDefinitions = Arrays.asList(
+				"definition.item.base", "definition.item.custom",
+				"definition.item.patch", "definition.item.world");
+			else if ("npc".equals(name)) expectedDefinitions = Arrays.asList(
+				"definition.npc.base", "definition.npc.custom",
+				"definition.npc.patch", "definition.npc.world");
+			else expectedDefinitions = Arrays.asList("definition.scenery");
+			if (!expectedDefinitions.equals(definitionRoles)) invalid(op,
+				"Content definition roles do not match their family.");
+			List<?> assets = array(family.get("assets"), op, "assets", 1, 4);
+			String previousRole = null;
+			List<String> assetRoles = new ArrayList<String>();
+			for (Object raw : assets) {
+				Map<String,Object> asset = object(raw, op, "asset");
+				exact(asset, op, "role", "size", "sha256");
+				String role = identifier(asset, "role", op);
+				if (previousRole != null && previousRole.compareTo(role) >= 0) {
+					invalid(op, "Content asset roles are duplicated or unordered.");
+				}
+				previousRole = role;
+				assetRoles.add(role);
+				if (boundedCount(asset, "size", op) < 1L) invalid(op,
+					"Content asset evidence cannot be empty.");
+				hash(asset, "sha256", op);
+			}
+			List<String> expectedAssets;
+			if ("floor".equals(name) || "boundary".equals(name)) {
+				expectedAssets = Arrays.asList("asset.sprite.custom");
+			} else if ("scenery".equals(name)) {
+				expectedAssets = Arrays.asList(
+					"asset.library", "asset.model", "asset.sprite.custom");
+			} else {
+				expectedAssets = Arrays.asList("asset.library", "asset.sprite.authentic",
+					"asset.sprite.custom", "asset.spritepack");
+			}
+			if (!expectedAssets.equals(assetRoles)) invalid(op,
+				"Content asset roles do not match their family.");
+			if (!"matched".equals(enumeration(family, "status", op, "matched"))) {
+				invalid(op, "Content family definition closure is not matched.");
+			}
+		}
+		Map<String,Object> archive = object(root.get("modelArchive"), op, "modelArchive");
+		exact(archive, op, "role", "size", "sha256", "indexStatus", "entryCount");
+		if (!"asset.model".equals(identifier(archive, "role", op))) {
+			invalid(op, "Content model archive role is invalid.");
+		}
+		if (boundedCount(archive, "size", op) < 1L) invalid(op,
+			"Content model archive cannot be empty.");
+		hash(archive, "sha256", op);
+		String indexStatus = enumeration(archive, "indexStatus", op,
+			"indexed", "compressed-unverified", "malformed");
+		long entryCount = boundedCount(archive, "entryCount", op);
+		if (entryCount > 8192L || (!"indexed".equals(indexStatus) && entryCount != 0L)) {
+			invalid(op, "Content model archive index count is inconsistent.");
+		}
+		List<?> scenery = array(root.get("sceneryModels"), op, "sceneryModels", 0, 65536);
+		long previousScenery = -1L;
+		for (Object raw : scenery) {
+			Map<String,Object> model = object(raw, op, "sceneryModel");
+			exact(model, op, "sceneryId", "name", "modelName", "modelFileHash", "resolution");
+			long id = integer(model, "sceneryId", op);
+			if (id <= previousScenery || id > 65535L) invalid(op,
+				"Scenery model records are duplicated, unordered, or out of range.");
+			previousScenery = id;
+			text(model, "name", op, 0, 256); text(model, "modelName", op, 0, 256);
+			String fileHash = text(model, "modelFileHash", op, 0, 8);
+			if (!fileHash.matches("([0-9a-f]{8})?")) invalid(op,
+				"Scenery model filename hash is invalid.");
+			enumeration(model, "resolution", op, "packaged-runtime", "project-archive",
+				"generated-or-unspecified", "archive-unverified", "missing");
+		}
+		List<?> issues = array(root.get("issues"), op, "issues", 0, 4096);
+		String previousIssue = null;
+		for (Object raw : issues) {
+			Map<String,Object> issue = object(raw, op, "issue");
+			exact(issue, op, "code", "family", "definitionId", "assetRole",
+				"message", "nextStep");
+			String code = enumeration(issue, "code", op, "MODEL_ARCHIVE_UNVERIFIED",
+				"PACKAGED_SCENERY_BASELINE_UNVERIFIED",
+				"SCENERY_DEFINITION_DETAILS_UNVERIFIED", "SCENERY_MODEL_MISSING",
+				"SCENERY_MODEL_UNSPECIFIED");
+			if (!"scenery".equals(enumeration(issue, "family", op, "scenery"))) {
+				invalid(op, "Content issue family is invalid.");
+			}
+			long id = integer(issue, "definitionId", op);
+			if (id < -1L || id > 65535L) invalid(op, "Content issue definition ID is invalid.");
+			String role = enumeration(issue, "assetRole", op,
+				"asset.model", "definition.scenery");
+			text(issue, "message", op, 1, 2048); text(issue, "nextStep", op, 1, 2048);
+			String key = code + "\u0000" + String.format("%06d", id) + "\u0000" + role;
+			if (previousIssue != null && previousIssue.compareTo(key) >= 0) invalid(op,
+				"Content issues are duplicated or unordered.");
+			previousIssue = key;
+		}
+		String status = enumeration(root, "status", op, "matched", "matched-with-warnings");
+		if (issues.isEmpty() != "matched".equals(status)) invalid(op,
+			"Content reconciliation warning status disagrees with its issues.");
 		hash(root, "reconciliationFingerprintSha256", op);
 	}
 

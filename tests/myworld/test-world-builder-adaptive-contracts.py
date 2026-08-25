@@ -543,6 +543,59 @@ def discovery_reconciliation() -> dict:
     }
 
 
+def content_reconciliation() -> dict:
+    families = []
+    roles = {
+        "floor": (["definition.tile"], ["asset.sprite.custom"]),
+        "boundary": (["definition.boundary"], ["asset.sprite.custom"]),
+        "ground-item": (["definition.item.base", "definition.item.custom",
+                         "definition.item.patch", "definition.item.world"],
+                        ["asset.library", "asset.sprite.authentic",
+                         "asset.sprite.custom", "asset.spritepack"]),
+        "npc": (["definition.npc.base", "definition.npc.custom",
+                 "definition.npc.patch", "definition.npc.world"],
+                ["asset.library", "asset.sprite.authentic",
+                 "asset.sprite.custom", "asset.spritepack"]),
+        "scenery": (["definition.scenery"],
+                    ["asset.library", "asset.model", "asset.sprite.custom"]),
+    }
+    for family in ("floor", "boundary", "ground-item", "npc", "scenery"):
+        definitions, assets = roles[family]
+        families.append({
+            "family": family,
+            "catalogDefinitionCount": 10,
+            "catalogDefinitionIdsSha256": HASH_A,
+            "requiredPlacementDefinitionIds": [1],
+            "requiredPlacementDefinitionIdsSha256": HASH_B,
+            "resolvedDefinitionCount": 1,
+            "resolvedDefinitionIdsSha256": HASH_B,
+            "definitionRoles": definitions,
+            "assets": [
+                {"role": role, "size": 10, "sha256": HASH_C}
+                for role in assets
+            ],
+            "status": "matched",
+        })
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-content-reconciliation",
+        "contentBundleFingerprintSha256": HASH_C,
+        "outputPackageFingerprintSha256": HASH_D,
+        "families": families,
+        "modelArchive": {
+            "role": "asset.model", "size": 100, "sha256": HASH_A,
+            "indexStatus": "indexed", "entryCount": 1,
+        },
+        "sceneryModels": [{
+            "sceneryId": 1, "name": "tree", "modelName": "tree",
+            "modelFileHash": "0123abcd", "resolution": "project-archive",
+        }],
+        "status": "matched",
+        "issues": [],
+        "reconciliationFingerprintSha256": HASH_A,
+    }
+
+
 def export_manifest(standalone: bool = False) -> dict:
     return {
         "schemaVersion": 2,
@@ -936,6 +989,7 @@ VALID_CONTRACTS = {
     "conversion-plan": conversion_plan,
     "conversion-report": conversion_report,
     "discovery-reconciliation": discovery_reconciliation,
+    "content-reconciliation": content_reconciliation,
     "adaptive-export": export_manifest,
     "mutation-plan": mutation_plan,
     "adaptive-receipt": import_receipt,
@@ -952,6 +1006,9 @@ SCHEMA_CONTRACTS = {
     "conversion-report-v1.schema.json": (1, "world-builder-conversion-report"),
     "discovery-reconciliation-v1.schema.json": (
         1, "world-builder-discovery-reconciliation"
+    ),
+    "content-reconciliation-v1.schema.json": (
+        1, "world-builder-content-reconciliation"
     ),
     "export-manifest-v2.schema.json": (2, "world-builder-adaptive-export"),
     "target-mutation-plan-v1.schema.json": (1, "world-builder-target-mutation-plan"),
@@ -1695,6 +1752,41 @@ class AdaptiveContractTests(unittest.TestCase):
         non_scenery_markers["families"][0]["embeddedMarkersRead"] = 1
         self.assert_refused(
             "discovery-reconciliation", non_scenery_markers,
+            "CONTRACT_VALUE_INVALID",
+        )
+
+    def test_content_reconciliation_requires_exact_definition_and_asset_closure(self):
+        wrong_order = content_reconciliation()
+        wrong_order["families"][0], wrong_order["families"][1] = (
+            wrong_order["families"][1], wrong_order["families"][0]
+        )
+        self.assert_refused(
+            "content-reconciliation", wrong_order, "CONTRACT_VALUE_INVALID"
+        )
+
+        lost_definition = content_reconciliation()
+        lost_definition["families"][4]["resolvedDefinitionCount"] = 0
+        self.assert_refused(
+            "content-reconciliation", lost_definition, "CONTRACT_VALUE_INVALID"
+        )
+
+        wrong_asset = content_reconciliation()
+        wrong_asset["families"][4]["assets"][1]["role"] = "asset.spritepack"
+        self.assert_refused(
+            "content-reconciliation", wrong_asset, "CONTRACT_VALUE_INVALID"
+        )
+
+        warning_without_issue = content_reconciliation()
+        warning_without_issue["status"] = "matched-with-warnings"
+        self.assert_refused(
+            "content-reconciliation", warning_without_issue,
+            "CONTRACT_VALUE_INVALID",
+        )
+
+        opaque_with_entries = content_reconciliation()
+        opaque_with_entries["modelArchive"]["indexStatus"] = "malformed"
+        self.assert_refused(
+            "content-reconciliation", opaque_with_entries,
             "CONTRACT_VALUE_INVALID",
         )
 
