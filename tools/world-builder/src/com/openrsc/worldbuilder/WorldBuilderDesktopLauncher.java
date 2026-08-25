@@ -742,11 +742,15 @@ final class WorldBuilderDesktopLauncher {
 						String sceneryWarning =
 							WorldBuilderSceneryModelProvider.projectWarningSummary(
 								created.projectRoot);
+						String materialWarning =
+							WorldBuilderTerrainMaterialProvider.projectWarningSummary(
+								created.projectRoot);
 						int choice = JOptionPane.showConfirmDialog(frame,
 							"Project created safely at:\n" + created.projectRoot
 								+ "\n\nThe source was not changed."
 								+ (npcWarning == null ? "" : npcWarning)
 								+ (sceneryWarning == null ? "" : sceneryWarning)
+								+ (materialWarning == null ? "" : materialWarning)
 								+ "\n\nOpen this project now?",
 							"Project Ready", JOptionPane.YES_NO_OPTION,
 							JOptionPane.INFORMATION_MESSAGE);

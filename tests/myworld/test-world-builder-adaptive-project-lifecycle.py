@@ -2,6 +2,7 @@
 """Temporary-fixture coverage for the Phase 3 adaptive project lifecycle."""
 
 import hashlib
+import gzip
 import importlib.util
 import json
 import os
@@ -172,6 +173,80 @@ def one_pixel_png(color: int) -> bytes:
         + chunk(b"IHDR", struct.pack(">IIBBBBB", 1, 1, 8, 2, 0, 0, 0))
         + chunk(b"IDAT", zlib.compress(b"\0" + rgb))
         + chunk(b"IEND", b"")
+    )
+
+
+def osar_entries(compressed: bytes) -> dict[str, dict[str, bytes]]:
+    """Decode the bounded fixture subset while preserving each raw sprite entry."""
+    payload = gzip.decompress(compressed)
+    offset = 0
+
+    def read_byte() -> int:
+        nonlocal offset
+        if offset >= len(payload):
+            raise AssertionError("truncated fixture OSAR")
+        value = payload[offset]
+        offset += 1
+        return value
+
+    def read_short() -> int:
+        return read_byte() << 8 | read_byte()
+
+    def read_name() -> str:
+        value = bytearray()
+        while True:
+            next_byte = read_byte()
+            if next_byte == 0:
+                return value.decode("latin-1")
+            value.append(next_byte)
+
+    def skip_sprite() -> None:
+        nonlocal offset
+        entry_type = read_byte()
+        if 1 <= entry_type <= 3:
+            read_byte()
+        frame_count = read_byte()
+        palette_count = read_byte() + 1
+        offset += palette_count * 3
+        for _ in range(frame_count):
+            width = read_short()
+            height = read_short()
+            read_byte()
+            for _ in range(4):
+                read_short()
+            offset += width * height
+        if offset > len(payload):
+            raise AssertionError("truncated fixture OSAR sprite")
+
+    result: dict[str, dict[str, bytes]] = {}
+    for _ in range(read_byte()):
+        subspace = read_name()
+        entries: dict[str, bytes] = {}
+        for _ in range(read_short()):
+            name = read_name()
+            start = offset
+            skip_sprite()
+            entries[name] = payload[start:offset]
+        result[subspace] = entries
+    if offset != len(payload):
+        raise AssertionError("trailing fixture OSAR data")
+    return result
+
+
+def fixture_texture_entry(
+    primary: int, secondary: int = 0x202020, *, shifted: bool = False
+) -> bytes:
+    palette = primary.to_bytes(3, "big") + secondary.to_bytes(3, "big")
+    pixels = bytes(
+        ((x // 8) + (y // 8)) % 2
+        for y in range(64)
+        for x in range(64)
+    )
+    return (
+        bytes((0, 1, 1))
+        + palette
+        + struct.pack(">HHBhhHH", 64, 64, int(shifted), 0, 0, 64, 64)
+        + pixels
     )
 
 
@@ -4574,6 +4649,159 @@ public final class FakeAdaptiveClient {
             self.assertEqual(target_before, tree_bytes(target))
             self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
             self.assertFalse(list((installation / "projects").glob(".staging-*")))
+
+    def test_floor_and_wall_texture_dependencies_close_inside_project_only(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-terrain-materials-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            (definitions / "TileDef.xml").write_text(
+                "<TileDef-array>"
+                + "".join(
+                    "<TileDef><colour>"
+                    + ("3" if index == 31 else "-1")
+                    + "</colour></TileDef>"
+                    for index in range(32)
+                )
+                + "</TileDef-array>\n",
+                encoding="utf-8",
+            )
+            (definitions / "DoorDef.xml").write_text(
+                "<DoorDef-array>"
+                + "".join(
+                    "<DoorDef><name>wall</name><modelVar2>"
+                    + ("5" if index == 219 else "-1")
+                    + "</modelVar2><modelVar3>-2</modelVar3></DoorDef>"
+                    for index in range(220)
+                )
+                + "</DoorDef-array>\n",
+                encoding="utf-8",
+            )
+            custom = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+            item_entry = self.fixtures.fixture_sprite_entry(0x102030)
+            texture_zero = fixture_texture_entry(0x112233, shifted=True)
+            texture_two = fixture_texture_entry(0x445566)
+            custom.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("0", item_entry)]),
+                ("textures", [("0", texture_zero), ("2", texture_two)]),
+            ]))
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            target_before = tree_bytes(target)
+            generated = []
+
+            for index in range(2):
+                installation = base / f"World Builder 2 material {index}"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / f"material-report-{index}.json"
+                discovered = self.discover(target, report)
+                self.assertEqual("compatible", discovered["status"])
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    f"Terrain material closure {index}", 43840 + index,
+                )
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(summary["projectRoot"])
+                project_custom = (
+                    project
+                    / "source/content-bundle/files/client/Cache/video/Custom_Sprites.osar"
+                ).read_bytes()
+                entries = osar_entries(project_custom)
+                self.assertEqual(["0"], list(entries["items"]))
+                self.assertEqual(item_entry, entries["items"]["0"])
+                self.assertEqual([str(value) for value in range(6)], list(entries["textures"]))
+                self.assertEqual(texture_zero, entries["textures"]["0"])
+                self.assertEqual(texture_two, entries["textures"]["2"])
+                self.assertEqual(entries["textures"]["1"], entries["textures"]["3"])
+                self.assertEqual(entries["textures"]["3"], entries["textures"]["5"])
+                warnings_path = (
+                    project / "diagnostics/terrain-material-provider-warnings.json"
+                )
+                warnings = json.loads(warnings_path.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    [1, 3, 4, 5],
+                    [warning["textureId"] for warning in warnings["warnings"]],
+                )
+                self.assertEqual([], warnings["warnings"][0]["references"])
+                self.assertEqual(
+                    [{"family": "floor", "definitionId": 31, "field": "colour"}],
+                    warnings["warnings"][1]["references"],
+                )
+                self.assertEqual([], warnings["warnings"][2]["references"])
+                self.assertEqual(
+                    [{"family": "boundary", "definitionId": 219,
+                      "field": "modelVar2"}],
+                    warnings["warnings"][3]["references"],
+                )
+                generated.append((project_custom, warnings_path.read_bytes()))
+
+            self.assertEqual(generated[0], generated[1])
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_malformed_or_unbounded_texture_materials_block_atomically(self):
+        def non_numeric_texture(target: Path) -> None:
+            custom = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+            custom.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("0", self.fixtures.fixture_sprite_entry())]),
+                ("textures", [("floor_grass", self.fixtures.fixture_sprite_entry())]),
+            ]))
+
+        def unbounded_reference(target: Path) -> None:
+            path = target / "server/conf/server/defs/TileDef.xml"
+            path.write_text(
+                path.read_text(encoding="utf-8").replace(
+                    "<TileDef><colour>0</colour></TileDef>",
+                    "<TileDef><colour>4096</colour></TileDef>", 1,
+                ),
+                encoding="utf-8",
+            )
+
+        def invalid_texture_shape(target: Path) -> None:
+            custom = target / "Client_Base/Cache/video/Custom_Sprites.osar"
+            custom.write_bytes(self.fixtures.fixture_osar([
+                ("items", [("0", self.fixtures.fixture_sprite_entry())]),
+                ("textures", [("0", self.fixtures.fixture_sprite_entry())]),
+            ]))
+
+        cases = (
+            ("non-numeric", non_numeric_texture, "UNSUPPORTED_FORMAT",
+             "not a canonical numeric ID"),
+            ("unbounded", unbounded_reference, "CONTRACT_LIMIT_EXCEEDED",
+             "exceeds the bounded project domain"),
+            ("invalid-shape", invalid_texture_shape, "UNSUPPORTED_FORMAT",
+             "is not a complete 64x64 or 128x128 texture"),
+        )
+        for index, (label, mutate, code, message) in enumerate(cases):
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="adaptive-terrain-material-blocker-"
+            ) as temp:
+                base = Path(temp)
+                target = self.fixtures.legacy_fixture(str(base))
+                mutate(target)
+                installation = base / "World Builder 2"
+                installation.mkdir()
+                runtime = self.make_runtime(installation)
+                report = base / "report.json"
+                discovered = self.discover(target, report)
+                self.assertEqual("compatible", discovered["status"])
+                target_before = tree_bytes(target)
+                created, summary = self.create_project(
+                    installation, runtime, target, report,
+                    f"Blocked terrain material {label}", 43842 + index,
+                )
+                self.assertEqual(3, created.returncode, created.stderr)
+                self.assertIsNone(summary)
+                self.assertIn(code, created.stderr)
+                self.assertIn(message, created.stderr)
+                self.assertEqual(target_before, tree_bytes(target))
+                self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+                self.assertFalse(list((installation / "projects").glob(".staging-*")))
 
     def test_packaged_client_cache_is_normalized_only_inside_project(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packaged-cache-") as temp:

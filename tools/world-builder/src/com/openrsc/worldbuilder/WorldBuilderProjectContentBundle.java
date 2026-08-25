@@ -178,6 +178,9 @@ final class WorldBuilderProjectContentBundle {
 		} else {
 			itemVisuals = Collections.emptyList();
 		}
+		WorldBuilderTerrainMaterialProvider.Result materialMigration =
+			WorldBuilderTerrainMaterialProvider.normalize(copiedTarget,
+				migration == null ? null : migration.customArchiveOverride);
 		List<Spec> captureSpecs = new ArrayList<Spec>(SPECS);
 		if (successor) captureSpecs.add(ITEM_VISUAL_SPEC);
 		List<FileRecord> records = new ArrayList<FileRecord>();
@@ -209,6 +212,10 @@ final class WorldBuilderProjectContentBundle {
 				&& "definition.npc.custom".equals(spec.role)) {
 				Files.write(destination, npcMigration.customDefinitions);
 				overridden = true;
+			} else if (materialMigration.changed()
+				&& "asset.sprite.custom".equals(spec.role)) {
+				Files.write(destination, materialMigration.customArchiveOverride);
+				overridden = true;
 			} else if (migration != null && "asset.sprite.custom".equals(spec.role)
 				&& migration.customArchiveOverride != null) {
 				Files.write(destination, migration.customArchiveOverride);
@@ -235,6 +242,8 @@ final class WorldBuilderProjectContentBundle {
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
 		WorldBuilderSceneryModelProvider.writeReport(projectStage, sceneryMigration);
+		WorldBuilderTerrainMaterialProvider.writeReport(
+			projectStage, materialMigration);
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
 			successor ? "target-adopted-content-v2" : "target-adopted-content-v1");

@@ -1,6 +1,6 @@
 # World Builder 2 Format-Aware Discovery and Streamlined Launch
 
-Status: **approved product direction; implementation in progress — Phase 1**
+Status: **approved product direction; implementation in progress — Phase 2**
 
 Product: `rsc-world-editor-v2` / **World Builder 2**
 
@@ -451,9 +451,8 @@ captured definition catalog remains a blocker.
 
 This narrows the observed missing-scenery problem to a concrete definition or
 model dependency instead of treating archive capture as proof that every
-object can render. Full texture/material dependency parsing, NPC animation
-closure, additional definition/archive formats, and additional root adapters
-remain pending.
+object can render. NPC animation closure, additional definition/archive
+formats, and additional root adapters remain pending.
 
 Phase 1 now begins from the existing compiled layout-adapter registry rather
 than introducing a second discovery framework. Descriptorless adapters return
@@ -566,6 +565,21 @@ integer material values remain valid; this increment does not narrow legitimate
 private-server colours or wall materials. Malformed records block during the
 read-only discovery pass with the exact family and field, before a project is
 published or a runtime is launched.
+
+Floor and boundary material closure now interprets those validated values with
+the pinned renderer's exact contract: negative integers remain packed colours,
+`12345678` remains transparent, and other nonnegative integers are texture
+indexes. The producer structurally validates the selected GZIP OSAR, preserves
+every existing subspace and sprite payload, and makes its `textures` subspace a
+contiguous numeric range through the greatest existing or referenced index.
+Only absent indexes receive the deterministic visible 64-by-64 magenta/black
+checkerboard. The isolated project records every inserted index and every
+floor/boundary field that requires it in
+`diagnostics/terrain-material-provider-warnings.json`, and the desktop creation
+summary points the user to that report. Noncanonical names, structural archive
+damage, and IDs beyond the compiled bounded domain block atomically rather than
+being guessed. Repeated equivalent imports produce byte-identical project-local
+archives and reports; the selected server archive is never rewritten.
 
 ## Implementation phases
 
