@@ -206,3 +206,12 @@ copy/cut/paste is normative in [World Builder 2 Region Snapshots
 v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md). Runtime marker packets, ghost previews,
 authoritative interactive transactions, and persistent undo/redo are still an
 independent runtime capability.
+
+The approved next discovery objective makes explicit provider packages an
+advanced interoperability path rather than an ordinary user prerequisite. It
+defines automatic server-root recognition, versioned format adapters, one
+canonical content graph, family-by-family reconciliation, automatic provider
+generation, and a three-action launcher in [World Builder 2 Format-Aware
+Discovery and Streamlined Launch](WORLD-BUILDER-2-FORMAT-AWARE-DISCOVERY.md).
+The observed incomplete-scenery import is a mandatory reconciliation fixture
+for that work.

@@ -380,6 +380,14 @@ Readiness: **partially ready**. The deterministic engine and detailed evidence
 model are complete. Broader adapter coverage and the manual-remediation UX are
 not implemented.
 
+The approved implementation sequence for broader server compatibility is now
+specified in [World Builder 2 Format-Aware Discovery and Streamlined
+Launch](WORLD-BUILDER-2-FORMAT-AWARE-DISCOVERY.md). It makes automatic
+server-root discovery and canonical content reconciliation the ordinary path,
+generates provider evidence internally, moves manual provider/file selection
+behind Advanced/Recovery, and uses the currently observed incomplete-scenery
+import as a mandatory end-to-end regression case.
+
 ### Ordered region selection
 
 Copy, cut, paste, repair, and prefab tools should share one selection model.
