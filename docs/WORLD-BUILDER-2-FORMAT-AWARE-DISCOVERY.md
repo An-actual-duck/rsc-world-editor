@@ -473,6 +473,19 @@ separate from legacy adapter IDs retained for compatibility. Further source
 tree and packaged-distribution layouts can now add anchors and parsers without
 changing the public discovery-report schema or the canonical project model.
 
+The next Phase 1 increment introduces exact source-path normalization for the
+equivalent client cache roots `Client_Base/Cache/video`, `client/Cache/video`,
+and `Cache/video`. Authority requires exactly one populated root; multiple
+complete or partial roots block as inactive/duplicate ambiguity. Discovery
+inventories the selected source-relative paths and hashes without mutation.
+During project creation, noncanonical inputs are copied again under the
+compiled canonical fallback paths inside `source/original`, verified against
+the selected bytes, and included in the immutable evidence ledger. The target
+is never changed, and the project/runtime content bundle remains the single
+canonical `client/Cache/video` model. Server configuration, definition, and
+placement paths have not been generalized by this increment and retain their
+existing exact semantics.
+
 ## Implementation phases
 
 ### Phase 0 — Baseline inventory and acceptance fixtures

@@ -138,6 +138,20 @@ otherwise unsupported evidence remains blocked. Because this fallback has no
 truthful target mutation contract, its project stays detached and does not
 advertise import even when the original source is still present.
 
+That fallback accepts one and only one of these equivalent client cache roots:
+
+- `Client_Base/Cache/video` (source-tree layout);
+- `client/Cache/video` (packaged-client layout); or
+- `Cache/video` (flat packaged-client layout).
+
+The selected root must contain the complete terrain, library, model,
+authentic/custom sprite, and menu spritepack evidence. More than one populated
+root is treated as ambiguous so a stale build or duplicate cache is never
+silently selected. Noncanonical source paths and hashes are preserved in the
+immutable source inventory; project creation makes verified canonical aliases
+only inside its unpublished staging tree, and the runtime continues receiving
+the existing `client/Cache/video` content-bundle layout.
+
 The fallback also captures the target's bounded declarative floor, wall,
 scenery, NPC, and item definitions with matching client model/sprite archives
 through the versioned project-local custom-content boundary. Bundle v1 remains

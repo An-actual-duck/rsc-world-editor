@@ -67,13 +67,18 @@ final class WorldBuilderPackedFallbackEvidence {
 	static Result materialize(Path projectStage, Path original, Map<String,Object> discovery,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		WorldBuilderPackedSourceLayout sourceLayout = WorldBuilderPackedSourceLayout.select(
+			WorldBuilderReadOnlyTarget.open(original));
+		List<WorldBuilderReadOnlyTarget.FileState> normalizedClientFiles =
+			sourceLayout.materializeCanonicalAliases(original);
 		WorldBuilderProjectContentBundle.Bundle content =
 			WorldBuilderProjectContentBundle.capture(
 				projectStage, original, runtime, itemVisualMappings);
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
-				original, WorldBuilderDiscovery.DEFAULT_CONFIG, null);
+				original, WorldBuilderDiscovery.DEFAULT_CONFIG, null,
+				WorldBuilderPackedSourceLayout.canonical());
 		} catch (WorldBuilderDiscoveryException invalid) {
 			throw problem(WorldBuilderDiscovery.DEFAULT_CONFIG,
 				"Copied packed source no longer matches its discovered base-placement profile.",
@@ -130,6 +135,8 @@ final class WorldBuilderPackedFallbackEvidence {
 			WorldBuilderAdaptiveConfiguration.select(
 				target, parsedCapability, "primary").selected;
 		List<WorldBuilderReadOnlyTarget.FileState> generated = generatedStates(target);
+		generated.addAll(normalizedClientFiles);
+		Collections.sort(generated);
 		Map<String,Object> conversionReport = derivedReport(
 			discovery, parsedCapability, parsedConfiguration, generated);
 		return new Result(parsedCapability, parsedConfiguration,

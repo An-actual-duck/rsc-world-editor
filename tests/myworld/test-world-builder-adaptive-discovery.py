@@ -904,6 +904,56 @@ public final class AdaptiveDiscoveryDriftHarness {
             ):
                 self.assertIn(role, roles)
 
+    def test_packed_client_cache_layout_variants_are_selected_read_only(self):
+        for video_root in ("client/Cache/video", "Cache/video"):
+            with self.subTest(video_root=video_root), tempfile.TemporaryDirectory(
+                prefix="adaptive-packed-cache-variant-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                original = root / "Client_Base/Cache/video"
+                selected = root / video_root
+                selected.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(original), str(selected))
+                before = self.snapshot(root)
+
+                result, report = self.assert_read_only(root)
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual("compatible", report["status"])
+                paths = {item["relativePath"] for item in report["files"]}
+                self.assertIn(f"{video_root}/Custom_Landscape.orsc", paths)
+                self.assertIn(f"{video_root}/models.orsc", paths)
+                self.assertNotIn(
+                    "Client_Base/Cache/video/Custom_Landscape.orsc", paths
+                )
+                profile = next(
+                    check for check in report["checks"]
+                    if check["checkId"] == "source-layout-profile"
+                )
+                expected_profile = (
+                    "openrsc-packaged-client-cache-v1"
+                    if video_root.startswith("client/")
+                    else "openrsc-flat-client-cache-v1"
+                )
+                self.assertIn(expected_profile, profile["observed"])
+                self.assertIn(video_root, profile["observed"])
+                self.assertEqual(before, self.snapshot(root))
+
+    def test_multiple_packed_client_cache_roots_are_ambiguous(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-cache-ambiguous-") as temp:
+            root = self.legacy_fixture(temp)
+            shutil.copytree(
+                root / "Client_Base/Cache/video", root / "client/Cache/video"
+            )
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            self.assertIn("more than one client cache root", report["issues"][0]["observed"].lower())
+            self.assertIn("Client_Base/Cache/video", report["issues"][0]["observed"])
+            self.assertIn("client/Cache/video", report["issues"][0]["observed"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-profile-") as temp:
             root = self.legacy_fixture(temp)

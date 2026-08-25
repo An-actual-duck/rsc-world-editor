@@ -17,8 +17,6 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static final String MUTATION_PROFILE_ID = "spoiled-milk-layered-install-v1";
 	private static final String SERVER_TERRAIN =
 		"server/conf/server/data/Custom_Landscape.orsc";
-	private static final String CLIENT_TERRAIN =
-		"Client_Base/Cache/video/Custom_Landscape.orsc";
 	private static final String TARGET_GROUND_ITEM_PLACEMENTS =
 		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	@Override
@@ -31,24 +29,30 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		throws WorldBuilderContractException {
 		boolean config = target.exists(WorldBuilderDiscovery.DEFAULT_CONFIG);
 		boolean serverTerrain = target.exists(SERVER_TERRAIN);
-		boolean clientTerrain = target.exists(CLIENT_TERRAIN);
 		boolean locations = target.exists("server/conf/server/defs/locs");
 		boolean tileDefinitions = target.exists("server/conf/server/defs/TileDef.xml");
+		List<ProbeResult.Anchor> anchors = new ArrayList<ProbeResult.Anchor>();
+		boolean clientTerrain = false;
+		for (String videoRoot : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
+			String path = videoRoot + "/Custom_Landscape.orsc";
+			boolean present = target.exists(path);
+			clientTerrain |= present;
+			anchors.add(new ProbeResult.Anchor("client-terrain-candidate", path,
+				present, false));
+		}
 		boolean evidence = config || serverTerrain || clientTerrain || locations
 			|| tileDefinitions;
 		Probe state = !evidence ? Probe.NO_EVIDENCE
 			: config ? Probe.SUPPORTED : Probe.RECOGNIZABLE;
-		return new ProbeResult(PROFILE_ID, state, Arrays.asList(
-			new ProbeResult.Anchor("active-configuration",
-				WorldBuilderDiscovery.DEFAULT_CONFIG, config, true),
-			new ProbeResult.Anchor("server-terrain", SERVER_TERRAIN,
-				serverTerrain, false),
-			new ProbeResult.Anchor("client-terrain", CLIENT_TERRAIN,
-				clientTerrain, false),
-			new ProbeResult.Anchor("placement-root",
-				"server/conf/server/defs/locs", locations, false),
-			new ProbeResult.Anchor("tile-definitions",
-				"server/conf/server/defs/TileDef.xml", tileDefinitions, false)));
+		anchors.add(new ProbeResult.Anchor("active-configuration",
+			WorldBuilderDiscovery.DEFAULT_CONFIG, config, true));
+		anchors.add(new ProbeResult.Anchor("server-terrain", SERVER_TERRAIN,
+			serverTerrain, false));
+		anchors.add(new ProbeResult.Anchor("placement-root",
+			"server/conf/server/defs/locs", locations, false));
+		anchors.add(new ProbeResult.Anchor("tile-definitions",
+			"server/conf/server/defs/TileDef.xml", tileDefinitions, false));
+		return new ProbeResult(PROFILE_ID, state, anchors);
 	}
 
 	@Override
@@ -137,6 +141,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		}
 		WorldBuilderReadOnlyTarget.FileState legacyConfig = target.requiredState(
 			"server-runtime-config", WorldBuilderDiscovery.DEFAULT_CONFIG);
+		WorldBuilderPackedSourceLayout sourceLayout =
+			WorldBuilderPackedSourceLayout.select(target);
 		if (legacyConfig.size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
 				WorldBuilderDiscovery.DEFAULT_CONFIG,
@@ -148,7 +154,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
-				target.root, WorldBuilderDiscovery.DEFAULT_CONFIG, null);
+				target.root, WorldBuilderDiscovery.DEFAULT_CONFIG, null, sourceLayout);
 		} catch (WorldBuilderDiscoveryException failure) {
 			String message = failure.getMessage() == null ? "legacy layout refusal"
 				: failure.getMessage();
@@ -256,6 +262,10 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			"The selected config declares the reviewed client/map mode used by this fallback.",
 			"clientVersion=" + legacy.clientVersion + ", basedMapData="
 				+ legacy.basedMapData + "."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"source-layout-profile", "passed",
+			"Exactly one versioned source-tree or packaged client cache root is authoritative.",
+			sourceLayout.profileId + " selected at " + sourceLayout.videoRoot + "."));
 		return new WorldBuilderAdapterInspection(ID,
 			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID,
 			WorldBuilderDiscovery.DEFAULT_CONFIG, legacy.selectedConfigSha256, "packed",

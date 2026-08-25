@@ -97,12 +97,15 @@ final class WorldBuilderProjectContentBundle {
 
 	static List<WorldBuilderReadOnlyTarget.FileState> inspectTarget(
 		WorldBuilderReadOnlyTarget target) throws WorldBuilderContractException {
+		WorldBuilderPackedSourceLayout layout =
+			WorldBuilderPackedSourceLayout.select(target);
 		List<WorldBuilderReadOnlyTarget.FileState> result =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
 		for (Spec spec : SPECS) {
+			Spec sourceSpec = sourceSpec(spec, layout);
 			WorldBuilderReadOnlyTarget.FileState state =
-				target.requiredState(discoveryRole(spec), spec.targetPath);
-			validateFile(target.requiredFile(spec.targetPath), spec);
+				target.requiredState(discoveryRole(spec), sourceSpec.targetPath);
+			validateFile(target.requiredFile(sourceSpec.targetPath), sourceSpec);
 			result.add(state);
 		}
 		WorldBuilderReadOnlyTarget.FileState visuals = target.optionalState(
@@ -120,6 +123,14 @@ final class WorldBuilderProjectContentBundle {
 		}
 		Collections.sort(result);
 		return result;
+	}
+
+	private static Spec sourceSpec(Spec spec, WorldBuilderPackedSourceLayout layout) {
+		String prefix = WorldBuilderPackedSourceLayout.CANONICAL_VIDEO_ROOT + "/";
+		if (!spec.targetPath.startsWith(prefix)) return spec;
+		return new Spec(spec.role,
+			layout.path(spec.targetPath.substring(prefix.length())),
+			spec.runtimePath, spec.mediaType, spec.definition);
 	}
 
 	private static String discoveryRole(Spec spec) {

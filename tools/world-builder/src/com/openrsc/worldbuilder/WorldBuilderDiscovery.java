@@ -32,23 +32,13 @@ public final class WorldBuilderDiscovery {
 	private static final Pattern SHA256 = Pattern.compile("[0-9a-fA-F]{64}");
 
 	private static final String SERVER_TERRAIN = "server/conf/server/data/Custom_Landscape.orsc";
-	private static final String CLIENT_TERRAIN = "Client_Base/Cache/video/Custom_Landscape.orsc";
-	private static final String[][] AUTHORED_FILES = {
-		{"serverTerrain", SERVER_TERRAIN},
-		{"clientTerrain", CLIENT_TERRAIN},
-		{"sceneryLocs", "server/conf/server/defs/locs/MyWorldSceneryLocs.json"},
-		{"sceneryRemovals", "server/conf/server/defs/locs/MyWorldSceneryRemovals.json"},
-		{"npcLocs", "server/conf/server/defs/locs/MyWorldNpcLocs.json"},
-		{"npcRemovals", "server/conf/server/defs/locs/MyWorldNpcRemovals.json"}
-	};
-	private static final String[] CONTENT_FILES = {
+	private static final String[] SERVER_CONTENT_FILES = {
 		"server/conf/server/defs/TileDef.xml",
 		"server/conf/server/defs/GameObjectDef.xml",
 		"server/conf/server/defs/NpcDefs.json",
 		"server/conf/server/defs/NpcDefsCustom.json",
 		"server/conf/server/defs/NpcDefsMyWorld.json",
-		"server/conf/server/defs/NpcDefsPatch18.json",
-		"Client_Base/Cache/video/library.orsc"
+		"server/conf/server/defs/NpcDefsPatch18.json"
 	};
 
 	public WorldBuilderDiscoveryResult discover(Path requestedRoot)
@@ -59,7 +49,21 @@ public final class WorldBuilderDiscovery {
 	public WorldBuilderDiscoveryResult discover(Path requestedRoot, String requestedConfig,
 		String expectedContentFingerprint) throws WorldBuilderDiscoveryException {
 		try {
+			WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedRoot);
+			return discover(requestedRoot, requestedConfig, expectedContentFingerprint,
+				WorldBuilderPackedSourceLayout.select(target));
+		} catch (WorldBuilderContractException invalid) {
+			throw new WorldBuilderDiscoveryException(invalid.getMessage(), invalid);
+		}
+	}
+
+	WorldBuilderDiscoveryResult discover(Path requestedRoot, String requestedConfig,
+		String expectedContentFingerprint, WorldBuilderPackedSourceLayout layout)
+		throws WorldBuilderDiscoveryException {
+		try {
 			Path root = canonicalRoot(requestedRoot);
+			if (layout == null) throw new WorldBuilderDiscoveryException(
+				"A packed source-layout profile is required.");
 			String configRelative = normalizeRelative(requestedConfig == null ? DEFAULT_CONFIG : requestedConfig);
 			if (!configRelative.startsWith("server/") || !configRelative.endsWith(".conf")) {
 				throw new WorldBuilderDiscoveryException(
@@ -88,7 +92,8 @@ public final class WorldBuilderDiscovery {
 					"The first World Builder layout adapter requires want_myworld: true.");
 			}
 
-			List<WorldBuilderDiscoveryResult.SourceFile> firstFiles = inventoryAuthoredFiles(root);
+			List<WorldBuilderDiscoveryResult.SourceFile> firstFiles =
+				inventoryAuthoredFiles(root, layout);
 			WorldBuilderDiscoveryResult.SourceFile serverTerrain = firstFiles.get(0);
 			WorldBuilderDiscoveryResult.SourceFile clientTerrain = firstFiles.get(1);
 			if (!serverTerrain.sha256.equals(clientTerrain.sha256)
@@ -98,13 +103,14 @@ public final class WorldBuilderDiscovery {
 			}
 
 			int serverSectors = validateTerrainArchive(requiredFile(root, SERVER_TERRAIN));
-			int clientSectors = validateTerrainArchive(requiredFile(root, CLIENT_TERRAIN));
+			int clientSectors = validateTerrainArchive(requiredFile(root,
+				layout.path("Custom_Landscape.orsc")));
 			if (serverSectors != clientSectors) {
 				throw new WorldBuilderDiscoveryException(
 					"Server and client terrain archives contain different sector counts.");
 			}
 
-			String contentFingerprint = contentFingerprint(root);
+			String contentFingerprint = contentFingerprint(root, layout);
 			if (expectedContentFingerprint != null) {
 				if (!SHA256.matcher(expectedContentFingerprint).matches()) {
 					throw new WorldBuilderDiscoveryException(
@@ -116,7 +122,8 @@ public final class WorldBuilderDiscovery {
 				}
 			}
 
-			List<WorldBuilderDiscoveryResult.SourceFile> secondFiles = inventoryAuthoredFiles(root);
+			List<WorldBuilderDiscoveryResult.SourceFile> secondFiles =
+				inventoryAuthoredFiles(root, layout);
 			if (!sameInventory(firstFiles, secondFiles)) {
 				throw new WorldBuilderDiscoveryException(
 					"World files changed while they were being inspected; try discovery again.");
@@ -125,12 +132,13 @@ public final class WorldBuilderDiscovery {
 				throw new WorldBuilderDiscoveryException(
 					"Selected configuration changed while it was being inspected; try discovery again.");
 			}
-			if (!contentFingerprint.equals(contentFingerprint(root))) {
+			if (!contentFingerprint.equals(contentFingerprint(root, layout))) {
 				throw new WorldBuilderDiscoveryException(
 					"Target definitions changed while they were being inspected; try discovery again.");
 			}
 
-			String sourceFingerprint = sourceFingerprint(configRelative, configSha256, clientVersion,
+			String sourceFingerprint = sourceFingerprint(layout.profileId,
+				configRelative, configSha256, clientVersion,
 				basedMapData, memberWorld, customLandscape, wantMyWorld,
 				contentFingerprint, secondFiles);
 
@@ -212,13 +220,22 @@ public final class WorldBuilderDiscovery {
 		return candidate;
 	}
 
-	private static List<WorldBuilderDiscoveryResult.SourceFile> inventoryAuthoredFiles(Path root)
+	private static List<WorldBuilderDiscoveryResult.SourceFile> inventoryAuthoredFiles(
+		Path root, WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderDiscoveryException {
+		String[][] authoredFiles = {
+			{"serverTerrain", SERVER_TERRAIN},
+			{"clientTerrain", layout.path("Custom_Landscape.orsc")},
+			{"sceneryLocs", "server/conf/server/defs/locs/MyWorldSceneryLocs.json"},
+			{"sceneryRemovals", "server/conf/server/defs/locs/MyWorldSceneryRemovals.json"},
+			{"npcLocs", "server/conf/server/defs/locs/MyWorldNpcLocs.json"},
+			{"npcRemovals", "server/conf/server/defs/locs/MyWorldNpcRemovals.json"}
+		};
 		List<WorldBuilderDiscoveryResult.SourceFile> files =
 			new ArrayList<WorldBuilderDiscoveryResult.SourceFile>();
-		for (int index = 0; index < AUTHORED_FILES.length; index++) {
-			String logicalName = AUTHORED_FILES[index][0];
-			String relative = AUTHORED_FILES[index][1];
+		for (int index = 0; index < authoredFiles.length; index++) {
+			String logicalName = authoredFiles[index][0];
+			String relative = authoredFiles[index][1];
 			Path file = index < 2 ? requiredFile(root, relative) : optionalFile(root, relative);
 			if (file == null) {
 				files.add(new WorldBuilderDiscoveryResult.SourceFile(
@@ -305,10 +322,14 @@ public final class WorldBuilderDiscovery {
 		return sectors;
 	}
 
-	private static String contentFingerprint(Path root)
+	private static String contentFingerprint(Path root,
+		WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderDiscoveryException {
 		MessageDigest digest = WorldBuilderHashes.newDigest();
-		for (String relative : CONTENT_FILES) {
+		List<String> contentFiles = new ArrayList<String>(
+			java.util.Arrays.asList(SERVER_CONTENT_FILES));
+		contentFiles.add(layout.path("library.orsc"));
+		for (String relative : contentFiles) {
 			Path file = requiredFile(root, relative);
 			WorldBuilderHashes.updateText(digest, relative);
 			WorldBuilderHashes.updateText(digest, Long.toString(Files.size(file)));
@@ -317,11 +338,13 @@ public final class WorldBuilderDiscovery {
 		return WorldBuilderHashes.hex(digest.digest());
 	}
 
-	private static String sourceFingerprint(String configRelative, String configSha256, int clientVersion,
+	private static String sourceFingerprint(String sourceProfileId,
+		String configRelative, String configSha256, int clientVersion,
 		int basedMapData, boolean memberWorld, boolean customLandscape, boolean wantMyWorld,
 		String contentFingerprint, List<WorldBuilderDiscoveryResult.SourceFile> files) {
 		MessageDigest digest = WorldBuilderHashes.newDigest();
 		WorldBuilderHashes.updateText(digest, LAYOUT_ADAPTER);
+		WorldBuilderHashes.updateText(digest, sourceProfileId);
 		WorldBuilderHashes.updateText(digest, configRelative);
 		WorldBuilderHashes.updateText(digest, configSha256);
 		WorldBuilderHashes.updateText(digest, Integer.toString(clientVersion));

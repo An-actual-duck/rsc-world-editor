@@ -4468,6 +4468,49 @@ public final class FakeAdaptiveClient {
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_packaged_client_cache_is_normalized_only_inside_project(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-packaged-cache-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            source_video = target / "Client_Base/Cache/video"
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain, source_video / "Custom_Landscape.orsc")
+            packaged_video = target / "client/Cache/video"
+            packaged_video.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(source_video), str(packaged_video))
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            discovery = self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Packaged cache normalization", 43832,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual("packed", discovery["representation"])
+            project = Path(summary["projectRoot"])
+            original = project / "source/original"
+            self.assertTrue(
+                (original / "client/Cache/video/Custom_Landscape.orsc").is_file()
+            )
+            self.assertTrue(
+                (original / "Client_Base/Cache/video/Custom_Landscape.orsc").is_file()
+            )
+            self.assertEqual(
+                (original / "client/Cache/video/models.orsc").read_bytes(),
+                (original / "Client_Base/Cache/video/models.orsc").read_bytes(),
+            )
+            bundle = project / "source/content-bundle/files/client/Cache/video"
+            self.assertTrue((bundle / "models.orsc").is_file())
+            self.assertTrue((bundle / "Authentic_Sprites.orsc").is_file())
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:
             base = Path(temp)
