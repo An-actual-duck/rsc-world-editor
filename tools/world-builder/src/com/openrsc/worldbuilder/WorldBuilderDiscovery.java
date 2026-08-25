@@ -99,7 +99,7 @@ public final class WorldBuilderDiscovery {
 			}
 
 			List<WorldBuilderDiscoveryResult.SourceFile> firstFiles =
-				inventoryAuthoredFiles(root, layout);
+				inventoryAuthoredFiles(root, layout, config);
 			WorldBuilderDiscoveryResult.SourceFile serverTerrain = firstFiles.get(0);
 			WorldBuilderDiscoveryResult.SourceFile clientTerrain = firstFiles.get(1);
 			if (!serverTerrain.sha256.equals(clientTerrain.sha256)
@@ -130,7 +130,7 @@ public final class WorldBuilderDiscovery {
 			}
 
 			List<WorldBuilderDiscoveryResult.SourceFile> secondFiles =
-				inventoryAuthoredFiles(root, layout);
+				inventoryAuthoredFiles(root, layout, config);
 			if (!sameInventory(firstFiles, secondFiles)) {
 				throw new WorldBuilderDiscoveryException(
 					"World files changed while they were being inspected; try discovery again.");
@@ -235,21 +235,29 @@ public final class WorldBuilderDiscovery {
 	}
 
 	private static List<WorldBuilderDiscoveryResult.SourceFile> inventoryAuthoredFiles(
-		Path root, WorldBuilderPackedSourceLayout layout)
+		Path root, WorldBuilderPackedSourceLayout layout, Config config)
 		throws IOException, WorldBuilderDiscoveryException {
-		String[][] authoredFiles = {
-			{"serverTerrain", layout.serverDataPath(TERRAIN_FILE)},
-			{"clientTerrain", layout.path("Custom_Landscape.orsc")},
-			{"sceneryLocs", layout.locationPath("MyWorldSceneryLocs.json")},
-			{"sceneryRemovals", layout.locationPath("MyWorldSceneryRemovals.json")},
-			{"npcLocs", layout.locationPath("MyWorldNpcLocs.json")},
-			{"npcRemovals", layout.locationPath("MyWorldNpcRemovals.json")}
-		};
+		List<String[]> authoredFiles = new ArrayList<String[]>();
+		authoredFiles.add(new String[] {"serverTerrain",
+			layout.serverDataPath(TERRAIN_FILE)});
+		authoredFiles.add(new String[] {"clientTerrain",
+			layout.path("Custom_Landscape.orsc")});
+		authoredFiles.add(new String[] {"sceneryLocs",
+			layout.locationPath("MyWorldSceneryLocs.json")});
+		authoredFiles.add(new String[] {"sceneryRemovals",
+			layout.locationPath("MyWorldSceneryRemovals.json")});
+		authoredFiles.add(new String[] {"npcLocs",
+			layout.locationPath("MyWorldNpcLocs.json")});
+		authoredFiles.add(new String[] {"npcRemovals",
+			layout.locationPath("MyWorldNpcRemovals.json")});
+		for (String[] active : activeAuxiliarySceneryFiles(config, layout)) {
+			authoredFiles.add(active);
+		}
 		List<WorldBuilderDiscoveryResult.SourceFile> files =
 			new ArrayList<WorldBuilderDiscoveryResult.SourceFile>();
-		for (int index = 0; index < authoredFiles.length; index++) {
-			String logicalName = authoredFiles[index][0];
-			String relative = authoredFiles[index][1];
+		for (int index = 0; index < authoredFiles.size(); index++) {
+			String logicalName = authoredFiles.get(index)[0];
+			String relative = authoredFiles.get(index)[1];
 			Path file = index < 2 ? requiredFile(root, relative) : optionalFile(root, relative);
 			if (file == null) {
 				files.add(new WorldBuilderDiscoveryResult.SourceFile(
@@ -260,6 +268,60 @@ public final class WorldBuilderDiscovery {
 			}
 		}
 		return files;
+	}
+
+	private static List<String[]> activeAuxiliarySceneryFiles(Config config,
+		WorldBuilderPackedSourceLayout layout) throws WorldBuilderDiscoveryException {
+		List<String[]> files = new ArrayList<String[]>();
+		int locationData = config.optionalInt("location_data", 0);
+		if (locationData == 4 && config.optionalBoolean("want_openpk_points", false)) {
+			addAuxiliaryScenery(files, layout, "OpenPk");
+		}
+		if ((locationData == 1 || locationData == 2)
+			&& config.optionalBoolean("want_fixed_broken_mechanics", false)) {
+			addAuxiliaryScenery(files, layout, "Discontinued");
+		}
+		if (locationData == 2) {
+			if (config.optionalBoolean("want_decorated_mod_room", false)) {
+				addAuxiliaryScenery(files, layout, "ModRoom");
+			}
+			if (config.optionalBoolean("want_runecraft", false)) {
+				addAuxiliaryScenery(files, layout, "Runecraft");
+			}
+			if (config.optionalBoolean("want_harvesting", false)) {
+				addAuxiliaryScenery(files, layout, "Harvesting");
+			}
+			if (config.optionalBoolean("want_custom_quests", false)) {
+				addAuxiliaryScenery(files, layout, "CustomQuest");
+				addAuxiliaryScenery(files, layout, "Expansion");
+			}
+			if (config.optionalBoolean("mice_to_meet_you", false)) {
+				addAuxiliaryScenery(files, layout, "MiceToMeetYou");
+			}
+			if (config.optionalBoolean("want_woodcutting_guild", false)) {
+				addAuxiliaryScenery(files, layout, "WoodcuttingGuild");
+			}
+			addAuxiliaryScenery(files, layout, "Other");
+		}
+		return files;
+	}
+
+	private static void addAuxiliaryScenery(List<String[]> files,
+		WorldBuilderPackedSourceLayout layout, String suffix) {
+		files.add(new String[] {"sceneryAux" + suffix,
+			layout.locationPath("SceneryLocs" + suffix + ".json")});
+	}
+
+	static boolean isAuxiliaryScenery(String logicalName) {
+		return logicalName != null && logicalName.startsWith("sceneryAux")
+			&& logicalName.length() > "sceneryAux".length();
+	}
+
+	static String auxiliarySceneryRole(String logicalName) {
+		if (!isAuxiliaryScenery(logicalName)) throw new IllegalArgumentException(logicalName);
+		String suffix = logicalName.substring("sceneryAux".length());
+		return "scenery-auxiliary-" + suffix.replaceAll(
+			"([a-z0-9])([A-Z])", "$1-$2").toLowerCase(Locale.ROOT);
 	}
 
 	static String[][] basePlacementFiles(int basedMapData) {
@@ -432,6 +494,23 @@ public final class WorldBuilderDiscovery {
 				throw new WorldBuilderDiscoveryException(
 					"Configuration value " + key + " must be an integer.");
 			}
+		}
+
+		boolean optionalBoolean(String key, boolean fallback)
+			throws WorldBuilderDiscoveryException {
+			List<String> matches = values.get(key.toLowerCase(Locale.ROOT));
+			if (matches == null || matches.isEmpty()) return fallback;
+			String value = requiredUnique(key).toLowerCase(Locale.ROOT);
+			if ("true".equals(value)) return true;
+			if ("false".equals(value)) return false;
+			throw new WorldBuilderDiscoveryException(
+				"Configuration value " + key + " must be true or false.");
+		}
+
+		int optionalInt(String key, int fallback) throws WorldBuilderDiscoveryException {
+			List<String> matches = values.get(key.toLowerCase(Locale.ROOT));
+			if (matches == null || matches.isEmpty()) return fallback;
+			return requiredInt(key);
 		}
 
 		private String requiredUnique(String key) throws WorldBuilderDiscoveryException {

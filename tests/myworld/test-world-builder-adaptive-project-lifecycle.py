@@ -4188,6 +4188,83 @@ public final class FakeAdaptiveClient {
             self.assertEqual(0, opened.returncode, opened.stderr)
             self.assertEqual(discovery["representation"], "packed")
 
+    def test_packed_fallback_converts_active_runecrafting_scenery_only(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runecraft-scenery-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            config = target / "server/myworld.conf"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + "location_data: 2\n"
+                + "want_runecraft: true\n"
+                + "want_fixed_broken_mechanics: false\n",
+                encoding="utf-8",
+            )
+            locations = target / "server/conf/server/defs/locs"
+            write_json(
+                locations / "SceneryLocsRunecraft.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 14, "Y": 10}, "direction": 0}
+                ]},
+            )
+            write_json(locations / "SceneryLocsOther.json", {"sceneries": []})
+            write_json(
+                locations / "SceneryLocsDiscontinued.json",
+                {"sceneries": [
+                    {"id": 3, "pos": {"X": 15, "Y": 10}, "direction": 0}
+                ]},
+            )
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation, scenery_count=55)
+            report = base / "packed-report.json"
+            discovery = self.discover(target, report)
+            files = {item["role"]: item for item in discovery["files"]}
+            self.assertTrue(
+                files["placement.scenery-auxiliary-runecraft"]["present"]
+            )
+            self.assertNotIn(
+                "placement.scenery-auxiliary-discontinued", files
+            )
+            target_before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Configured runecrafting scenery", 43804,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            project = Path(summary["projectRoot"])
+            package = project / "working/layered-world/package"
+            manifest = json.loads(
+                (package / "manifest.json").read_text(encoding="utf-8")
+            )
+            scenery = []
+            for declaration in manifest["placementSets"]:
+                payload = json.loads(
+                    (package / declaration["path"]).read_text(encoding="utf-8")
+                )
+                scenery.extend(payload["scenery"])
+            identities = {
+                (value["sceneryId"], value["position"]["x"], value["position"]["y"])
+                for value in scenery
+            }
+            self.assertIn((2, 14, 10), identities)
+            self.assertNotIn((3, 15, 10), identities)
+            self.assertTrue(
+                (project / "source/original/server/conf/server/defs/locs/"
+                 "SceneryLocsRunecraft.json").is_file()
+            )
+
     def test_descriptorless_packed_fallback_creates_project_local_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packed-fallback-") as temp:
             base = Path(temp)

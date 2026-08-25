@@ -904,6 +904,43 @@ public final class AdaptiveDiscoveryDriftHarness {
             ):
                 self.assertIn(role, roles)
 
+    def test_packed_fallback_inventories_only_configuration_active_auxiliary_scenery(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-active-scenery-") as temp:
+            root = self.legacy_fixture(temp)
+            config = root / "server/myworld.conf"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + "location_data: 2\n"
+                + "want_runecraft: true\n"
+                + "want_fixed_broken_mechanics: false\n",
+                encoding="utf-8",
+            )
+            locations = root / "server/conf/server/defs/locs"
+            write_json(
+                locations / "SceneryLocsRunecraft.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 14, "Y": 10}, "direction": 0}
+                ]},
+            )
+            write_json(locations / "SceneryLocsOther.json", {"sceneries": []})
+            write_json(
+                locations / "SceneryLocsDiscontinued.json",
+                {"sceneries": [
+                    {"id": 3, "pos": {"X": 15, "Y": 10}, "direction": 0}
+                ]},
+            )
+
+            result, report = self.assert_read_only(root)
+            self.assertEqual(0, result.returncode, result.stderr)
+            files = {item["role"]: item for item in report["files"]}
+            self.assertTrue(
+                files["placement.scenery-auxiliary-runecraft"]["present"]
+            )
+            self.assertTrue(files["placement.scenery-auxiliary-other"]["present"])
+            self.assertNotIn(
+                "placement.scenery-auxiliary-discontinued", files
+            )
+
     def test_scenery_definition_semantics_are_validated_before_project_creation(self):
         malformed_records = (
             (

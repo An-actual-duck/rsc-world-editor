@@ -491,10 +491,13 @@ packed server terrain may reside beneath `server/conf/server/data` or
 independently, and more than one populated candidate for either authority is a
 hard ambiguity. The selected base placement suffix still comes only from the
 validated `based_map_data` setting. On project creation, only the selected
-required definitions, selected base placements, present overlays/removals, and
-terrain are copied to canonical `server/conf/server/...` aliases inside the
-isolated source snapshot. Every alias is size/hash verified and recorded in the
-derived evidence; the original target paths and bytes remain intact.
+required definitions, selected base placements, configuration-active auxiliary
+scenery, present overlays/removals, and terrain are copied into the isolated
+source snapshot. Auxiliary scenery follows the inert `location_data` and
+feature-flag composition declared by the selected configuration; a file's mere
+presence does not activate retired content. Every copied input or canonical
+alias is size/hash verified and recorded in the derived evidence; the original
+target paths and bytes remain intact.
 
 The third source-path increment adds exact active-configuration profiles for
 `server/myworld.conf`, root-level `myworld.conf`,

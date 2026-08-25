@@ -108,7 +108,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		WorldBuilderPackedCompatibilityCorrections.writeReport(
 			projectStage, corrections);
 
-		List<Object> placements = placements(original);
+		List<Object> placements = placements(original, legacy);
 		Map<String,Object> configuration = configuration(placements);
 		writeJson(original, CONFIGURATION_PATH, configuration);
 		String configurationHash = WorldBuilderHashes.sha256(
@@ -244,7 +244,8 @@ final class WorldBuilderPackedFallbackEvidence {
 		return value;
 	}
 
-	private static List<Object> placements(Path original) {
+	private static List<Object> placements(Path original,
+		WorldBuilderDiscoveryResult legacy) {
 		List<Object> result = new ArrayList<Object>();
 		addPlacement(result, original, "boundary-base", "boundary", "base",
 			BOUNDARY_PLACEMENTS);
@@ -254,6 +255,13 @@ final class WorldBuilderPackedFallbackEvidence {
 			NPC_PLACEMENTS);
 		addPlacement(result, original, "scenery-base", "scenery", "base",
 			SCENERY_PLACEMENTS);
+		for (WorldBuilderDiscoveryResult.SourceFile file : legacy.files) {
+			if (file.present && WorldBuilderDiscovery.isAuxiliaryScenery(file.logicalName)) {
+				addPlacement(result, original,
+					WorldBuilderDiscovery.auxiliarySceneryRole(file.logicalName),
+					"scenery", "overlay", file.relativePath);
+			}
+		}
 		addPlacement(result, original, "ground-item-overlay", "ground-item", "overlay",
 			TARGET_GROUND_ITEM_PLACEMENTS);
 		addPlacement(result, original, "scenery-overlay", "scenery", "overlay",

@@ -194,6 +194,17 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		roles.put("sceneryBase", "placement.scenery-base-source");
 		for (WorldBuilderDiscoveryResult.SourceFile file : legacy.files) {
 			String role = roles.get(file.logicalName);
+			if (role == null && WorldBuilderDiscovery.isAuxiliaryScenery(file.logicalName)) {
+				role = "placement."
+					+ WorldBuilderDiscovery.auxiliarySceneryRole(file.logicalName);
+			}
+			if (role == null) {
+				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+					file.relativePath,
+					"Built-in packed discovery produced an unknown source role: "
+						+ file.logicalName + ".",
+					"Update the compiled adapter and rediscover the target.");
+			}
 			files.add(new WorldBuilderReadOnlyTarget.FileState(role, file.relativePath,
 				file.present, file.size, file.sha256));
 			if (file.present) validateLegacyPlacement(target, file.logicalName, file.relativePath);
@@ -300,7 +311,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				WorldBuilderJsonDocuments.validateGroundItemLocs(
 					target.requiredFile(relative));
 			} else if ("sceneryLocs".equals(logicalName)
-				|| "sceneryBase".equals(logicalName)) {
+				|| "sceneryBase".equals(logicalName)
+				|| WorldBuilderDiscovery.isAuxiliaryScenery(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryLocs(target.requiredFile(relative));
 			} else if ("sceneryRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryRemovals(target.requiredFile(relative));
