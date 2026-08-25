@@ -158,9 +158,10 @@ to include active auxiliary scenery sources such as runecrafting, while
 excluding present but disabled discontinued/legacy sources. Repeated anchors
 inside those legacy auxiliary files retain their runtime order and deterministic
 last-record precedence; strict authored project overlays still reject duplicate
-anchors. These placements are copied into the isolated layered package; they
-are never supplied by the release or read from only the player's initial spawn
-region.
+anchors. Auxiliary records require valid `id`, `pos`, and `direction` values but
+ignore bounded inert metadata fields exactly as the legacy runtime does. These
+placements are copied into the isolated layered package; they are never supplied
+by the release or read from only the player's initial spawn region.
 
 Phases 0-3 are implemented and merged on published `main` at
 `dac388a32aa41754a49341e3ddcc8cc196389ab4`. Phase 3 adds a UUID registry,

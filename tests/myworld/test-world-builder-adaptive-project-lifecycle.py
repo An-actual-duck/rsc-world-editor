@@ -4212,8 +4212,10 @@ public final class FakeAdaptiveClient {
             write_json(
                 locations / "SceneryLocsCustomQuest.json",
                 {"sceneries": [
-                    {"id": 2, "pos": {"X": 16, "Y": 10}, "direction": 0},
-                    {"id": 4, "pos": {"X": 16, "Y": 10}, "direction": 0},
+                    {"id": 2, "pos": {"X": 16, "Y": 10, "plane": 0},
+                     "direction": 0, "legacyNote": "superseded"},
+                    {"id": 4, "pos": {"X": 16, "Y": 10, "plane": 0},
+                     "direction": 0, "legacyNote": "retained"},
                 ]},
             )
             write_json(locations / "SceneryLocsExpansion.json", {"sceneries": []})

@@ -232,22 +232,25 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	static int validateSceneryLocs(Path path) throws IOException, WorldBuilderDiscoveryException {
-		return validateSceneryLocs(path, false);
+		return validateSceneryLocs(path, false, false);
 	}
 
 	static int validateOrderedSceneryLocs(Path path)
 		throws IOException, WorldBuilderDiscoveryException {
-		return validateSceneryLocs(path, true);
+		return validateSceneryLocs(path, true, true);
 	}
 
-	private static int validateSceneryLocs(Path path, boolean allowRepeatedLocations)
+	private static int validateSceneryLocs(Path path, boolean allowRepeatedLocations,
+		boolean allowInertFields)
 		throws IOException, WorldBuilderDiscoveryException {
 		List<Object> entries = requiredRootArray(readObject(path), "sceneries", path);
 		java.util.HashSet<String> keys = new java.util.HashSet<String>();
 		for (Object entry : entries) {
-			Map<String,Object> object = exactObject(entry, path, "id", "pos", "direction");
+			Map<String,Object> object = allowInertFields
+				? requiredObject(entry, path, "id", "pos", "direction")
+				: exactObject(entry, path, "id", "pos", "direction");
 			int id = integer(object.get("id"), path); int direction = integer(object.get("direction"), path);
-			int[] position = position(object.get("pos"), path);
+			int[] position = position(object.get("pos"), path, allowInertFields);
 			boolean repeated = !keys.add(position[0] + "," + position[1]);
 			if (id < 0 || direction < 0 || repeated && !allowRepeatedLocations) {
 				throw new WorldBuilderDiscoveryException("Invalid or duplicate scenery location in " + path);
@@ -350,15 +353,28 @@ final class WorldBuilderJsonDocuments {
 
 	private static Map<String,Object> exactObject(Object value, Path path, String... names)
 		throws WorldBuilderDiscoveryException {
+		Map<String,Object> object = requiredObject(value, path, names);
+		if (object.size() != names.length) throw new WorldBuilderDiscoveryException("Unexpected fields in " + path);
+		return object;
+	}
+
+	private static Map<String,Object> requiredObject(Object value, Path path,
+		String... names) throws WorldBuilderDiscoveryException {
 		if (!(value instanceof Map)) throw new WorldBuilderDiscoveryException("Expected an object in " + path);
 		@SuppressWarnings("unchecked") Map<String,Object> object = (Map<String,Object>)value;
-		if (object.size() != names.length) throw new WorldBuilderDiscoveryException("Unexpected fields in " + path);
 		for (String name : names) if (!object.containsKey(name)) throw new WorldBuilderDiscoveryException("Missing field '" + name + "' in " + path);
 		return object;
 	}
 
 	private static int[] position(Object value, Path path) throws WorldBuilderDiscoveryException {
-		Map<String,Object> object = exactObject(value, path, "X", "Y");
+		return position(value, path, false);
+	}
+
+	private static int[] position(Object value, Path path, boolean allowInertFields)
+		throws WorldBuilderDiscoveryException {
+		Map<String,Object> object = allowInertFields
+			? requiredObject(value, path, "X", "Y")
+			: exactObject(value, path, "X", "Y");
 		return new int[] {integer(object.get("X"), path), integer(object.get("Y"), path)};
 	}
 

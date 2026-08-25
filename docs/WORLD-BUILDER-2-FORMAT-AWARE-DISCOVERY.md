@@ -499,8 +499,11 @@ presence does not activate retired content. Within a selected legacy auxiliary
 scenery file, repeated anchors are composed in source-record order with the last
 record retained, matching the server's deterministic registration behavior
 without weakening duplicate rejection for normal authored overlays. Every
-copied input or canonical alias is size/hash verified and recorded in the
-derived evidence; the original target paths and bytes remain intact.
+auxiliary record must still provide valid `id`, `pos`, and `direction` values;
+additional bounded metadata fields that the legacy loader does not consume are
+inert and ignored during normalization. Every copied input or canonical alias
+is size/hash verified and recorded in the derived evidence; the original target
+paths and bytes remain intact.
 
 The third source-path increment adds exact active-configuration profiles for
 `server/myworld.conf`, root-level `myworld.conf`,

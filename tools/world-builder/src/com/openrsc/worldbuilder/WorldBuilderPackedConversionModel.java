@@ -903,11 +903,13 @@ final class WorldBuilderPackedConversionModel {
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions, int index)
 		throws WorldBuilderContractException {
 		boolean removal = "removal".equals(source.kind);
-		exact(record, source.relativePath, index, removal
-			? new String[] {"pos"}
-			: new String[] {"direction", "id", "pos"});
+		boolean auxiliary = !removal && source.role.startsWith("scenery-auxiliary-");
+		String[] fields = removal
+			? new String[] {"pos"} : new String[] {"direction", "id", "pos"};
+		if (auxiliary) required(record, source.relativePath, index, fields);
+		else exact(record, source.relativePath, index, fields);
 		WorldBuilderPackedCoordinateCodec.Coordinate point =
-			point(record.get("pos"), source.relativePath, index);
+			point(record.get("pos"), source.relativePath, index, auxiliary);
 		int id = removal ? -1 : nonnegative(record, "id", source.relativePath, index);
 		int direction = removal ? 0
 			: nonnegative(record, "direction", source.relativePath, index);
@@ -921,8 +923,15 @@ final class WorldBuilderPackedConversionModel {
 
 	private static WorldBuilderPackedCoordinateCodec.Coordinate point(
 		Object raw, String path, int index) throws WorldBuilderContractException {
+		return point(raw, path, index, false);
+	}
+
+	private static WorldBuilderPackedCoordinateCodec.Coordinate point(
+		Object raw, String path, int index, boolean allowInertFields)
+		throws WorldBuilderContractException {
 		Map<String,Object> point = object(raw, path, index);
-		exact(point, path, index, "X", "Y");
+		if (allowInertFields) required(point, path, index, "X", "Y");
+		else exact(point, path, index, "X", "Y");
 		int x = signed(point, "X", path, index);
 		int y = signed(point, "Y", path, index);
 		WorldBuilderPackedCoordinateCodec.Coordinate decoded =
@@ -1075,6 +1084,14 @@ final class WorldBuilderPackedConversionModel {
 		if (value.size() != expected.size() || !value.keySet().equals(expected)) {
 			throw recordError(path, index,
 				"Packed placement record contains missing or unexpected fields.");
+		}
+	}
+
+	private static void required(Map<String,Object> value, String path, int index,
+		String... keys) throws WorldBuilderContractException {
+		for (String key : keys) {
+			if (!value.containsKey(key)) throw recordError(path, index,
+				"Packed placement record is missing required field: " + key + ".");
 		}
 	}
 
