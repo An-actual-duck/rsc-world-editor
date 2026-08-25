@@ -28,7 +28,8 @@ import java.util.zip.ZipFile;
 
 /** Strict target-owned declarative definitions/assets captured inside one UUID project. */
 final class WorldBuilderProjectContentBundle {
-	static final String CAPABILITY_ID = "project-local-custom-content-v2";
+	static final String CAPABILITY_ID = "project-local-custom-content-v3";
+	static final String V2_CAPABILITY_ID = "project-local-custom-content-v2";
 	static final String LEGACY_CAPABILITY_ID = "project-local-custom-content-v1";
 	static final String SOURCE_DIRECTORY = "source/content-bundle";
 	static final String WORKING_DIRECTORY = "working/content-bundle";
@@ -46,6 +47,8 @@ final class WorldBuilderProjectContentBundle {
 	private static final String OPERATION = "project-content-bundle";
 	private static final String ITEM_VISUAL_EVIDENCE_PATH =
 		"server/conf/world-builder/item-visuals-v1.json";
+	private static final String NPC_ANIMATION_EVIDENCE_PATH =
+		"server/conf/world-builder/npc-animations-v1.json";
 
 	private static final List<Spec> SPECS = Collections.unmodifiableList(Arrays.asList(
 		new Spec("definition.boundary", "server/conf/server/defs/DoorDef.xml",
@@ -83,6 +86,9 @@ final class WorldBuilderProjectContentBundle {
 	));
 	private static final Spec ITEM_VISUAL_SPEC = new Spec("metadata.item-visuals",
 		ITEM_VISUAL_EVIDENCE_PATH, ITEM_VISUAL_EVIDENCE_PATH, "application/json", true);
+	private static final Spec NPC_ANIMATION_SPEC = new Spec("metadata.npc-animations",
+		NPC_ANIMATION_EVIDENCE_PATH, NPC_ANIMATION_EVIDENCE_PATH,
+		"application/json", true);
 
 	private WorldBuilderProjectContentBundle() {
 	}
@@ -170,8 +176,10 @@ final class WorldBuilderProjectContentBundle {
 			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
 		List<Object> itemVisuals;
 		ItemVisualMigration migration = null;
-		boolean successor = !beyondPackaged.isEmpty();
-		if (successor) {
+		boolean itemSuccessor = !beyondPackaged.isEmpty();
+		boolean animationSuccessor = !npcMigration.animations.isEmpty();
+		int version = animationSuccessor ? 3 : itemSuccessor ? 2 : 1;
+		if (itemSuccessor) {
 			migration = migrateItemVisuals(copiedTarget,
 				beyondPackaged, explicitMappings);
 			itemVisuals = migration.itemVisuals;
@@ -182,7 +190,8 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderTerrainMaterialProvider.normalize(copiedTarget,
 				migration == null ? null : migration.customArchiveOverride);
 		List<Spec> captureSpecs = new ArrayList<Spec>(SPECS);
-		if (successor) captureSpecs.add(ITEM_VISUAL_SPEC);
+		if (version >= 2) captureSpecs.add(ITEM_VISUAL_SPEC);
+		if (version >= 3) captureSpecs.add(NPC_ANIMATION_SPEC);
 		List<FileRecord> records = new ArrayList<FileRecord>();
 		for (Spec spec : captureSpecs) {
 			String bundlePath = "files/" + spec.runtimePath;
@@ -196,6 +205,19 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("schemaVersion", Long.valueOf(1L));
 				generated.put("manifestType", "world-builder-item-visual-evidence");
 				generated.put("itemVisuals", new ArrayList<Object>(itemVisuals));
+				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
+					.getBytes(StandardCharsets.UTF_8));
+			} else if (spec == NPC_ANIMATION_SPEC) {
+				Map<String,Object> generated = new LinkedHashMap<String,Object>();
+				generated.put("schemaVersion", Long.valueOf(1L));
+				generated.put("manifestType",
+					"world-builder-npc-animation-registry");
+				List<Object> animations = new ArrayList<Object>();
+				for (WorldBuilderNpcDefinitionProvider.Animation animation
+					: npcMigration.animations) {
+					animations.add(animation.registryJson());
+				}
+				generated.put("animations", animations);
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
 			} else {
@@ -235,7 +257,7 @@ final class WorldBuilderProjectContentBundle {
 					"Stop target changes, rediscover, and create a new project.");
 			}
 			records.add(new FileRecord(spec, bundlePath, size, hash,
-				mediaType(spec, source, successor)));
+				mediaType(spec, source, version >= 2)));
 		}
 		if (migration != null && migration.provider != null) {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
@@ -246,9 +268,10 @@ final class WorldBuilderProjectContentBundle {
 			projectStage, materialMigration);
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
-			successor ? "target-adopted-content-v2" : "target-adopted-content-v1");
-		if (successor) validateItemVisualArchiveClosure(sourceRoot, itemVisuals);
-		int version = successor ? 2 : 1;
+			version >= 2 ? "target-adopted-content-v2" : "target-adopted-content-v1");
+		if (version >= 2) validateItemVisualArchiveClosure(sourceRoot, itemVisuals);
+		if (version >= 3) readNpcAnimationRegistry(
+			contentPath(sourceRoot, "metadata.npc-animations"));
 		String definitions = fingerprint(
 			"world-builder-project-content-definitions-v" + version + "\n", records, true,
 			(String)catalog.get("catalogSha256"));
@@ -304,27 +327,28 @@ final class WorldBuilderProjectContentBundle {
 				"definitionCatalog", "familyBindings", "files",
 				"definitionFingerprintSha256", "assetFingerprintSha256",
 				"bundleFingerprintSha256");
-		} else if (version == 2L) {
+		} else if (version == 2L || version == 3L) {
 			exact(manifest, "schemaVersion", "manifestType", "capabilityId", "sourceKind",
 				"definitionCatalog", "familyBindings", "itemVisuals", "files",
 				"definitionFingerprintSha256", "assetFingerprintSha256",
 				"itemVisualFingerprintSha256", "bundleFingerprintSha256");
 		}
-		String capabilityId = version == 1L ? LEGACY_CAPABILITY_ID : CAPABILITY_ID;
-		if (!(version == 1L || version == 2L)
+		String capabilityId = version == 1L ? LEGACY_CAPABILITY_ID
+			: version == 2L ? V2_CAPABILITY_ID : CAPABILITY_ID;
+		if (!(version == 1L || version == 2L || version == 3L)
 			|| !TYPE.equals(manifest.get("manifestType"))
 			|| !capabilityId.equals(manifest.get("capabilityId"))
 			|| !("target-adopted".equals(manifest.get("sourceKind"))
 				|| "content-neutral-default".equals(manifest.get("sourceKind")))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_CONTRACT_VERSION, MANIFEST,
 				"Project custom-content identity or version is unsupported.",
-				"Use world-builder-project-content-bundle schema version 1 or 2.");
+				"Use world-builder-project-content-bundle schema version 1, 2, or 3.");
 		}
 		Map<String,Object> catalog = object(manifest.get("definitionCatalog"),
 			"definitionCatalog");
 		validateCatalogShape(catalog);
 		List<FileRecord> records = parseFiles(root, manifest.get("files"), (int)version);
-		List<Object> itemVisuals = version == 2L
+		List<Object> itemVisuals = version >= 2L
 			? parseItemVisuals(manifest.get("itemVisuals"), "itemVisuals")
 			: Collections.<Object>emptyList();
 		validateFamilies(manifest.get("familyBindings"), records, (int)version, itemVisuals);
@@ -340,13 +364,13 @@ final class WorldBuilderProjectContentBundle {
 		String visualHash = itemVisualFingerprint((int)version, itemVisuals);
 		if (!definitionHash.equals(manifest.get("definitionFingerprintSha256"))
 			|| !assetHash.equals(manifest.get("assetFingerprintSha256"))
-			|| version == 2L
+			|| version >= 2L
 				&& !visualHash.equals(manifest.get("itemVisualFingerprintSha256"))) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
 				"Bundle definition or client-asset fingerprint is inconsistent.",
 				"Restore the exact complete project-local content bundle.");
 		}
-		if (version == 2L) {
+		if (version >= 2L) {
 			Map<String,Object> evidence = readItemVisualEvidence(
 				contentPath(root, "metadata.item-visuals"));
 			if (!itemVisuals.equals(evidence.get("itemVisuals"))) throw problem(
@@ -356,6 +380,8 @@ final class WorldBuilderProjectContentBundle {
 			validateItemVisualCatalogClosure(itemVisuals, catalog);
 			validateItemVisualArchiveClosure(root, itemVisuals);
 		}
+		if (version >= 3L) readNpcAnimationRegistry(
+			contentPath(root, "metadata.npc-animations"));
 		String expectedBundle = selfFingerprint(manifest);
 		if (!expectedBundle.equals(manifest.get("bundleFingerprintSha256"))) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
@@ -381,17 +407,18 @@ final class WorldBuilderProjectContentBundle {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
 		value.put("schemaVersion", Long.valueOf(version));
 		value.put("manifestType", TYPE);
-		value.put("capabilityId", version == 1 ? LEGACY_CAPABILITY_ID : CAPABILITY_ID);
+		value.put("capabilityId", version == 1 ? LEGACY_CAPABILITY_ID
+			: version == 2 ? V2_CAPABILITY_ID : CAPABILITY_ID);
 		value.put("sourceKind", "target-adopted");
 		value.put("definitionCatalog", catalog);
 		value.put("familyBindings", familyBindings());
-		if (version == 2) value.put("itemVisuals", new ArrayList<Object>(itemVisuals));
+		if (version >= 2) value.put("itemVisuals", new ArrayList<Object>(itemVisuals));
 		List<Object> files = new ArrayList<Object>();
 		for (FileRecord record : records) files.add(record.toJson());
 		value.put("files", files);
 		value.put("definitionFingerprintSha256", definitions);
 		value.put("assetFingerprintSha256", assets);
-		if (version == 2) value.put("itemVisualFingerprintSha256", visualHash);
+		if (version >= 2) value.put("itemVisualFingerprintSha256", visualHash);
 		value.put("bundleFingerprintSha256", ZERO_HASH);
 		value.put("bundleFingerprintSha256", selfFingerprint(value));
 		return value;
@@ -446,7 +473,7 @@ final class WorldBuilderProjectContentBundle {
 				}
 			}
 		}
-		if (version == 2) {
+		if (version >= 2) {
 			Set<String> dependencies = new HashSet<String>();
 			for (Object rawVisual : itemVisuals) {
 				Map<String,Object> visual = object(rawVisual, "itemVisual");
@@ -464,7 +491,8 @@ final class WorldBuilderProjectContentBundle {
 
 	private static List<FileRecord> parseFiles(Path root, Object raw, int version)
 		throws IOException, WorldBuilderContractException {
-		int expectedCount = SPECS.size() + (version == 2 ? 1 : 0);
+		int expectedCount = SPECS.size() + (version >= 2 ? 1 : 0)
+			+ (version >= 3 ? 1 : 0);
 		List<?> values = array(raw, "files", expectedCount, 256);
 		if (values.size() != expectedCount) throw problem(
 			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, MANIFEST,
@@ -472,7 +500,8 @@ final class WorldBuilderProjectContentBundle {
 			"Capture all required target definitions and client assets.");
 		Map<String,Spec> specs = new HashMap<String,Spec>();
 		for (Spec spec : SPECS) specs.put(spec.role, spec);
-		if (version == 2) specs.put(ITEM_VISUAL_SPEC.role, ITEM_VISUAL_SPEC);
+		if (version >= 2) specs.put(ITEM_VISUAL_SPEC.role, ITEM_VISUAL_SPEC);
+		if (version >= 3) specs.put(NPC_ANIMATION_SPEC.role, NPC_ANIMATION_SPEC);
 		Set<String> paths = new HashSet<String>();
 		Set<String> roles = new HashSet<String>();
 		List<FileRecord> result = new ArrayList<FileRecord>();
@@ -683,6 +712,7 @@ final class WorldBuilderProjectContentBundle {
 		WorldBuilderPackedSourceLayout layout) throws WorldBuilderContractException {
 		List<Spec> specs = new ArrayList<Spec>(SPECS);
 		specs.add(ITEM_VISUAL_SPEC);
+		specs.add(NPC_ANIMATION_SPEC);
 		for (Spec spec : specs) if (role.equals(spec.role)) {
 			Path bundled = root.resolve("files/" + spec.runtimePath);
 			return Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)
@@ -1099,6 +1129,93 @@ final class WorldBuilderProjectContentBundle {
 		}
 		parseItemVisuals(value.get("itemVisuals"), ITEM_VISUAL_EVIDENCE_PATH);
 		return value;
+	}
+
+	private static List<Object> readNpcAnimationRegistry(Path path)
+		throws WorldBuilderContractException {
+		Map<String,Object> value;
+		try {
+			value = WorldBuilderJsonDocuments.readObject(path);
+		} catch (IOException failure) {
+			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+				NPC_ANIMATION_EVIDENCE_PATH,
+				"NPC animation registry changed while it was read.",
+				"Restore the exact immutable project content bundle.", failure);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_JSON,
+				NPC_ANIMATION_EVIDENCE_PATH,
+				"NPC animation registry is malformed JSON.",
+				"Use world-builder-npc-animation-registry schema version 1.", malformed);
+		}
+		exact(value, "schemaVersion", "manifestType", "animations");
+		if (!Long.valueOf(1L).equals(value.get("schemaVersion"))
+			|| !"world-builder-npc-animation-registry".equals(
+				value.get("manifestType"))) {
+			throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+		}
+		List<?> rows = array(value.get("animations"), "animations", 1,
+			MAX_DEFINITIONS);
+		List<Object> result = new ArrayList<Object>(rows.size());
+		long previous = -1L;
+		for (Object raw : rows) {
+			Map<String,Object> row = object(raw, "NPC animation");
+			exact(row, "animationId", "name", "category", "charColour",
+				"blueMask", "genderModel", "hasCombatFrames",
+				"hasSpecialCombatFrames", "requiredFrameCount",
+				"customSpriteSubspace", "customSpriteEntry",
+				"customEntrySha256", "authenticBaseSpriteId",
+				"authenticFrameSha256s");
+			long id = integer(row, "animationId");
+			if (id <= previous || id > MAX_RUNTIME_ID) {
+				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+			}
+			previous = id;
+			String name = string(row, "name");
+			String category = string(row, "category");
+			if (!safeArchiveName(name) || !safeArchiveName(category)
+				|| !category.equals(string(row, "customSpriteSubspace"))
+				|| !name.equals(string(row, "customSpriteEntry"))) {
+				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+			}
+			for (String field : Arrays.asList("charColour", "blueMask",
+				"genderModel")) {
+				long number = integer(row, field);
+				if (number < Integer.MIN_VALUE || number > Integer.MAX_VALUE) {
+					throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+				}
+			}
+			Object combatRaw = row.get("hasCombatFrames");
+			Object specialRaw = row.get("hasSpecialCombatFrames");
+			if (!(combatRaw instanceof Boolean) || !(specialRaw instanceof Boolean)
+				|| ((Boolean)specialRaw).booleanValue()
+					&& !((Boolean)combatRaw).booleanValue()) {
+				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+			}
+			int expected = 15 + (((Boolean)combatRaw).booleanValue() ? 3 : 0)
+				+ (((Boolean)specialRaw).booleanValue() ? 9 : 0);
+			long count = integer(row, "requiredFrameCount");
+			long base = integer(row, "authenticBaseSpriteId");
+			if (count != expected || base < 0L
+				|| base + count - 1L > MAX_RUNTIME_ID
+				|| !WorldBuilderBoundedInventory.isHash(
+					string(row, "customEntrySha256"))) {
+				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+			}
+			List<?> hashes = array(row.get("authenticFrameSha256s"),
+				"authenticFrameSha256s", expected, expected);
+			for (Object hash : hashes) {
+				if (!(hash instanceof String)
+					|| !WorldBuilderBoundedInventory.isHash((String)hash)) {
+					throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+				}
+			}
+			result.add(new LinkedHashMap<String,Object>(row));
+		}
+		return result;
+	}
+
+	private static boolean safeArchiveName(String value) {
+		return value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
 	}
 
 	private static List<Object> parseItemVisuals(Object raw, String label)

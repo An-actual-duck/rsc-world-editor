@@ -2,13 +2,14 @@
 
 ## Contract status
 
-`project-local-custom-content-v2` is the strict Editor/runtime boundary when a
-target contains ground-item definitions beyond the exact packaged runtime.
-Its checked-in schema is
-`tools/world-builder/schema/project-content-bundle-v2.schema.json`. The Editor
-continues to read and produce `project-local-custom-content-v1` when all target
-ground items already exist in the packaged catalog. Material-free projects
-continue to launch without a content bundle.
+`project-local-custom-content-v3` is the latest strict Editor/runtime boundary
+when a target supplies authoritative NPC animation definitions not already
+guaranteed by the packaged runtime. Its checked-in schemas are
+`tools/world-builder/schema/project-content-bundle-v3.schema.json` and
+`tools/world-builder/schema/npc-animation-registry-v1.schema.json`. The Editor
+continues to read and produce v2 for targets needing only beyond-packaged item
+visuals, and v1 when all target ground items already exist in the packaged
+catalog. Material-free projects continue to launch without a content bundle.
 
 The bundle is general. No ID, file, hash, or behavior belonging to one target
 is part of the application release or this contract. Floor 31, wall 219,
@@ -40,11 +41,11 @@ these Builder-only launch properties:
 | Property | Value |
 | --- | --- |
 | `openrsc.worldBuilderContentBundle` | absolute `working/content-bundle/` root |
-| `openrsc.worldBuilderContentCapabilityId` | exact v1 or v2 manifest capability |
+| `openrsc.worldBuilderContentCapabilityId` | exact v1, v2, or v3 manifest capability |
 | `openrsc.worldBuilderContentBundleSha256` | manifest-bound bundle fingerprint |
 | `openrsc.worldBuilderContentDefinitionSha256` | definition/catalog fingerprint |
 | `openrsc.worldBuilderContentAssetSha256` | client-asset fingerprint |
-| `openrsc.worldBuilderContentItemVisualSha256` | v2 item-visual fingerprint; 64 zeroes for v1 |
+| `openrsc.worldBuilderContentItemVisualSha256` | v2/v3 item-visual fingerprint; 64 zeroes for v1 |
 
 Both processes also receive the existing
 `openrsc.worldBuilderDefinitionId`,
@@ -79,6 +80,12 @@ Version 2 also preserves static producer evidence at
 `metadata.item-visuals`. It is strict JSON with manifest type
 `world-builder-item-visual-evidence`, schema version 1, and one `itemVisuals`
 array. It is data, never executable target code.
+
+Version 3 additionally preserves `metadata.npc-animations` at
+`server/conf/world-builder/npc-animations-v1.json`. The registry has manifest
+type `world-builder-npc-animation-registry`, schema version 1, and sorted unique
+records that bind each project animation ID to its renderer semantics and exact
+custom/authentic sprite evidence. It too is inert data.
 
 No JAR, class, script, plugin, configuration, database, credential, symlink,
 device, socket, executable permission, or target-supplied command is accepted.
@@ -249,9 +256,9 @@ Provider definitions replace the placeholder at the exact sequential ID.
 Unrepresented gaps remain inert placeholders so sparse IDs stay stable. Both
 runtime consumers independently prove that every catalog NPC and every
 patch/world override is backed by the resulting sequential registry before
-authentication. New animation families remain a separately versioned provider
-extension; v1 definitions may reference only animation IDs already available
-through the captured target/runtime assets.
+authentication. The simple v1 NPC-definition mapping may reference only
+animation IDs already available through the packaged runtime. Rich neutral
+providers supply the additional animation evidence needed for bundle v3.
 
 The consumer also accepts the richer neutral producer form with
 `manifestType: "world-builder-npc-definitions"`. That form carries
@@ -265,6 +272,15 @@ process fields are set to inert Builder values, while names, commands, visible
 stats, animation IDs, recolor values, dimensions, and models are retained.
 Malformed rich manifests continue through the existing explicit placeholder
 and warning path rather than executing provider or target code.
+
+For a successfully validated rich provider, the Editor emits bundle v3 and an
+exact `world-builder-npc-animation-registry`. Each record retains the original
+animation ID, name/category lookup, signed colour and gender fields,
+combat/special-frame flags, required 15/18/27-frame shape, raw custom OSAR entry
+hash, authentic base sprite ID, and every consecutive authentic frame hash.
+The independent runtime validates the same registry and archives on both sides,
+then installs definitions at their original (including sparse) client IDs
+before project NPC definitions load. Existing v1/v2 projects remain readable.
 
 A structurally valid rich manifest is not sufficient by itself. Its target
 definition, placement, and sprite-archive bindings are compared with the
@@ -309,7 +325,7 @@ All JSON is canonical UTF-8 with no host path or timestamp.
 - `assetFingerprintSha256` uses domain
   `world-builder-project-content-assets-v<bundle-version>\n` and the same record encoding for
   asset records.
-- `itemVisualFingerprintSha256` in v2 is SHA-256 of domain
+- `itemVisualFingerprintSha256` in v2/v3 is SHA-256 of domain
   `world-builder-project-content-item-visuals-v1\n` followed by canonical
   `itemVisuals` JSON. V1 launch compatibility uses 64 zeroes.
 - `bundleFingerprintSha256` is SHA-256 of domain
@@ -333,7 +349,8 @@ The immutable source snapshot inventories the complete source bundle.
 Preparation copies it into `working/content-bundle/`, reopens and verifies the
 complete bytes, preserved evidence equality, archive-entry closure, and all
 fingerprints. Both runtime sides receive the same capability and item-visual
-fingerprint. Working-copy drift blocks save/launch without changing immutable
+fingerprint; v3 additionally requires the canonical NPC animation registry.
+Working-copy drift blocks save/launch without changing immutable
 source or the target. Descriptor-backed material-free projects retain their
 released strict behavior; standalone projects use the content-neutral default
 catalog until a separately versioned creator-ingest feature is applied.

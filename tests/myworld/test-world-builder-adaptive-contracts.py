@@ -979,6 +979,36 @@ def project_content_bundle_v2() -> dict:
     return value
 
 
+def npc_animation_registry() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-npc-animation-registry",
+        "animations": [{
+            "animationId": 2000, "name": "fixture", "category": "npc",
+            "charColour": 1193046, "blueMask": 6636321, "genderModel": 2,
+            "hasCombatFrames": False, "hasSpecialCombatFrames": False,
+            "requiredFrameCount": 15, "customSpriteSubspace": "npc",
+            "customSpriteEntry": "fixture", "customEntrySha256": HASH_A,
+            "authenticBaseSpriteId": 100,
+            "authenticFrameSha256s": [HASH_B] * 15,
+        }],
+    }
+
+
+def project_content_bundle_v3() -> dict:
+    value = project_content_bundle_v2()
+    value["schemaVersion"] = 3
+    value["capabilityId"] = "project-local-custom-content-v3"
+    value["files"].append({
+        "role": "metadata.npc-animations",
+        "bundleRelativePath": "files/server/conf/world-builder/npc-animations-v1.json",
+        "runtimeRelativePath": "server/conf/world-builder/npc-animations-v1.json",
+        "mediaType": "application/json", "size": 1, "sha256": HASH_B,
+    })
+    value["files"].sort(key=lambda record: record["runtimeRelativePath"])
+    return value
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -1021,6 +1051,8 @@ SCHEMA_CONTRACTS = {
     "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),
     "project-content-bundle-v1.schema.json": (1, "world-builder-project-content-bundle"),
     "project-content-bundle-v2.schema.json": (2, "world-builder-project-content-bundle"),
+    "project-content-bundle-v3.schema.json": (3, "world-builder-project-content-bundle"),
+    "npc-animation-registry-v1.schema.json": (1, "world-builder-npc-animation-registry"),
 }
 
 REGION_SCHEMA_VECTORS = {
@@ -1209,6 +1241,10 @@ class AdaptiveContractTests(unittest.TestCase):
             )
         )
         store = {common["$id"]: common}
+        v2_bundle_schema = json.loads((
+            SCHEMA_ROOT / "project-content-bundle-v2.schema.json"
+        ).read_text(encoding="utf-8"))
+        store[v2_bundle_schema["$id"]] = v2_bundle_schema
         factories_by_type = {
             factory()["manifestType"]: factory for factory in VALID_CONTRACTS.values()
         }
@@ -1223,9 +1259,14 @@ class AdaptiveContractTests(unittest.TestCase):
                 validator = jsonschema.Draft202012Validator(
                     schema, resolver=resolver
                 )
-                document = (project_content_bundle_v2() if name ==
-                    "project-content-bundle-v2.schema.json"
-                    else factories_by_type[manifest_type]())
+                if name == "project-content-bundle-v2.schema.json":
+                    document = project_content_bundle_v2()
+                elif name == "project-content-bundle-v3.schema.json":
+                    document = project_content_bundle_v3()
+                elif name == "npc-animation-registry-v1.schema.json":
+                    document = npc_animation_registry()
+                else:
+                    document = factories_by_type[manifest_type]()
                 document["schemaVersion"] = version
                 errors = list(validator.iter_errors(document))
                 self.assertEqual([], errors, [error.message for error in errors])

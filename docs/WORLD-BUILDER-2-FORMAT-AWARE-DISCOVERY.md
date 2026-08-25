@@ -594,9 +594,11 @@ instead preserves the placement through the established clearly named NPC-0
 placeholder and records `NPC_ANIMATION_PLACEHOLDER` with the exact failure in
 `diagnostics/npc-definition-provider-warnings.json`. Successful closure and
 repeat normalization are deterministic and leave the selected server bytes
-unchanged. This closes the asset side of the current rich-provider contract;
-foreign animation IDs or semantics not already represented by the pinned
-runtime still require a later versioned runtime animation-registry binding.
+unchanged. The Editor emits this closure as the bundle-v3
+`world-builder-npc-animation-registry`; the pinned runtime verifies and
+installs exact private-server animation IDs and semantics before project NPC
+definitions load. This closes both the asset and runtime-binding sides of the
+rich NPC provider contract without relying on target code.
 
 ## Implementation phases
 

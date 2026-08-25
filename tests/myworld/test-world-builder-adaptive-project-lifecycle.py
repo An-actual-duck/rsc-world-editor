@@ -734,7 +734,7 @@ public final class AdaptiveProjectSupervisorHarness {
                         "custom content path");
                     require(contains(command,
                         "-Dopenrsc.worldBuilderContentCapabilityId="
-                            + WorldBuilderProjectContentBundle.CAPABILITY_ID),
+                            + content.capabilityId),
                         "custom content capability");
                     require(contains(command,
                         "-Dopenrsc.worldBuilderContentBundleSha256="

@@ -21,8 +21,11 @@ package com.openrsc.worldbuilder;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 public final class NpcDefinitionProviderHarness {
@@ -35,6 +38,16 @@ public final class NpcDefinitionProviderHarness {
                     Paths.get(args[1]), Paths.get(args[0]), catalog);
             Files.write(Paths.get(args[2]), result.customDefinitions);
             WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
+            Map<String,Object> registry = new LinkedHashMap<String,Object>();
+            registry.put("schemaVersion", Long.valueOf(1L));
+            registry.put("manifestType", "world-builder-npc-animation-registry");
+            List<Object> animations = new ArrayList<Object>();
+            for (WorldBuilderNpcDefinitionProvider.Animation animation : result.animations) {
+                animations.add(animation.registryJson());
+            }
+            registry.put("animations", animations);
+            Files.write(Paths.get(args[3]).resolve("npc-animations-v1.json"),
+                WorldBuilderJsonDocuments.pretty(registry).getBytes(StandardCharsets.UTF_8));
         } catch (WorldBuilderContractException refusal) {
             System.err.println(refusal.code() + ": " + refusal.getMessage());
             System.exit(3);
@@ -391,11 +404,41 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "authenticBaseSpriteId": 0,
                 "status": "resolved",
             }], report["animations"])
+            registry = json.loads((base / "stage/npc-animations-v1.json").read_text(
+                encoding="utf-8"
+            ))
+            self.assertEqual(1, registry["schemaVersion"])
+            self.assertEqual("world-builder-npc-animation-registry",
+                             registry["manifestType"])
+            self.assertEqual([{
+                "animationId": 0,
+                "name": "fixture",
+                "category": "npc",
+                "charColour": 0,
+                "blueMask": 0,
+                "genderModel": 0,
+                "hasCombatFrames": False,
+                "hasSpecialCombatFrames": False,
+                "requiredFrameCount": 15,
+                "customSpriteSubspace": "npc",
+                "customSpriteEntry": "fixture",
+                "customEntrySha256": hashlib.sha256(sprite_entry(15)).hexdigest(),
+                "authenticBaseSpriteId": 0,
+                "authenticFrameSha256s": [
+                    hashlib.sha256(f"authentic-npc-frame-{frame}\n".encode("ascii"))
+                    .hexdigest()
+                    for frame in range(15)
+                ],
+            }], registry["animations"])
             repeated_custom, repeated_report = self.consume(
                 target, selected, base / "repeat-stage"
             )
             self.assertEqual(custom, repeated_custom)
             self.assertEqual(report, repeated_report)
+            self.assertEqual(
+                (base / "stage/npc-animations-v1.json").read_bytes(),
+                (base / "repeat-stage/npc-animations-v1.json").read_bytes(),
+            )
             self.assertEqual(target_archives_before, {
                 path.name: path.read_bytes()
                 for path in (target / "Client_Base/Cache/video").iterdir()

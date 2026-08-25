@@ -103,6 +103,10 @@ public final class ProjectContentBundleFixtureHarness {
         WorldBuilderProjectContentBundle.Bundle bundle =
             WorldBuilderProjectContentBundle.read(Paths.get(args[0]));
         if (WorldBuilderProjectContentBundle.CAPABILITY_ID.equals(bundle.capabilityId)) {
+            require(bundle.files.size() == 18, "closed 18-role animation inventory");
+            require(bundle.itemVisuals.size() == 3, "exact item visual closure");
+        } else if (WorldBuilderProjectContentBundle.V2_CAPABILITY_ID.equals(
+                bundle.capabilityId)) {
             require(bundle.files.size() == 17, "closed 17-role successor inventory");
             require(bundle.itemVisuals.size() == 3, "exact item visual closure");
         } else {
@@ -293,6 +297,129 @@ class ProjectContentBundleFixtureTest(unittest.TestCase):
             + module.legacy.canonical(manifest)
         ).hexdigest()
         manifest_path.write_bytes(module.legacy.pretty(manifest))
+
+    @staticmethod
+    def promote_to_v3(root: Path, registry: dict | None = None) -> dict:
+        spec = importlib.util.spec_from_file_location("bundle_v3_test_generator", GENERATOR_V2)
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        if registry is None:
+            registry = {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-npc-animation-registry",
+                "animations": [{
+                    "animationId": 2000, "name": "fixture", "category": "npc",
+                    "charColour": 1193046, "blueMask": 6636321,
+                    "genderModel": 2, "hasCombatFrames": False,
+                    "hasSpecialCombatFrames": False, "requiredFrameCount": 15,
+                    "customSpriteSubspace": "npc",
+                    "customSpriteEntry": "fixture",
+                    "customEntrySha256": "a" * 64,
+                    "authenticBaseSpriteId": 100,
+                    "authenticFrameSha256s": ["b" * 64] * 15,
+                }],
+            }
+        registry_path = root / "files/server/conf/world-builder/npc-animations-v1.json"
+        write_json = lambda path, value: path.write_text(
+            json.dumps(value, sort_keys=True, indent=2) + "\n", encoding="utf-8"
+        )
+        registry_path.parent.mkdir(parents=True, exist_ok=True)
+        write_json(registry_path, registry)
+        manifest_path = root / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["schemaVersion"] = 3
+        manifest["capabilityId"] = "project-local-custom-content-v3"
+        manifest["files"].append({
+            "role": "metadata.npc-animations",
+            "bundleRelativePath": "files/server/conf/world-builder/npc-animations-v1.json",
+            "runtimeRelativePath": "server/conf/world-builder/npc-animations-v1.json",
+            "mediaType": "application/json", "size": 0, "sha256": "",
+        })
+        manifest["files"].sort(key=lambda row: row["runtimeRelativePath"])
+        for record in manifest["files"]:
+            payload = (root / record["bundleRelativePath"]).read_bytes()
+            record["size"] = len(payload)
+            record["sha256"] = hashlib.sha256(payload).hexdigest()
+        definition_roles = {
+            row["role"] for row in manifest["files"]
+            if row["role"].startswith("definition.")
+            or row["role"].startswith("metadata.")
+        }
+        def fingerprint(domain: bytes, definitions: bool, suffix: str = "") -> str:
+            digest = hashlib.sha256(domain)
+            for row in manifest["files"]:
+                if (row["role"] in definition_roles) != definitions:
+                    continue
+                digest.update((
+                    f'{row["role"]}\0{row["runtimeRelativePath"]}\0'
+                    f'{row["size"]}\0{row["sha256"]}\n'
+                ).encode("utf-8"))
+            if suffix:
+                digest.update(suffix.encode("ascii"))
+            return digest.hexdigest()
+        manifest["definitionFingerprintSha256"] = fingerprint(
+            b"world-builder-project-content-definitions-v3\n", True,
+            manifest["definitionCatalog"]["catalogSha256"],
+        )
+        manifest["assetFingerprintSha256"] = fingerprint(
+            b"world-builder-project-content-assets-v3\n", False,
+        )
+        manifest["bundleFingerprintSha256"] = "0" * 64
+        manifest["bundleFingerprintSha256"] = hashlib.sha256(
+            b"world-builder-project-content-bundle-v3\n"
+            + module.legacy.canonical(manifest)
+        ).hexdigest()
+        manifest_path.write_bytes(module.legacy.pretty(manifest))
+        return manifest
+
+    def test_v3_reader_accepts_exact_npc_animation_registry(self):
+        with tempfile.TemporaryDirectory(prefix="content-bundle-v3-") as temp:
+            changed = Path(temp) / "bundle"
+            shutil.copytree(FIXTURE_V2, changed)
+            manifest = self.promote_to_v3(changed)
+            result = self.read_with_java(changed)
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            self.assertEqual(
+                [manifest[key] for key in (
+                    "definitionFingerprintSha256", "assetFingerprintSha256",
+                    "itemVisualFingerprintSha256", "bundleFingerprintSha256",
+                )],
+                result.stdout.splitlines(),
+            )
+
+    def test_v3_reader_rejects_noncanonical_animation_semantics(self):
+        cases = {
+            "special-without-combat": lambda row: row.update(
+                hasSpecialCombatFrames=True, requiredFrameCount=27,
+                authenticFrameSha256s=["b" * 64] * 27,
+            ),
+            "wrong-shape": lambda row: row.update(requiredFrameCount=18),
+            "lookup-drift": lambda row: row.update(customSpriteEntry="other"),
+        }
+        for label, mutate in cases.items():
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                    prefix="content-bundle-v3-invalid-") as temp:
+                changed = Path(temp) / "bundle"
+                shutil.copytree(FIXTURE_V2, changed)
+                base = {
+                    "schemaVersion": 1,
+                    "manifestType": "world-builder-npc-animation-registry",
+                    "animations": [{
+                        "animationId": 2000, "name": "fixture", "category": "npc",
+                        "charColour": 0, "blueMask": 0, "genderModel": 0,
+                        "hasCombatFrames": False, "hasSpecialCombatFrames": False,
+                        "requiredFrameCount": 15, "customSpriteSubspace": "npc",
+                        "customSpriteEntry": "fixture", "customEntrySha256": "a" * 64,
+                        "authenticBaseSpriteId": 100,
+                        "authenticFrameSha256s": ["b" * 64] * 15,
+                    }],
+                }
+                mutate(base["animations"][0])
+                self.promote_to_v3(changed, base)
+                result = self.read_with_java(changed)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("malformed or unsupported", result.stderr)
 
     def test_successor_rejects_malformed_duplicate_and_missing_archive_entry(self):
         cases = {}

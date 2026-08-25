@@ -468,6 +468,7 @@ validate_application_paths() {
 		import-receipt-v3.schema.json project-manifest-v1.schema.json \
 		project-manifest-v2.schema.json project-registry-v1.schema.json \
 		project-content-bundle-v1.schema.json project-content-bundle-v2.schema.json \
+		project-content-bundle-v3.schema.json npc-animation-registry-v1.schema.json \
 		item-visual-mapping-v1.schema.json \
 		npc-definition-mapping-v1.schema.json \
 		region-bundle-manifest-v1.schema.json \

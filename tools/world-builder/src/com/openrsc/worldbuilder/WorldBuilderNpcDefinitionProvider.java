@@ -520,9 +520,12 @@ final class WorldBuilderNpcDefinitionProvider {
 			"animation name"), "Animation name");
 		String category = osarName(text(animation.get("category"), 1, 128,
 			"animation category"), "Animation category");
-		for (String key : Arrays.asList("charColour", "blueMask", "genderModel")) {
-			integer(animation.get(key), Integer.MIN_VALUE, Integer.MAX_VALUE, key);
-		}
+		int charColour = integer(animation.get("charColour"), Integer.MIN_VALUE,
+			Integer.MAX_VALUE, "charColour");
+		int blueMask = integer(animation.get("blueMask"), Integer.MIN_VALUE,
+			Integer.MAX_VALUE, "blueMask");
+		int genderModel = integer(animation.get("genderModel"), Integer.MIN_VALUE,
+			Integer.MAX_VALUE, "genderModel");
 		boolean combat = bool(animation.get("hasCombatFrames"), "hasCombatFrames");
 		boolean special = bool(animation.get("hasSpecialCombatFrames"),
 			"hasSpecialCombatFrames");
@@ -569,6 +572,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		if (frames.size() != count) throw new IOException(
 			"authentic animation frame count is inconsistent");
 		int previous = baseSpriteId - 1;
+		List<String> authenticHashes = new ArrayList<String>();
 		for (int index = 0; index < frames.size(); index++) {
 			Object raw = frames.get(index);
 			Map<String,Object> frame = object(raw, "authentic frame");
@@ -581,14 +585,16 @@ final class WorldBuilderNpcDefinitionProvider {
 			previous = spriteId;
 			String frameHash = hash(frame.get("entrySha256"),
 				"authentic frame entrySha256");
+			authenticHashes.add(frameHash);
 			if (!frameHash.equals(assets.authentic.get(Integer.valueOf(spriteId)))) {
 				throw new AnimationFailure("Animation " + animationId
 					+ " authentic sprite " + spriteId
 					+ " is absent or differs from its declared hash.");
 			}
 		}
-		return new Animation(animationId, category, name, count,
-			customHash, baseSpriteId);
+		return new Animation(animationId, category, name, charColour, blueMask,
+			genderModel, combat, special, count, customHash, baseSpriteId,
+			authenticHashes);
 	}
 
 	private static void validateProducerSelection(Map<String,Object> selection,
@@ -1075,17 +1081,30 @@ final class WorldBuilderNpcDefinitionProvider {
 		final int animationId;
 		final String category;
 		final String name;
+		final int charColour;
+		final int blueMask;
+		final int genderModel;
+		final boolean hasCombatFrames;
+		final boolean hasSpecialCombatFrames;
 		final int requiredFrameCount;
 		final String customEntrySha256;
 		final int authenticBaseSpriteId;
+		final List<String> authenticFrameSha256s;
 
-		Animation(int animationId, String category, String name,
-			int requiredFrameCount, String customEntrySha256,
-			int authenticBaseSpriteId) {
+		Animation(int animationId, String category, String name, int charColour,
+			int blueMask, int genderModel, boolean hasCombatFrames,
+			boolean hasSpecialCombatFrames, int requiredFrameCount,
+			String customEntrySha256, int authenticBaseSpriteId,
+			List<String> authenticFrameSha256s) {
 			this.animationId = animationId; this.category = category;
-			this.name = name; this.requiredFrameCount = requiredFrameCount;
+			this.name = name; this.charColour = charColour; this.blueMask = blueMask;
+			this.genderModel = genderModel; this.hasCombatFrames = hasCombatFrames;
+			this.hasSpecialCombatFrames = hasSpecialCombatFrames;
+			this.requiredFrameCount = requiredFrameCount;
 			this.customEntrySha256 = customEntrySha256;
 			this.authenticBaseSpriteId = authenticBaseSpriteId;
+			this.authenticFrameSha256s = Collections.unmodifiableList(
+				new ArrayList<String>(authenticFrameSha256s));
 		}
 
 		Map<String,Object> json() {
@@ -1096,6 +1115,27 @@ final class WorldBuilderNpcDefinitionProvider {
 			value.put("customEntrySha256", customEntrySha256);
 			value.put("authenticBaseSpriteId", Long.valueOf(authenticBaseSpriteId));
 			value.put("status", "resolved");
+			return value;
+		}
+
+		Map<String,Object> registryJson() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("animationId", Long.valueOf(animationId));
+			value.put("name", name); value.put("category", category);
+			value.put("charColour", Long.valueOf(charColour));
+			value.put("blueMask", Long.valueOf(blueMask));
+			value.put("genderModel", Long.valueOf(genderModel));
+			value.put("hasCombatFrames", Boolean.valueOf(hasCombatFrames));
+			value.put("hasSpecialCombatFrames",
+				Boolean.valueOf(hasSpecialCombatFrames));
+			value.put("requiredFrameCount", Long.valueOf(requiredFrameCount));
+			value.put("customSpriteSubspace", category);
+			value.put("customSpriteEntry", name);
+			value.put("customEntrySha256", customEntrySha256);
+			value.put("authenticBaseSpriteId",
+				Long.valueOf(authenticBaseSpriteId));
+			value.put("authenticFrameSha256s",
+				new ArrayList<String>(authenticFrameSha256s));
 			return value;
 		}
 	}
