@@ -456,7 +456,7 @@ public final class PackedConversionFailureHarness {
             "scenery-overlay",
             "scenery",
             "overlay",
-            {"sceneries": [{"id": 21, "pos": legacy_point(1, 3775), "direction": 6}]},
+            {"sceneries": [{"id": 21, "pos": legacy_point(1, 3775), "direction": 8}]},
         )
         self.add_placement(
             root,
@@ -809,6 +809,11 @@ public final class PackedConversionFailureHarness {
                     all_npcs[0]["roamBounds"]["maximum"],
                 ),
             )
+            all_scenery = [
+                item for payload in placement_payloads for item in payload["scenery"]
+            ]
+            self.assertEqual(1, len(all_scenery))
+            self.assertEqual(8, all_scenery[0]["direction"])
             serialized = b"".join(
                 path.read_bytes() for path in first_output.rglob("*") if path.is_file()
             ).decode("utf-8", errors="ignore")
@@ -852,6 +857,12 @@ public final class PackedConversionFailureHarness {
                 del value["sceneries"][0]["direction"]
                 write_json(path, value)
 
+            def unsupported_scenery_direction(case_source: Path):
+                path = case_source / "server/maps/placements/scenery-overlay.json"
+                value = json.loads(path.read_text())
+                value["sceneries"][0]["direction"] = 9
+                write_json(path, value)
+
             def coordinate_out_of_range(case_source: Path):
                 path = case_source / "server/maps/placements/ground-base.json"
                 value = json.loads(path.read_text())
@@ -892,6 +903,7 @@ public final class PackedConversionFailureHarness {
                 "missing-terrain": missing_coverage,
                 "invalid-definition": invalid_definition,
                 "malformed-record": malformed_record,
+                "unsupported-scenery-direction": unsupported_scenery_direction,
                 "coordinate-edge": coordinate_out_of_range,
                 "unsupported-encoding": unsupported_encoding,
                 "base-precedence-collision": base_precedence_collision,

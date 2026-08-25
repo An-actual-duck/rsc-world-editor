@@ -463,7 +463,7 @@ final class WorldBuilderRegionContracts {
 		} else if ("scenery".equals(family)) {
 			exact(record, op, "levelOffset", "placementId", "sceneryId", "direction",
 				"position");
-			nonnegative(record, "sceneryId", op); range(record, "direction", 0, 7, op);
+			nonnegative(record, "sceneryId", op); range(record, "direction", 0, 8, op);
 			pointOffset(record.get("position"), op);
 		} else throw new AssertionError(family);
 		signed(record, "levelOffset", op); identifier(record, "placementId", op);

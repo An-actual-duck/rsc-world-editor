@@ -579,7 +579,8 @@ final class WorldBuilderGenericLayeredPackage {
 			exact(record, path, "direction", "placementId", "position", "sceneryId");
 			int id = nonnegativeInteger(record, "sceneryId", path);
 			int direction = nonnegativeInteger(record, "direction", path);
-			if (direction > 7) invalid(path, "Scenery direction is outside 0..7.");
+			if (direction > 8) invalid(path,
+				"Scenery direction is outside the legacy range 0..8.");
 			Point point = point(record.get("position"), path);
 			String placement = placementId(record, path, placementIds);
 			String key = orderedPoint(point.x, point.y) + "\u0000" + placement;

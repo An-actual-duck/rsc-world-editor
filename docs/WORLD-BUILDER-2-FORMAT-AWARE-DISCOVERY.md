@@ -501,9 +501,12 @@ record retained, matching the server's deterministic registration behavior
 without weakening duplicate rejection for normal authored overlays. Every
 auxiliary record must still provide valid `id`, `pos`, and `direction` values;
 additional bounded metadata fields that the legacy loader does not consume are
-inert and ignored during normalization. Every copied input or canonical alias
-is size/hash verified and recorded in the derived evidence; the original target
-paths and bytes remain intact.
+inert and ignored during normalization. Legacy scenery direction `8` is
+preserved exactly because supported OpenRSC data and the independent runtime's
+native layered contract use it; new authoring remains limited to `0..7`, and
+values above `8` remain conversion blockers. Every copied input or canonical
+alias is size/hash verified and recorded in the derived evidence; the original
+target paths and bytes remain intact.
 
 The third source-path increment adds exact active-configuration profiles for
 `server/myworld.conf`, root-level `myworld.conf`,

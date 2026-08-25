@@ -119,7 +119,7 @@
       "required": ["levelOffset", "placementId", "sceneryId", "direction", "position"],
       "properties": {
         "levelOffset": {"$ref": "#/$defs/signed"}, "placementId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
-        "sceneryId": {"$ref": "#/$defs/nonnegative"}, "direction": {"type": "integer", "minimum": 0, "maximum": 7}, "position": {"$ref": "#/$defs/offset"}
+        "sceneryId": {"$ref": "#/$defs/nonnegative"}, "direction": {"type": "integer", "minimum": 0, "maximum": 8}, "position": {"$ref": "#/$defs/offset"}
       }
     },
     "footprintReport": {

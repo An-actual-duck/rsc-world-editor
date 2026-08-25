@@ -913,8 +913,8 @@ final class WorldBuilderPackedConversionModel {
 		int id = removal ? -1 : nonnegative(record, "id", source.relativePath, index);
 		int direction = removal ? 0
 			: nonnegative(record, "direction", source.relativePath, index);
-		if (!removal && direction > 7) throw recordError(source.relativePath, index,
-			"Scenery direction is outside 0..7.");
+		if (!removal && direction > 8) throw recordError(source.relativePath, index,
+			"Scenery direction is outside the legacy range 0..8.");
 		if (!removal) requireDefinition(
 			definitions, "scenery", id, source.relativePath, index);
 		return new Placement("scenery", source, index, id, point.level,

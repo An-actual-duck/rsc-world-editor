@@ -110,6 +110,10 @@ to the polygon:
 All coordinates and levels are stored relative to marker 1. Placement IDs are
 preserved. Duplicate IDs or invalid records fail validation.
 
+Scenery snapshots preserve the legacy compatibility direction `8` when it is
+present in imported content. Interactive authoring continues to offer
+directions `0..7`; values above `8` are invalid.
+
 ### Footprint ownership and boundary reports
 
 Version 1 has deterministic ownership rules matching the generic layered

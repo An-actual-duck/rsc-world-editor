@@ -318,7 +318,8 @@ final class WorldBuilderPackedMap {
 		if (!removal) {
 			id = nonnegative(value, "id", source.relativePath);
 			int direction = nonnegative(value, "direction", source.relativePath);
-			if (direction > 7) invalid(source.relativePath, "Scenery direction is outside 0..7.");
+			if (direction > 8) invalid(source.relativePath,
+				"Scenery direction is outside the legacy range 0..8.");
 			definitions.require("scenery", id, source.relativePath);
 		}
 		return new Placement(point.level + ":" + point.x + ":" + point.y, id,
