@@ -650,6 +650,17 @@ missing-scenery fixture, and repeat generation is byte-deterministic.
 Exit gate: unchanged relaunch is fast and deterministic; source changes never
 silently alter an edited project or reuse stale content.
 
+Implementation note: the first Phase 3 increment upgrades the installation-local
+provider catalog to schema v2. Cache authority now binds both the source path
+identity and an exact evidence fingerprint composed from the canonical discovery
+report plus bounded recognized definition/client-asset inventories. Exact
+unchanged bytes produce a cache hit; changed evidence becomes a visible stale
+association and falls back to regeneration from the current recognized layout.
+Malformed catalogs and drifted provider directories are preserved and reported
+as corrupt rather than selected or overwritten. Legacy path-only catalog records
+remain readable only as stale recovery history. Project refresh/rebase remains a
+separate later workflow; an existing edited project is never silently changed.
+
 ### Phase 4 — Three-action launcher
 
 - Reduce the primary UI to the three approved actions.

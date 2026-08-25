@@ -122,11 +122,25 @@ final class WorldBuilderLauncherModel {
 		return new WorldBuilderPortableProvider().discover(source, installation);
 	}
 
+	WorldBuilderPortableProvider.Discovery inspectPortableProvider(
+		DiscoveryPreview preview) throws IOException {
+		return new WorldBuilderPortableProvider().discover(preview.source,
+			installation, preview.report.fingerprintSha256());
+	}
+
 	WorldBuilderPortableProvider.Provider importPortableProvider(Path source,
 		WorldBuilderPortableProvider.GuidedSelection selection)
 		throws IOException, WorldBuilderDiscoveryException {
 		return new WorldBuilderPortableProvider().publishGuided(
 			installation, source, selection);
+	}
+
+	WorldBuilderPortableProvider.Provider importPortableProvider(
+		DiscoveryPreview preview, WorldBuilderPortableProvider.GuidedSelection selection)
+		throws IOException, WorldBuilderDiscoveryException {
+		return new WorldBuilderPortableProvider().publishGuided(
+			installation, preview.source, selection,
+			preview.report.fingerprintSha256());
 	}
 
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(

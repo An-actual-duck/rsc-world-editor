@@ -523,7 +523,7 @@ final class WorldBuilderDesktopLauncher {
 		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview) {
 			WorldBuilderPortableProvider.Discovery providerDiscovery;
 			try {
-				providerDiscovery = model.inspectPortableProvider(preview.source);
+				providerDiscovery = model.inspectPortableProvider(preview);
 			} catch (Exception unavailable) {
 				providerDiscovery = null;
 			}
@@ -729,7 +729,7 @@ final class WorldBuilderDesktopLauncher {
 						Path mapping = itemVisualMappings;
 						if (guidedProvider != null) {
 							mapping = model.importPortableProvider(
-								preview.source, guidedProvider).itemVisuals;
+								preview, guidedProvider).itemVisuals;
 						}
 						return model.create(preview, displayName, mapping);
 					}

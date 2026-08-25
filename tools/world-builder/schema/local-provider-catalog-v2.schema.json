@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/local-provider-catalog-v2.schema.json",
+  "title": "World Builder local provider cache catalog v2",
+  "$comment": "Executable validation additionally enforces canonical provider/source ordering and exact content-addressed directory names. An empty discovery fingerprint preserves a migrated v1 association as non-authoritative history.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "manifestType", "providers"],
+  "properties": {
+    "schemaVersion": {"const": 2},
+    "manifestType": {"const": "world-builder-local-provider-catalog"},
+    "providers": {
+      "type": "array", "maxItems": 32768,
+      "items": {"$ref": "#/$defs/provider"}
+    }
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "providerId": {"type": "string", "pattern": "^provider-[0-9a-f]{16}$"},
+    "provider": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "providerId", "providerRelativePath", "providerFingerprintSha256",
+        "sourceIdentitySha256", "sourceDiscoveryFingerprintSha256"
+      ],
+      "properties": {
+        "providerId": {"$ref": "#/$defs/providerId"},
+        "providerRelativePath": {"$ref": "#/$defs/providerId"},
+        "providerFingerprintSha256": {"$ref": "#/$defs/sha256"},
+        "sourceIdentitySha256": {"$ref": "#/$defs/sha256"},
+        "sourceDiscoveryFingerprintSha256": {
+          "oneOf": [{"$ref": "#/$defs/sha256"}, {"const": ""}]
+        }
+      }
+    }
+  }
+}

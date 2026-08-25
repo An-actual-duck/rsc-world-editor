@@ -283,6 +283,12 @@ class PortableProviderTest(unittest.TestCase):
 
             catalog = installation / "providers/catalog.json"
             catalog_before = catalog.read_bytes()
+            catalog_document = json.loads(catalog_before)
+            self.assertEqual(2, catalog_document["schemaVersion"])
+            self.assertRegex(
+                catalog_document["providers"][0]["sourceDiscoveryFingerprintSha256"],
+                r"^[0-9a-f]{64}$",
+            )
             second = self.run_cli(*command)
             self.assertEqual(0, second.returncode, second.stderr)
             second_summary = json.loads(second.stdout)
@@ -311,6 +317,107 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual(first_summary["providerId"], json.loads(third.stdout)["providerId"])
             self.assertEqual("local", self.discover(installation, source)["status"])
             self.assertEqual("local", self.discover(installation, second_source)["status"])
+
+            # A change to authoritative discovered definition evidence must not
+            # reuse the path-associated provider. The old immutable provider is
+            # preserved while the recognized source becomes a regeneration input.
+            self.write_json(definitions / "ItemDefsCustom.json", {
+                "items": [
+                    {"id": 3310, "name": "Second item, changed"},
+                    {"id": 3311, "name": "New item"},
+                ]
+            })
+            stale = self.discover(installation, source)
+            self.assertEqual("recognized", stale["status"])
+            self.assertEqual("stale", stale["cacheStatus"])
+            self.assertIn("Server content changed", stale["summary"])
+            self.assertTrue(provider.is_dir())
+
+            refreshed = self.run_cli(*command)
+            self.assertEqual(0, refreshed.returncode, refreshed.stderr)
+            refreshed_provider = Path(json.loads(refreshed.stdout)["root"])
+            self.assertNotEqual(provider, refreshed_provider)
+            self.assertTrue(provider.is_dir())
+            self.assertTrue(refreshed_provider.is_dir())
+            refreshed_discovery = self.discover(installation, source)
+            self.assertEqual("local", refreshed_discovery["status"])
+            self.assertEqual("hit", refreshed_discovery["cacheStatus"])
+            self.assertEqual(refreshed_provider,
+                Path(refreshed_discovery["candidates"][0]["root"]))
+
+    def test_corrupt_and_legacy_cache_records_are_preserved_but_never_selected(self):
+        with tempfile.TemporaryDirectory(prefix="portable-provider-cache-safety-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            source = base / "server"
+            installation.mkdir()
+            definitions = source / "server/conf/server/defs"
+            self.write_json(definitions / "ItemDefs.json", {
+                "item": [{"id": 3309, "name": "Cache fixture"}]
+            })
+            video = source / "Client_Base/Cache/video"
+            video.mkdir(parents=True)
+            authentic = video / "Authentic_Sprites.orsc"
+            authentic.write_bytes(b"authentic archive")
+            imported = self.run_cli(
+                "import-item-provider", "--installation-root", installation,
+                "--source-root", source, "--definitions", definitions,
+                "--authentic-archive", authentic,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            provider = Path(json.loads(imported.stdout)["root"])
+            provider_before = snapshot(provider)
+            mapping_before = (provider / "item-visuals.json").read_bytes()
+
+            # Provider payload drift makes the cache corrupt. Discovery reports
+            # it and falls back to the still-recognizable read-only source.
+            (provider / "item-visuals.json").write_bytes(b"corrupt\n")
+            corrupt = self.discover(installation, source)
+            self.assertEqual("recognized", corrupt["status"])
+            self.assertEqual("corrupt", corrupt["cacheStatus"])
+            self.assertIn("cache is corrupt", corrupt["summary"])
+            self.assertNotEqual(provider_before, snapshot(provider))
+
+            corrupt_before = snapshot(provider)
+            repair = self.run_cli(
+                "import-item-provider", "--installation-root", installation,
+                "--source-root", source, "--definitions", definitions,
+                "--authentic-archive", authentic,
+            )
+            self.assertNotEqual(0, repair.returncode)
+            self.assertEqual(corrupt_before, snapshot(provider))
+
+            # A legacy path-only association is intentionally stale even when
+            # its payload is restored; it cannot silently regain authority.
+            (provider / "item-visuals.json").write_bytes(mapping_before)
+            catalog_path = installation / "providers/catalog.json"
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
+            catalog["schemaVersion"] = 1
+            for record in catalog["providers"]:
+                record.pop("sourceDiscoveryFingerprintSha256", None)
+            self.write_json(catalog_path, catalog)
+            legacy = self.discover(installation, source)
+            self.assertEqual("recognized", legacy["status"])
+            self.assertEqual("stale", legacy["cacheStatus"])
+            self.assertTrue(provider.is_dir())
+
+            # An unsafe catalog path is corruption, not an absent cache. It is
+            # preserved and cannot be replaced by a subsequent import.
+            outside = base / "outside-catalog.json"
+            outside.write_bytes(catalog_path.read_bytes())
+            catalog_path.unlink()
+            catalog_path.symlink_to(outside)
+            unsafe = self.discover(installation, source)
+            self.assertEqual("recognized", unsafe["status"])
+            self.assertEqual("corrupt", unsafe["cacheStatus"])
+            repair = self.run_cli(
+                "import-item-provider", "--installation-root", installation,
+                "--source-root", source, "--definitions", definitions,
+                "--authentic-archive", authentic,
+            )
+            self.assertNotEqual(0, repair.returncode)
+            self.assertTrue(catalog_path.is_symlink())
+            self.assertEqual(catalog_path.read_bytes(), outside.read_bytes())
 
 
 if __name__ == "__main__":

@@ -158,10 +158,22 @@ exact hashed visual evidence.
 
 All selected inputs are bounded and copied into a new content-addressed folder
 under the installation's `providers/` directory. The source is unchanged.
-`providers/catalog.json` binds the local source identity to the package and is
-published by an atomic replacement. Importing the same bytes again produces
-the same provider ID and catalog bytes, so later launcher sessions can select
-the local provider automatically.
+`providers/catalog.json` uses the strict
+`local-provider-catalog-v2.schema.json` contract. Each association binds the
+source path identity, the exact discovery/content-evidence fingerprint, and the
+content-addressed provider fingerprint, and is published by an atomic
+replacement. Importing the same source evidence and provider bytes again
+produces the same provider ID and catalog bytes, so later launcher sessions can
+select the local provider automatically.
+
+Path identity alone never authorizes reuse. The evidence fingerprint combines
+the canonical server discovery report with bounded hashes of recognized
+definition and client-asset roots. If those bytes change, World Builder retains
+the old immutable provider for recovery but labels the association **stale** and
+regenerates from the currently recognized layout for a new project. A missing,
+drifted, unsafe, or malformed provider/catalog is reported as **corrupt** and is
+not opened or silently repaired. Catalog-v1 path-only records remain readable
+only as non-authoritative stale history.
 
 For recovery and automation, the same operations are available as:
 

@@ -58,38 +58,93 @@ final class WorldBuilderPortableProvider {
 			Candidate candidate = explicitCandidate(explicit);
 			return new Discovery(Status.EXPLICIT, source,
 				Collections.singletonList(candidate), candidate,
-				"Explicit world-builder-provider package found and selected.");
+				"Explicit world-builder-provider package found and selected.",
+				CacheStatus.BYPASSED);
 		}
+		return discover(source, installation, adaptiveDiscoveryEvidence(source));
+	}
 
-		List<Candidate> local = localCandidates(source, installation);
+	Discovery discover(Path requestedSource, Path installation,
+		String discoveryEvidenceSha256) throws IOException {
+		Path source = requireDirectory(requestedSource, "provider discovery source");
+		if (!WorldBuilderBoundedInventory.isHash(discoveryEvidenceSha256)) {
+			throw new IOException("Provider discovery requires one exact source-evidence SHA-256.");
+		}
+		Path explicit = safeFile(source.resolve(MAPPING_FILE))
+			|| safeFile(source.resolve(PACKAGE_MANIFEST_FILE))
+			? source : source.resolve(PACKAGE_DIRECTORY);
+		if (safeDirectory(explicit)) {
+			Candidate candidate = explicitCandidate(explicit);
+			return new Discovery(Status.EXPLICIT, source,
+				Collections.singletonList(candidate), candidate,
+				"Explicit world-builder-provider package found and selected.",
+				CacheStatus.BYPASSED);
+		}
+		String sourceEvidenceSha256 = sourceEvidence(source, discoveryEvidenceSha256);
+
+		CacheLookup cache = localCandidates(source, installation, sourceEvidenceSha256);
+		List<Candidate> local = cache.candidates;
 		List<Candidate> legacy = legacyCandidates(source);
 		if (local.size() == 1) {
 			Candidate selected = local.get(0);
 			return new Discovery(Status.LOCAL, source, local, selected,
-				"A previously imported local provider was selected for this source.");
+				"An exact unchanged local provider was selected for this server evidence.",
+				CacheStatus.HIT);
 		}
 		if (local.size() > 1) {
 			return new Discovery(Status.AMBIGUOUS, source, local, null,
-				"More than one local provider matches this source. Choose one explicitly.");
+				"More than one exact local provider matches this server evidence. Choose one explicitly.",
+				CacheStatus.AMBIGUOUS);
 		}
 		if (legacy.size() == 1) {
 			Candidate candidate = legacy.get(0);
+			String cacheMessage = cache.corrupt
+				? " The previous local cache is corrupt and was not selected; its files were preserved."
+				: cache.stale > 0
+					? " Server content changed, so the previous local provider was not reused."
+					: "";
 			return new Discovery(Status.RECOGNIZED, source, legacy, candidate,
-				"One recognized neutral OpenRSC content layout was found.");
+				"One recognized neutral OpenRSC content layout was found." + cacheMessage,
+				cache.corrupt ? CacheStatus.CORRUPT
+					: cache.stale > 0 ? CacheStatus.STALE : CacheStatus.MISS);
 		}
 		if (legacy.size() > 1) {
 			return new Discovery(Status.AMBIGUOUS, source, legacy, null,
-				"More than one recognized content layout was found. Choose the exact files in guided import.");
+				"More than one recognized content layout was found. Choose the exact files in guided import.",
+				cache.corrupt ? CacheStatus.CORRUPT
+					: cache.stale > 0 ? CacheStatus.STALE : CacheStatus.MISS);
 		}
+		if (cache.corrupt) return new Discovery(Status.CORRUPT, source,
+			Collections.<Candidate>emptyList(), null,
+			"The local provider cache is corrupt and was preserved. Use Advanced/Recovery to inspect or replace it.",
+			CacheStatus.CORRUPT);
+		if (cache.stale > 0) return new Discovery(Status.STALE, source,
+			Collections.<Candidate>emptyList(), null,
+			"Server content changed, so the previous provider was not reused. Create a new provider/project from current evidence.",
+			CacheStatus.STALE);
 		return new Discovery(Status.NONE, source, Collections.<Candidate>emptyList(),
-			null, "No complete provider layout was found. Use guided import to select the content files.");
+			null, "No complete provider layout was found. Use guided import to select the content files.",
+			CacheStatus.MISS);
 	}
 
 	Provider publishGuided(Path requestedInstallation, Path requestedSource,
 		GuidedSelection selection) throws IOException, WorldBuilderDiscoveryException {
+		Path source = requireDirectory(requestedSource, "guided-import source");
+		return publishGuided(requestedInstallation, source, selection,
+			adaptiveDiscoveryEvidence(source));
+	}
+
+	Provider publishGuided(Path requestedInstallation, Path requestedSource,
+		GuidedSelection selection, String expectedSourceEvidenceSha256)
+		throws IOException, WorldBuilderDiscoveryException {
 		Path installation = requireDirectory(requestedInstallation,
 			"World Builder installation");
 		Path source = requireDirectory(requestedSource, "guided-import source");
+		if (!WorldBuilderBoundedInventory.isHash(expectedSourceEvidenceSha256)) {
+			throw new IOException("Provider import requires one exact discovery-evidence SHA-256.");
+		}
+		String currentSourceEvidence = sourceEvidence(source,
+			expectedSourceEvidenceSha256);
 		selection = selection.normalized();
 		selection.requireUsable();
 
@@ -152,7 +207,7 @@ final class WorldBuilderPortableProvider {
 			}
 			Provider provider = new Provider(providerId, destination,
 				destination.resolve(mappingRelative), fingerprint, files);
-			updateCatalog(providers, source, provider);
+			updateCatalog(providers, source, currentSourceEvidence, provider);
 			published = true;
 			return provider;
 		} finally {
@@ -269,78 +324,92 @@ final class WorldBuilderPortableProvider {
 		return found;
 	}
 
-	private List<Candidate> localCandidates(Path source, Path installation)
+	private CacheLookup localCandidates(Path source, Path installation,
+		String sourceEvidenceSha256)
 		throws IOException {
-		if (installation == null) return Collections.emptyList();
+		if (installation == null) return CacheLookup.empty();
 		Path root;
 		try {
 			root = requireDirectory(installation, "World Builder installation");
 		} catch (IOException unavailable) {
-			return Collections.emptyList();
+			return CacheLookup.empty();
 		}
 		Path catalog = root.resolve(PROVIDERS_DIRECTORY).resolve(CATALOG_FILE);
-		if (!safeFile(catalog) || Files.size(catalog) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
-			return Collections.emptyList();
+		if (!Files.exists(catalog, LinkOption.NOFOLLOW_LINKS)) {
+			return CacheLookup.empty();
+		}
+		if (!safeFile(catalog)
+			|| Files.size(catalog) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			return CacheLookup.corrupt();
 		}
 		try {
-			Map<String,Object> document = WorldBuilderJsonDocuments.readObject(catalog);
-			if (!Long.valueOf(1L).equals(document.get("schemaVersion"))
-				|| !"world-builder-local-provider-catalog".equals(document.get("manifestType"))) {
-				return Collections.emptyList();
-			}
+			CatalogDocument parsed = readCatalog(catalog);
+			boolean version2 = parsed.version == 2;
 			String sourceId = sourceIdentity(source);
-			Object raw = document.get("providers");
-			if (!(raw instanceof List)) return Collections.emptyList();
 			List<Candidate> result = new ArrayList<Candidate>();
-			for (Object entry : (List<?>)raw) {
-				if (!(entry instanceof Map)) continue;
-				@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)entry;
+			int stale = 0;
+			boolean corrupt = false;
+			for (Map<String,Object> value : parsed.records) {
 				if (!sourceId.equals(value.get("sourceIdentitySha256"))) continue;
 				Object relative = value.get("providerRelativePath");
 				Object expectedFingerprint = value.get("providerFingerprintSha256");
-				if (!(relative instanceof String) || !(expectedFingerprint instanceof String)) continue;
+				Object expectedSourceEvidence = value.get("sourceDiscoveryFingerprintSha256");
+				if (!(relative instanceof String) || !(expectedFingerprint instanceof String)) {
+					corrupt = true; continue;
+				}
+				if (!version2 || !(expectedSourceEvidence instanceof String)
+					|| !WorldBuilderBoundedInventory.isHash((String)expectedSourceEvidence)
+					|| !sourceEvidenceSha256.equals(expectedSourceEvidence)) {
+					stale++; continue;
+				}
 				Path provider = root.resolve(PROVIDERS_DIRECTORY).resolve((String)relative).normalize();
-				if (!provider.getParent().equals(root.resolve(PROVIDERS_DIRECTORY))) continue;
+				if (!provider.getParent().equals(root.resolve(PROVIDERS_DIRECTORY))) {
+					corrupt = true; continue;
+				}
 				if (safeDirectory(provider)
 					&& expectedFingerprint.equals(providerFingerprint(inventory(provider)))) {
 					result.add(explicitCandidate(provider));
-				}
+				} else corrupt = true;
 			}
 			Collections.sort(result);
-			return result;
+			return new CacheLookup(result, stale, corrupt);
 		} catch (WorldBuilderDiscoveryException malformed) {
-			return Collections.emptyList();
+			return CacheLookup.corrupt();
+		} catch (IOException malformed) {
+			return CacheLookup.corrupt();
 		}
 	}
 
-	private void updateCatalog(Path providers, Path source, Provider provider)
+	private void updateCatalog(Path providers, Path source,
+		String sourceEvidenceSha256, Provider provider)
 		throws IOException, WorldBuilderDiscoveryException {
 		Path catalog = providers.resolve(CATALOG_FILE);
 		Map<String,Map<String,Object>> byProvider = new TreeMap<String,Map<String,Object>>();
-		if (safeFile(catalog)) {
-			Map<String,Object> existing = WorldBuilderJsonDocuments.readObject(catalog);
-			Object raw = existing.get("providers");
-			if (raw instanceof List) {
-				for (Object entry : (List<?>)raw) {
-					if (!(entry instanceof Map)) continue;
-					@SuppressWarnings("unchecked") Map<String,Object> record = (Map<String,Object>)entry;
+		if (Files.exists(catalog, LinkOption.NOFOLLOW_LINKS)) {
+			if (!safeFile(catalog)
+				|| Files.size(catalog) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+				throw new IOException("Unsafe or oversized local provider catalog was preserved.");
+			}
+			CatalogDocument existing = readCatalog(catalog);
+			for (Map<String,Object> item : existing.records) {
+					Map<String,Object> record = new LinkedHashMap<String,Object>(item);
 					Object id = record.get("providerId");
 					Object sourceId = record.get("sourceIdentitySha256");
-					if (id instanceof String && sourceId instanceof String) {
-						byProvider.put((String)id + "\u0000" + (String)sourceId,
-							new LinkedHashMap<String,Object>(record));
+					if (existing.version == 1) {
+						record.put("sourceDiscoveryFingerprintSha256", "");
 					}
+					byProvider.put((String)id + "\u0000" + (String)sourceId, record);
 				}
-			}
 		}
 		Map<String,Object> record = new LinkedHashMap<String,Object>();
 		record.put("providerId", provider.providerId);
 		record.put("providerRelativePath", provider.providerId);
 		record.put("providerFingerprintSha256", provider.fingerprintSha256);
 		record.put("sourceIdentitySha256", sourceIdentity(source));
+		record.put("sourceDiscoveryFingerprintSha256", sourceEvidenceSha256);
 		byProvider.put(provider.providerId + "\u0000" + sourceIdentity(source), record);
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
-		document.put("schemaVersion", Long.valueOf(1L));
+		document.put("schemaVersion", Long.valueOf(2L));
 		document.put("manifestType", "world-builder-local-provider-catalog");
 		document.put("providers", new ArrayList<Object>(byProvider.values()));
 		byte[] bytes = WorldBuilderJsonDocuments.pretty(document).getBytes(StandardCharsets.UTF_8);
@@ -360,9 +429,112 @@ final class WorldBuilderPortableProvider {
 		}
 	}
 
+	private static CatalogDocument readCatalog(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		Map<String,Object> document = WorldBuilderJsonDocuments.readObject(path);
+		if (!document.keySet().equals(new java.util.HashSet<String>(Arrays.asList(
+			"schemaVersion", "manifestType", "providers")))
+			|| !"world-builder-local-provider-catalog".equals(
+				document.get("manifestType"))) {
+			throw new IOException("Local provider catalog identity or keys are invalid.");
+		}
+		Object rawVersion = document.get("schemaVersion");
+		int version = Long.valueOf(1L).equals(rawVersion) ? 1
+			: Long.valueOf(2L).equals(rawVersion) ? 2 : 0;
+		Object rawRecords = document.get("providers");
+		if (version == 0 || !(rawRecords instanceof List)
+			|| ((List<?>)rawRecords).size() > MAX_PROVIDER_FILES) {
+			throw new IOException("Local provider catalog version or record bound is invalid.");
+		}
+		List<Map<String,Object>> records = new ArrayList<Map<String,Object>>();
+		String previous = "";
+		for (Object raw : (List<?>)rawRecords) {
+			if (!(raw instanceof Map)) throw new IOException(
+				"Local provider catalog record is not an object.");
+			@SuppressWarnings("unchecked") Map<String,Object> record =
+				(Map<String,Object>)raw;
+			java.util.Set<String> expected = new java.util.HashSet<String>(Arrays.asList(
+				"providerId", "providerRelativePath", "providerFingerprintSha256",
+				"sourceIdentitySha256"));
+			if (version == 2) expected.add("sourceDiscoveryFingerprintSha256");
+			Object id = record.get("providerId");
+			Object relative = record.get("providerRelativePath");
+			Object providerHash = record.get("providerFingerprintSha256");
+			Object sourceHash = record.get("sourceIdentitySha256");
+			Object evidenceHash = record.get("sourceDiscoveryFingerprintSha256");
+			if (!record.keySet().equals(expected) || !(id instanceof String)
+				|| !((String)id).matches("provider-[0-9a-f]{16}")
+				|| !id.equals(relative)
+				|| !(providerHash instanceof String)
+				|| !WorldBuilderBoundedInventory.isHash((String)providerHash)
+				|| !(sourceHash instanceof String)
+				|| !WorldBuilderBoundedInventory.isHash((String)sourceHash)
+				|| version == 2 && (!(evidenceHash instanceof String)
+					|| !("".equals(evidenceHash)
+						|| WorldBuilderBoundedInventory.isHash((String)evidenceHash)))) {
+				throw new IOException("Local provider catalog record is invalid.");
+			}
+			String key = (String)id + "\u0000" + (String)sourceHash;
+			if (key.compareTo(previous) <= 0) throw new IOException(
+				"Local provider catalog records are not sorted and unique.");
+			previous = key;
+			records.add(new LinkedHashMap<String,Object>(record));
+		}
+		return new CatalogDocument(version, records);
+	}
+
 	private static String sourceIdentity(Path source) throws IOException {
 		return WorldBuilderHashes.sha256(source.toRealPath().toString()
 			.getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static String adaptiveDiscoveryEvidence(Path source) throws IOException {
+		try {
+			return new WorldBuilderAdaptiveDiscovery().discover(source, null)
+				.fingerprintSha256();
+		} catch (WorldBuilderContractException invalid) {
+			throw new IOException("Server evidence could not be fingerprinted safely: "
+				+ invalid.getMessage(), invalid);
+		}
+	}
+
+	private String sourceEvidence(Path source, String discovery) throws IOException {
+		Path realSource = source.toRealPath();
+		Map<String,FileRecord> evidence = new TreeMap<String,FileRecord>();
+		for (Candidate candidate : legacyCandidates(realSource)) {
+			addEvidence(candidate.root, realSource, evidence);
+			addEvidence(candidate.itemVisuals, realSource, evidence);
+			addEvidence(candidate.definitions, realSource, evidence);
+		}
+		MessageDigest digest = WorldBuilderHashes.newDigest();
+		WorldBuilderHashes.updateText(digest,
+			"world-builder-provider-source-evidence-v2");
+		WorldBuilderHashes.updateText(digest, discovery);
+		for (FileRecord record : evidence.values()) {
+			WorldBuilderHashes.updateText(digest, record.relativePath);
+			WorldBuilderHashes.updateText(digest, Long.toString(record.size));
+			WorldBuilderHashes.updateText(digest, record.sha256);
+		}
+		return WorldBuilderHashes.hex(digest.digest());
+	}
+
+	private static void addEvidence(Path requested, Path source,
+		Map<String,FileRecord> evidence) throws IOException {
+		if (requested == null) return;
+		Path value = requested.toRealPath();
+		if (!value.startsWith(source)) return;
+		if (safeFile(value)) {
+			String relative = source.relativize(value).toString().replace('\\', '/');
+			evidence.put(relative, new FileRecord(relative, Files.size(value),
+				WorldBuilderHashes.sha256(value)));
+			return;
+		}
+		if (!safeDirectory(value)) return;
+		for (FileRecord record : inventory(value)) {
+			String relative = source.relativize(value.resolve(record.relativePath))
+				.toString().replace('\\', '/');
+			evidence.put(relative, new FileRecord(relative, record.size, record.sha256));
+		}
 	}
 
 	private static List<FileRecord> inventory(final Path root) throws IOException {
@@ -633,7 +805,8 @@ final class WorldBuilderPortableProvider {
 		});
 	}
 
-	enum Status { EXPLICIT, RECOGNIZED, LOCAL, AMBIGUOUS, NONE }
+	enum Status { EXPLICIT, RECOGNIZED, LOCAL, AMBIGUOUS, STALE, CORRUPT, NONE }
+	enum CacheStatus { BYPASSED, HIT, MISS, STALE, CORRUPT, AMBIGUOUS }
 
 	static final class Discovery {
 		final Status status;
@@ -641,14 +814,16 @@ final class WorldBuilderPortableProvider {
 		final List<Candidate> candidates;
 		final Candidate selected;
 		final String summary;
+		final CacheStatus cacheStatus;
 
 		Discovery(Status status, Path source, List<Candidate> candidates,
-			Candidate selected, String summary) {
+			Candidate selected, String summary, CacheStatus cacheStatus) {
 			this.status = status;
 			this.source = source;
 			this.candidates = Collections.unmodifiableList(new ArrayList<Candidate>(candidates));
 			this.selected = selected;
 			this.summary = summary;
+			this.cacheStatus = cacheStatus;
 		}
 
 		boolean automatic() { return selected != null; }
@@ -669,11 +844,45 @@ final class WorldBuilderPortableProvider {
 			value.put("status", status.name().toLowerCase(java.util.Locale.ROOT));
 			value.put("source", source.toString());
 			value.put("summary", summary);
+			value.put("cacheStatus", cacheStatus.name().toLowerCase(
+				java.util.Locale.ROOT));
 			value.put("selectedProfileId", selected == null ? null : selected.profileId);
 			List<Object> values = new ArrayList<Object>();
 			for (Candidate candidate : candidates) values.add(candidate.toMap());
 			value.put("candidates", values);
 			return WorldBuilderJsonDocuments.pretty(value);
+		}
+	}
+
+	private static final class CacheLookup {
+		final List<Candidate> candidates;
+		final int stale;
+		final boolean corrupt;
+
+		CacheLookup(List<Candidate> candidates, int stale, boolean corrupt) {
+			this.candidates = Collections.unmodifiableList(
+				new ArrayList<Candidate>(candidates));
+			this.stale = stale;
+			this.corrupt = corrupt;
+		}
+
+		static CacheLookup empty() {
+			return new CacheLookup(Collections.<Candidate>emptyList(), 0, false);
+		}
+
+		static CacheLookup corrupt() {
+			return new CacheLookup(Collections.<Candidate>emptyList(), 0, true);
+		}
+	}
+
+	private static final class CatalogDocument {
+		final int version;
+		final List<Map<String,Object>> records;
+
+		CatalogDocument(int version, List<Map<String,Object>> records) {
+			this.version = version;
+			this.records = Collections.unmodifiableList(
+				new ArrayList<Map<String,Object>>(records));
 		}
 	}
 

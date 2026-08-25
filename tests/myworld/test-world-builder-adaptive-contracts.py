@@ -1009,6 +1009,20 @@ def project_content_bundle_v3() -> dict:
     return value
 
 
+def local_provider_catalog() -> dict:
+    return {
+        "schemaVersion": 2,
+        "manifestType": "world-builder-local-provider-catalog",
+        "providers": [{
+            "providerId": "provider-" + "a" * 16,
+            "providerRelativePath": "provider-" + "a" * 16,
+            "providerFingerprintSha256": HASH_A,
+            "sourceIdentitySha256": HASH_B,
+            "sourceDiscoveryFingerprintSha256": HASH_C,
+        }],
+    }
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -1053,6 +1067,7 @@ SCHEMA_CONTRACTS = {
     "project-content-bundle-v2.schema.json": (2, "world-builder-project-content-bundle"),
     "project-content-bundle-v3.schema.json": (3, "world-builder-project-content-bundle"),
     "npc-animation-registry-v1.schema.json": (1, "world-builder-npc-animation-registry"),
+    "local-provider-catalog-v2.schema.json": (2, "world-builder-local-provider-catalog"),
 }
 
 REGION_SCHEMA_VECTORS = {
@@ -1265,6 +1280,8 @@ class AdaptiveContractTests(unittest.TestCase):
                     document = project_content_bundle_v3()
                 elif name == "npc-animation-registry-v1.schema.json":
                     document = npc_animation_registry()
+                elif name == "local-provider-catalog-v2.schema.json":
+                    document = local_provider_catalog()
                 else:
                     document = factories_by_type[manifest_type]()
                 document["schemaVersion"] = version
