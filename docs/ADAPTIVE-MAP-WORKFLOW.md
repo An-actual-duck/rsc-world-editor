@@ -288,11 +288,14 @@ project**, but the project remains visibly unattached and cannot import.
 ### D. Reopen, move, or replace projects
 
 World Builder records projects by UUID, not display name or absolute server
-path. The desktop launcher offers New Empty World, Use Detected Server Map,
-Open Existing Project, and Select Another Supported Source. Existing-project
-selection validates and selects the UUID project before starting the same
-supervised client/server path used by CLI automation. Cancellation does not
-create, select, or launch anything.
+path. The desktop launcher's primary surface contains only **Create New
+Project**, **Detect Server Map**, and **Continue Working on Selected Project**.
+The current/most-recent project is selected by default. Alternate source roots,
+registered-project folder browsing, provider choices, diagnostic export, and
+cache recovery live under **Advanced / Recovery**. Existing-project selection
+validates and selects the UUID project before starting the same supervised
+client/server path used by CLI automation. Cancellation does not create,
+select, or launch anything.
 
 The source chooser selects a directory for the compiled adaptive discovery
 adapters, not an untyped individual map file. The existing-project chooser

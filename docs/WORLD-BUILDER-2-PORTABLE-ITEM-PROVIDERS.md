@@ -23,11 +23,13 @@ The normal end-user path does not involve an AI handoff, build-output folder,
 or internal JSON filename:
 
 1. A server maintainer ships `world-builder-provider/` in the server root.
-2. The player puts `World Builder 2/` in that same root and chooses **Use
-   Detected Server Map**. The provider is selected automatically.
-3. If the maintainer distributes the provider separately, the player chooses
-   **Select Another Supported Source**, then **Choose complete provider
-   package…**, and selects the `world-builder-provider` folder itself.
+2. The player puts `World Builder 2/` in that same root and chooses **Detect
+   Server Map**. The provider is selected automatically without folder
+   navigation.
+3. If the maintainer distributes the provider separately, the player opens
+   **Advanced / Recovery**, chooses **Detected Server Content Options…** or
+   **Select Another Supported Source…**, then chooses the complete provider
+   package. These file controls stay outside the normal end-user path.
 
 The complete package is copied into the installation-local provider catalog
 and remembered for that source. The player never needs to locate

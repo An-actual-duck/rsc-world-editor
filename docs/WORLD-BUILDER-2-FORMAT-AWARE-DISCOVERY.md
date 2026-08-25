@@ -685,6 +685,15 @@ Exit gate: a nontechnical user can install in a compatible server root and
 reach an isolated editable project without navigating the filesystem or
 understanding providers.
 
+Implementation note: the primary desktop surface now exposes exactly **Create
+New Project**, **Detect Server Map**, and **Continue Working on Selected
+Project**. The selected/current project is the default action. Adjacent-server
+detection presents a concise compatibility/custom-content summary and prepares
+recognized content automatically. Alternate roots, registered-project folder
+browsing, explicit/guided provider choices, diagnostic export, and cache reset
+are available only under **Advanced / Recovery**. Ambiguity remains visible and
+routes to those controls rather than silently choosing an authority.
+
 ### Phase 5 — Compatibility matrix and release hardening
 
 - Test multiple structural layouts and schema variants on Linux and Windows

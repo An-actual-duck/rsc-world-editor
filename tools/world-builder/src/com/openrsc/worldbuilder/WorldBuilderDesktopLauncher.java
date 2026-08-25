@@ -139,7 +139,7 @@ final class WorldBuilderDesktopLauncher {
 			String suggested;
 			if (action == Action.NEW_EMPTY) {
 				preview = model.inspectEmptyWorld();
-				suggested = "New Empty World";
+				suggested = "New World";
 			} else if (action == Action.DETECTED_SERVER) {
 				preview = detected == null ? model.inspectDefaultTarget() : detected;
 				suggested = "Imported Server Map";
@@ -158,7 +158,7 @@ final class WorldBuilderDesktopLauncher {
 			String displayName = scriptedUi.requestDisplayName(suggested);
 			if (displayName == null || displayName.trim().isEmpty()) return 0;
 			if (!scriptedUi.confirmCreation(
-				action == Action.NEW_EMPTY ? "Create New Empty World"
+				action == Action.NEW_EMPTY ? "Create New Project"
 					: "Create Isolated Project from Server Map",
 				preview.summary)) return 0;
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
@@ -263,12 +263,9 @@ final class WorldBuilderDesktopLauncher {
 			new JList<WorldBuilderLauncherModel.ProjectEntry>(projects);
 		private final JTextArea details = readOnlyText();
 		private final JLabel status = new JLabel("Ready");
-		private final JButton open = new JButton("Open Existing Project");
-		private final JButton empty = new JButton("New Empty World");
-		private final JButton installedSource = new JButton("Use Detected Server Map");
-		private final JButton chooseSource = new JButton("Select Another Supported Source…");
-		private final JButton chooseProject = new JButton("Browse Existing Projects…");
-		private final JButton refresh = new JButton("Refresh Projects");
+		private final JButton open = new JButton("Continue Working on Selected Project");
+		private final JButton empty = new JButton("Create New Project");
+		private final JButton installedSource = new JButton("Detect Server Map");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
 
@@ -298,17 +295,14 @@ final class WorldBuilderDesktopLauncher {
 			});
 
 			JMenu file = new JMenu("File");
-			file.add(menu("Open Existing Project", new Runnable() {
+			file.add(menu("Continue Working on Selected Project", new Runnable() {
 				@Override public void run() { openSelected(); }
 			}));
-			file.add(menu("New Empty World", new Runnable() {
+			file.add(menu("Create New Project", new Runnable() {
 				@Override public void run() { createEmpty(); }
 			}));
-			file.add(menu("Use Detected Server Map", new Runnable() {
+			file.add(menu("Detect Server Map", new Runnable() {
 				@Override public void run() { inspectInstalledSource(); }
-			}));
-			file.add(menu("Select Another Supported Source…", new Runnable() {
-				@Override public void run() { chooseSource(); }
 			}));
 			file.add(new JSeparator());
 			file.add(menu("Exit", new Runnable() {
@@ -317,6 +311,19 @@ final class WorldBuilderDesktopLauncher {
 			JMenuBar menuBar = new JMenuBar();
 			menuBar.add(file);
 			JMenu recovery = new JMenu("Advanced / Recovery");
+			recovery.add(menu("Detected Server Content Options…", new Runnable() {
+				@Override public void run() { inspectInstalledSource(true); }
+			}));
+			recovery.add(menu("Select Another Supported Source…", new Runnable() {
+				@Override public void run() { chooseSource(); }
+			}));
+			recovery.add(menu("Browse Existing Project Folders…", new Runnable() {
+				@Override public void run() { chooseExistingProject(); }
+			}));
+			recovery.add(menu("Refresh Project List", new Runnable() {
+				@Override public void run() { refreshProjects(null); }
+			}));
+			recovery.add(new JSeparator());
 			recovery.add(menu("Export Detected Server Diagnostics", new Runnable() {
 				@Override public void run() { exportDetectedProviderDiagnostic(); }
 			}));
@@ -333,12 +340,8 @@ final class WorldBuilderDesktopLauncher {
 			title.setFont(title.getFont().deriveFont(Font.BOLD, 25f));
 			heading.add(title);
 			heading.add(Box.createVerticalStrut(5));
-			heading.add(new JLabel("Choose a project to edit, create an empty world, "
-				+ "or safely copy a supported server map into a new project."));
-			heading.add(Box.createVerticalStrut(7));
-			JLabel install = new JLabel("Application folder: " + model.installation());
-			install.setForeground(new Color(80, 80, 80));
-			heading.add(install);
+			heading.add(new JLabel("Continue a project, create a new world, or detect "
+				+ "the server map beside this application."));
 			frame.add(heading, BorderLayout.NORTH);
 
 			projectList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -370,9 +373,14 @@ final class WorldBuilderDesktopLauncher {
 			open.addActionListener(event -> openSelected());
 			empty.addActionListener(event -> createEmpty());
 			installedSource.addActionListener(event -> inspectInstalledSource());
-			chooseSource.addActionListener(event -> chooseSource());
-			chooseProject.addActionListener(event -> chooseExistingProject());
-			refresh.addActionListener(event -> refreshProjects(null));
+			for (JButton primary : new JButton[] {empty, installedSource, open}) {
+				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
+				primary.setPreferredSize(new Dimension(245, 44));
+			}
+			empty.setToolTipText("Create a new isolated empty world.");
+			installedSource.setToolTipText(
+				"Find and safely copy the map from the server beside World Builder.");
+			open.setToolTipText("Open the selected project and continue editing.");
 
 			JPanel actions = new JPanel(new GridBagLayout());
 			actions.setBorder(BorderFactory.createEmptyBorder(0, 20, 12, 20));
@@ -381,17 +389,11 @@ final class WorldBuilderDesktopLauncher {
 			action.fill = GridBagConstraints.HORIZONTAL;
 			action.weightx = 1;
 			action.gridx = 0; action.gridy = 0;
-			actions.add(open, action);
-			action.gridx = 1;
 			actions.add(empty, action);
-			action.gridx = 2;
-			actions.add(installedSource, action);
-			action.gridx = 0; action.gridy = 1;
-			actions.add(chooseSource, action);
 			action.gridx = 1;
-			actions.add(chooseProject, action);
+			actions.add(installedSource, action);
 			action.gridx = 2;
-			actions.add(refresh, action);
+			actions.add(open, action);
 
 			JPanel bottom = new JPanel(new BorderLayout());
 			bottom.add(actions, BorderLayout.CENTER);
@@ -431,9 +433,14 @@ final class WorldBuilderDesktopLauncher {
 					}
 					if (selected < 0 && !entries.isEmpty()) selected = 0;
 					if (selected >= 0) projectList.setSelectedIndex(selected);
-					else details.setText("No projects are registered in this installation.\n\n"
-						+ "Create a new empty world, or choose a supported server/map source.\n"
-						+ "Nothing in a server is overwritten during project creation or editing.");
+					else {
+						details.setText("No projects are registered in this installation.\n\n"
+							+ "Choose Create New Project for an empty world, or Detect Server Map "
+							+ "to copy the adjacent server into an isolated project.\n"
+							+ "Nothing in a server is overwritten during project creation or editing.");
+						frame.getRootPane().setDefaultButton(
+							model.defaultTarget() == null ? empty : installedSource);
+					}
 					status.setText(entries.isEmpty() ? "Ready — no projects yet"
 						: "Ready — " + entries.size() + " project"
 							+ (entries.size() == 1 ? "" : "s"));
@@ -445,12 +452,11 @@ final class WorldBuilderDesktopLauncher {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			open.setEnabled(!busy && entry != null);
 			if (entry == null) return;
-			details.setText("Name: " + entry.displayName
-				+ "\nProject ID: " + entry.projectId
-				+ "\nType: " + originLabel(entry.origin)
-				+ "\nCompatibility state: " + entry.state
-				+ "\nSelected: " + (entry.active ? "Yes" : "No")
-				+ "\nProject folder: " + entry.projectRoot
+			frame.getRootPane().setDefaultButton(open);
+			details.setText("Project: " + entry.displayName
+				+ "\nWorld type: " + originLabel(entry.origin)
+				+ "\nStatus: " + entry.state
+				+ "\nCurrent project: " + (entry.active ? "Yes" : "No")
 				+ "\n\nOpening validates the complete project before starting its private "
 				+ "client and server. Editing remains isolated here until you explicitly "
 				+ "run the separate Import Map Changes action.");
@@ -469,13 +475,13 @@ final class WorldBuilderDesktopLauncher {
 
 		private void createEmpty() {
 			if (busy) return;
-			final JTextField name = new JTextField("New Empty World", 28);
+			final JTextField name = new JTextField("New World", 28);
 			Object[] message = {
 				"Create a new standalone empty world", Box.createVerticalStrut(5),
 				"This creates an isolated project. It does not read or change a server map.",
 				"Project name:", name
 			};
-			if (JOptionPane.showConfirmDialog(frame, message, "New Empty World",
+			if (JOptionPane.showConfirmDialog(frame, message, "Create New Project",
 				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
 				!= JOptionPane.OK_OPTION) return;
 			final String displayName = name.getText().trim();
@@ -495,13 +501,17 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void inspectInstalledSource() {
+			inspectInstalledSource(false);
+		}
+
+		private void inspectInstalledSource(boolean advanced) {
 			if (busy) return;
 			if (model.defaultTarget() == null) {
 				showError("This application has no parent server/source folder. "
-					+ "Choose another source folder instead.", null);
+					+ "Use Advanced / Recovery to choose another supported source.", null);
 				return;
 			}
-			inspectSource(model.defaultTarget());
+			inspectSource(model.defaultTarget(), advanced);
 		}
 
 		private void chooseSource() {
@@ -513,17 +523,17 @@ final class WorldBuilderDesktopLauncher {
 			if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) return;
 			Path selected = chooser.getSelectedFile().toPath();
 			settings.rememberSource(selected);
-			inspectSource(selected);
+			inspectSource(selected, true);
 		}
 
-		private void inspectSource(final Path source) {
+		private void inspectSource(final Path source, final boolean advanced) {
 			runTask("Inspecting source read-only…",
 				new Task<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public WorldBuilderLauncherModel.DiscoveryPreview run()
 						throws Exception { return model.inspectSource(source); }
 				}, new Success<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public void accept(WorldBuilderLauncherModel.DiscoveryPreview preview) {
-						showSourcePreview(preview);
+						showSourcePreview(preview, advanced);
 					}
 				});
 		}
@@ -574,7 +584,8 @@ final class WorldBuilderDesktopLauncher {
 				});
 		}
 
-		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview) {
+		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview,
+			boolean advanced) {
 			WorldBuilderPortableProvider.Discovery providerDiscovery;
 			try {
 				providerDiscovery = model.inspectPortableProvider(preview);
@@ -582,23 +593,32 @@ final class WorldBuilderDesktopLauncher {
 				providerDiscovery = null;
 			}
 			JTextArea report = readOnlyText();
-			report.setRows(9);
-			report.setText("Source folder: " + preview.source
+			report.setRows(advanced ? 9 : 7);
+			String sourceLabel = advanced ? preview.source.toString()
+				: preview.source.getFileName() == null ? "Detected adjacent server"
+					: preview.source.getFileName().toString();
+			report.setText((advanced ? "Source folder: " : "Detected server: ") + sourceLabel
 				+ "\nCompatibility: " + preview.status
 				+ "\nDetected format: " + formatLabel(preview.representation)
 				+ "\n\n" + preview.summary
-				+ "\n\nSupported packed maps are copied and converted; compatible layered "
-				+ "maps are copied unchanged. Individual arbitrary map files are not "
-				+ "guessed. The source remains unchanged.\n\nItem visual provider: "
-				+ (providerDiscovery == null
-					? "Provider discovery could not inspect this layout. Guided import remains available."
-					: providerDiscovery.describe())
-				+ "\n\nProvider content is copied into this World Builder installation. "
-				+ "The selected server remains read-only and no target JAR is executed.");
+				+ "\n\nCustom content: " + customContentSummary(providerDiscovery)
+				+ "\n\nThe map and required content are copied into an isolated project. "
+				+ "The server remains unchanged and no target JAR is executed."
+				+ (advanced && providerDiscovery != null
+					? "\n\nAdvanced discovery details:\n" + providerDiscovery.describe() : ""));
 			report.setCaretPosition(0);
 			if (!preview.canCreateServerProject()) {
 				JOptionPane.showMessageDialog(frame, new JScrollPane(report),
 					"Source Is Not Ready", JOptionPane.WARNING_MESSAGE);
+				return;
+			}
+			if (!advanced && providerDiscovery != null
+				&& providerDiscovery.status == WorldBuilderPortableProvider.Status.AMBIGUOUS) {
+				JOptionPane.showMessageDialog(frame,
+					new Object[] {new JScrollPane(report),
+						"More than one custom-content layout was found. Use Advanced / Recovery "
+							+ "→ Detected Server Content Options to choose the exact layout."},
+					"A Content Choice Is Needed", JOptionPane.WARNING_MESSAGE);
 				return;
 			}
 			JTextField name = new JTextField("Imported Server Map", 28);
@@ -649,10 +669,12 @@ final class WorldBuilderDesktopLauncher {
 					}
 				}
 			});
-			Object[] message = {new JScrollPane(report), "Project name:", name,
-				"Custom content provider:", providerStatus, choosePackage, chooseProvider};
+			Object[] message = advanced
+				? new Object[] {new JScrollPane(report), "Project name:", name,
+					"Custom content provider:", providerStatus, choosePackage, chooseProvider}
+				: new Object[] {new JScrollPane(report), "Project name:", name};
 			if (JOptionPane.showConfirmDialog(frame, message,
-				"Create Isolated Project from Server Map",
+				advanced ? "Advanced Server Map Import" : "Create Project from Detected Server",
 				JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE)
 				!= JOptionPane.OK_OPTION) return;
 			String displayName = name.getText().trim();
@@ -668,6 +690,31 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			createPreviewedProject(preview, displayName, automaticMapping, guided[0]);
+		}
+
+		private static String customContentSummary(
+			WorldBuilderPortableProvider.Discovery discovery) {
+			if (discovery == null) return "Automatic inspection was unavailable. Creation "
+				+ "will continue only if the detected definitions and assets are complete.";
+			switch (discovery.cacheStatus) {
+				case BYPASSED:
+					return "A complete server-provided content package is ready.";
+				case HIT:
+					return "The unchanged local content cache is ready.";
+				case STALE:
+					return "Server content changed. Fresh content will be prepared for this "
+						+ "new project; existing projects remain unchanged.";
+				case CORRUPT:
+					return "A cache problem was detected and the affected cache will not be "
+						+ "reused. Recovery controls are available under Advanced / Recovery.";
+				case AMBIGUOUS:
+					return "More than one valid content layout was found; an advanced choice is required.";
+				case MISS:
+				default:
+					return discovery.status == WorldBuilderPortableProvider.Status.RECOGNIZED
+						? "A compatible server content layout was detected and will be copied locally."
+						: "No separate custom-content package was required or detected.";
+			}
 		}
 
 		private WorldBuilderPortableProvider.GuidedSelection guidedProviderSelection(
@@ -892,9 +939,6 @@ final class WorldBuilderDesktopLauncher {
 			projectList.setEnabled(!value);
 			empty.setEnabled(!value);
 			installedSource.setEnabled(!value);
-			chooseSource.setEnabled(!value);
-			chooseProject.setEnabled(!value);
-			refresh.setEnabled(!value);
 			open.setEnabled(!value && projectList.getSelectedValue() != null);
 			status.setText(message);
 		}
