@@ -1,8 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.SeekableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -10,12 +8,9 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * Canonical diagnostic proving effective placement IDs resolve to captured
@@ -27,8 +22,6 @@ final class WorldBuilderContentReconciliation {
 	private static final String TYPE = "world-builder-content-reconciliation";
 	private static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
-	private static final int MAX_ARCHIVE_ENTRIES = 8192;
-
 	private static final List<String> FAMILIES = Collections.unmodifiableList(
 		Arrays.asList("floor", "boundary", "ground-item", "npc", "scenery"));
 
@@ -54,7 +47,8 @@ final class WorldBuilderContentReconciliation {
 			families.add(family(family, catalog, used, bundle));
 		}
 
-		ArchiveIndex models = inspectModelArchive(bundle.pathForRole("asset.model"));
+		WorldBuilderNativeArchiveIndex models = WorldBuilderNativeArchiveIndex.inspect(
+			bundle.pathForRole("asset.model"));
 		Map<String,Object> modelEvidence = bundle.evidenceForRole("asset.model");
 		String packagedModelArchiveSha256 = WorldBuilderHashes.sha256(
 			runtime.verifiedSourcePath("client/Cache/video/models.orsc"));
@@ -114,9 +108,7 @@ final class WorldBuilderContentReconciliation {
 				resolution = "packaged-runtime";
 			} else {
 				modelHash = modelHash(target.modelName + ".ob3");
-				if ("indexed".equals(models.status)
-					&& models.hashes.contains(Integer.valueOf(filenameHash(
-						target.modelName + ".ob3")))) {
+				if (models.containsValidModel(target.modelName + ".ob3")) {
 					resolution = "project-archive";
 				} else if ("indexed".equals(models.status)) {
 					resolution = "missing";
@@ -281,75 +273,8 @@ final class WorldBuilderContentReconciliation {
 			+ "\u0000" + issue.get("assetRole");
 	}
 
-	private static ArchiveIndex inspectModelArchive(Path path) {
-		try (SeekableByteChannel input = Files.newByteChannel(path, StandardOpenOption.READ)) {
-			long fileSize = input.size();
-			if (fileSize < 8L) return ArchiveIndex.unverified("malformed",
-				"models.orsc is too short to contain a native archive index.");
-			ByteBuffer header = ByteBuffer.allocate(8);
-			readFully(input, header); header.flip();
-			long expanded = uint24(header); long stored = uint24(header);
-			if (stored + 6L != fileSize) return ArchiveIndex.unverified("malformed",
-				"models.orsc outer sizes do not match its exact file length.");
-			if (expanded != stored) return ArchiveIndex.unverified("compressed-unverified",
-				"models.orsc uses an outer compressed payload not inspected by this adapter.");
-			int count = header.getShort() & 0xffff;
-			if (count < 1 || count > MAX_ARCHIVE_ENTRIES) return ArchiveIndex.unverified(
-				"malformed", "models.orsc entry count is outside 1..8192.");
-			long directoryBytes = (long)count * 10L;
-			if (2L + directoryBytes > stored) return ArchiveIndex.unverified(
-				"malformed", "models.orsc directory exceeds its payload.");
-			ByteBuffer directory = ByteBuffer.allocate((int)directoryBytes);
-			readFully(input, directory); directory.flip();
-			Set<Integer> hashes = new HashSet<Integer>();
-			long payloadBytes = 0L;
-			for (int index = 0; index < count; index++) {
-				int hash = directory.getInt();
-				long entryExpanded = uint24(directory);
-				long entryStored = uint24(directory);
-				if (!hashes.add(Integer.valueOf(hash)) || entryExpanded < 1L
-					|| entryStored < 1L || payloadBytes + entryStored > stored) {
-					return ArchiveIndex.unverified("malformed",
-						"models.orsc has a duplicate hash or invalid entry size.");
-				}
-				payloadBytes += entryStored;
-			}
-			if (2L + directoryBytes + payloadBytes != stored) {
-				return ArchiveIndex.unverified("malformed",
-					"models.orsc indexed payload sizes do not close exactly.");
-			}
-			return new ArchiveIndex("indexed", count, hashes,
-				"Native model archive index is structurally complete.");
-		} catch (Exception failure) {
-			return ArchiveIndex.unverified("malformed",
-				"models.orsc could not be read as a bounded native archive index.");
-		}
-	}
-
-	private static void readFully(SeekableByteChannel input, ByteBuffer buffer)
-		throws IOException {
-		while (buffer.hasRemaining()) {
-			if (input.read(buffer) < 0) throw new IOException("unexpected archive EOF");
-		}
-	}
-
-	private static long uint24(ByteBuffer input) {
-		return ((long)input.get() & 0xffL) << 16
-			| ((long)input.get() & 0xffL) << 8
-			| ((long)input.get() & 0xffL);
-	}
-
-	private static int filenameHash(String name) {
-		int result = 0;
-		String upper = name.toUpperCase(java.util.Locale.ROOT);
-		for (int index = 0; index < upper.length(); index++) {
-			result = result * 61 + upper.charAt(index) - 32;
-		}
-		return result;
-	}
-
 	private static String modelHash(String name) {
-		return String.format("%08x", filenameHash(name));
+		return String.format("%08x", WorldBuilderNativeArchiveIndex.filenameHash(name));
 	}
 
 	private static void bindFingerprint(Map<String,Object> report) {
@@ -364,19 +289,4 @@ final class WorldBuilderContentReconciliation {
 			"Recreate the project from one stable complete content set.");
 	}
 
-	private static final class ArchiveIndex {
-		final String status;
-		final int entryCount;
-		final Set<Integer> hashes;
-		final String detail;
-		ArchiveIndex(String status, int entryCount, Set<Integer> hashes, String detail) {
-			this.status = status;
-			this.entryCount = entryCount;
-			this.hashes = Collections.unmodifiableSet(new TreeSet<Integer>(hashes));
-			this.detail = detail;
-		}
-		static ArchiveIndex unverified(String status, String detail) {
-			return new ArchiveIndex(status, 0, Collections.<Integer>emptySet(), detail);
-		}
-	}
 }

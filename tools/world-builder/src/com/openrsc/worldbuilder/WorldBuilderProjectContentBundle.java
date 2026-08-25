@@ -169,6 +169,8 @@ final class WorldBuilderProjectContentBundle {
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
 			WorldBuilderNpcDefinitionProvider.consume(
 				explicitMappings, copiedTarget, targetCatalog);
+		WorldBuilderSceneryModelProvider.Result sceneryMigration =
+			WorldBuilderSceneryModelProvider.normalize(copiedTarget, runtime);
 		Map<String,Object> packagedCatalog =
 			WorldBuilderStandaloneDefinitionCatalog.generate(runtime,
 				"packaged-content-comparison-v1");
@@ -207,7 +209,12 @@ final class WorldBuilderProjectContentBundle {
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
 			boolean overridden = false;
-			if (npcMigration.changed() && "definition.npc.custom".equals(spec.role)) {
+			if (sceneryMigration.changed()
+				&& "definition.scenery".equals(spec.role)) {
+				Files.write(destination, sceneryMigration.definitionsOverride);
+				overridden = true;
+			} else if (npcMigration.changed()
+				&& "definition.npc.custom".equals(spec.role)) {
 				Files.write(destination, npcMigration.customDefinitions);
 				overridden = true;
 			} else if (migration != null && "asset.sprite.custom".equals(spec.role)
@@ -235,6 +242,7 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
+		WorldBuilderSceneryModelProvider.writeReport(projectStage, sceneryMigration);
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
 			successor ? "target-adopted-content-v2" : "target-adopted-content-v1");

@@ -536,6 +536,25 @@ placement IDs look valid. Model-entry resolution and warnings remain in the
 existing content reconciliation ledger; additional declarative scenery formats
 must enter through later versioned adapters rather than being guessed.
 
+The next Phase 2 increment closes the inspectable native scenery-model gap.
+The model reconciler and project-content producer now share one bounded native
+ORSC index reader. For an uncompressed, structurally complete model archive,
+every concrete `objectModel` in the effective authoring catalog is checked by
+its native filename hash and bounded OB3 structure. A definition whose model
+is provably absent or malformed is
+rewritten only in the isolated project content bundle to use one deterministic
+existing model entry; its scenery ID and name are preserved, and the original
+model name, replacement model, and affected ID are recorded in
+`diagnostics/scenery-model-provider-warnings.json`. The desktop creation result
+surfaces that warning before launch. If the archive contains no definition-
+backed model that can truthfully serve as a visible placeholder, project
+creation blocks before publication. Byte-identical repeated inputs produce the
+same normalized content and report, while the selected server remains
+unchanged. Runtime-generated models already proven by the pinned runtime are
+preserved. Outer-compressed or otherwise opaque model archives remain explicit
+unverified evidence for a later archive-format adapter; they are not guessed or
+rewritten by this increment.
+
 ## Implementation phases
 
 ### Phase 0 — Baseline inventory and acceptance fixtures

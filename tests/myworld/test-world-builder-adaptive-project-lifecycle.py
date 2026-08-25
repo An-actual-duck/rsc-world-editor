@@ -146,6 +146,19 @@ def native_model_archive(entries: dict[str, bytes]) -> bytes:
     return len(expanded).to_bytes(3, "big") * 2 + expanded
 
 
+def native_triangle_model() -> bytes:
+    """Minimal nonempty OB3 model accepted by the native client reader."""
+    return (
+        struct.pack(">HH", 3, 1)
+        + struct.pack(">hhh", 0, 64, 0)
+        + struct.pack(">hhh", 0, 0, -64)
+        + struct.pack(">hhh", 0, 0, 64)
+        + bytes((3,))
+        + struct.pack(">hh", 0, 0)
+        + bytes((0, 0, 1, 2))
+    )
+
+
 def one_pixel_png(color: int) -> bytes:
     def chunk(kind: bytes, data: bytes) -> bytes:
         return (
@@ -4176,7 +4189,8 @@ public final class FakeAdaptiveClient {
             )
             (target / "Client_Base/Cache/video/models.orsc").write_bytes(
                 native_model_archive({
-                    "collaborator_scenery.ob3": b"fixture-ob3-model\n",
+                    "absent_scenery.ob3": b"malformed-ob3",
+                    "collaborator_scenery.ob3": native_triangle_model(),
                 })
             )
             server_terrain = (
@@ -4318,12 +4332,28 @@ public final class FakeAdaptiveClient {
                 value for value in content_reconciliation["sceneryModels"]
                 if value["sceneryId"] == 58
             )
-            self.assertEqual("missing", missing_scenery["resolution"])
-            self.assertTrue(any(
+            self.assertEqual("collaborator_scenery", missing_scenery["modelName"])
+            self.assertEqual("project-archive", missing_scenery["resolution"])
+            self.assertFalse(any(
                 issue["code"] == "SCENERY_MODEL_MISSING"
-                and issue["definitionId"] == 58
                 for issue in content_reconciliation["issues"]
             ))
+            scenery_warnings = json.loads((
+                project / "diagnostics/scenery-model-provider-warnings.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual("collaborator_scenery", scenery_warnings[
+                "placeholderModelName"
+            ])
+            self.assertEqual(
+                [{
+                    "code": "SCENERY_MODEL_PLACEHOLDER",
+                    "sceneryId": 58,
+                    "name": "fixture",
+                    "missingModelName": "absent_scenery",
+                    "placeholderModelName": "collaborator_scenery",
+                }],
+                scenery_warnings["warnings"],
+            )
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             snapshot = json.loads(
                 (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
@@ -4367,6 +4397,44 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(
                 tree_bytes(source_content), tree_bytes(working_content)
+            )
+            normalized_scenery_definitions = (
+                source_content
+                / "files/server/conf/server/defs/GameObjectDef.xml"
+            ).read_text(encoding="utf-8")
+            self.assertNotIn("absent_scenery", normalized_scenery_definitions)
+            self.assertGreaterEqual(
+                normalized_scenery_definitions.count("collaborator_scenery"), 2
+            )
+            self.assertIn(
+                "absent_scenery",
+                (target / "server/conf/server/defs/GameObjectDef.xml").read_text(
+                    encoding="utf-8"
+                ),
+            )
+            repeated_installation = base / "World Builder 2 repeat"
+            repeated_installation.mkdir()
+            repeated_runtime = self.make_runtime(
+                repeated_installation, scenery_count=55
+            )
+            repeated_created, repeated_summary = self.create_project(
+                repeated_installation, repeated_runtime, target, report,
+                "Repeated fallback", 43837,
+            )
+            self.assertEqual(
+                0, repeated_created.returncode,
+                repeated_created.stdout + repeated_created.stderr,
+            )
+            repeated_project = Path(repeated_summary["projectRoot"])
+            self.assertEqual(
+                tree_bytes(source_content),
+                tree_bytes(repeated_project / "source/content-bundle"),
+            )
+            self.assertEqual(
+                (project / "diagnostics/scenery-model-provider-warnings.json")
+                .read_bytes(),
+                (repeated_project
+                 / "diagnostics/scenery-model-provider-warnings.json").read_bytes(),
             )
             package = project / "working/layered-world/package"
             package_manifest = json.loads(
@@ -4467,6 +4535,45 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, refused_import.returncode)
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_missing_scenery_models_without_a_truthful_placeholder_block_atomically(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-scenery-placeholder-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs/GameObjectDef.xml"
+            definitions.write_text(
+                "<GameObjectDef-array>"
+                + "".join(
+                    "<GameObjectDef><name>fixture</name><width>1</width>"
+                    "<height>1</height>"
+                    + ("<objectModel>missing_custom</objectModel>" if index == 1 else "")
+                    + "</GameObjectDef>"
+                    for index in range(55)
+                )
+                + "</GameObjectDef-array>\n",
+                encoding="utf-8",
+            )
+            (target / "Client_Base/Cache/video/models.orsc").write_bytes(
+                native_model_archive({"unreferenced.ob3": native_triangle_model()})
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation, scenery_count=55)
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, _ = self.create_project(
+                installation, runtime, target, report,
+                "No scenery placeholder", 43836,
+            )
+
+            self.assertEqual(3, created.returncode, created.stderr)
+            self.assertIn("DEFINITION_MISMATCH", created.stderr)
+            self.assertIn("No concrete model entry", created.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertFalse(list((installation / "projects").glob("[0-9a-f]*")))
+            self.assertFalse(list((installation / "projects").glob(".staging-*")))
 
     def test_packaged_client_cache_is_normalized_only_inside_project(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-packaged-cache-") as temp:
