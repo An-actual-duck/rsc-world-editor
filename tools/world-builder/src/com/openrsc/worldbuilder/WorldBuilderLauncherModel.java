@@ -143,6 +143,17 @@ final class WorldBuilderLauncherModel {
 			preview.report.fingerprintSha256());
 	}
 
+	Path exportPortableProviderDiagnostic(DiscoveryPreview preview) throws IOException {
+		return new WorldBuilderPortableProvider().exportDiagnostic(
+			installation, preview.source, preview.report.fingerprintSha256());
+	}
+
+	WorldBuilderPortableProvider.CacheReset resetPortableProviderCache(
+		DiscoveryPreview preview) throws IOException, WorldBuilderDiscoveryException {
+		return new WorldBuilderPortableProvider().resetCache(installation,
+			preview.source, WorldBuilderPortableProvider.CACHE_RESET_CONFIRMATION);
+	}
+
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName)
 		throws IOException, WorldBuilderContractException {

@@ -1023,6 +1023,23 @@ def local_provider_catalog() -> dict:
     }
 
 
+def provider_cache_diagnostic() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-provider-cache-diagnostic",
+        "sourceDiscoveryFingerprintSha256": HASH_A,
+        "status": "local",
+        "cacheStatus": "hit",
+        "summary": "Exact unchanged provider evidence was selected.",
+        "candidateProfiles": [{
+            "profileId": "explicit-provider",
+            "label": "Explicit portable provider",
+            "componentRoles": ["item-visuals", "definitions"],
+        }],
+        "sourcePathsIncluded": False,
+    }
+
+
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
@@ -1068,6 +1085,7 @@ SCHEMA_CONTRACTS = {
     "project-content-bundle-v3.schema.json": (3, "world-builder-project-content-bundle"),
     "npc-animation-registry-v1.schema.json": (1, "world-builder-npc-animation-registry"),
     "local-provider-catalog-v2.schema.json": (2, "world-builder-local-provider-catalog"),
+    "provider-cache-diagnostic-v1.schema.json": (1, "world-builder-provider-cache-diagnostic"),
 }
 
 REGION_SCHEMA_VECTORS = {
@@ -1282,6 +1300,8 @@ class AdaptiveContractTests(unittest.TestCase):
                     document = npc_animation_registry()
                 elif name == "local-provider-catalog-v2.schema.json":
                     document = local_provider_catalog()
+                elif name == "provider-cache-diagnostic-v1.schema.json":
+                    document = provider_cache_diagnostic()
                 else:
                     document = factories_by_type[manifest_type]()
                 document["schemaVersion"] = version

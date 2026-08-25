@@ -370,6 +370,7 @@ function Assert-ApplicationAllowlist(
         "project-content-bundle-v1.schema.json", "project-content-bundle-v2.schema.json",
         "project-content-bundle-v3.schema.json", "npc-animation-registry-v1.schema.json",
         "local-provider-catalog-v2.schema.json",
+        "provider-cache-diagnostic-v1.schema.json",
         "item-visual-mapping-v1.schema.json", "npc-definition-mapping-v1.schema.json",
         "region-bundle-manifest-v1.schema.json",
         "region-compatibility-report-v1.schema.json",

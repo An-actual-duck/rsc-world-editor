@@ -37,6 +37,7 @@ final class WorldBuilderPortableProvider {
 	static final String DEFINITIONS_DIRECTORY = "definitions";
 	static final String PROVIDERS_DIRECTORY = "providers";
 	static final String CATALOG_FILE = "catalog.json";
+	static final String CACHE_RESET_CONFIRMATION = "RESET PROVIDER CACHE";
 
 	private static final long MAX_PROVIDER_FILE_BYTES = 512L * 1024L * 1024L;
 	private static final long MAX_PROVIDER_TOTAL_BYTES = 4L * 1024L * 1024L * 1024L;
@@ -132,6 +133,107 @@ final class WorldBuilderPortableProvider {
 		Path source = requireDirectory(requestedSource, "guided-import source");
 		return publishGuided(requestedInstallation, source, selection,
 			adaptiveDiscoveryEvidence(source));
+	}
+
+	Path exportDiagnostic(Path requestedInstallation, Path requestedSource,
+		String discoveryEvidenceSha256) throws IOException {
+		Path installation = requireDirectory(requestedInstallation,
+			"World Builder installation");
+		Discovery discovered = discover(requestedSource, installation,
+			discoveryEvidenceSha256);
+		byte[] bytes = discovered.diagnosticJson(discoveryEvidenceSha256)
+			.getBytes(StandardCharsets.UTF_8);
+		String id = WorldBuilderHashes.sha256(bytes).substring(0, 16);
+		Path diagnostics = installation.resolve("diagnostics");
+		requireOrCreateDirectory(diagnostics, "World Builder diagnostics directory");
+		Path providerDiagnostics = diagnostics.resolve("provider-cache");
+		requireOrCreateDirectory(providerDiagnostics,
+			"provider-cache diagnostics directory");
+		Path destination = providerDiagnostics.resolve(
+			"provider-diagnostic-" + id + ".json");
+		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+			if (!safeFile(destination) || Files.size(destination) != bytes.length
+				|| !Arrays.equals(Files.readAllBytes(destination), bytes)) {
+				throw new IOException("Existing provider diagnostic collision was preserved: "
+					+ destination);
+			}
+			return destination;
+		}
+		Path temporary = Files.createTempFile(providerDiagnostics,
+			".provider-diagnostic-", ".tmp");
+		try {
+			Files.write(temporary, bytes, StandardOpenOption.TRUNCATE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			try {
+				WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, destination,
+					"provider-diagnostic-export", id);
+			} catch (WorldBuilderContractException publication) {
+				throw new IOException(publication.getMessage(), publication);
+			}
+			WorldBuilderAdaptiveDurability.forceDirectory(providerDiagnostics);
+			return destination;
+		} finally {
+			Files.deleteIfExists(temporary);
+		}
+	}
+
+	CacheReset resetCache(Path requestedInstallation, Path requestedSource,
+		String confirmation) throws IOException, WorldBuilderDiscoveryException {
+		if (!CACHE_RESET_CONFIRMATION.equals(confirmation)) {
+			throw new IOException("Provider cache reset requires exact confirmation: "
+				+ CACHE_RESET_CONFIRMATION);
+		}
+		Path installation = requireDirectory(requestedInstallation,
+			"World Builder installation");
+		Path source = requireDirectory(requestedSource, "provider cache source");
+		Path providers = installation.resolve(PROVIDERS_DIRECTORY);
+		if (!safeDirectory(providers)) {
+			return new CacheReset(false, false, 0, null,
+				"No local provider cache exists for this installation.");
+		}
+		Path catalog = providers.resolve(CATALOG_FILE);
+		if (!Files.exists(catalog, LinkOption.NOFOLLOW_LINKS)) {
+			return new CacheReset(false, false, 0, null,
+				"No local provider catalog exists; nothing was reset.");
+		}
+		if (!safeFile(catalog)
+			|| Files.size(catalog) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw new IOException("Unsafe or oversized provider catalog was preserved. "
+				+ "Export diagnostics and inspect it manually before recovery.");
+		}
+		byte[] before = Files.readAllBytes(catalog);
+		CatalogDocument parsed = null;
+		boolean corrupt = false;
+		try {
+			parsed = readCatalog(catalog);
+		} catch (IOException malformed) {
+			corrupt = true;
+		} catch (WorldBuilderDiscoveryException malformed) {
+			corrupt = true;
+		}
+		String sourceId = sourceIdentity(source);
+		List<Map<String,Object>> retained = new ArrayList<Map<String,Object>>();
+		int removed = 0;
+		if (parsed != null) {
+			for (Map<String,Object> item : parsed.records) {
+				if (sourceId.equals(item.get("sourceIdentitySha256"))) removed++;
+				else retained.add(toVersion2Record(item, parsed.version));
+			}
+			if (removed == 0) return new CacheReset(false, false, 0, null,
+				"No provider-cache association exists for this server.");
+		}
+		Path diagnostics = installation.resolve("diagnostics");
+		requireOrCreateDirectory(diagnostics, "World Builder diagnostics directory");
+		Path recovery = diagnostics.resolve("provider-cache-recovery");
+		requireOrCreateDirectory(recovery, "provider-cache recovery directory");
+		String backupId = WorldBuilderHashes.sha256(before).substring(0, 16);
+		Path backup = recovery.resolve("catalog-before-reset-" + backupId + ".json");
+		writeNewOrVerify(backup, before, "provider cache recovery backup");
+		writeCatalog(providers, retained);
+		return new CacheReset(true, corrupt, removed, backup,
+			corrupt
+				? "The malformed catalog was backed up and replaced. Provider folders and projects were preserved."
+				: "The selected server association was reset. Provider folders and projects were preserved.");
 	}
 
 	Provider publishGuided(Path requestedInstallation, Path requestedSource,
@@ -392,12 +494,9 @@ final class WorldBuilderPortableProvider {
 			}
 			CatalogDocument existing = readCatalog(catalog);
 			for (Map<String,Object> item : existing.records) {
-					Map<String,Object> record = new LinkedHashMap<String,Object>(item);
+					Map<String,Object> record = toVersion2Record(item, existing.version);
 					Object id = record.get("providerId");
 					Object sourceId = record.get("sourceIdentitySha256");
-					if (existing.version == 1) {
-						record.put("sourceDiscoveryFingerprintSha256", "");
-					}
 					byProvider.put((String)id + "\u0000" + (String)sourceId, record);
 				}
 		}
@@ -408,11 +507,25 @@ final class WorldBuilderPortableProvider {
 		record.put("sourceIdentitySha256", sourceIdentity(source));
 		record.put("sourceDiscoveryFingerprintSha256", sourceEvidenceSha256);
 		byProvider.put(provider.providerId + "\u0000" + sourceIdentity(source), record);
+		writeCatalog(providers, new ArrayList<Map<String,Object>>(byProvider.values()));
+	}
+
+	private static Map<String,Object> toVersion2Record(Map<String,Object> item,
+		int version) {
+		Map<String,Object> record = new LinkedHashMap<String,Object>(item);
+		if (version == 1) record.put("sourceDiscoveryFingerprintSha256", "");
+		return record;
+	}
+
+	private static void writeCatalog(Path providers,
+		List<Map<String,Object>> records) throws IOException {
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
 		document.put("schemaVersion", Long.valueOf(2L));
 		document.put("manifestType", "world-builder-local-provider-catalog");
-		document.put("providers", new ArrayList<Object>(byProvider.values()));
-		byte[] bytes = WorldBuilderJsonDocuments.pretty(document).getBytes(StandardCharsets.UTF_8);
+		document.put("providers", new ArrayList<Object>(records));
+		byte[] bytes = WorldBuilderJsonDocuments.pretty(document)
+			.getBytes(StandardCharsets.UTF_8);
+		Path catalog = providers.resolve(CATALOG_FILE);
 		Path temporary = Files.createTempFile(providers, ".provider-catalog-", ".tmp");
 		try {
 			Files.write(temporary, bytes, StandardOpenOption.TRUNCATE_EXISTING);
@@ -424,6 +537,32 @@ final class WorldBuilderPortableProvider {
 				throw new IOException("Local filesystem cannot atomically publish the provider catalog.", unsupported);
 			}
 			WorldBuilderAdaptiveDurability.forceDirectory(providers);
+		} finally {
+			Files.deleteIfExists(temporary);
+		}
+	}
+
+	private static void writeNewOrVerify(Path destination, byte[] bytes, String label)
+		throws IOException {
+		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+			if (!safeFile(destination) || Files.size(destination) != bytes.length
+				|| !Arrays.equals(Files.readAllBytes(destination), bytes)) {
+				throw new IOException("Existing " + label + " collision was preserved: "
+					+ destination);
+			}
+			return;
+		}
+		Path temporary = Files.createTempFile(destination.getParent(), ".recovery-", ".tmp");
+		try {
+			Files.write(temporary, bytes, StandardOpenOption.TRUNCATE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			try {
+				WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, destination,
+					"provider-cache-recovery", destination.getFileName().toString());
+			} catch (WorldBuilderContractException publication) {
+				throw new IOException(publication.getMessage(), publication);
+			}
+			WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
 		} finally {
 			Files.deleteIfExists(temporary);
 		}
@@ -850,6 +989,68 @@ final class WorldBuilderPortableProvider {
 			List<Object> values = new ArrayList<Object>();
 			for (Candidate candidate : candidates) values.add(candidate.toMap());
 			value.put("candidates", values);
+			return WorldBuilderJsonDocuments.pretty(value);
+		}
+
+		String diagnosticJson(String discoveryEvidenceSha256) throws IOException {
+			if (!WorldBuilderBoundedInventory.isHash(discoveryEvidenceSha256)) {
+				throw new IOException("Provider diagnostic requires one exact discovery SHA-256.");
+			}
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("schemaVersion", Long.valueOf(1L));
+			value.put("manifestType", "world-builder-provider-cache-diagnostic");
+			value.put("sourceDiscoveryFingerprintSha256", discoveryEvidenceSha256);
+			value.put("status", status.name().toLowerCase(java.util.Locale.ROOT));
+			value.put("cacheStatus", cacheStatus.name().toLowerCase(
+				java.util.Locale.ROOT));
+			value.put("summary", summary);
+			List<Object> profiles = new ArrayList<Object>();
+			for (Candidate candidate : candidates) {
+				Map<String,Object> profile = new LinkedHashMap<String,Object>();
+				profile.put("profileId", candidate.profileId);
+				profile.put("label", candidate.label);
+				List<Object> roles = new ArrayList<Object>();
+				if (candidate.itemVisuals != null) roles.add("item-visuals");
+				if (candidate.definitions != null) roles.add("definitions");
+				if (candidate.authenticArchive != null) roles.add("authentic-archive");
+				if (candidate.customArchive != null) roles.add("custom-archive");
+				if (candidate.spritepacks != null) roles.add("spritepacks");
+				if (candidate.externalItems != null) roles.add("external-items");
+				profile.put("componentRoles", roles);
+				profiles.add(profile);
+			}
+			value.put("candidateProfiles", profiles);
+			value.put("sourcePathsIncluded", Boolean.FALSE);
+			return WorldBuilderJsonDocuments.pretty(value);
+		}
+	}
+
+	static final class CacheReset {
+		final boolean changed;
+		final boolean corruptCatalogRecovered;
+		final int removedAssociations;
+		final Path backup;
+		final String summary;
+
+		CacheReset(boolean changed, boolean corruptCatalogRecovered,
+			int removedAssociations, Path backup, String summary) {
+			this.changed = changed;
+			this.corruptCatalogRecovered = corruptCatalogRecovered;
+			this.removedAssociations = removedAssociations;
+			this.backup = backup;
+			this.summary = summary;
+		}
+
+		String toJson() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("schemaVersion", Long.valueOf(1L));
+			value.put("manifestType", "world-builder-provider-cache-reset");
+			value.put("changed", Boolean.valueOf(changed));
+			value.put("corruptCatalogRecovered",
+				Boolean.valueOf(corruptCatalogRecovered));
+			value.put("removedAssociations", Long.valueOf(removedAssociations));
+			value.put("backup", backup == null ? null : backup.toString());
+			value.put("summary", summary);
 			return WorldBuilderJsonDocuments.pretty(value);
 		}
 	}

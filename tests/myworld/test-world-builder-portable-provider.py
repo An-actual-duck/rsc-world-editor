@@ -301,6 +301,58 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual("explicit-provider", discovered["selectedProfileId"])
             self.assertEqual(provider, Path(discovered["candidates"][0]["root"]))
 
+            exported = self.run_cli(
+                "export-item-provider-diagnostic",
+                "--installation-root", installation,
+                "--source-root", source,
+            )
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            diagnostic_path = Path(json.loads(exported.stdout)["diagnosticPath"])
+            diagnostic_before = diagnostic_path.read_bytes()
+            diagnostic = json.loads(diagnostic_before)
+            self.assertEqual("world-builder-provider-cache-diagnostic",
+                             diagnostic["manifestType"])
+            self.assertEqual("hit", diagnostic["cacheStatus"])
+            self.assertFalse(diagnostic["sourcePathsIncluded"])
+            self.assertNotIn(str(source), diagnostic_before.decode("utf-8"))
+            self.assertNotIn(str(provider), diagnostic_before.decode("utf-8"))
+            repeated_export = self.run_cli(
+                "export-item-provider-diagnostic",
+                "--installation-root", installation,
+                "--source-root", source,
+            )
+            self.assertEqual(0, repeated_export.returncode, repeated_export.stderr)
+            self.assertEqual(exported.stdout, repeated_export.stdout)
+            self.assertEqual(diagnostic_before, diagnostic_path.read_bytes())
+
+            refused_reset = self.run_cli(
+                "reset-item-provider-cache",
+                "--installation-root", installation,
+                "--source-root", source,
+                "--confirm", "RESET",
+            )
+            self.assertNotEqual(0, refused_reset.returncode)
+            self.assertEqual("local", self.discover(installation, source)["status"])
+            reset = self.run_cli(
+                "reset-item-provider-cache",
+                "--installation-root", installation,
+                "--source-root", source,
+                "--confirm", "RESET PROVIDER CACHE",
+            )
+            self.assertEqual(0, reset.returncode, reset.stderr)
+            reset_report = json.loads(reset.stdout)
+            self.assertTrue(reset_report["changed"])
+            self.assertEqual(1, reset_report["removedAssociations"])
+            self.assertTrue(Path(reset_report["backup"]).is_file())
+            self.assertTrue(provider.is_dir())
+            after_reset = self.discover(installation, source)
+            self.assertEqual("recognized", after_reset["status"])
+            self.assertEqual("miss", after_reset["cacheStatus"])
+            rebuilt = self.run_cli(*command)
+            self.assertEqual(0, rebuilt.returncode, rebuilt.stderr)
+            self.assertEqual(first_summary["providerId"],
+                             json.loads(rebuilt.stdout)["providerId"])
+
             # One content-addressed provider can remain associated with more than
             # one equivalent local source; importing the second must not evict the first.
             second_source = base / "equivalent-server"
@@ -317,6 +369,19 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual(first_summary["providerId"], json.loads(third.stdout)["providerId"])
             self.assertEqual("local", self.discover(installation, source)["status"])
             self.assertEqual("local", self.discover(installation, second_source)["status"])
+
+            isolated_reset = self.run_cli(
+                "reset-item-provider-cache",
+                "--installation-root", installation,
+                "--source-root", source,
+                "--confirm", "RESET PROVIDER CACHE",
+            )
+            self.assertEqual(0, isolated_reset.returncode, isolated_reset.stderr)
+            self.assertEqual(1, json.loads(isolated_reset.stdout)["removedAssociations"])
+            self.assertEqual("recognized", self.discover(installation, source)["status"])
+            self.assertEqual("local", self.discover(installation, second_source)["status"])
+            restored = self.run_cli(*command)
+            self.assertEqual(0, restored.returncode, restored.stderr)
 
             # A change to authoritative discovered definition evidence must not
             # reuse the path-associated provider. The old immutable provider is
@@ -418,6 +483,26 @@ class PortableProviderTest(unittest.TestCase):
             self.assertNotEqual(0, repair.returncode)
             self.assertTrue(catalog_path.is_symlink())
             self.assertEqual(catalog_path.read_bytes(), outside.read_bytes())
+
+            # A malformed regular catalog can be recovered explicitly. Its
+            # exact bytes are backed up, while provider directories remain.
+            catalog_path.unlink()
+            malformed_catalog = b"{malformed provider catalog\n"
+            catalog_path.write_bytes(malformed_catalog)
+            reset = self.run_cli(
+                "reset-item-provider-cache",
+                "--installation-root", installation,
+                "--source-root", source,
+                "--confirm", "RESET PROVIDER CACHE",
+            )
+            self.assertEqual(0, reset.returncode, reset.stderr)
+            reset_report = json.loads(reset.stdout)
+            self.assertTrue(reset_report["changed"])
+            self.assertTrue(reset_report["corruptCatalogRecovered"])
+            self.assertEqual(malformed_catalog,
+                             Path(reset_report["backup"]).read_bytes())
+            self.assertEqual([], json.loads(catalog_path.read_text())["providers"])
+            self.assertTrue(provider.is_dir())
 
 
 if __name__ == "__main__":

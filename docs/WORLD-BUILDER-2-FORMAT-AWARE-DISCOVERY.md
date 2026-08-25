@@ -661,6 +661,15 @@ as corrupt rather than selected or overwritten. Legacy path-only catalog records
 remain readable only as stale recovery history. Project refresh/rebase remains a
 separate later workflow; an existing edited project is never silently changed.
 
+The second Phase 3 increment adds a hidden-by-default recovery surface. Portable
+content-addressed diagnostics summarize cache state and recognized component
+roles without absolute target/provider paths. A confirmed reset backs up the
+exact catalog and removes only the selected server association; malformed
+regular catalogs recover to an empty valid catalog, while unsafe paths remain
+preserved and refused. Immutable providers and every existing project remain
+untouched. Recognized stale evidence is regenerated automatically only while
+creating a new project.
+
 ### Phase 4 — Three-action launcher
 
 - Reduce the primary UI to the three approved actions.

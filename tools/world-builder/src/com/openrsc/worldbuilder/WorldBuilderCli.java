@@ -7,6 +7,8 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /** Initial read-only command-line boundary for World Builder project discovery. */
@@ -34,6 +36,12 @@ public final class WorldBuilderCli {
 		}
 		if ("import-item-provider".equals(args[0])) {
 			return importItemProvider(args);
+		}
+		if ("export-item-provider-diagnostic".equals(args[0])) {
+			return exportItemProviderDiagnostic(args);
+		}
+		if ("reset-item-provider-cache".equals(args[0])) {
+			return resetItemProviderCache(args);
 		}
 		if ("convert-packed".equals(args[0])) {
 			return convertPacked(args);
@@ -246,6 +254,75 @@ public final class WorldBuilderCli {
 			return 0;
 		} catch (Exception failure) {
 			System.err.println("ERROR: Item provider import failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int exportItemProviderDiagnostic(String[] args) {
+		Path installation = null;
+		Path source = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--source-root".equals(args[index]) && index + 1 < args.length) {
+				source = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (installation == null || source == null) {
+			System.err.println("ERROR: export-item-provider-diagnostic requires "
+				+ "--installation-root and --source-root.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveDiscoveryReport report =
+				new WorldBuilderAdaptiveDiscovery().discover(source, null);
+			Path exported = new WorldBuilderPortableProvider().exportDiagnostic(
+				installation, source, report.fingerprintSha256());
+			Map<String,Object> result = new LinkedHashMap<String,Object>();
+			result.put("schemaVersion", Long.valueOf(1L));
+			result.put("manifestType", "world-builder-provider-diagnostic-export");
+			result.put("diagnosticPath", exported.toString());
+			System.out.print(WorldBuilderJsonDocuments.pretty(result));
+			return 0;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Provider diagnostic export failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int resetItemProviderCache(String[] args) {
+		Path installation = null;
+		Path source = null;
+		String confirmation = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--installation-root".equals(args[index]) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--source-root".equals(args[index]) && index + 1 < args.length) {
+				source = Paths.get(args[++index]);
+			} else if ("--confirm".equals(args[index]) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (installation == null || source == null || confirmation == null) {
+			System.err.println("ERROR: reset-item-provider-cache requires "
+				+ "--installation-root, --source-root, and --confirm \""
+				+ WorldBuilderPortableProvider.CACHE_RESET_CONFIRMATION + "\".");
+			return 2;
+		}
+		try {
+			System.out.print(new WorldBuilderPortableProvider().resetCache(
+				installation, source, confirmation).toJson());
+			return 0;
+		} catch (Exception failure) {
+			System.err.println("ERROR: Provider cache reset failed: "
+				+ failure.getMessage());
 			return 4;
 		}
 	}
@@ -1716,6 +1793,11 @@ public final class WorldBuilderCli {
 			+ " (--item-visuals <item-visuals.json> | --definitions <json-or-folder>)"
 			+ " [--authentic-archive <file>] [--custom-archive <file>]"
 			+ " [--spritepacks <folder>] [--external-items <folder>]"
+			+ "\n  WorldBuilderCli export-item-provider-diagnostic"
+			+ " --installation-root <World Builder 2> --source-root <server-root>"
+			+ "\n  WorldBuilderCli reset-item-provider-cache"
+			+ " --installation-root <World Builder 2> --source-root <server-root>"
+			+ " --confirm \"RESET PROVIDER CACHE\""
 			+ "\n  WorldBuilderCli convert-packed --source-root <immutable-copy>"
 			+ " --discovery-report <report.json> --output <new-directory>"
 			+ "\n  WorldBuilderCli create-project --installation-root <World Builder 2>"

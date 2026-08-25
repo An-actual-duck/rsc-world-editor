@@ -316,6 +316,14 @@ final class WorldBuilderDesktopLauncher {
 			}));
 			JMenuBar menuBar = new JMenuBar();
 			menuBar.add(file);
+			JMenu recovery = new JMenu("Advanced / Recovery");
+			recovery.add(menu("Export Detected Server Diagnostics", new Runnable() {
+				@Override public void run() { exportDetectedProviderDiagnostic(); }
+			}));
+			recovery.add(menu("Reset Detected Server Provider Cache", new Runnable() {
+				@Override public void run() { resetDetectedProviderCache(); }
+			}));
+			menuBar.add(recovery);
 			frame.setJMenuBar(menuBar);
 
 			JPanel heading = new JPanel();
@@ -516,6 +524,52 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public void accept(WorldBuilderLauncherModel.DiscoveryPreview preview) {
 						showSourcePreview(preview);
+					}
+				});
+		}
+
+		private void exportDetectedProviderDiagnostic() {
+			if (busy) return;
+			runTask("Exporting provider diagnostics…", new Task<Path>() {
+				@Override public Path run() throws Exception {
+					WorldBuilderLauncherModel.DiscoveryPreview preview =
+						model.inspectDefaultTarget();
+					return model.exportPortableProviderDiagnostic(preview);
+				}
+			}, new Success<Path>() {
+				@Override public void accept(Path exported) {
+					JOptionPane.showMessageDialog(frame,
+						"A portable provider diagnostic was saved at:\n" + exported
+							+ "\n\nIt contains no absolute source or provider paths.",
+						"Diagnostics Exported", JOptionPane.INFORMATION_MESSAGE);
+				}
+			});
+		}
+
+		private void resetDetectedProviderCache() {
+			if (busy) return;
+			int choice = JOptionPane.showConfirmDialog(frame,
+				"Reset the cached provider association for the detected server?\n\n"
+					+ "Existing projects and immutable provider folders will not be deleted. "
+					+ "The current catalog is backed up before any change. The next new "
+					+ "project will rebuild provider content from current server evidence.",
+				"Reset Provider Cache", JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.WARNING_MESSAGE);
+			if (choice != JOptionPane.OK_OPTION) return;
+			runTask("Resetting provider cache safely…",
+				new Task<WorldBuilderPortableProvider.CacheReset>() {
+					@Override public WorldBuilderPortableProvider.CacheReset run()
+						throws Exception {
+						WorldBuilderLauncherModel.DiscoveryPreview preview =
+							model.inspectDefaultTarget();
+						return model.resetPortableProviderCache(preview);
+					}
+				}, new Success<WorldBuilderPortableProvider.CacheReset>() {
+					@Override public void accept(WorldBuilderPortableProvider.CacheReset reset) {
+						String backup = reset.backup == null ? ""
+							: "\n\nRecovery backup: " + reset.backup;
+						JOptionPane.showMessageDialog(frame, reset.summary + backup,
+							"Provider Cache Recovery", JOptionPane.INFORMATION_MESSAGE);
 					}
 				});
 		}

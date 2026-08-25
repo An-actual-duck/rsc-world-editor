@@ -5959,6 +5959,9 @@ public final class FakeAdaptiveClient {
         self.assertIn("Close the editor normally first", launcher_source)
         self.assertIn("Choose complete provider package…", launcher_source)
         self.assertIn("Advanced provider import…", launcher_source)
+        self.assertIn("Advanced / Recovery", launcher_source)
+        self.assertIn("Export Detected Server Diagnostics", launcher_source)
+        self.assertIn("Reset Detected Server Provider Cache", launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)

@@ -175,6 +175,22 @@ drifted, unsafe, or malformed provider/catalog is reported as **corrupt** and is
 not opened or silently repaired. Catalog-v1 path-only records remain readable
 only as non-authoritative stale history.
 
+The desktop **Advanced / Recovery** menu exposes two bounded operations for the
+automatically detected server. **Export Detected Server Diagnostics** writes a
+content-addressed JSON report under `diagnostics/provider-cache/`. The report
+contains the discovery fingerprint, cache state, summary, recognized profile
+IDs, and present component roles, but deliberately contains no absolute source
+or provider paths. Repeating an unchanged export returns the same file.
+
+**Reset Detected Server Provider Cache** removes only that server's catalog
+association. It requires an explicit confirmation, saves the exact prior
+catalog under `diagnostics/provider-cache-recovery/`, and atomically publishes
+the replacement catalog. If a regular catalog is malformed, the same recovery
+action backs it up and replaces it with an empty valid catalog. Unsafe links,
+special paths, and oversized catalogs remain untouched for manual inspection.
+Projects and content-addressed provider folders are never removed; the next new
+project regenerates from current read-only server evidence.
+
 For recovery and automation, the same operations are available as:
 
 ```bash
@@ -192,6 +208,17 @@ java -jar builder-runtime/launcher/world-builder-tools.jar \
   --custom-archive "/path/to/Custom_Sprites.osar" \
   --spritepacks "/path/to/spritepacks" \
   --external-items "/path/to/external-items"
+
+java -jar builder-runtime/launcher/world-builder-tools.jar \
+  export-item-provider-diagnostic \
+  --installation-root "/path/to/World Builder 2" \
+  --source-root "/path/to/server"
+
+java -jar builder-runtime/launcher/world-builder-tools.jar \
+  reset-item-provider-cache \
+  --installation-root "/path/to/World Builder 2" \
+  --source-root "/path/to/server" \
+  --confirm "RESET PROVIDER CACHE"
 ```
 
 Either `--definitions` or `--item-visuals` is required for import. Every input
