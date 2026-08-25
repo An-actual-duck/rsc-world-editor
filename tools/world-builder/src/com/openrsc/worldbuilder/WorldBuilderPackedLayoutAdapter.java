@@ -145,15 +145,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static WorldBuilderAdapterInspection inspectLegacyFallback(
 		WorldBuilderReadOnlyTarget target, String requestedConfigurationRole)
 		throws WorldBuilderContractException {
-		if (requestedConfigurationRole != null && !requestedConfigurationRole.isEmpty()
-			&& !"primary".equals(requestedConfigurationRole)) {
-			throw problem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION,
-				"target-configuration",
-				"The built-in packed probe exposes only configuration role primary.",
-				"Remove the role override or select primary.");
-		}
 		WorldBuilderPackedSourceLayout sourceLayout =
-			WorldBuilderPackedSourceLayout.select(target);
+			WorldBuilderPackedSourceLayout.select(target, requestedConfigurationRole);
 		String configurationPath = sourceLayout.configurationPath;
 		WorldBuilderReadOnlyTarget.FileState legacyConfig = target.requiredState(
 			"server-runtime-config", configurationPath);
@@ -211,7 +204,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			files.add(target.requiredState(role, source[1]));
 			validateLegacyPlacement(target, source[0], source[1]);
 		}
-		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target));
+		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target, sourceLayout));
 		files.add(target.optionalState("placement.ground-item-overlay",
 			targetGroundItems));
 		files.add(legacyConfig);
@@ -230,9 +223,12 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		for (WorldBuilderReadOnlyTarget.FileState file : files) records.add(file.toJson());
 		WorldBuilderBoundedInventory.read(records, "discover-target", 1, false);
 
+		List<WorldBuilderAdapterInspection.ConfigurationCandidate> candidates =
+			WorldBuilderPackedSourceLayout.configurationCandidates(target);
 		WorldBuilderAdapterInspection.ConfigurationCandidate candidate =
 			new WorldBuilderAdapterInspection.ConfigurationCandidate(
-				"primary", configurationPath,
+				WorldBuilderPackedSourceLayout.configurationRole(target, configurationPath),
+				configurationPath,
 				legacy.selectedConfigSha256);
 		List<WorldBuilderAdapterInspection.Check> checks =
 			new ArrayList<WorldBuilderAdapterInspection.Check>();
@@ -255,8 +251,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			legacy.terrainSectorCount + " packed sector(s) agree."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"configuration-selection", "passed",
-			"The narrow fallback has exactly one compiled configuration path.",
-			configurationPath + " is the sole active compiled configuration candidate."));
+			"One supported packed map configuration is selected explicitly or unambiguously.",
+			configurationPath + " was selected from " + candidates.size()
+				+ " compiled configuration candidate(s)."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"definition-agreement", "passed",
 			"All floor, wall, scenery, NPC, and item definition inputs are present and parseable.",
@@ -289,7 +286,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		return new WorldBuilderAdapterInspection(ID,
 			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID,
 			configurationPath, legacy.selectedConfigSha256, "packed",
-			Collections.singletonList(candidate), candidate, files, checks);
+			candidates, candidate, files, checks);
 	}
 
 	private static void validateLegacyPlacement(

@@ -187,7 +187,7 @@ class WorldBuilderDiscoveryTest(unittest.TestCase):
             root = self.fixture(temp)
             shutil.copy2(root / "server/myworld.conf", root / "myworld.conf")
             self.assert_refused_without_writes(
-                root, "More than one active configuration root"
+                root, "More than one supported server map configuration"
             )
             before = self.snapshot(root)
 

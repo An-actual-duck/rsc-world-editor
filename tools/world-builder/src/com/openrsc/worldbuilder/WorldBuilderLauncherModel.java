@@ -91,9 +91,15 @@ final class WorldBuilderLauncherModel {
 
 	DiscoveryPreview inspectSource(Path requestedSource)
 		throws IOException, WorldBuilderContractException {
+		return inspectSource(requestedSource, configurationRole);
+	}
+
+	DiscoveryPreview inspectSource(Path requestedSource, String selectedConfiguration)
+		throws IOException, WorldBuilderContractException {
 		Path source = requireDirectory(requestedSource, "server/map source folder");
 		WorldBuilderAdaptiveDiscoveryReport report =
-			new WorldBuilderAdaptiveDiscovery().discover(source, configurationRole);
+			new WorldBuilderAdaptiveDiscovery().discover(source,
+				emptyToNull(selectedConfiguration));
 		Map<String,Object> document;
 		try {
 			document = WorldBuilderJsonDocuments.readObject(
@@ -102,7 +108,8 @@ final class WorldBuilderLauncherModel {
 			throw new IOException("Discovery produced an invalid preview.", invalid);
 		}
 		return new DiscoveryPreview(source, report, report.status,
-			text(document.get("representation")), report.summary());
+			text(document.get("representation")), report.summary(),
+			configurationChoices(document), issueCode(document));
 	}
 
 	DiscoveryPreview inspectEmptyWorld()
@@ -114,7 +121,36 @@ final class WorldBuilderLauncherModel {
 				+ "required standalone-empty discovery contract.");
 		}
 		return new DiscoveryPreview(installation, report, report.status, "none",
-			"A new standalone empty world will be created. No server map will be read or changed.");
+			"A new standalone empty world will be created. No server map will be read or changed.",
+			Collections.<ConfigurationChoice>emptyList(), "");
+	}
+
+	private static List<ConfigurationChoice> configurationChoices(
+		Map<String,Object> document) {
+		Object raw = document.get("configurationCandidates");
+		if (!(raw instanceof List)) return Collections.emptyList();
+		List<ConfigurationChoice> result = new ArrayList<ConfigurationChoice>();
+		for (Object entry : (List<?>)raw) {
+			if (!(entry instanceof Map)) continue;
+			@SuppressWarnings("unchecked") Map<String,Object> candidate =
+				(Map<String,Object>)entry;
+			String role = text(candidate.get("role"));
+			String path = text(candidate.get("relativePath"));
+			if (!role.isEmpty() && !path.isEmpty()) {
+				result.add(new ConfigurationChoice(role, path));
+			}
+		}
+		Collections.sort(result);
+		return Collections.unmodifiableList(result);
+	}
+
+	private static String issueCode(Map<String,Object> document) {
+		Object raw = document.get("issues");
+		if (!(raw instanceof List) || ((List<?>)raw).isEmpty()
+			|| !(((List<?>)raw).get(0) instanceof Map)) return "";
+		@SuppressWarnings("unchecked") Map<String,Object> issue =
+			(Map<String,Object>)((List<?>)raw).get(0);
+		return text(issue.get("code"));
 	}
 
 	WorldBuilderPortableProvider.Discovery inspectPortableProvider(Path source)
@@ -262,18 +298,46 @@ final class WorldBuilderLauncherModel {
 		final String status;
 		final String representation;
 		final String summary;
+		final List<ConfigurationChoice> configurationChoices;
+		final String issueCode;
 
 		DiscoveryPreview(Path source, WorldBuilderAdaptiveDiscoveryReport report,
-			String status, String representation, String summary) {
+			String status, String representation, String summary,
+			List<ConfigurationChoice> configurationChoices, String issueCode) {
 			this.source = source;
 			this.report = report;
 			this.status = status;
 			this.representation = representation;
 			this.summary = summary;
+			this.configurationChoices = configurationChoices;
+			this.issueCode = issueCode;
 		}
 
 		boolean canCreateServerProject() {
 			return "compatible".equals(status);
 		}
+
+		boolean needsConfigurationChoice() {
+			return "blocked".equals(status)
+				&& WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION.equals(issueCode)
+				&& configurationChoices.size() > 1;
+		}
+	}
+
+	static final class ConfigurationChoice implements Comparable<ConfigurationChoice> {
+		final String role;
+		final String relativePath;
+
+		ConfigurationChoice(String role, String relativePath) {
+			this.role = role;
+			this.relativePath = relativePath;
+		}
+
+		@Override public int compareTo(ConfigurationChoice other) {
+			int byPath = relativePath.compareTo(other.relativePath);
+			return byPath != 0 ? byPath : role.compareTo(other.role);
+		}
+
+		@Override public String toString() { return relativePath; }
 	}
 }

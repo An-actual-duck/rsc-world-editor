@@ -68,7 +68,7 @@ final class WorldBuilderPackedFallbackEvidence {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderPackedSourceLayout sourceLayout = WorldBuilderPackedSourceLayout.select(
-			WorldBuilderReadOnlyTarget.open(original));
+			WorldBuilderReadOnlyTarget.open(original), selectedConfigurationPath(discovery));
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
@@ -141,6 +141,24 @@ final class WorldBuilderPackedFallbackEvidence {
 			discovery, parsedCapability, parsedConfiguration, generated);
 		return new Result(parsedCapability, parsedConfiguration,
 			generated, conversionReport);
+	}
+
+	private static String selectedConfigurationPath(Map<String,Object> discovery)
+		throws WorldBuilderContractException {
+		Object raw = discovery.get("selectedConfiguration");
+		if (!(raw instanceof Map)) {
+			throw problem("target-configuration",
+				"Discovery report has no selected packed map configuration.", null);
+		}
+		@SuppressWarnings("unchecked") Map<String,Object> selected = (Map<String,Object>)raw;
+		Object present = selected.get("present");
+		Object path = selected.get("relativePath");
+		if (!Boolean.TRUE.equals(present) || !(path instanceof String)
+			|| ((String)path).isEmpty()) {
+			throw problem("target-configuration",
+				"Discovery report has no selected packed map configuration.", null);
+		}
+		return (String)path;
 	}
 
 	private static Map<String,Object> runtimeEvidence(String side, String build,

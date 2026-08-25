@@ -694,6 +694,16 @@ browsing, explicit/guided provider choices, diagnostic export, and cache reset
 are available only under **Advanced / Recovery**. Ambiguity remains visible and
 routes to those controls rather than silently choosing an authority.
 
+Common client/server asset mirrors do not require users to rearrange a valid
+server. When recognized layouts share the same definitions and every
+overlapping archive or asset tree is byte-identical, discovery selects the
+strict superset (for example, the client cache that also contains spritepacks).
+A differing shared archive remains an explicit content choice. When multiple
+supported server map configurations are present, the launcher instead lists
+their exact paths and asks the user which map to import. The selected map is
+revalidated and bound through isolated project creation without changing the
+source server.
+
 ### Phase 5 — Compatibility matrix and release hardening
 
 - Test multiple structural layouts and schema variants on Linux and Windows

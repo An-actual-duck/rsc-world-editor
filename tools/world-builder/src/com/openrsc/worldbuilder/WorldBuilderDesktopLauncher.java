@@ -527,12 +527,33 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void inspectSource(final Path source, final boolean advanced) {
+			inspectSource(source, null, advanced);
+		}
+
+		private void inspectSource(final Path source, final String configuration,
+			final boolean advanced) {
 			runTask("Inspecting source read-only…",
 				new Task<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public WorldBuilderLauncherModel.DiscoveryPreview run()
-						throws Exception { return model.inspectSource(source); }
+						throws Exception { return configuration == null
+							? model.inspectSource(source)
+							: model.inspectSource(source, configuration); }
 				}, new Success<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public void accept(WorldBuilderLauncherModel.DiscoveryPreview preview) {
+						if (preview.needsConfigurationChoice()) {
+							WorldBuilderLauncherModel.ConfigurationChoice selected =
+								(WorldBuilderLauncherModel.ConfigurationChoice)
+								JOptionPane.showInputDialog(frame,
+									"More than one server map configuration was found.\n"
+										+ "Choose the map to copy into the isolated project:",
+									"Choose Server Map", JOptionPane.QUESTION_MESSAGE,
+									null, preview.configurationChoices.toArray(),
+									preview.configurationChoices.get(0));
+							if (selected != null) {
+								inspectSource(source, selected.role, advanced);
+							}
+							return;
+						}
 						showSourcePreview(preview, advanced);
 					}
 				});
@@ -696,6 +717,10 @@ final class WorldBuilderDesktopLauncher {
 			WorldBuilderPortableProvider.Discovery discovery) {
 			if (discovery == null) return "Automatic inspection was unavailable. Creation "
 				+ "will continue only if the detected definitions and assets are complete.";
+			if (discovery.status == WorldBuilderPortableProvider.Status.AMBIGUOUS) {
+				return "More than one genuinely different content layout was found; "
+					+ "an explicit choice is required.";
+			}
 			switch (discovery.cacheStatus) {
 				case BYPASSED:
 					return "A complete server-provided content package is ready.";

@@ -5017,6 +5017,45 @@ public final class FakeAdaptiveClient {
             self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_explicit_packed_map_choice_is_preserved_through_project_creation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-map-choice-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            shutil.copy2(target / "server/myworld.conf", target / "myworld.conf")
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            selected = self.run_cli(
+                "discover-adaptive", "--target-root", target,
+                "--configuration-role", "packed-map-1",
+            )
+            self.assertEqual(0, selected.returncode, selected.stderr)
+            discovery = json.loads(selected.stdout)
+            report.write_text(selected.stdout, encoding="utf-8")
+            self.assertEqual("myworld.conf",
+                discovery["selectedConfiguration"]["relativePath"])
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Chosen packed map", 43836,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            original = project / "source/original"
+            self.assertTrue((original / "myworld.conf").is_file())
+            self.assertFalse((original / "server/myworld.conf").exists())
+            self.assertEqual((target / "myworld.conf").read_bytes(),
+                (original / "myworld.conf").read_bytes())
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:
             base = Path(temp)
@@ -5970,6 +6009,7 @@ public final class FakeAdaptiveClient {
         self.assertIn("Browse Existing Project Folders…", launcher_source)
         self.assertIn("Export Detected Server Diagnostics", launcher_source)
         self.assertIn("Reset Detected Server Provider Cache", launcher_source)
+        self.assertIn("Choose Server Map", launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)

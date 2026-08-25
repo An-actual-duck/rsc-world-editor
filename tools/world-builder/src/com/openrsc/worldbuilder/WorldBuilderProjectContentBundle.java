@@ -95,8 +95,12 @@ final class WorldBuilderProjectContentBundle {
 
 	static List<WorldBuilderReadOnlyTarget.FileState> inspectTarget(
 		WorldBuilderReadOnlyTarget target) throws WorldBuilderContractException {
-		WorldBuilderPackedSourceLayout layout =
-			WorldBuilderPackedSourceLayout.select(target);
+		return inspectTarget(target, WorldBuilderPackedSourceLayout.select(target));
+	}
+
+	static List<WorldBuilderReadOnlyTarget.FileState> inspectTarget(
+		WorldBuilderReadOnlyTarget target, WorldBuilderPackedSourceLayout layout)
+		throws WorldBuilderContractException {
 		List<WorldBuilderReadOnlyTarget.FileState> result =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
 		for (Spec spec : SPECS) {

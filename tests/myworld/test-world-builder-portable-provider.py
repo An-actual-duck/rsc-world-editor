@@ -200,6 +200,59 @@ class PortableProviderTest(unittest.TestCase):
             )
             self.assertEqual(before, snapshot(source))
 
+    def test_byte_identical_server_archive_mirror_collapses_to_richer_client_layout(self):
+        with tempfile.TemporaryDirectory(prefix="portable-provider-mirror-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            source = base / "server"
+            installation.mkdir()
+            client = source / "Client_Base/Cache/video"
+            server = source / "server/conf/server/data"
+            for root in (client, server):
+                root.mkdir(parents=True)
+                (root / "Authentic_Sprites.orsc").write_bytes(b"same-authentic")
+                (root / "Custom_Sprites.osar").write_bytes(b"same-custom")
+            spritepacks = client / "spritepacks"
+            spritepacks.mkdir()
+            (spritepacks / "Menus.osar").write_bytes(b"menus")
+            definitions = source / "server/conf/server/defs"
+            self.write_json(definitions / "ItemDefs.json", {
+                "item": [{"id": 3309, "name": "Mirrored item"}]
+            })
+
+            report = self.discover(installation, source)
+
+            self.assertEqual("recognized", report["status"])
+            self.assertEqual("legacy-client-base-cache-video",
+                report["selectedProfileId"])
+            self.assertEqual(1, len(report["candidates"]))
+            self.assertEqual(str(spritepacks),
+                report["candidates"][0]["spritepacks"])
+
+    def test_conflicting_server_archive_mirror_remains_ambiguous(self):
+        with tempfile.TemporaryDirectory(prefix="portable-provider-conflict-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            source = base / "server"
+            installation.mkdir()
+            client = source / "Client_Base/Cache/video"
+            server = source / "server/conf/server/data"
+            for root in (client, server):
+                root.mkdir(parents=True)
+                (root / "Authentic_Sprites.orsc").write_bytes(b"same-authentic")
+            (client / "Custom_Sprites.osar").write_bytes(b"client-custom")
+            (server / "Custom_Sprites.osar").write_bytes(b"server-custom")
+            definitions = source / "server/conf/server/defs"
+            self.write_json(definitions / "ItemDefs.json", {
+                "item": [{"id": 3309, "name": "Conflicting item"}]
+            })
+
+            report = self.discover(installation, source)
+
+            self.assertEqual("ambiguous", report["status"])
+            self.assertIsNone(report["selectedProfileId"])
+            self.assertEqual(2, len(report["candidates"]))
+
     def test_multiple_definition_roots_are_reported_as_ambiguous(self):
         with tempfile.TemporaryDirectory(prefix="portable-provider-definitions-") as temp:
             base = Path(temp)

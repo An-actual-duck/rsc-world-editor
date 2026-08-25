@@ -73,11 +73,84 @@ final class WorldBuilderPackedSourceLayout {
 		String data = selectRoot(target, DATA_ROOTS,
 			Collections.singletonList("Custom_Landscape.orsc"),
 			"server terrain", CANONICAL_DATA_ROOT);
-		String configuration = requestedConfiguration == null
-			? selectRoot(target, CONFIGURATION_PATHS, Collections.singletonList(""),
-				"active configuration", CANONICAL_CONFIGURATION)
-			: requireConfigurationPath(requestedConfiguration);
+		String configuration = selectConfiguration(target, requestedConfiguration);
 		return create(video, definitions, data, configuration);
+	}
+
+	private static String selectConfiguration(WorldBuilderReadOnlyTarget target,
+		String requested) throws WorldBuilderContractException {
+		List<String> paths = configurationPaths(target);
+		if (requested != null && !requested.isEmpty()) {
+			if ("primary".equals(requested)) {
+				if (paths.size() == 1) return paths.get(0);
+				if (paths.isEmpty()) return CANONICAL_CONFIGURATION;
+				throw configurationAmbiguity(target, paths);
+			}
+			if (requested.matches("packed-map-[1-9][0-9]*")) {
+				int index;
+				try {
+					index = Integer.parseInt(requested.substring("packed-map-".length())) - 1;
+				} catch (NumberFormatException invalid) {
+					index = -1;
+				}
+				if (index >= 0 && index < paths.size()) return paths.get(index);
+				throw WorldBuilderReadOnlyTarget.problem(
+					WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, "target-configuration",
+					"The selected packed map is no longer present: " + requested + ".",
+					"Run detection again and choose one currently listed map.");
+			}
+			return requireConfigurationPath(requested);
+		}
+		if (paths.size() > 1) throw configurationAmbiguity(target, paths);
+		return paths.isEmpty() ? CANONICAL_CONFIGURATION : paths.get(0);
+	}
+
+	static List<WorldBuilderAdapterInspection.ConfigurationCandidate>
+		configurationCandidates(WorldBuilderReadOnlyTarget target)
+		throws WorldBuilderContractException {
+		List<String> paths = configurationPaths(target);
+		List<WorldBuilderAdapterInspection.ConfigurationCandidate> result =
+			new ArrayList<WorldBuilderAdapterInspection.ConfigurationCandidate>();
+		for (int index = 0; index < paths.size(); index++) {
+			String path = paths.get(index);
+			WorldBuilderReadOnlyTarget.FileState state = target.requiredState(
+				"server-runtime-config", path);
+			result.add(new WorldBuilderAdapterInspection.ConfigurationCandidate(
+				paths.size() == 1 ? "primary" : "packed-map-" + (index + 1),
+				path, state.sha256));
+		}
+		return result;
+	}
+
+	static String configurationRole(WorldBuilderReadOnlyTarget target, String selectedPath)
+		throws WorldBuilderContractException {
+		List<String> paths = configurationPaths(target);
+		for (int index = 0; index < paths.size(); index++) {
+			if (paths.get(index).equals(selectedPath)) {
+				return paths.size() == 1 ? "primary" : "packed-map-" + (index + 1);
+			}
+		}
+		return "primary";
+	}
+
+	private static List<String> configurationPaths(WorldBuilderReadOnlyTarget target)
+		throws WorldBuilderContractException {
+		List<String> result = new ArrayList<String>();
+		for (String path : CONFIGURATION_PATHS) {
+			if (target.exists(path)) result.add(path);
+		}
+		Collections.sort(result);
+		return result;
+	}
+
+	private static WorldBuilderContractException configurationAmbiguity(
+		WorldBuilderReadOnlyTarget target, List<String> paths)
+		throws WorldBuilderContractException {
+		return new WorldBuilderAdaptiveConfiguration.SelectionException(
+			WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, "target-configuration",
+			"More than one supported server map configuration was found: " + paths + ".",
+			"Choose the map configuration to import; discovery will not guess.",
+			configurationCandidates(target));
 	}
 
 	private static String requireConfigurationPath(String value)

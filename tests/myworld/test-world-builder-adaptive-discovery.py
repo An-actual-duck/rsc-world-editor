@@ -1236,11 +1236,21 @@ public final class AdaptiveDiscoveryDriftHarness {
             report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
 
             self.assertIn(
-                "more than one active configuration root",
+                "more than one supported server map configuration",
                 report["issues"][0]["observed"].lower(),
             )
             self.assertIn("server/myworld.conf", report["issues"][0]["observed"])
             self.assertIn("myworld.conf", report["issues"][0]["observed"])
+            self.assertEqual(
+                ["packed-map-1", "packed-map-2"],
+                [candidate["role"] for candidate in report["configurationCandidates"]],
+            )
+            selected_result, selected = self.assert_read_only(
+                root, "--configuration-role", "packed-map-2"
+            )
+            self.assertEqual(0, selected_result.returncode, selected_result.stderr)
+            self.assertEqual("server/myworld.conf",
+                selected["selectedConfiguration"]["relativePath"])
             self.assertEqual(before, self.snapshot(root))
 
     def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):

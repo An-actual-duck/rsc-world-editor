@@ -85,7 +85,7 @@ final class WorldBuilderPortableProvider {
 
 		CacheLookup cache = localCandidates(source, installation, sourceEvidenceSha256);
 		List<Candidate> local = cache.candidates;
-		List<Candidate> legacy = legacyCandidates(source);
+		List<Candidate> legacy = collapseMirroredCandidates(legacyCandidates(source));
 		if (local.size() == 1) {
 			Candidate selected = local.get(0);
 			return new Discovery(Status.LOCAL, source, local, selected,
@@ -409,6 +409,83 @@ final class WorldBuilderPortableProvider {
 		}
 		Collections.sort(result);
 		return result;
+	}
+
+	/**
+	 * A normal OpenRSC distribution may retain the same renderer archives in a
+	 * client cache and in server data.  Those mirrors are not competing content
+	 * authorities.  Collapse only when every shared role is byte-identical and
+	 * one candidate contains every role exposed by the other; conflicting bytes
+	 * remain an explicit ambiguity.
+	 */
+	private List<Candidate> collapseMirroredCandidates(List<Candidate> candidates)
+		throws IOException {
+		if (candidates.size() < 2) return candidates;
+		List<Candidate> result = new ArrayList<Candidate>();
+		for (int index = 0; index < candidates.size(); index++) {
+			Candidate candidate = candidates.get(index);
+			boolean shadowed = false;
+			for (int otherIndex = 0; otherIndex < candidates.size(); otherIndex++) {
+				if (index == otherIndex) continue;
+				Candidate other = candidates.get(otherIndex);
+				if (!containsEquivalentContent(other, candidate)) continue;
+				if (hasMoreContent(other, candidate)
+					|| !hasMoreContent(candidate, other)
+						&& other.compareTo(candidate) < 0) {
+					shadowed = true;
+					break;
+				}
+			}
+			if (!shadowed) result.add(candidate);
+		}
+		Collections.sort(result);
+		return result;
+	}
+
+	private static boolean containsEquivalentContent(Candidate complete,
+		Candidate subset) throws IOException {
+		return containsEquivalent(complete.itemVisuals, subset.itemVisuals)
+			&& containsEquivalent(complete.definitions, subset.definitions)
+			&& containsEquivalent(complete.authenticArchive, subset.authenticArchive)
+			&& containsEquivalent(complete.customArchive, subset.customArchive)
+			&& containsEquivalent(complete.spritepacks, subset.spritepacks)
+			&& containsEquivalent(complete.externalItems, subset.externalItems);
+	}
+
+	private static boolean hasMoreContent(Candidate left, Candidate right) {
+		return present(left.itemVisuals) > present(right.itemVisuals)
+			|| present(left.definitions) > present(right.definitions)
+			|| present(left.authenticArchive) > present(right.authenticArchive)
+			|| present(left.customArchive) > present(right.customArchive)
+			|| present(left.spritepacks) > present(right.spritepacks)
+			|| present(left.externalItems) > present(right.externalItems);
+	}
+
+	private static int present(Path value) { return value == null ? 0 : 1; }
+
+	private static boolean containsEquivalent(Path complete, Path subset)
+		throws IOException {
+		if (subset == null) return true;
+		if (complete == null) return false;
+		Path left = complete.toRealPath();
+		Path right = subset.toRealPath();
+		if (left.equals(right)) return true;
+		if (safeFile(left) && safeFile(right)) {
+			return Files.size(left) == Files.size(right)
+				&& WorldBuilderHashes.sha256(left).equals(WorldBuilderHashes.sha256(right));
+		}
+		if (!safeDirectory(left) || !safeDirectory(right)) return false;
+		List<FileRecord> leftFiles = inventory(left);
+		List<FileRecord> rightFiles = inventory(right);
+		if (leftFiles.size() != rightFiles.size()) return false;
+		for (int index = 0; index < leftFiles.size(); index++) {
+			FileRecord leftFile = leftFiles.get(index);
+			FileRecord rightFile = rightFiles.get(index);
+			if (!leftFile.relativePath.equals(rightFile.relativePath)
+				|| leftFile.size != rightFile.size
+				|| !leftFile.sha256.equals(rightFile.sha256)) return false;
+		}
+		return true;
 	}
 
 	private List<Path> definitionRoots(Path source) throws IOException {

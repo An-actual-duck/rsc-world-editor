@@ -1387,6 +1387,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			report.get("selectedConfiguration"), "selectedConfiguration");
 		String capabilityPath = string(capability, "evidenceRelativePath");
 		String selectedPath = string(selected, "relativePath");
+		String selectedRole = string(selected, "role");
 		return !bool(descriptor, "present")
 			&& "compatible".equals(string(report, "status"))
 			&& "packed".equals(string(report, "representation"))
@@ -1397,10 +1398,25 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				string(capability, "capabilityId"))
 			&& WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS.contains(capabilityPath)
 			&& bool(selected, "present")
-			&& "primary".equals(string(selected, "role"))
+			&& ("primary".equals(selectedRole)
+				|| selectedRole.matches("packed-map-[1-9][0-9]*"))
+			&& containsSelectedConfiguration(report, selectedRole, selectedPath,
+				string(selected, "sha256"))
 			&& capabilityPath.equals(selectedPath)
 			&& string(capability, "evidenceSha256").equals(
 				string(selected, "sha256"));
+	}
+
+	private static boolean containsSelectedConfiguration(Map<String,Object> report,
+		String role, String path, String sha256) throws WorldBuilderContractException {
+		for (Object raw : array(report.get("configurationCandidates"),
+			"configurationCandidates")) {
+			Map<String,Object> candidate = object(raw, "configuration candidate");
+			if (role.equals(string(candidate, "role"))
+				&& path.equals(string(candidate, "relativePath"))
+				&& sha256.equals(string(candidate, "sha256"))) return true;
+		}
+		return false;
 	}
 
 	private static List<Evidence> withGeneratedFallbackEvidence(

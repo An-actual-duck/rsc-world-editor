@@ -94,18 +94,20 @@ final class WorldBuilderAdaptiveConfiguration {
 					"Choose one active role listed in the compatibility report.", configurations);
 			}
 		} else {
+			List<WorldBuilderAdaptiveConfiguration> activeConfigurations =
+				new ArrayList<WorldBuilderAdaptiveConfiguration>();
 			for (WorldBuilderAdaptiveConfiguration configuration : configurations) {
-				if (!configuration.active) continue;
-				if (selected != null) {
-					throw selectionProblem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION,
-						WorldBuilderTargetCapability.RELATIVE_PATH,
-						"More than one declared configuration is active: "
-							+ selected.configurationId + ", " + configuration.configurationId,
-						"Select one active configuration explicitly; discovery will not guess.",
-						configurations);
-				}
-				selected = configuration;
+				if (configuration.active) activeConfigurations.add(configuration);
 			}
+			if (activeConfigurations.size() > 1) {
+				throw selectionProblem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION,
+					WorldBuilderTargetCapability.RELATIVE_PATH,
+					"More than one declared configuration is active: "
+						+ configurationIds(activeConfigurations),
+					"Select one active configuration explicitly; discovery will not guess.",
+					activeConfigurations);
+			}
+			selected = activeConfigurations.isEmpty() ? null : activeConfigurations.get(0);
 			if (selected == null) {
 				throw selectionProblem(WorldBuilderErrorCodes.MALFORMED_SERVER,
 					WorldBuilderTargetCapability.RELATIVE_PATH,
@@ -115,6 +117,15 @@ final class WorldBuilderAdaptiveConfiguration {
 			}
 		}
 		return new Selection(configurations, selected);
+	}
+
+	private static List<String> configurationIds(
+		List<WorldBuilderAdaptiveConfiguration> configurations) {
+		List<String> result = new ArrayList<String>();
+		for (WorldBuilderAdaptiveConfiguration configuration : configurations) {
+			result.add(configuration.configurationId);
+		}
+		return result;
 	}
 
 	static WorldBuilderAdaptiveConfiguration read(
