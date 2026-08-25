@@ -69,21 +69,21 @@ final class WorldBuilderPackedFallbackEvidence {
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderPackedSourceLayout sourceLayout = WorldBuilderPackedSourceLayout.select(
 			WorldBuilderReadOnlyTarget.open(original));
-		List<WorldBuilderReadOnlyTarget.FileState> normalizedClientFiles =
-			sourceLayout.materializeCanonicalAliases(original);
-		WorldBuilderProjectContentBundle.Bundle content =
-			WorldBuilderProjectContentBundle.capture(
-				projectStage, original, runtime, itemVisualMappings);
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
 				original, WorldBuilderDiscovery.DEFAULT_CONFIG, null,
-				WorldBuilderPackedSourceLayout.canonical());
+				sourceLayout);
 		} catch (WorldBuilderDiscoveryException invalid) {
 			throw problem(WorldBuilderDiscovery.DEFAULT_CONFIG,
 				"Copied packed source no longer matches its discovered base-placement profile.",
 				invalid);
 		}
+		List<WorldBuilderReadOnlyTarget.FileState> normalizedSourceFiles =
+			sourceLayout.materializeCanonicalAliases(original, legacy.basedMapData);
+		WorldBuilderProjectContentBundle.Bundle content =
+			WorldBuilderProjectContentBundle.capture(
+				projectStage, original, runtime, itemVisualMappings);
 		Map<String,Object> catalog = content.compatibilityCatalog();
 		String catalogId = (String)catalog.get("catalogId");
 		writeJson(original, SERVER_DEFINITIONS, catalog);
@@ -135,7 +135,7 @@ final class WorldBuilderPackedFallbackEvidence {
 			WorldBuilderAdaptiveConfiguration.select(
 				target, parsedCapability, "primary").selected;
 		List<WorldBuilderReadOnlyTarget.FileState> generated = generatedStates(target);
-		generated.addAll(normalizedClientFiles);
+		generated.addAll(normalizedSourceFiles);
 		Collections.sort(generated);
 		Map<String,Object> conversionReport = derivedReport(
 			discovery, parsedCapability, parsedConfiguration, generated);

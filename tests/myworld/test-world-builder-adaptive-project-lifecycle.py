@@ -4511,6 +4511,60 @@ public final class FakeAdaptiveClient {
             self.assertTrue((bundle / "Authentic_Sprites.orsc").is_file())
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_packaged_server_content_is_normalized_only_inside_project(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-packaged-server-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            canonical_definitions = target / "server/conf/server/defs"
+            packaged_definitions = target / "server/data/definitions"
+            packaged_definitions.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(canonical_definitions), str(packaged_definitions))
+            canonical_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(canonical_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            packaged_terrain = target / "server/data/Custom_Landscape.orsc"
+            shutil.move(str(canonical_terrain), str(packaged_terrain))
+            shutil.copy2(
+                packaged_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            discovery = self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Packaged server normalization", 43833,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual("packed", discovery["representation"])
+            project = Path(summary["projectRoot"])
+            original = project / "source/original"
+            self.assertTrue(
+                (original / "server/data/definitions/TileDef.xml").is_file()
+            )
+            self.assertTrue(
+                (original / "server/conf/server/defs/TileDef.xml").is_file()
+            )
+            self.assertEqual(
+                (original / "server/data/definitions/locs/SceneryLocs.json").read_bytes(),
+                (original / "server/conf/server/defs/locs/SceneryLocs.json").read_bytes(),
+            )
+            self.assertEqual(
+                (original / "server/data/Custom_Landscape.orsc").read_bytes(),
+                (original / "server/conf/server/data/Custom_Landscape.orsc").read_bytes(),
+            )
+            bundle = project / "source/content-bundle/files/server/conf/server/defs"
+            self.assertTrue((bundle / "TileDef.xml").is_file())
+            self.assertTrue((bundle / "NpcDefsMyWorld.json").is_file())
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:
             base = Path(temp)

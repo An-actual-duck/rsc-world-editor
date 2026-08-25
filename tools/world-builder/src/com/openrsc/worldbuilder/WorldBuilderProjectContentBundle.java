@@ -115,7 +115,7 @@ final class WorldBuilderProjectContentBundle {
 		}
 		result.add(visuals);
 		try {
-			deriveCatalog(target.root, "target-adopted-content-v1");
+			deriveCatalog(target.root, "target-adopted-content-v1", layout);
 		} catch (IOException changed) {
 			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, "target-content",
 				"Target definitions changed while their complete catalog was derived.",
@@ -126,11 +126,15 @@ final class WorldBuilderProjectContentBundle {
 	}
 
 	private static Spec sourceSpec(Spec spec, WorldBuilderPackedSourceLayout layout) {
-		String prefix = WorldBuilderPackedSourceLayout.CANONICAL_VIDEO_ROOT + "/";
-		if (!spec.targetPath.startsWith(prefix)) return spec;
-		return new Spec(spec.role,
-			layout.path(spec.targetPath.substring(prefix.length())),
+		String video = WorldBuilderPackedSourceLayout.CANONICAL_VIDEO_ROOT + "/";
+		if (spec.targetPath.startsWith(video)) return new Spec(spec.role,
+			layout.path(spec.targetPath.substring(video.length())),
 			spec.runtimePath, spec.mediaType, spec.definition);
+		String definitions = WorldBuilderPackedSourceLayout.CANONICAL_DEFINITION_ROOT + "/";
+		if (spec.targetPath.startsWith(definitions)) return new Spec(spec.role,
+			layout.definitionPath(spec.targetPath.substring(definitions.length())),
+			spec.runtimePath, spec.mediaType, spec.definition);
+		return spec;
 	}
 
 	private static String discoveryRole(Spec spec) {
@@ -509,23 +513,29 @@ final class WorldBuilderProjectContentBundle {
 
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId)
 		throws IOException, WorldBuilderContractException {
+		return deriveCatalog(root, catalogId, null);
+	}
+
+	private static Map<String,Object> deriveCatalog(Path root, String catalogId,
+		WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
 		List<Object> tiles = range(rawByteXmlCount(root, "definition.tile",
-			"TileDef-array", "TileDef"));
+			"TileDef-array", "TileDef", layout));
 		List<Object> boundaries = range(rawByteXmlCount(root, "definition.boundary",
-			"DoorDef-array", "DoorDef"));
+			"DoorDef-array", "DoorDef", layout));
 		List<Object> scenery = range(xmlCount(root, "definition.scenery",
-			"GameObjectDef-array", "GameObjectDef"));
+			"GameObjectDef-array", "GameObjectDef", layout));
 		Set<Integer> npcIds = new TreeSet<Integer>();
-		int appendedNpcCount = jsonCount(root, "definition.npc.base", "npcs")
-			+ jsonCount(root, "definition.npc.custom", "npcs");
+		int appendedNpcCount = jsonCount(root, "definition.npc.base", layout, "npcs")
+			+ jsonCount(root, "definition.npc.custom", layout, "npcs");
 		for (int id = 0; id < appendedNpcCount; id++) npcIds.add(Integer.valueOf(id));
-		npcIds.addAll(jsonIds(root, "definition.npc.world", "npcs"));
-		npcIds.addAll(jsonIds(root, "definition.npc.patch", "npcs"));
+		npcIds.addAll(jsonIds(root, "definition.npc.world", layout, "npcs"));
+		npcIds.addAll(jsonIds(root, "definition.npc.patch", layout, "npcs"));
 		Set<Integer> itemIds = new TreeSet<Integer>();
-		itemIds.addAll(jsonIds(root, "definition.item.base", "item"));
-		itemIds.addAll(jsonIds(root, "definition.item.custom", "items"));
-		itemIds.addAll(jsonIds(root, "definition.item.world", "items"));
-		itemIds.addAll(jsonIds(root, "definition.item.patch", "items", "item"));
+		itemIds.addAll(jsonIds(root, "definition.item.base", layout, "item"));
+		itemIds.addAll(jsonIds(root, "definition.item.custom", layout, "items"));
+		itemIds.addAll(jsonIds(root, "definition.item.world", layout, "items"));
+		itemIds.addAll(jsonIds(root, "definition.item.patch", layout, "items", "item"));
 		Map<String,Object> catalog = new LinkedHashMap<String,Object>();
 		catalog.put("schemaVersion", Long.valueOf(1L));
 		catalog.put("manifestType", CATALOG_TYPE);
@@ -542,7 +552,13 @@ final class WorldBuilderProjectContentBundle {
 
 	private static int rawByteXmlCount(Path root, String role, String rootName,
 		String element) throws IOException, WorldBuilderContractException {
-		int count = xmlCount(root, role, rootName, element);
+		return rawByteXmlCount(root, role, rootName, element, null);
+	}
+
+	private static int rawByteXmlCount(Path root, String role, String rootName,
+		String element, WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
+		int count = xmlCount(root, role, rootName, element, layout);
 		if (count > MAX_RAW_BYTE_ID + 1) throw problem(
 			WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, role,
 			"Floor and boundary definitions exceed their one-byte raw ID domain 0..254.",
@@ -552,7 +568,13 @@ final class WorldBuilderProjectContentBundle {
 
 	private static int xmlCount(Path root, String role, String rootName, String element)
 		throws IOException, WorldBuilderContractException {
-		Path path = contentPath(root, role);
+		return xmlCount(root, role, rootName, element, null);
+	}
+
+	private static int xmlCount(Path root, String role, String rootName, String element,
+		WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
+		Path path = contentPath(root, role, layout);
 		try (InputStream input = Files.newInputStream(path)) {
 			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 			factory.setXIncludeAware(false);
@@ -586,13 +608,25 @@ final class WorldBuilderProjectContentBundle {
 
 	private static int jsonCount(Path root, String role, String arrayName)
 		throws IOException, WorldBuilderContractException {
-		return jsonArray(root, role, arrayName).size();
+		return jsonCount(root, role, null, arrayName);
+	}
+
+	private static int jsonCount(Path root, String role,
+		WorldBuilderPackedSourceLayout layout, String arrayName)
+		throws IOException, WorldBuilderContractException {
+		return jsonArray(root, role, layout, arrayName).size();
 	}
 
 	private static Set<Integer> jsonIds(Path root, String role, String... arrayNames)
 		throws IOException, WorldBuilderContractException {
+		return jsonIds(root, role, null, arrayNames);
+	}
+
+	private static Set<Integer> jsonIds(Path root, String role,
+		WorldBuilderPackedSourceLayout layout, String... arrayNames)
+		throws IOException, WorldBuilderContractException {
 		Set<Integer> result = new TreeSet<Integer>();
-		for (Object raw : jsonArray(root, role, arrayNames)) {
+		for (Object raw : jsonArray(root, role, layout, arrayNames)) {
 			if (!(raw instanceof Map)) throw malformedDefinition(role);
 			@SuppressWarnings("unchecked") Map<String,Object> value = (Map<String,Object>)raw;
 			Object id = value.get("id");
@@ -607,10 +641,16 @@ final class WorldBuilderProjectContentBundle {
 
 	private static List<?> jsonArray(Path root, String role, String... arrayNames)
 		throws IOException, WorldBuilderContractException {
+		return jsonArray(root, role, null, arrayNames);
+	}
+
+	private static List<?> jsonArray(Path root, String role,
+		WorldBuilderPackedSourceLayout layout, String... arrayNames)
+		throws IOException, WorldBuilderContractException {
 		Map<String,Object> value;
 		try {
 			value = WorldBuilderJsonDocuments.readTargetDefinitionObject(
-				contentPath(root, role));
+				contentPath(root, role, layout));
 		} catch (WorldBuilderDiscoveryException malformed) {
 			throw malformedDefinition(role, malformed);
 		}
@@ -629,12 +669,18 @@ final class WorldBuilderProjectContentBundle {
 
 	private static Path contentPath(Path root, String role)
 		throws WorldBuilderContractException {
+		return contentPath(root, role, null);
+	}
+
+	private static Path contentPath(Path root, String role,
+		WorldBuilderPackedSourceLayout layout) throws WorldBuilderContractException {
 		List<Spec> specs = new ArrayList<Spec>(SPECS);
 		specs.add(ITEM_VISUAL_SPEC);
 		for (Spec spec : specs) if (role.equals(spec.role)) {
 			Path bundled = root.resolve("files/" + spec.runtimePath);
 			return Files.isRegularFile(bundled, LinkOption.NOFOLLOW_LINKS)
-				? bundled : root.resolve(spec.targetPath);
+				? bundled : root.resolve(layout == null
+					? spec.targetPath : sourceSpec(spec, layout).targetPath);
 		}
 		throw new AssertionError(role);
 	}

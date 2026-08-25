@@ -954,6 +954,82 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertIn("client/Cache/video", report["issues"][0]["observed"])
             self.assertEqual(before, self.snapshot(root))
 
+    def test_packed_server_content_layout_variants_are_selected_read_only(self):
+        for definition_root in ("server/data/definitions", "server/data/defs"):
+            with self.subTest(definition_root=definition_root), tempfile.TemporaryDirectory(
+                prefix="adaptive-packed-server-variant-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                selected_definitions = root / definition_root
+                selected_definitions.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(
+                    str(root / "server/conf/server/defs"),
+                    str(selected_definitions),
+                )
+                selected_terrain = root / "server/data/Custom_Landscape.orsc"
+                shutil.move(
+                    str(root / "server/conf/server/data/Custom_Landscape.orsc"),
+                    str(selected_terrain),
+                )
+                before = self.snapshot(root)
+
+                result, report = self.assert_read_only(root)
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual("compatible", report["status"])
+                paths = {item["relativePath"] for item in report["files"]}
+                self.assertIn(f"{definition_root}/TileDef.xml", paths)
+                self.assertIn(f"{definition_root}/locs/NpcLocs.json", paths)
+                self.assertIn("server/data/Custom_Landscape.orsc", paths)
+                self.assertNotIn("server/conf/server/defs/TileDef.xml", paths)
+                profile = next(
+                    check for check in report["checks"]
+                    if check["checkId"] == "source-layout-profile"
+                )
+                self.assertIn(definition_root, profile["observed"])
+                self.assertIn("server/data", profile["observed"])
+                self.assertEqual(before, self.snapshot(root))
+
+    def test_multiple_packed_server_definition_roots_are_ambiguous(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-server-ambiguous-") as temp:
+            root = self.legacy_fixture(temp)
+            duplicate = root / "server/data/definitions/TileDef.xml"
+            duplicate.parent.mkdir(parents=True)
+            shutil.copy2(
+                root / "server/conf/server/defs/TileDef.xml", duplicate
+            )
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            self.assertIn(
+                "more than one server definition root",
+                report["issues"][0]["observed"].lower(),
+            )
+            self.assertIn("server/conf/server/defs", report["issues"][0]["observed"])
+            self.assertIn("server/data/definitions", report["issues"][0]["observed"])
+            self.assertEqual(before, self.snapshot(root))
+
+    def test_multiple_packed_server_terrain_roots_are_ambiguous(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-terrain-ambiguous-") as temp:
+            root = self.legacy_fixture(temp)
+            duplicate = root / "server/data/Custom_Landscape.orsc"
+            duplicate.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(
+                root / "server/conf/server/data/Custom_Landscape.orsc", duplicate
+            )
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            self.assertIn(
+                "more than one server terrain root",
+                report["issues"][0]["observed"].lower(),
+            )
+            self.assertIn("server/conf/server/data", report["issues"][0]["observed"])
+            self.assertIn("server/data", report["issues"][0]["observed"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-profile-") as temp:
             root = self.legacy_fixture(temp)

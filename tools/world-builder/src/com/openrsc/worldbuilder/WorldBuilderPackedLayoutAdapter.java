@@ -15,10 +15,6 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static final String FORMAT_ID = "legacy-packed-orsc-v1";
 	private static final String PACKAGE_SCHEMA_ID = "layered-world-package-v1";
 	private static final String MUTATION_PROFILE_ID = "spoiled-milk-layered-install-v1";
-	private static final String SERVER_TERRAIN =
-		"server/conf/server/data/Custom_Landscape.orsc";
-	private static final String TARGET_GROUND_ITEM_PLACEMENTS =
-		"server/conf/server/defs/locs/MyWorldGroundItemLocs.json";
 	@Override
 	public String id() {
 		return ID;
@@ -28,9 +24,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	public ProbeResult probe(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
 		boolean config = target.exists(WorldBuilderDiscovery.DEFAULT_CONFIG);
-		boolean serverTerrain = target.exists(SERVER_TERRAIN);
-		boolean locations = target.exists("server/conf/server/defs/locs");
-		boolean tileDefinitions = target.exists("server/conf/server/defs/TileDef.xml");
+		boolean serverTerrain = false;
+		boolean locations = false;
+		boolean tileDefinitions = false;
 		List<ProbeResult.Anchor> anchors = new ArrayList<ProbeResult.Anchor>();
 		boolean clientTerrain = false;
 		for (String videoRoot : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
@@ -40,18 +36,31 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			anchors.add(new ProbeResult.Anchor("client-terrain-candidate", path,
 				present, false));
 		}
+		for (String dataRoot : WorldBuilderPackedSourceLayout.DATA_ROOTS) {
+			String path = dataRoot + "/Custom_Landscape.orsc";
+			boolean present = target.exists(path);
+			serverTerrain |= present;
+			anchors.add(new ProbeResult.Anchor("server-terrain-candidate", path,
+				present, false));
+		}
+		for (String definitionRoot : WorldBuilderPackedSourceLayout.DEFINITION_ROOTS) {
+			String locationPath = definitionRoot + "/locs";
+			String tilePath = definitionRoot + "/TileDef.xml";
+			boolean locationPresent = target.exists(locationPath);
+			boolean tilePresent = target.exists(tilePath);
+			locations |= locationPresent;
+			tileDefinitions |= tilePresent;
+			anchors.add(new ProbeResult.Anchor("placement-root-candidate", locationPath,
+				locationPresent, false));
+			anchors.add(new ProbeResult.Anchor("tile-definition-candidate", tilePath,
+				tilePresent, false));
+		}
 		boolean evidence = config || serverTerrain || clientTerrain || locations
 			|| tileDefinitions;
 		Probe state = !evidence ? Probe.NO_EVIDENCE
 			: config ? Probe.SUPPORTED : Probe.RECOGNIZABLE;
 		anchors.add(new ProbeResult.Anchor("active-configuration",
 			WorldBuilderDiscovery.DEFAULT_CONFIG, config, true));
-		anchors.add(new ProbeResult.Anchor("server-terrain", SERVER_TERRAIN,
-			serverTerrain, false));
-		anchors.add(new ProbeResult.Anchor("placement-root",
-			"server/conf/server/defs/locs", locations, false));
-		anchors.add(new ProbeResult.Anchor("tile-definitions",
-			"server/conf/server/defs/TileDef.xml", tileDefinitions, false));
 		return new ProbeResult(PROFILE_ID, state, anchors);
 	}
 
@@ -143,6 +152,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			"server-runtime-config", WorldBuilderDiscovery.DEFAULT_CONFIG);
 		WorldBuilderPackedSourceLayout sourceLayout =
 			WorldBuilderPackedSourceLayout.select(target);
+		String serverTerrain = sourceLayout.serverDataPath("Custom_Landscape.orsc");
+		String targetGroundItems = sourceLayout.locationPath(
+			"MyWorldGroundItemLocs.json");
 		if (legacyConfig.size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
 				WorldBuilderDiscovery.DEFAULT_CONFIG,
@@ -150,7 +162,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				"Reduce the configuration to a bounded reviewed layout.");
 		}
 		WorldBuilderPackedMap.validateArchive(
-			target.requiredFile(SERVER_TERRAIN), SERVER_TERRAIN);
+			target.requiredFile(serverTerrain), serverTerrain);
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
@@ -189,14 +201,14 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			if (file.present) validateLegacyPlacement(target, file.logicalName, file.relativePath);
 		}
 		for (String[] source : WorldBuilderDiscovery.basePlacementFiles(
-			legacy.basedMapData)) {
+			legacy.basedMapData, sourceLayout)) {
 			String role = roles.get(source[0]);
 			files.add(target.requiredState(role, source[1]));
 			validateLegacyPlacement(target, source[0], source[1]);
 		}
 		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target));
 		files.add(target.optionalState("placement.ground-item-overlay",
-			TARGET_GROUND_ITEM_PLACEMENTS));
+			targetGroundItems));
 		files.add(legacyConfig);
 		for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
 			WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(
@@ -264,8 +276,10 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				+ legacy.basedMapData + "."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"source-layout-profile", "passed",
-			"Exactly one versioned source-tree or packaged client cache root is authoritative.",
-			sourceLayout.profileId + " selected at " + sourceLayout.videoRoot + "."));
+			"Exactly one versioned client cache and server content root are authoritative.",
+			sourceLayout.profileId + " selected client=" + sourceLayout.videoRoot
+				+ ", definitions=" + sourceLayout.definitionRoot
+				+ ", data=" + sourceLayout.dataRoot + "."));
 		return new WorldBuilderAdapterInspection(ID,
 			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID,
 			WorldBuilderDiscovery.DEFAULT_CONFIG, legacy.selectedConfigSha256, "packed",

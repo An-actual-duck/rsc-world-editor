@@ -31,14 +31,10 @@ public final class WorldBuilderDiscovery {
 		"^\\s*([A-Za-z0-9_]+)\\s*:\\s*([^#]*?)\\s*(?:#.*)?$");
 	private static final Pattern SHA256 = Pattern.compile("[0-9a-fA-F]{64}");
 
-	private static final String SERVER_TERRAIN = "server/conf/server/data/Custom_Landscape.orsc";
+	private static final String TERRAIN_FILE = "Custom_Landscape.orsc";
 	private static final String[] SERVER_CONTENT_FILES = {
-		"server/conf/server/defs/TileDef.xml",
-		"server/conf/server/defs/GameObjectDef.xml",
-		"server/conf/server/defs/NpcDefs.json",
-		"server/conf/server/defs/NpcDefsCustom.json",
-		"server/conf/server/defs/NpcDefsMyWorld.json",
-		"server/conf/server/defs/NpcDefsPatch18.json"
+		"TileDef.xml", "GameObjectDef.xml", "NpcDefs.json",
+		"NpcDefsCustom.json", "NpcDefsMyWorld.json", "NpcDefsPatch18.json"
 	};
 
 	public WorldBuilderDiscoveryResult discover(Path requestedRoot)
@@ -102,7 +98,8 @@ public final class WorldBuilderDiscovery {
 					"Server and client Custom_Landscape.orsc files are not byte-identical.");
 			}
 
-			int serverSectors = validateTerrainArchive(requiredFile(root, SERVER_TERRAIN));
+			int serverSectors = validateTerrainArchive(requiredFile(root,
+				layout.serverDataPath(TERRAIN_FILE)));
 			int clientSectors = validateTerrainArchive(requiredFile(root,
 				layout.path("Custom_Landscape.orsc")));
 			if (serverSectors != clientSectors) {
@@ -224,12 +221,12 @@ public final class WorldBuilderDiscovery {
 		Path root, WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderDiscoveryException {
 		String[][] authoredFiles = {
-			{"serverTerrain", SERVER_TERRAIN},
+			{"serverTerrain", layout.serverDataPath(TERRAIN_FILE)},
 			{"clientTerrain", layout.path("Custom_Landscape.orsc")},
-			{"sceneryLocs", "server/conf/server/defs/locs/MyWorldSceneryLocs.json"},
-			{"sceneryRemovals", "server/conf/server/defs/locs/MyWorldSceneryRemovals.json"},
-			{"npcLocs", "server/conf/server/defs/locs/MyWorldNpcLocs.json"},
-			{"npcRemovals", "server/conf/server/defs/locs/MyWorldNpcRemovals.json"}
+			{"sceneryLocs", layout.locationPath("MyWorldSceneryLocs.json")},
+			{"sceneryRemovals", layout.locationPath("MyWorldSceneryRemovals.json")},
+			{"npcLocs", layout.locationPath("MyWorldNpcLocs.json")},
+			{"npcRemovals", layout.locationPath("MyWorldNpcRemovals.json")}
 		};
 		List<WorldBuilderDiscoveryResult.SourceFile> files =
 			new ArrayList<WorldBuilderDiscoveryResult.SourceFile>();
@@ -249,14 +246,18 @@ public final class WorldBuilderDiscovery {
 	}
 
 	static String[][] basePlacementFiles(int basedMapData) {
+		return basePlacementFiles(basedMapData, WorldBuilderPackedSourceLayout.canonical());
+	}
+
+	static String[][] basePlacementFiles(int basedMapData,
+		WorldBuilderPackedSourceLayout layout) {
 		String suffix = basedMapData == 14 ? "14"
 			: basedMapData == 27 ? "27" : "";
-		String root = "server/conf/server/defs/locs/";
 		return new String[][] {
-			{"boundaryBase", root + "BoundaryLocs" + suffix + ".json"},
-			{"groundItemBase", root + "GroundItems" + suffix + ".json"},
-			{"npcBase", root + "NpcLocs" + suffix + ".json"},
-			{"sceneryBase", root + "SceneryLocs" + suffix + ".json"}
+			{"boundaryBase", layout.locationPath("BoundaryLocs" + suffix + ".json")},
+			{"groundItemBase", layout.locationPath("GroundItems" + suffix + ".json")},
+			{"npcBase", layout.locationPath("NpcLocs" + suffix + ".json")},
+			{"sceneryBase", layout.locationPath("SceneryLocs" + suffix + ".json")}
 		};
 	}
 
@@ -326,8 +327,10 @@ public final class WorldBuilderDiscovery {
 		WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderDiscoveryException {
 		MessageDigest digest = WorldBuilderHashes.newDigest();
-		List<String> contentFiles = new ArrayList<String>(
-			java.util.Arrays.asList(SERVER_CONTENT_FILES));
+		List<String> contentFiles = new ArrayList<String>();
+		for (String inside : SERVER_CONTENT_FILES) {
+			contentFiles.add(layout.definitionPath(inside));
+		}
 		contentFiles.add(layout.path("library.orsc"));
 		for (String relative : contentFiles) {
 			Path file = requiredFile(root, relative);

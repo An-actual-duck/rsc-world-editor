@@ -10,127 +10,251 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Exact source-path profile for equivalent OpenRSC packed client cache layouts.
- * Source paths vary; project/runtime destinations remain canonical.
- */
+/** Exact source-path profile for equivalent OpenRSC packed layouts. */
 final class WorldBuilderPackedSourceLayout {
 	static final String CANONICAL_VIDEO_ROOT = "Client_Base/Cache/video";
+	static final String CANONICAL_DEFINITION_ROOT = "server/conf/server/defs";
+	static final String CANONICAL_DATA_ROOT = "server/conf/server/data";
 	static final List<String> VIDEO_ROOTS = Collections.unmodifiableList(Arrays.asList(
 		CANONICAL_VIDEO_ROOT, "client/Cache/video", "Cache/video"));
-	private static final List<String> REQUIRED_FILES = Collections.unmodifiableList(
+	static final List<String> DEFINITION_ROOTS = Collections.unmodifiableList(Arrays.asList(
+		CANONICAL_DEFINITION_ROOT, "server/data/definitions", "server/data/defs"));
+	static final List<String> DATA_ROOTS = Collections.unmodifiableList(Arrays.asList(
+		CANONICAL_DATA_ROOT, "server/data"));
+
+	private static final List<String> CLIENT_FILES = Collections.unmodifiableList(
 		Arrays.asList("Custom_Landscape.orsc", "library.orsc", "models.orsc",
 			"Authentic_Sprites.orsc", "Custom_Sprites.osar", "spritepacks/Menus.osar"));
+	private static final List<String> DEFINITION_FILES = Collections.unmodifiableList(
+		Arrays.asList("TileDef.xml", "DoorDef.xml", "GameObjectDef.xml",
+			"ItemDefs.json", "ItemDefsCustom.json", "ItemDefsPatch18.json",
+			"ItemDefsMyWorld.json", "NpcDefs.json", "NpcDefsCustom.json",
+			"NpcDefsPatch18.json", "NpcDefsMyWorld.json"));
+	private static final List<String> OVERLAY_FILES = Collections.unmodifiableList(
+		Arrays.asList("MyWorldGroundItemLocs.json", "MyWorldSceneryLocs.json",
+			"MyWorldSceneryRemovals.json", "MyWorldNpcLocs.json",
+			"MyWorldNpcRemovals.json"));
 
 	final String profileId;
 	final String videoRoot;
+	final String definitionRoot;
+	final String dataRoot;
 
-	private WorldBuilderPackedSourceLayout(String profileId, String videoRoot) {
+	private WorldBuilderPackedSourceLayout(String profileId, String videoRoot,
+		String definitionRoot, String dataRoot) {
 		this.profileId = profileId;
 		this.videoRoot = videoRoot;
+		this.definitionRoot = definitionRoot;
+		this.dataRoot = dataRoot;
 	}
 
 	static WorldBuilderPackedSourceLayout canonical() {
-		return forRoot(CANONICAL_VIDEO_ROOT);
+		return create(CANONICAL_VIDEO_ROOT, CANONICAL_DEFINITION_ROOT,
+			CANONICAL_DATA_ROOT);
 	}
 
 	static WorldBuilderPackedSourceLayout select(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
-		List<WorldBuilderPackedSourceLayout> recognizable =
-			new ArrayList<WorldBuilderPackedSourceLayout>();
-		for (String root : VIDEO_ROOTS) {
-			WorldBuilderPackedSourceLayout layout = forRoot(root);
-			if (layout.hasAnyEvidence(target)) recognizable.add(layout);
+		String video = selectRoot(target, VIDEO_ROOTS, CLIENT_FILES,
+			"client cache", CANONICAL_VIDEO_ROOT);
+		String definitions = selectDefinitionRoot(target);
+		String data = selectRoot(target, DATA_ROOTS,
+			Collections.singletonList("Custom_Landscape.orsc"),
+			"server terrain", CANONICAL_DATA_ROOT);
+		return create(video, definitions, data);
+	}
+
+	private static String selectDefinitionRoot(WorldBuilderReadOnlyTarget target)
+		throws WorldBuilderContractException {
+		List<String> recognizable = new ArrayList<String>();
+		for (String root : DEFINITION_ROOTS) {
+			boolean evidence = target.exists(root + "/locs");
+			for (String inside : DEFINITION_FILES) evidence |= target.exists(root + "/" + inside);
+			if (evidence) recognizable.add(root);
 		}
 		if (recognizable.size() > 1) {
-			List<String> roots = new ArrayList<String>();
-			for (WorldBuilderPackedSourceLayout layout : recognizable) {
-				roots.add(layout.videoRoot);
-			}
 			throw WorldBuilderReadOnlyTarget.problem(
 				WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, "target-root",
-				"More than one client cache root contains packed-layout evidence: "
-					+ roots + ".",
-				"Remove inactive/duplicate cache evidence or use one explicit truthful descriptor.");
+				"More than one server definition root contains packed-layout evidence: "
+					+ recognizable + ".",
+				"Remove inactive/duplicate definitions or use one explicit truthful descriptor.");
 		}
-		return recognizable.isEmpty() ? canonical() : recognizable.get(0);
+		return recognizable.isEmpty() ? CANONICAL_DEFINITION_ROOT : recognizable.get(0);
 	}
 
-	String path(String insideVideoRoot) {
-		return videoRoot + "/" + insideVideoRoot;
+	private static String selectRoot(WorldBuilderReadOnlyTarget target,
+		List<String> roots, List<String> evidenceFiles, String label, String fallback)
+		throws WorldBuilderContractException {
+		List<String> recognizable = new ArrayList<String>();
+		for (String root : roots) {
+			for (String inside : evidenceFiles) {
+				if (target.exists(root + "/" + inside)) {
+					recognizable.add(root);
+					break;
+				}
+			}
+		}
+		if (recognizable.size() > 1) {
+			throw WorldBuilderReadOnlyTarget.problem(
+				WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, "target-root",
+				"More than one " + label + " root contains packed-layout evidence: "
+					+ recognizable + ".",
+				"Remove inactive/duplicate evidence or use one explicit truthful descriptor.");
+		}
+		return recognizable.isEmpty() ? fallback : recognizable.get(0);
 	}
 
-	String canonicalPath(String insideVideoRoot) {
-		return CANONICAL_VIDEO_ROOT + "/" + insideVideoRoot;
+	String path(String inside) { return videoRoot + "/" + inside; }
+	String canonicalPath(String inside) { return CANONICAL_VIDEO_ROOT + "/" + inside; }
+	String definitionPath(String inside) { return definitionRoot + "/" + inside; }
+	String canonicalDefinitionPath(String inside) {
+		return CANONICAL_DEFINITION_ROOT + "/" + inside;
 	}
+	String locationPath(String inside) { return definitionPath("locs/" + inside); }
+	String canonicalLocationPath(String inside) {
+		return canonicalDefinitionPath("locs/" + inside);
+	}
+	String serverDataPath(String inside) { return dataRoot + "/" + inside; }
+	String canonicalServerDataPath(String inside) { return CANONICAL_DATA_ROOT + "/" + inside; }
 
-	List<WorldBuilderReadOnlyTarget.FileState> materializeCanonicalAliases(Path copiedTarget)
-		throws IOException, WorldBuilderContractException {
-		if (CANONICAL_VIDEO_ROOT.equals(videoRoot)) return Collections.emptyList();
+	List<WorldBuilderReadOnlyTarget.FileState> materializeCanonicalAliases(
+		Path copiedTarget, int basedMapData) throws IOException, WorldBuilderContractException {
 		WorldBuilderReadOnlyTarget source = WorldBuilderReadOnlyTarget.open(copiedTarget);
+		List<Alias> aliases = new ArrayList<Alias>();
+		if (!CANONICAL_VIDEO_ROOT.equals(videoRoot)) {
+			for (String inside : CLIENT_FILES) aliases.add(new Alias(
+				clientRole(inside), path(inside), canonicalPath(inside), true));
+		}
+		if (!CANONICAL_DATA_ROOT.equals(dataRoot)) aliases.add(new Alias(
+			"server-terrain", serverDataPath("Custom_Landscape.orsc"),
+			canonicalServerDataPath("Custom_Landscape.orsc"), true));
+		if (!CANONICAL_DEFINITION_ROOT.equals(definitionRoot)) {
+			for (String inside : DEFINITION_FILES) aliases.add(new Alias(
+				definitionRole(inside), definitionPath(inside),
+				canonicalDefinitionPath(inside), true));
+			String suffix = basedMapData == 14 ? "14" : basedMapData == 27 ? "27" : "";
+			aliases.add(new Alias("placement.boundary-base-source",
+				locationPath("BoundaryLocs" + suffix + ".json"),
+				canonicalLocationPath("BoundaryLocs" + suffix + ".json"), true));
+			aliases.add(new Alias("placement.ground-item-base-source",
+				locationPath("GroundItems" + suffix + ".json"),
+				canonicalLocationPath("GroundItems" + suffix + ".json"), true));
+			aliases.add(new Alias("placement.npc-base-source",
+				locationPath("NpcLocs" + suffix + ".json"),
+				canonicalLocationPath("NpcLocs" + suffix + ".json"), true));
+			aliases.add(new Alias("placement.scenery-base-source",
+				locationPath("SceneryLocs" + suffix + ".json"),
+				canonicalLocationPath("SceneryLocs" + suffix + ".json"), true));
+			for (String inside : OVERLAY_FILES) aliases.add(new Alias(
+				overlayRole(inside), locationPath(inside),
+				canonicalLocationPath(inside), false));
+		}
+
 		List<WorldBuilderReadOnlyTarget.FileState> generated =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
-		for (String inside : REQUIRED_FILES) {
-			String from = path(inside);
-			String to = canonicalPath(inside);
-			WorldBuilderReadOnlyTarget.FileState expected = source.requiredState(
-				"source-layout." + role(inside), from);
-			Path destination = copiedTarget.resolve(to).normalize();
-			if (!destination.startsWith(copiedTarget.toAbsolutePath().normalize())
-				|| Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
-				throw WorldBuilderReadOnlyTarget.problem(
-					WorldBuilderErrorCodes.UNSAFE_PATH, to,
-					"Canonical project-local source path is unsafe or already exists.",
-					"Discard the unpublished project stage and retry from one source layout.");
-			}
-			Files.createDirectories(destination.getParent());
-			Files.copy(source.requiredFile(from), destination,
-				StandardCopyOption.COPY_ATTRIBUTES);
-			if (Files.size(destination) != expected.size
-				|| !WorldBuilderHashes.sha256(destination).equals(expected.sha256)) {
-				throw WorldBuilderReadOnlyTarget.problem(
-					WorldBuilderErrorCodes.SOURCE_CORRUPT, from,
-					"Canonical project-local source copy differs from selected cache evidence.",
-					"Discard the unpublished project stage and retry from stable source bytes.");
-			}
+		for (Alias alias : aliases) {
+			if (!alias.required && !source.exists(alias.from)) continue;
+			WorldBuilderReadOnlyTarget.FileState expected = alias.required
+				? source.requiredState("source-layout." + alias.role, alias.from)
+				: source.optionalState("source-layout." + alias.role, alias.from);
+			copyVerified(copiedTarget, source, expected, alias.from, alias.to);
 		}
 		WorldBuilderReadOnlyTarget normalized = WorldBuilderReadOnlyTarget.open(copiedTarget);
-		for (String inside : REQUIRED_FILES) {
-			generated.add(normalized.requiredState(
-				role(inside), canonicalPath(inside)));
+		for (Alias alias : aliases) {
+			if (normalized.exists(alias.to)) {
+				generated.add(normalized.requiredState(alias.role, alias.to));
+			}
 		}
 		Collections.sort(generated);
 		return generated;
 	}
 
-	private boolean hasAnyEvidence(WorldBuilderReadOnlyTarget target)
-		throws WorldBuilderContractException {
-		for (String inside : REQUIRED_FILES) if (target.exists(path(inside))) return true;
-		return false;
+	private static void copyVerified(Path copiedTarget, WorldBuilderReadOnlyTarget source,
+		WorldBuilderReadOnlyTarget.FileState expected, String from, String to)
+		throws IOException, WorldBuilderContractException {
+		Path destination = copiedTarget.resolve(to).normalize();
+		if (!destination.startsWith(copiedTarget.toAbsolutePath().normalize())
+			|| Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+			throw WorldBuilderReadOnlyTarget.problem(
+				WorldBuilderErrorCodes.UNSAFE_PATH, to,
+				"Canonical project-local source path is unsafe or already exists.",
+				"Discard the unpublished project stage and retry from one source layout.");
+		}
+		Files.createDirectories(destination.getParent());
+		Files.copy(source.requiredFile(from), destination, StandardCopyOption.COPY_ATTRIBUTES);
+		if (Files.size(destination) != expected.size
+			|| !WorldBuilderHashes.sha256(destination).equals(expected.sha256)) {
+			throw WorldBuilderReadOnlyTarget.problem(
+				WorldBuilderErrorCodes.SOURCE_CORRUPT, from,
+				"Canonical project-local source copy differs from selected source evidence.",
+				"Discard the unpublished project stage and retry from stable source bytes.");
+		}
 	}
 
-	private static WorldBuilderPackedSourceLayout forRoot(String root) {
-		String id = CANONICAL_VIDEO_ROOT.equals(root)
+	private static WorldBuilderPackedSourceLayout create(String videoRoot,
+		String definitionRoot, String dataRoot) {
+		String clientId = CANONICAL_VIDEO_ROOT.equals(videoRoot)
 			? "openrsc-source-client-base-cache-v1"
-			: "client/Cache/video".equals(root)
-				? "openrsc-packaged-client-cache-v1"
-				: "openrsc-flat-client-cache-v1";
-		return new WorldBuilderPackedSourceLayout(id, root);
+			: "client/Cache/video".equals(videoRoot)
+				? "openrsc-packaged-client-cache-v1" : "openrsc-flat-client-cache-v1";
+		String serverId = CANONICAL_DEFINITION_ROOT.equals(definitionRoot)
+			&& CANONICAL_DATA_ROOT.equals(dataRoot) ? ""
+			: "openrsc-packed-server-layout-"
+				+ portableId(definitionRoot + "-" + dataRoot) + "-v1";
+		return new WorldBuilderPackedSourceLayout(serverId.isEmpty()
+			? clientId : clientId + "+" + serverId, videoRoot, definitionRoot, dataRoot);
 	}
 
-	private static String role(String inside) {
+	private static String portableId(String value) {
+		return value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+			.replaceAll("^-|-$", "");
+	}
+
+	private static String clientRole(String inside) {
 		if ("Custom_Landscape.orsc".equals(inside)) return "client-terrain";
 		if ("library.orsc".equals(inside)) return "client-asset.library";
 		if ("models.orsc".equals(inside)) return "content.asset.model";
-		if ("Authentic_Sprites.orsc".equals(inside)) {
-			return "content.asset.sprite.authentic";
-		}
-		if ("Custom_Sprites.osar".equals(inside)) {
-			return "content.asset.sprite.custom";
-		}
-		if ("spritepacks/Menus.osar".equals(inside)) {
-			return "content.asset.spritepack";
-		}
+		if ("Authentic_Sprites.orsc".equals(inside)) return "content.asset.sprite.authentic";
+		if ("Custom_Sprites.osar".equals(inside)) return "content.asset.sprite.custom";
+		if ("spritepacks/Menus.osar".equals(inside)) return "content.asset.spritepack";
 		throw new AssertionError(inside);
+	}
+
+	private static String definitionRole(String inside) {
+		if ("TileDef.xml".equals(inside)) return "server-definition.tile";
+		if ("GameObjectDef.xml".equals(inside)) return "server-definition.scenery";
+		if ("DoorDef.xml".equals(inside)) return "content.definition.boundary";
+		if (inside.startsWith("NpcDefs")) return "server-definition.npc." + definitionVariant(inside);
+		if (inside.startsWith("ItemDefs")) return "content.definition.item." + definitionVariant(inside);
+		throw new AssertionError(inside);
+	}
+
+	private static String definitionVariant(String inside) {
+		if (inside.contains("Custom")) return "custom";
+		if (inside.contains("Patch")) return "patch";
+		if (inside.contains("MyWorld")) return "world";
+		return "base";
+	}
+
+	private static String overlayRole(String inside) {
+		if (inside.startsWith("MyWorldGroundItem")) return "placement.ground-item-overlay";
+		if (inside.startsWith("MyWorldSceneryRemovals")) return "placement.scenery-removal";
+		if (inside.startsWith("MyWorldScenery")) return "placement.scenery-overlay";
+		if (inside.startsWith("MyWorldNpcRemovals")) return "placement.npc-removal";
+		if (inside.startsWith("MyWorldNpc")) return "placement.npc-overlay";
+		throw new AssertionError(inside);
+	}
+
+	private static final class Alias {
+		final String role;
+		final String from;
+		final String to;
+		final boolean required;
+		Alias(String role, String from, String to, boolean required) {
+			this.role = role;
+			this.from = from;
+			this.to = to;
+			this.required = required;
+		}
 	}
 }

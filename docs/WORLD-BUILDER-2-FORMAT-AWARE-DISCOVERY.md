@@ -473,7 +473,7 @@ separate from legacy adapter IDs retained for compatibility. Further source
 tree and packaged-distribution layouts can now add anchors and parsers without
 changing the public discovery-report schema or the canonical project model.
 
-The next Phase 1 increment introduces exact source-path normalization for the
+The first source-path increment introduced exact normalization for the
 equivalent client cache roots `Client_Base/Cache/video`, `client/Cache/video`,
 and `Cache/video`. Authority requires exactly one populated root; multiple
 complete or partial roots block as inactive/duplicate ambiguity. Discovery
@@ -482,9 +482,27 @@ During project creation, noncanonical inputs are copied again under the
 compiled canonical fallback paths inside `source/original`, verified against
 the selected bytes, and included in the immutable evidence ledger. The target
 is never changed, and the project/runtime content bundle remains the single
-canonical `client/Cache/video` model. Server configuration, definition, and
-placement paths have not been generalized by this increment and retain their
-existing exact semantics.
+canonical `client/Cache/video` model.
+
+The second source-path increment applies the same contract to exact server
+content layouts. Definition and placement evidence may now reside beneath
+`server/conf/server/defs`, `server/data/definitions`, or `server/data/defs`;
+packed server terrain may reside beneath `server/conf/server/data` or
+`server/data`. Definition-root and terrain-root authority are selected
+independently, and more than one populated candidate for either authority is a
+hard ambiguity. The selected base placement suffix still comes only from the
+validated `based_map_data` setting. On project creation, only the selected
+required definitions, selected base placements, present overlays/removals, and
+terrain are copied to canonical `server/conf/server/...` aliases inside the
+isolated source snapshot. Every alias is size/hash verified and recorded in the
+derived evidence; the original target paths and bytes remain intact.
+
+This does not make every provider-discovery folder a complete map layout.
+`conf/server/defs` and `data/definitions` remain useful guided-provider roots,
+but are not automatically treated as map authority without a matching,
+unambiguous configuration and terrain profile. The fallback configuration also
+remains the exact `server/myworld.conf` contract. Those additional layouts
+belong to later Phase 1 profiles rather than being guessed here.
 
 ## Implementation phases
 
