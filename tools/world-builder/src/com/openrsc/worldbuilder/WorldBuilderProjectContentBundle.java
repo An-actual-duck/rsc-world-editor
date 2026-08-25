@@ -26,14 +26,6 @@ import java.util.zip.GZIPInputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-import javax.xml.XMLConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
-
 /** Strict target-owned declarative definitions/assets captured inside one UUID project. */
 final class WorldBuilderProjectContentBundle {
 	static final String CAPABILITY_ID = "project-local-custom-content-v2";
@@ -527,10 +519,8 @@ final class WorldBuilderProjectContentBundle {
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId,
 		WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderContractException {
-		List<Object> tiles = range(rawByteXmlCount(root, "definition.tile",
-			"TileDef-array", "TileDef", layout));
-		List<Object> boundaries = range(rawByteXmlCount(root, "definition.boundary",
-			"DoorDef-array", "DoorDef", layout));
+		List<Object> tiles = range(tileCount(root, layout));
+		List<Object> boundaries = range(boundaryCount(root, layout));
 		List<Object> scenery = range(sceneryCount(root, layout));
 		Set<Integer> npcIds = new TreeSet<Integer>();
 		int appendedNpcCount = jsonCount(root, "definition.npc.base", layout, "npcs")
@@ -572,60 +562,46 @@ final class WorldBuilderProjectContentBundle {
 		}
 	}
 
-	private static int rawByteXmlCount(Path root, String role, String rootName,
-		String element) throws IOException, WorldBuilderContractException {
-		return rawByteXmlCount(root, role, rootName, element, null);
-	}
-
-	private static int rawByteXmlCount(Path root, String role, String rootName,
-		String element, WorldBuilderPackedSourceLayout layout)
+	private static int tileCount(Path root, WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderContractException {
-		int count = xmlCount(root, role, rootName, element, layout);
-		if (count > MAX_RAW_BYTE_ID + 1) throw problem(
-			WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, role,
-			"Floor and boundary definitions exceed their one-byte raw ID domain 0..254.",
-			"Reduce the declarative family to at most 255 indexed definitions; raw value 255 is reserved.");
-		return count;
-	}
-
-	private static int xmlCount(Path root, String role, String rootName, String element)
-		throws IOException, WorldBuilderContractException {
-		return xmlCount(root, role, rootName, element, null);
-	}
-
-	private static int xmlCount(Path root, String role, String rootName, String element,
-		WorldBuilderPackedSourceLayout layout)
-		throws IOException, WorldBuilderContractException {
-		Path path = contentPath(root, role, layout);
-		try (InputStream input = Files.newInputStream(path)) {
-			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-			factory.setXIncludeAware(false);
-			factory.setExpandEntityReferences(false);
-			factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
-			factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-			factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-			factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-			Document document = factory.newDocumentBuilder().parse(input);
-			Element documentRoot = document.getDocumentElement();
-			if (documentRoot == null || !rootName.equals(documentRoot.getNodeName())) {
-				throw malformedDefinition(role);
-			}
-			int count = 0;
-			NodeList children = documentRoot.getChildNodes();
-			for (int index = 0; index < children.getLength(); index++) {
-				Node child = children.item(index);
-				if (child.getNodeType() == Node.ELEMENT_NODE
-					&& element.equals(child.getNodeName()) && ++count > MAX_DEFINITIONS) {
-					throw tooManyDefinitions(role);
-				}
-			}
-			if (count == 0) throw malformedDefinition(role);
-			return count;
-		} catch (WorldBuilderContractException invalid) {
-			throw invalid;
-		} catch (Exception malformed) {
-			throw malformedDefinition(role, malformed);
+		try {
+			return WorldBuilderTerrainDefinitionCatalog.readTiles(
+				contentPath(root, "definition.tile", layout)).tiles.size();
+		} catch (WorldBuilderTerrainDefinitionCatalog.LimitException limit) {
+			throw rawDefinitionLimit("definition.tile", limit);
+		} catch (IOException malformed) {
+			throw definitionProblem("definition.tile", "floor", "TileDef", malformed);
 		}
+	}
+
+	private static int boundaryCount(Path root, WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
+		try {
+			return WorldBuilderTerrainDefinitionCatalog.readBoundaries(
+				contentPath(root, "definition.boundary", layout)).boundaries.size();
+		} catch (WorldBuilderTerrainDefinitionCatalog.LimitException limit) {
+			throw rawDefinitionLimit("definition.boundary", limit);
+		} catch (IOException malformed) {
+			throw definitionProblem(
+				"definition.boundary", "boundary", "DoorDef", malformed);
+		}
+	}
+
+	private static WorldBuilderContractException rawDefinitionLimit(
+		String role, IOException limit) {
+		return problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, role,
+			"Floor and boundary definitions exceed their one-byte raw ID domain 0..254.",
+			"Reduce the declarative family to at most 255 indexed definitions; raw value 255 is reserved.",
+			limit);
+	}
+
+	private static WorldBuilderContractException definitionProblem(
+		String role, String family, String record, IOException malformed) {
+		return problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, role,
+			"Target " + family + " definition content is malformed or unsupported: "
+				+ malformed.getMessage() + ".",
+			"Correct the exact " + record + " definition record and retry discovery.",
+			malformed);
 	}
 
 	private static int jsonCount(Path root, String role, String arrayName)

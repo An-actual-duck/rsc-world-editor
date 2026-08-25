@@ -944,6 +944,119 @@ public final class AdaptiveDiscoveryDriftHarness {
                     "definition.scenery", report["issues"][0]["relativePath"]
                 )
 
+    def test_floor_and_boundary_semantics_are_validated_before_project_creation(self):
+        malformed_catalogs = (
+            (
+                "floor-non-numeric-colour",
+                "TileDef.xml",
+                "<TileDef-array><TileDef><colour>blue</colour>"
+                "</TileDef></TileDef-array>\n",
+                "definition.tile",
+                "malformed colour",
+            ),
+            (
+                "floor-duplicate-object-type",
+                "TileDef.xml",
+                "<TileDef-array><TileDef><objectType>0</objectType>"
+                "<objectType>1</objectType></TileDef></TileDef-array>\n",
+                "definition.tile",
+                "repeats objectType",
+            ),
+            (
+                "boundary-overflowing-height",
+                "DoorDef.xml",
+                "<DoorDef-array><DoorDef><name>wall</name>"
+                "<modelVar1>2147483648</modelVar1></DoorDef></DoorDef-array>\n",
+                "definition.boundary",
+                "overflowing modelVar1",
+            ),
+            (
+                "boundary-duplicate-material",
+                "DoorDef.xml",
+                "<DoorDef-array><DoorDef><name>wall</name>"
+                "<modelVar2>1</modelVar2><modelVar2>2</modelVar2>"
+                "</DoorDef></DoorDef-array>\n",
+                "definition.boundary",
+                "repeats modelVar2",
+            ),
+            (
+                "boundary-oversized-command",
+                "DoorDef.xml",
+                "<DoorDef-array><DoorDef><name>wall</name><command1>"
+                + "x" * 257
+                + "</command1></DoorDef></DoorDef-array>\n",
+                "definition.boundary",
+                "oversized command1",
+            ),
+        )
+        for label, filename, content, role, expected in malformed_catalogs:
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="adaptive-terrain-definition-semantics-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                path = root / "server/conf/server/defs" / filename
+                path.write_text(content, encoding="utf-8")
+
+                report = self.assert_blocked(root, "DEFINITION_MISMATCH")
+
+                self.assertEqual(role, report["issues"][0]["relativePath"])
+                self.assertIn(expected, report["issues"][0]["observed"])
+
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-custom-terrain-definition-semantics-"
+        ) as temp:
+            root = self.legacy_fixture(temp)
+            definitions = root / "server/conf/server/defs"
+            tile_path = definitions / "TileDef.xml"
+            tile_path.write_text(
+                tile_path.read_text(encoding="utf-8").replace(
+                    "<TileDef><colour>0</colour></TileDef>",
+                    "<TileDef><colour>-2147483648</colour>"
+                    "<unknown>2147483647</unknown>"
+                    "<objectType>-7</objectType></TileDef>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+            boundary_path = definitions / "DoorDef.xml"
+            boundary_path.write_text(
+                boundary_path.read_text(encoding="utf-8").replace(
+                    "<DoorDef><name>wall</name></DoorDef>",
+                    "<DoorDef><name>custom wall</name><description>custom</description>"
+                    "<command1>Build</command1><command2>Remove</command2>"
+                    "<modelVar1>2147483647</modelVar1>"
+                    "<modelVar2>-2147483648</modelVar2>"
+                    "<modelVar3>12345678</modelVar3>"
+                    "<doorType>-3</doorType><unknown>9</unknown></DoorDef>",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            result, report = self.assert_read_only(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("compatible", report["status"])
+
+        with tempfile.TemporaryDirectory(
+            prefix="adaptive-terrain-definition-limit-"
+        ) as temp:
+            root = self.legacy_fixture(temp)
+            path = root / "server/conf/server/defs/TileDef.xml"
+            path.write_text(
+                "<TileDef-array>"
+                + "".join(
+                    "<TileDef><colour>0</colour></TileDef>" for _ in range(256)
+                )
+                + "</TileDef-array>\n",
+                encoding="utf-8",
+            )
+
+            report = self.assert_blocked(root, "CONTRACT_LIMIT_EXCEEDED")
+
+            self.assertEqual("definition.tile", report["issues"][0]["relativePath"])
+            self.assertIn("one-byte raw ID domain", report["issues"][0]["observed"])
+
     def test_packed_client_cache_layout_variants_are_selected_read_only(self):
         for video_root in ("client/Cache/video", "Cache/video"):
             with self.subTest(video_root=video_root), tempfile.TemporaryDirectory(

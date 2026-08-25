@@ -555,6 +555,18 @@ preserved. Outer-compressed or otherwise opaque model archives remain explicit
 unverified evidence for a later archive-format adapter; they are not guessed or
 rewritten by this increment.
 
+Floor and boundary XML now use one additional bounded semantic catalog parser
+instead of count-only acceptance. It mirrors the pinned runtime defaults for
+omitted fields while validating every indexed `TileDef` and `DoorDef`, including
+signed integer syntax and range, bounded text, duplicate known fields, secure
+XML parsing, nonempty catalogs, and the raw-byte definition domain. Discovery,
+project catalog derivation, copied content verification, conversion, and reopen
+therefore agree on the same floor and boundary identities and semantics. Custom
+integer material values remain valid; this increment does not narrow legitimate
+private-server colours or wall materials. Malformed records block during the
+read-only discovery pass with the exact family and field, before a project is
+published or a runtime is launched.
+
 ## Implementation phases
 
 ### Phase 0 — Baseline inventory and acceptance fixtures
