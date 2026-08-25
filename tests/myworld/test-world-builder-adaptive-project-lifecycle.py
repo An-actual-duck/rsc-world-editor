@@ -4565,6 +4565,76 @@ public final class FakeAdaptiveClient {
             self.assertTrue((bundle / "NpcDefsMyWorld.json").is_file())
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_fully_flattened_packed_layout_is_normalized_only_inside_project(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-flat-layout-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            flat_definitions = target / "conf/server/defs"
+            flat_definitions.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(
+                str(target / "server/conf/server/defs"), str(flat_definitions)
+            )
+            canonical_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(canonical_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            flat_terrain = target / "conf/server/data/Custom_Landscape.orsc"
+            flat_terrain.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(canonical_terrain), str(flat_terrain))
+            flat_video = target / "Cache/video"
+            flat_video.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(
+                str(target / "Client_Base/Cache/video"), str(flat_video)
+            )
+            shutil.copy2(flat_terrain, flat_video / "Custom_Landscape.orsc")
+            shutil.move(
+                str(target / "server/myworld.conf"), str(target / "myworld.conf")
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            discovery = self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Fully flattened layout", 43835,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual(
+                "myworld.conf", discovery["selectedConfiguration"]["relativePath"]
+            )
+            project = Path(summary["projectRoot"])
+            original = project / "source/original"
+            for relative in (
+                "myworld.conf",
+                "Cache/video/Custom_Landscape.orsc",
+                "conf/server/data/Custom_Landscape.orsc",
+                "conf/server/defs/TileDef.xml",
+                "Client_Base/Cache/video/Custom_Landscape.orsc",
+                "server/conf/server/data/Custom_Landscape.orsc",
+                "server/conf/server/defs/TileDef.xml",
+            ):
+                self.assertTrue((original / relative).is_file(), relative)
+            self.assertEqual(
+                (original / "conf/server/defs/locs/NpcLocs.json").read_bytes(),
+                (original / "server/conf/server/defs/locs/NpcLocs.json").read_bytes(),
+            )
+            self.assertTrue(
+                (project / "source/content-bundle/files/server/conf/server/defs/TileDef.xml")
+                .is_file()
+            )
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_root_configuration_is_preserved_through_project_creation_and_reopen(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-root-config-") as temp:
             base = Path(temp)

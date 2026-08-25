@@ -22,9 +22,10 @@ final class WorldBuilderPackedSourceLayout {
 	static final List<String> VIDEO_ROOTS = Collections.unmodifiableList(Arrays.asList(
 		CANONICAL_VIDEO_ROOT, "client/Cache/video", "Cache/video"));
 	static final List<String> DEFINITION_ROOTS = Collections.unmodifiableList(Arrays.asList(
-		CANONICAL_DEFINITION_ROOT, "server/data/definitions", "server/data/defs"));
+		CANONICAL_DEFINITION_ROOT, "server/data/definitions", "server/data/defs",
+		"conf/server/defs", "data/definitions"));
 	static final List<String> DATA_ROOTS = Collections.unmodifiableList(Arrays.asList(
-		CANONICAL_DATA_ROOT, "server/data"));
+		CANONICAL_DATA_ROOT, "server/data", "conf/server/data", "data"));
 
 	private static final List<String> CLIENT_FILES = Collections.unmodifiableList(
 		Arrays.asList("Custom_Landscape.orsc", "library.orsc", "models.orsc",

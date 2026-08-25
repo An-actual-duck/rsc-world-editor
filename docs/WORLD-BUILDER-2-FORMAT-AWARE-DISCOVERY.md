@@ -497,12 +497,6 @@ terrain are copied to canonical `server/conf/server/...` aliases inside the
 isolated source snapshot. Every alias is size/hash verified and recorded in the
 derived evidence; the original target paths and bytes remain intact.
 
-This does not make every provider-discovery folder a complete map layout.
-`conf/server/defs` and `data/definitions` remain useful guided-provider roots,
-but are not automatically treated as map authority without a matching,
-unambiguous definition and terrain profile. Those additional layouts belong to
-later Phase 1 profiles rather than being guessed here.
-
 The third source-path increment adds exact active-configuration profiles for
 `server/myworld.conf`, root-level `myworld.conf`,
 `conf/server/myworld.conf`, and `server/conf/server/myworld.conf`. Automatic
@@ -514,6 +508,18 @@ path, and is copied read-only into the isolated project. Runtime preparation
 uses the generated project-local configuration, so no canonical configuration
 alias is written and the target configuration is never modified during
 discovery or project creation.
+
+The fourth source-path increment completes the reviewed flattened server
+profiles. Definitions and placements may additionally reside under
+`conf/server/defs` or `data/definitions`, while server terrain may reside under
+`conf/server/data` or `data`. These roots compose with the existing client-cache
+and configuration profiles, so a fully flattened distribution such as
+root-level `myworld.conf`, `Cache/video`, and `conf/server/{defs,data}` can be
+detected without browsing. Selection still requires exactly one populated
+root for each authority. Merely finding a provider-compatible definition
+folder is not enough: the complete definitions, selected placements, terrain,
+client assets, and configuration must all validate before the layout is
+accepted. Canonical aliases continue to exist only in the isolated project.
 
 ## Implementation phases
 

@@ -955,8 +955,16 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertEqual(before, self.snapshot(root))
 
     def test_packed_server_content_layout_variants_are_selected_read_only(self):
-        for definition_root in ("server/data/definitions", "server/data/defs"):
-            with self.subTest(definition_root=definition_root), tempfile.TemporaryDirectory(
+        layouts = (
+            ("server/data/definitions", "server/data"),
+            ("server/data/defs", "server/data"),
+            ("conf/server/defs", "conf/server/data"),
+            ("data/definitions", "data"),
+        )
+        for definition_root, data_root in layouts:
+            with self.subTest(
+                definition_root=definition_root, data_root=data_root
+            ), tempfile.TemporaryDirectory(
                 prefix="adaptive-packed-server-variant-"
             ) as temp:
                 root = self.legacy_fixture(temp)
@@ -966,7 +974,8 @@ public final class AdaptiveDiscoveryDriftHarness {
                     str(root / "server/conf/server/defs"),
                     str(selected_definitions),
                 )
-                selected_terrain = root / "server/data/Custom_Landscape.orsc"
+                selected_terrain = root / data_root / "Custom_Landscape.orsc"
+                selected_terrain.parent.mkdir(parents=True, exist_ok=True)
                 shutil.move(
                     str(root / "server/conf/server/data/Custom_Landscape.orsc"),
                     str(selected_terrain),
@@ -980,14 +989,14 @@ public final class AdaptiveDiscoveryDriftHarness {
                 paths = {item["relativePath"] for item in report["files"]}
                 self.assertIn(f"{definition_root}/TileDef.xml", paths)
                 self.assertIn(f"{definition_root}/locs/NpcLocs.json", paths)
-                self.assertIn("server/data/Custom_Landscape.orsc", paths)
+                self.assertIn(f"{data_root}/Custom_Landscape.orsc", paths)
                 self.assertNotIn("server/conf/server/defs/TileDef.xml", paths)
                 profile = next(
                     check for check in report["checks"]
                     if check["checkId"] == "source-layout-profile"
                 )
                 self.assertIn(definition_root, profile["observed"])
-                self.assertIn("server/data", profile["observed"])
+                self.assertIn(data_root, profile["observed"])
                 self.assertEqual(before, self.snapshot(root))
 
     def test_multiple_packed_server_definition_roots_are_ambiguous(self):
