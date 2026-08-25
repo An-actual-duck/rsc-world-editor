@@ -205,7 +205,12 @@ final class WorldBuilderPackedConversionModel {
 				boolean repeatedExactBaseNpc = repeatedSlot
 					&& "base".equals(placementSource.kind)
 					&& "npc".equals(placementSource.family);
-				if (repeatedSlot && !repeatedExactBaseNpc) {
+				boolean orderedAuxiliaryScenery = repeatedSlot
+					&& "overlay".equals(placementSource.kind)
+					&& "scenery".equals(placementSource.family)
+					&& placementSource.role.startsWith("scenery-auxiliary-");
+				if (repeatedSlot && !repeatedExactBaseNpc
+					&& !orderedAuxiliaryScenery) {
 					throw placementProblem(placement,
 						"Packed placement source repeats effective slot at record "
 							+ placement.recordIndex + ".");

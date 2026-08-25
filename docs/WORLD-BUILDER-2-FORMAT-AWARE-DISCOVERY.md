@@ -495,9 +495,12 @@ required definitions, selected base placements, configuration-active auxiliary
 scenery, present overlays/removals, and terrain are copied into the isolated
 source snapshot. Auxiliary scenery follows the inert `location_data` and
 feature-flag composition declared by the selected configuration; a file's mere
-presence does not activate retired content. Every copied input or canonical
-alias is size/hash verified and recorded in the derived evidence; the original
-target paths and bytes remain intact.
+presence does not activate retired content. Within a selected legacy auxiliary
+scenery file, repeated anchors are composed in source-record order with the last
+record retained, matching the server's deterministic registration behavior
+without weakening duplicate rejection for normal authored overlays. Every
+copied input or canonical alias is size/hash verified and recorded in the
+derived evidence; the original target paths and bytes remain intact.
 
 The third source-path increment adds exact active-configuration profiles for
 `server/myworld.conf`, root-level `myworld.conf`,

@@ -310,9 +310,11 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			} else if ("groundItemBase".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateGroundItemLocs(
 					target.requiredFile(relative));
+			} else if (WorldBuilderDiscovery.isAuxiliaryScenery(logicalName)) {
+				WorldBuilderJsonDocuments.validateOrderedSceneryLocs(
+					target.requiredFile(relative));
 			} else if ("sceneryLocs".equals(logicalName)
-				|| "sceneryBase".equals(logicalName)
-				|| WorldBuilderDiscovery.isAuxiliaryScenery(logicalName)) {
+				|| "sceneryBase".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryLocs(target.requiredFile(relative));
 			} else if ("sceneryRemovals".equals(logicalName)) {
 				WorldBuilderJsonDocuments.validateSceneryRemovals(target.requiredFile(relative));

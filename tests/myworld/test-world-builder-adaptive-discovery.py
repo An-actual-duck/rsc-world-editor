@@ -912,6 +912,7 @@ public final class AdaptiveDiscoveryDriftHarness {
                 config.read_text(encoding="utf-8")
                 + "location_data: 2\n"
                 + "want_runecraft: true\n"
+                + "want_custom_quests: true\n"
                 + "want_fixed_broken_mechanics: false\n",
                 encoding="utf-8",
             )
@@ -923,6 +924,14 @@ public final class AdaptiveDiscoveryDriftHarness {
                 ]},
             )
             write_json(locations / "SceneryLocsOther.json", {"sceneries": []})
+            write_json(
+                locations / "SceneryLocsCustomQuest.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 16, "Y": 10}, "direction": 0},
+                    {"id": 4, "pos": {"X": 16, "Y": 10}, "direction": 0},
+                ]},
+            )
+            write_json(locations / "SceneryLocsExpansion.json", {"sceneries": []})
             write_json(
                 locations / "SceneryLocsDiscontinued.json",
                 {"sceneries": [
@@ -937,9 +946,21 @@ public final class AdaptiveDiscoveryDriftHarness {
                 files["placement.scenery-auxiliary-runecraft"]["present"]
             )
             self.assertTrue(files["placement.scenery-auxiliary-other"]["present"])
+            self.assertTrue(
+                files["placement.scenery-auxiliary-custom-quest"]["present"]
+            )
             self.assertNotIn(
                 "placement.scenery-auxiliary-discontinued", files
             )
+
+            write_json(
+                locations / "MyWorldSceneryLocs.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 17, "Y": 10}, "direction": 0},
+                    {"id": 4, "pos": {"X": 17, "Y": 10}, "direction": 0},
+                ]},
+            )
+            self.assert_blocked(root, "MALFORMED_SERVER")
 
     def test_scenery_definition_semantics_are_validated_before_project_creation(self):
         malformed_records = (

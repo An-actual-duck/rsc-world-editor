@@ -232,13 +232,24 @@ final class WorldBuilderJsonDocuments {
 	}
 
 	static int validateSceneryLocs(Path path) throws IOException, WorldBuilderDiscoveryException {
+		return validateSceneryLocs(path, false);
+	}
+
+	static int validateOrderedSceneryLocs(Path path)
+		throws IOException, WorldBuilderDiscoveryException {
+		return validateSceneryLocs(path, true);
+	}
+
+	private static int validateSceneryLocs(Path path, boolean allowRepeatedLocations)
+		throws IOException, WorldBuilderDiscoveryException {
 		List<Object> entries = requiredRootArray(readObject(path), "sceneries", path);
 		java.util.HashSet<String> keys = new java.util.HashSet<String>();
 		for (Object entry : entries) {
 			Map<String,Object> object = exactObject(entry, path, "id", "pos", "direction");
 			int id = integer(object.get("id"), path); int direction = integer(object.get("direction"), path);
 			int[] position = position(object.get("pos"), path);
-			if (id < 0 || direction < 0 || !keys.add(position[0] + "," + position[1])) {
+			boolean repeated = !keys.add(position[0] + "," + position[1]);
+			if (id < 0 || direction < 0 || repeated && !allowRepeatedLocations) {
 				throw new WorldBuilderDiscoveryException("Invalid or duplicate scenery location in " + path);
 			}
 		}

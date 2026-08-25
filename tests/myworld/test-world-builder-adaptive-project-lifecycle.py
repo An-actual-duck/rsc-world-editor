@@ -4197,6 +4197,7 @@ public final class FakeAdaptiveClient {
                 config.read_text(encoding="utf-8")
                 + "location_data: 2\n"
                 + "want_runecraft: true\n"
+                + "want_custom_quests: true\n"
                 + "want_fixed_broken_mechanics: false\n",
                 encoding="utf-8",
             )
@@ -4208,6 +4209,14 @@ public final class FakeAdaptiveClient {
                 ]},
             )
             write_json(locations / "SceneryLocsOther.json", {"sceneries": []})
+            write_json(
+                locations / "SceneryLocsCustomQuest.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 16, "Y": 10}, "direction": 0},
+                    {"id": 4, "pos": {"X": 16, "Y": 10}, "direction": 0},
+                ]},
+            )
+            write_json(locations / "SceneryLocsExpansion.json", {"sceneries": []})
             write_json(
                 locations / "SceneryLocsDiscontinued.json",
                 {"sceneries": [
@@ -4259,6 +4268,8 @@ public final class FakeAdaptiveClient {
                 for value in scenery
             }
             self.assertIn((2, 14, 10), identities)
+            self.assertIn((4, 16, 10), identities)
+            self.assertNotIn((2, 16, 10), identities)
             self.assertNotIn((3, 15, 10), identities)
             self.assertTrue(
                 (project / "source/original/server/conf/server/defs/locs/"
