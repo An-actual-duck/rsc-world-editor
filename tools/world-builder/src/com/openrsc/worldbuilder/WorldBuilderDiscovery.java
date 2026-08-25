@@ -23,7 +23,7 @@ import java.util.zip.ZipFile;
 /** Read-only discovery for the first supported Spoiled Milk repository layout. */
 public final class WorldBuilderDiscovery {
 	public static final String LAYOUT_ADAPTER = "spoiled-milk-repository-v1";
-	public static final String DEFAULT_CONFIG = "server/myworld.conf";
+	public static final String DEFAULT_CONFIG = WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION;
 
 	private static final int TERRAIN_ENTRY_BYTES = 48 * 48 * 10;
 	private static final Pattern TERRAIN_ENTRY = Pattern.compile("h[0-3]x[0-9]+y[0-9]+");
@@ -39,15 +39,24 @@ public final class WorldBuilderDiscovery {
 
 	public WorldBuilderDiscoveryResult discover(Path requestedRoot)
 		throws WorldBuilderDiscoveryException {
-		return discover(requestedRoot, DEFAULT_CONFIG, null);
+		try {
+			WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedRoot);
+			WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.select(target);
+			return discover(requestedRoot, layout.configurationPath, null, layout);
+		} catch (WorldBuilderContractException invalid) {
+			throw new WorldBuilderDiscoveryException(invalid.getMessage(), invalid);
+		}
 	}
 
 	public WorldBuilderDiscoveryResult discover(Path requestedRoot, String requestedConfig,
 		String expectedContentFingerprint) throws WorldBuilderDiscoveryException {
 		try {
 			WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedRoot);
-			return discover(requestedRoot, requestedConfig, expectedContentFingerprint,
-				WorldBuilderPackedSourceLayout.select(target));
+			WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.select(
+				target, requestedConfig);
+			return discover(requestedRoot, requestedConfig == null
+				? layout.configurationPath : requestedConfig,
+				expectedContentFingerprint, layout);
 		} catch (WorldBuilderContractException invalid) {
 			throw new WorldBuilderDiscoveryException(invalid.getMessage(), invalid);
 		}
@@ -61,9 +70,10 @@ public final class WorldBuilderDiscovery {
 			if (layout == null) throw new WorldBuilderDiscoveryException(
 				"A packed source-layout profile is required.");
 			String configRelative = normalizeRelative(requestedConfig == null ? DEFAULT_CONFIG : requestedConfig);
-			if (!configRelative.startsWith("server/") || !configRelative.endsWith(".conf")) {
+			if (!isSupportedConfigurationPath(configRelative)) {
 				throw new WorldBuilderDiscoveryException(
-					"Selected configuration must be a relative server/*.conf path.");
+					"Selected configuration is not a supported packed-layout path: "
+						+ configRelative);
 			}
 
 			Path configPath = requiredFile(root, configRelative);
@@ -148,6 +158,13 @@ public final class WorldBuilderDiscovery {
 			throw new WorldBuilderDiscoveryException(
 				"Could not inspect the private-server layout: " + failure.getMessage(), failure);
 		}
+	}
+
+	static boolean isSupportedConfigurationPath(String relative) {
+		return WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS.contains(relative)
+			|| relative != null
+				&& relative.matches("server/[A-Za-z0-9._/-]+\\.conf")
+				&& !relative.contains("..");
 	}
 
 	private static Path canonicalRoot(Path requestedRoot)

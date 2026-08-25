@@ -15,6 +15,10 @@ final class WorldBuilderPackedSourceLayout {
 	static final String CANONICAL_VIDEO_ROOT = "Client_Base/Cache/video";
 	static final String CANONICAL_DEFINITION_ROOT = "server/conf/server/defs";
 	static final String CANONICAL_DATA_ROOT = "server/conf/server/data";
+	static final String CANONICAL_CONFIGURATION = "server/myworld.conf";
+	static final List<String> CONFIGURATION_PATHS = Collections.unmodifiableList(Arrays.asList(
+		CANONICAL_CONFIGURATION, "myworld.conf", "conf/server/myworld.conf",
+		"server/conf/server/myworld.conf"));
 	static final List<String> VIDEO_ROOTS = Collections.unmodifiableList(Arrays.asList(
 		CANONICAL_VIDEO_ROOT, "client/Cache/video", "Cache/video"));
 	static final List<String> DEFINITION_ROOTS = Collections.unmodifiableList(Arrays.asList(
@@ -39,29 +43,60 @@ final class WorldBuilderPackedSourceLayout {
 	final String videoRoot;
 	final String definitionRoot;
 	final String dataRoot;
+	final String configurationPath;
 
 	private WorldBuilderPackedSourceLayout(String profileId, String videoRoot,
-		String definitionRoot, String dataRoot) {
+		String definitionRoot, String dataRoot, String configurationPath) {
 		this.profileId = profileId;
 		this.videoRoot = videoRoot;
 		this.definitionRoot = definitionRoot;
 		this.dataRoot = dataRoot;
+		this.configurationPath = configurationPath;
 	}
 
 	static WorldBuilderPackedSourceLayout canonical() {
 		return create(CANONICAL_VIDEO_ROOT, CANONICAL_DEFINITION_ROOT,
-			CANONICAL_DATA_ROOT);
+			CANONICAL_DATA_ROOT, CANONICAL_CONFIGURATION);
 	}
 
 	static WorldBuilderPackedSourceLayout select(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
+		return select(target, null);
+	}
+
+	static WorldBuilderPackedSourceLayout select(WorldBuilderReadOnlyTarget target,
+		String requestedConfiguration) throws WorldBuilderContractException {
 		String video = selectRoot(target, VIDEO_ROOTS, CLIENT_FILES,
 			"client cache", CANONICAL_VIDEO_ROOT);
 		String definitions = selectDefinitionRoot(target);
 		String data = selectRoot(target, DATA_ROOTS,
 			Collections.singletonList("Custom_Landscape.orsc"),
 			"server terrain", CANONICAL_DATA_ROOT);
-		return create(video, definitions, data);
+		String configuration = requestedConfiguration == null
+			? selectRoot(target, CONFIGURATION_PATHS, Collections.singletonList(""),
+				"active configuration", CANONICAL_CONFIGURATION)
+			: requireConfigurationPath(requestedConfiguration);
+		return create(video, definitions, data, configuration);
+	}
+
+	private static String requireConfigurationPath(String value)
+		throws WorldBuilderContractException {
+		String normalized = value == null ? "" : value.replace('\\', '/');
+		if (normalized.startsWith("/") || normalized.startsWith("../")
+			|| normalized.contains("/../") || "..".equals(normalized)) {
+			throw WorldBuilderReadOnlyTarget.problem(
+				WorldBuilderErrorCodes.UNSAFE_PATH, normalized,
+				"Configuration path must remain inside the server root.",
+				"Select one contained compiled configuration path.");
+		}
+		if (!WorldBuilderDiscovery.isSupportedConfigurationPath(normalized)) {
+			throw WorldBuilderReadOnlyTarget.problem(
+				WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, normalized,
+				"Selected packed configuration path is not supported.",
+				"Use one automatic path from " + CONFIGURATION_PATHS
+					+ " or one explicit contained server/*.conf path.");
+		}
+		return normalized;
 	}
 
 	private static String selectDefinitionRoot(WorldBuilderReadOnlyTarget target)
@@ -88,7 +123,8 @@ final class WorldBuilderPackedSourceLayout {
 		List<String> recognizable = new ArrayList<String>();
 		for (String root : roots) {
 			for (String inside : evidenceFiles) {
-				if (target.exists(root + "/" + inside)) {
+				String path = inside.isEmpty() ? root : root + "/" + inside;
+				if (target.exists(path)) {
 					recognizable.add(root);
 					break;
 				}
@@ -192,7 +228,7 @@ final class WorldBuilderPackedSourceLayout {
 	}
 
 	private static WorldBuilderPackedSourceLayout create(String videoRoot,
-		String definitionRoot, String dataRoot) {
+		String definitionRoot, String dataRoot, String configurationPath) {
 		String clientId = CANONICAL_VIDEO_ROOT.equals(videoRoot)
 			? "openrsc-source-client-base-cache-v1"
 			: "client/Cache/video".equals(videoRoot)
@@ -201,8 +237,13 @@ final class WorldBuilderPackedSourceLayout {
 			&& CANONICAL_DATA_ROOT.equals(dataRoot) ? ""
 			: "openrsc-packed-server-layout-"
 				+ portableId(definitionRoot + "-" + dataRoot) + "-v1";
-		return new WorldBuilderPackedSourceLayout(serverId.isEmpty()
-			? clientId : clientId + "+" + serverId, videoRoot, definitionRoot, dataRoot);
+		String configurationId = CANONICAL_CONFIGURATION.equals(configurationPath)
+			? "" : "openrsc-packed-config-" + portableId(configurationPath) + "-v1";
+		String id = clientId;
+		if (!serverId.isEmpty()) id += "+" + serverId;
+		if (!configurationId.isEmpty()) id += "+" + configurationId;
+		return new WorldBuilderPackedSourceLayout(id, videoRoot, definitionRoot,
+			dataRoot, configurationPath);
 	}
 
 	private static String portableId(String value) {

@@ -196,8 +196,7 @@ final class WorldBuilderImportReceipt {
 			|| !(schema == 1 ? "legacy-files-v1".equals(importMode)
 				: WorldBuilderLayeredImportConfiguration.IMPORT_MODE.equals(importMode))
 			|| !WorldBuilderDiscovery.LAYOUT_ADAPTER.equals(layout)
-			|| !selectedConfig.matches("server/[A-Za-z0-9._/-]+\\.conf")
-			|| selectedConfig.contains("..")
+			|| !WorldBuilderDiscovery.isSupportedConfigurationPath(selectedConfig)
 			|| !(reverts.isEmpty() || reverts.matches("[A-Za-z0-9._-]+"))) {
 			throw new WorldBuilderDiscoveryException("Import receipt metadata is invalid.");
 		}

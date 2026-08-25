@@ -168,6 +168,37 @@ class WorldBuilderDiscoveryTest(unittest.TestCase):
             self.assertRegex(manifest["contentFingerprintSha256"], r"^[0-9a-f]{64}$")
             self.assertRegex(manifest["sourceFingerprintSha256"], r"^[0-9a-f]{64}$")
 
+    def test_root_configuration_is_selected_automatically(self):
+        with tempfile.TemporaryDirectory(prefix="world-builder-root-config-") as temp:
+            root = self.fixture(temp)
+            shutil.move(root / "server/myworld.conf", root / "myworld.conf")
+            before = self.snapshot(root)
+
+            result = self.run_discovery(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(
+                "myworld.conf", json.loads(result.stdout)["selectedConfig"]
+            )
+            self.assertEqual(before, self.snapshot(root))
+
+    def test_ambiguous_configuration_can_be_selected_explicitly(self):
+        with tempfile.TemporaryDirectory(prefix="world-builder-config-choice-") as temp:
+            root = self.fixture(temp)
+            shutil.copy2(root / "server/myworld.conf", root / "myworld.conf")
+            self.assert_refused_without_writes(
+                root, "More than one active configuration root"
+            )
+            before = self.snapshot(root)
+
+            selected = self.run_discovery(root, "--config", "myworld.conf")
+
+            self.assertEqual(0, selected.returncode, selected.stderr)
+            self.assertEqual(
+                "myworld.conf", json.loads(selected.stdout)["selectedConfig"]
+            )
+            self.assertEqual(before, self.snapshot(root))
+
     @unittest.skipUnless(
         RUNTIME_PROVIDER_ROOT,
         "set RUNTIME_PROVIDER_DIR to run the pinned runtime-layout integration test",

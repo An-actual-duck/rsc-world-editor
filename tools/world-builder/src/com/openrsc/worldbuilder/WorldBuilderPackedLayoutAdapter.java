@@ -23,11 +23,17 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	@Override
 	public ProbeResult probe(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
-		boolean config = target.exists(WorldBuilderDiscovery.DEFAULT_CONFIG);
+		boolean config = false;
 		boolean serverTerrain = false;
 		boolean locations = false;
 		boolean tileDefinitions = false;
 		List<ProbeResult.Anchor> anchors = new ArrayList<ProbeResult.Anchor>();
+		for (String configPath : WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS) {
+			boolean present = target.exists(configPath);
+			config |= present;
+			anchors.add(new ProbeResult.Anchor("active-configuration-candidate",
+				configPath, present, false));
+		}
 		boolean clientTerrain = false;
 		for (String videoRoot : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
 			String path = videoRoot + "/Custom_Landscape.orsc";
@@ -59,8 +65,6 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			|| tileDefinitions;
 		Probe state = !evidence ? Probe.NO_EVIDENCE
 			: config ? Probe.SUPPORTED : Probe.RECOGNIZABLE;
-		anchors.add(new ProbeResult.Anchor("active-configuration",
-			WorldBuilderDiscovery.DEFAULT_CONFIG, config, true));
 		return new ProbeResult(PROFILE_ID, state, anchors);
 	}
 
@@ -144,20 +148,21 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		if (requestedConfigurationRole != null && !requestedConfigurationRole.isEmpty()
 			&& !"primary".equals(requestedConfigurationRole)) {
 			throw problem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION,
-				WorldBuilderDiscovery.DEFAULT_CONFIG,
+				"target-configuration",
 				"The built-in packed probe exposes only configuration role primary.",
 				"Remove the role override or select primary.");
 		}
-		WorldBuilderReadOnlyTarget.FileState legacyConfig = target.requiredState(
-			"server-runtime-config", WorldBuilderDiscovery.DEFAULT_CONFIG);
 		WorldBuilderPackedSourceLayout sourceLayout =
 			WorldBuilderPackedSourceLayout.select(target);
+		String configurationPath = sourceLayout.configurationPath;
+		WorldBuilderReadOnlyTarget.FileState legacyConfig = target.requiredState(
+			"server-runtime-config", configurationPath);
 		String serverTerrain = sourceLayout.serverDataPath("Custom_Landscape.orsc");
 		String targetGroundItems = sourceLayout.locationPath(
 			"MyWorldGroundItemLocs.json");
 		if (legacyConfig.size > WorldBuilderContractLimits.MAX_JSON_BYTES) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED,
-				WorldBuilderDiscovery.DEFAULT_CONFIG,
+				configurationPath,
 				"Built-in packed configuration exceeds the 16 MiB read limit.",
 				"Reduce the configuration to a bounded reviewed layout.");
 		}
@@ -166,7 +171,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
-				target.root, WorldBuilderDiscovery.DEFAULT_CONFIG, null, sourceLayout);
+				target.root, configurationPath, null, sourceLayout);
 		} catch (WorldBuilderDiscoveryException failure) {
 			String message = failure.getMessage() == null ? "legacy layout refusal"
 				: failure.getMessage();
@@ -176,7 +181,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				: message.contains("escapes") || message.contains("relative server")
 					? WorldBuilderErrorCodes.UNSAFE_PATH
 					: WorldBuilderErrorCodes.MALFORMED_SERVER;
-			throw problem(code, WorldBuilderDiscovery.DEFAULT_CONFIG,
+			throw problem(code, configurationPath,
 				"Built-in packed probe refused the recognizable layout: " + message,
 				"Correct the reviewed legacy layout or add a truthful capability descriptor.");
 		}
@@ -227,7 +232,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 
 		WorldBuilderAdapterInspection.ConfigurationCandidate candidate =
 			new WorldBuilderAdapterInspection.ConfigurationCandidate(
-				"primary", WorldBuilderDiscovery.DEFAULT_CONFIG,
+				"primary", configurationPath,
 				legacy.selectedConfigSha256);
 		List<WorldBuilderAdapterInspection.Check> checks =
 			new ArrayList<WorldBuilderAdapterInspection.Check>();
@@ -251,7 +256,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"configuration-selection", "passed",
 			"The narrow fallback has exactly one compiled configuration path.",
-			WorldBuilderDiscovery.DEFAULT_CONFIG + " is active."));
+			configurationPath + " is the sole active compiled configuration candidate."));
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"definition-agreement", "passed",
 			"All floor, wall, scenery, NPC, and item definition inputs are present and parseable.",
@@ -279,10 +284,11 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			"Exactly one versioned client cache and server content root are authoritative.",
 			sourceLayout.profileId + " selected client=" + sourceLayout.videoRoot
 				+ ", definitions=" + sourceLayout.definitionRoot
-				+ ", data=" + sourceLayout.dataRoot + "."));
+				+ ", data=" + sourceLayout.dataRoot
+				+ ", configuration=" + configurationPath + "."));
 		return new WorldBuilderAdapterInspection(ID,
 			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID,
-			WorldBuilderDiscovery.DEFAULT_CONFIG, legacy.selectedConfigSha256, "packed",
+			configurationPath, legacy.selectedConfigSha256, "packed",
 			Collections.singletonList(candidate), candidate, files, checks);
 	}
 

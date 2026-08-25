@@ -40,8 +40,7 @@ final class WorldBuilderProjectSource {
 		String layout = string(root, "layoutAdapter");
 		String selectedConfig = string(root, "selectedConfig");
 		if (!WorldBuilderDiscovery.LAYOUT_ADAPTER.equals(layout)
-			|| !selectedConfig.matches("server/[A-Za-z0-9._/-]+\\.conf")
-			|| selectedConfig.contains("..")) {
+			|| !WorldBuilderDiscovery.isSupportedConfigurationPath(selectedConfig)) {
 			throw new WorldBuilderDiscoveryException("Project source layout or configuration is invalid.");
 		}
 		String selectedConfigSha = hash(root, "selectedConfigSha256");

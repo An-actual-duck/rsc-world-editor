@@ -142,7 +142,7 @@ public final class WorldBuilderCli {
 		}
 
 		Path root = null;
-		String config = WorldBuilderDiscovery.DEFAULT_CONFIG;
+		String config = null;
 		String expectedContent = null;
 		for (int index = 1; index < args.length; index++) {
 			String argument = args[index];
@@ -1639,8 +1639,8 @@ public final class WorldBuilderCli {
 		Path targetRoot = null;
 		Path runtimeRoot = null;
 		Path workspace = null;
-		String config = WorldBuilderDiscovery.DEFAULT_CONFIG;
-		String runtimeConfig = WorldBuilderDiscovery.DEFAULT_CONFIG;
+		String config = null;
+		String runtimeConfig = null;
 		Path layeredPackagePath = null;
 		String layeredProfile = null;
 		int port = 0;
@@ -1768,11 +1768,11 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli recover-active-adaptive"
 			+ " --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"
-			+ " [--config server/myworld.conf]"
+			+ " [--config <supported-myworld.conf-path>]"
 			+ " [--expected-content-sha256 <sha256>]"
 			+ "\n  WorldBuilderCli prepare --server-root <path> --runtime-root <path>"
 			+ " --workspace <path> --port <port>"
-			+ " [--config server/myworld.conf] [--runtime-config server/myworld.conf]"
+			+ " [--config <source-config>] [--runtime-config <runtime-config>]"
 			+ " [--layered-package <package> --layered-profile spoiled-milk-replacement]"
 			+ "\n  WorldBuilderCli launch <same arguments as prepare>"
 			+ "\n  WorldBuilderCli run --workspace <prepared-path> [--port <port>]");

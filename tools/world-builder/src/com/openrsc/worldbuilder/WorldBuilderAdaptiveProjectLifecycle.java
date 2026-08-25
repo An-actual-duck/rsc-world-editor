@@ -1385,6 +1385,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Map<String,Object> capability = object(report.get("capability"), "capability");
 		Map<String,Object> selected = object(
 			report.get("selectedConfiguration"), "selectedConfiguration");
+		String capabilityPath = string(capability, "evidenceRelativePath");
+		String selectedPath = string(selected, "relativePath");
 		return !bool(descriptor, "present")
 			&& "compatible".equals(string(report, "status"))
 			&& "packed".equals(string(report, "representation"))
@@ -1393,12 +1395,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				string(capability, "adapterId"))
 			&& WorldBuilderPackedFallbackEvidence.CAPABILITY_ID.equals(
 				string(capability, "capabilityId"))
-			&& WorldBuilderDiscovery.DEFAULT_CONFIG.equals(
-				string(capability, "evidenceRelativePath"))
+			&& WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS.contains(capabilityPath)
 			&& bool(selected, "present")
 			&& "primary".equals(string(selected, "role"))
-			&& WorldBuilderDiscovery.DEFAULT_CONFIG.equals(
-				string(selected, "relativePath"))
+			&& capabilityPath.equals(selectedPath)
 			&& string(capability, "evidenceSha256").equals(
 				string(selected, "sha256"));
 	}

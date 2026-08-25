@@ -1030,6 +1030,57 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertIn("server/data", report["issues"][0]["observed"])
             self.assertEqual(before, self.snapshot(root))
 
+    def test_packed_configuration_path_variants_are_selected_read_only(self):
+        for configuration_path in (
+            "myworld.conf",
+            "conf/server/myworld.conf",
+            "server/conf/server/myworld.conf",
+        ):
+            with self.subTest(configuration_path=configuration_path), tempfile.TemporaryDirectory(
+                prefix="adaptive-packed-config-variant-"
+            ) as temp:
+                root = self.legacy_fixture(temp)
+                selected = root / configuration_path
+                selected.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(root / "server/myworld.conf"), str(selected))
+                before = self.snapshot(root)
+
+                result, report = self.assert_read_only(root)
+
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual("compatible", report["status"])
+                self.assertEqual(
+                    configuration_path,
+                    report["selectedConfiguration"]["relativePath"],
+                )
+                config = next(
+                    item for item in report["files"]
+                    if item["role"] == "server-runtime-config"
+                )
+                self.assertEqual(configuration_path, config["relativePath"])
+                profile = next(
+                    check for check in report["checks"]
+                    if check["checkId"] == "source-layout-profile"
+                )
+                self.assertIn(configuration_path, profile["observed"])
+                self.assertEqual(before, self.snapshot(root))
+
+    def test_multiple_packed_configuration_paths_are_ambiguous(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-config-ambiguous-") as temp:
+            root = self.legacy_fixture(temp)
+            shutil.copy2(root / "server/myworld.conf", root / "myworld.conf")
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            self.assertIn(
+                "more than one active configuration root",
+                report["issues"][0]["observed"].lower(),
+            )
+            self.assertIn("server/myworld.conf", report["issues"][0]["observed"])
+            self.assertIn("myworld.conf", report["issues"][0]["observed"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-profile-") as temp:
             root = self.legacy_fixture(temp)
@@ -1388,7 +1439,8 @@ public final class AdaptiveDiscoveryDriftHarness {
                 packed_probe["observed"],
             )
             self.assertIn(
-                "server/myworld.conf=absent(required)", packed_probe["observed"]
+                "active-configuration-candidate:server/myworld.conf=absent(signal)",
+                packed_probe["observed"],
             )
 
     def test_profile_anchor_drift_is_detected_even_when_probe_state_is_unchanged(self):

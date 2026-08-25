@@ -500,9 +500,20 @@ derived evidence; the original target paths and bytes remain intact.
 This does not make every provider-discovery folder a complete map layout.
 `conf/server/defs` and `data/definitions` remain useful guided-provider roots,
 but are not automatically treated as map authority without a matching,
-unambiguous configuration and terrain profile. The fallback configuration also
-remains the exact `server/myworld.conf` contract. Those additional layouts
-belong to later Phase 1 profiles rather than being guessed here.
+unambiguous definition and terrain profile. Those additional layouts belong to
+later Phase 1 profiles rather than being guessed here.
+
+The third source-path increment adds exact active-configuration profiles for
+`server/myworld.conf`, root-level `myworld.conf`,
+`conf/server/myworld.conf`, and `server/conf/server/myworld.conf`. Automatic
+detection requires exactly one populated candidate. Multiple candidates block
+with all paths reported; the lower-level advanced CLI may name one exact
+compiled candidate explicitly. The selected file must still parse the same
+bounded configuration keys and semantics, is inventoried under its original
+path, and is copied read-only into the isolated project. Runtime preparation
+uses the generated project-local configuration, so no canonical configuration
+alias is written and the target configuration is never modified during
+discovery or project creation.
 
 ## Implementation phases
 

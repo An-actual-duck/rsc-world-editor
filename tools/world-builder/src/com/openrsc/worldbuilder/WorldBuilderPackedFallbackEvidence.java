@@ -72,10 +72,10 @@ final class WorldBuilderPackedFallbackEvidence {
 		WorldBuilderDiscoveryResult legacy;
 		try {
 			legacy = new WorldBuilderDiscovery().discover(
-				original, WorldBuilderDiscovery.DEFAULT_CONFIG, null,
+				original, sourceLayout.configurationPath, null,
 				sourceLayout);
 		} catch (WorldBuilderDiscoveryException invalid) {
-			throw problem(WorldBuilderDiscovery.DEFAULT_CONFIG,
+			throw problem(sourceLayout.configurationPath,
 				"Copied packed source no longer matches its discovered base-placement profile.",
 				invalid);
 		}
