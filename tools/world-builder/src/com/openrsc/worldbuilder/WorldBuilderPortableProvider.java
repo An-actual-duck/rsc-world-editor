@@ -35,6 +35,8 @@ final class WorldBuilderPortableProvider {
 	static final String SPRITEPACKS_DIRECTORY = "spritepacks";
 	static final String EXTERNAL_ITEMS_DIRECTORY = "external-items";
 	static final String DEFINITIONS_DIRECTORY = "definitions";
+	static final String NPC_DEFINITIONS_FILE = "npc-definitions-v1.json";
+	private static final String NPC_PRODUCER_TYPE = "world-builder-npc-definitions";
 	static final String PROVIDERS_DIRECTORY = "providers";
 	static final String CATALOG_FILE = "catalog.json";
 	static final String CACHE_RESET_CONFIRMATION = "RESET PROVIDER CACHE";
@@ -285,6 +287,11 @@ final class WorldBuilderPortableProvider {
 						assets.resolve(DEFINITIONS_DIRECTORY).resolve(
 							selection.definitions.getFileName().toString()));
 					else copyTree(selection.definitions, assets.resolve(DEFINITIONS_DIRECTORY));
+				}
+				Path npcDefinitions = findNpcDefinitions(source, selection.definitions);
+				if (npcDefinitions != null) {
+					copyRegular(npcDefinitions, packageStage.resolve(NPC_DEFINITIONS_FILE));
+					stageNpcAssets(npcDefinitions, selection, packageStage);
 				}
 			}
 
@@ -745,10 +752,12 @@ final class WorldBuilderPortableProvider {
 			addEvidence(candidate.root, realSource, evidence);
 			addEvidence(candidate.itemVisuals, realSource, evidence);
 			addEvidence(candidate.definitions, realSource, evidence);
+			addEvidence(findNpcDefinitions(realSource, candidate.definitions),
+				realSource, evidence);
 		}
 		MessageDigest digest = WorldBuilderHashes.newDigest();
 		WorldBuilderHashes.updateText(digest,
-			"world-builder-provider-source-evidence-v2");
+			"world-builder-provider-source-evidence-v3");
 		WorldBuilderHashes.updateText(digest, discovery);
 		for (FileRecord record : evidence.values()) {
 			WorldBuilderHashes.updateText(digest, record.relativePath);
@@ -756,6 +765,81 @@ final class WorldBuilderPortableProvider {
 			WorldBuilderHashes.updateText(digest, record.sha256);
 		}
 		return WorldBuilderHashes.hex(digest.digest());
+	}
+
+	private static Path findNpcDefinitions(Path source, Path definitions)
+		throws IOException {
+		List<Path> candidates = new ArrayList<Path>();
+		addNpcCandidate(candidates, source.resolve(NPC_DEFINITIONS_FILE));
+		addNpcCandidate(candidates, source.resolve(
+			"tools/item-visual-provider/generated/" + NPC_DEFINITIONS_FILE));
+		if (definitions != null && safeDirectory(definitions)) {
+			addNpcCandidate(candidates, definitions.resolve(NPC_DEFINITIONS_FILE));
+			addNpcCandidate(candidates,
+				definitions.resolve("world-builder").resolve(NPC_DEFINITIONS_FILE));
+		}
+		if (candidates.isEmpty()) return null;
+		Collections.sort(candidates);
+		Path selected = candidates.get(0);
+		String hash = WorldBuilderHashes.sha256(selected);
+		for (int index = 1; index < candidates.size(); index++) {
+			Path candidate = candidates.get(index);
+			if (Files.size(candidate) != Files.size(selected)
+				|| !hash.equals(WorldBuilderHashes.sha256(candidate))) return null;
+		}
+		return selected;
+	}
+
+	private static void addNpcCandidate(List<Path> candidates, Path requested)
+		throws IOException {
+		if (!safeFile(requested)) return;
+		Path value = requested.toRealPath();
+		if (Files.size(value) < 1L
+			|| Files.size(value) > WorldBuilderContractLimits.MAX_JSON_BYTES
+			|| candidates.contains(value)) return;
+		candidates.add(value);
+	}
+
+	private static void stageNpcAssets(Path npcDefinitions, GuidedSelection selection,
+		Path packageStage) throws IOException {
+		Map<String,Object> document;
+		try {
+			document = WorldBuilderJsonDocuments.readTargetDefinitionObject(npcDefinitions);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			return;
+		}
+		if (!Long.valueOf(1L).equals(document.get("schemaVersion"))
+			|| !NPC_PRODUCER_TYPE.equals(document.get("manifestType"))
+			|| !(document.get("assetProviders") instanceof Map)) return;
+		@SuppressWarnings("unchecked") Map<String,Object> providers =
+			(Map<String,Object>)document.get("assetProviders");
+		stageNpcAsset(providers.get("authenticSpriteArchive"),
+			selection.authenticArchive, packageStage);
+		stageNpcAsset(providers.get("customSpriteArchive"),
+			selection.customArchive, packageStage);
+	}
+
+	private static void stageNpcAsset(Object raw, Path selected, Path packageStage)
+		throws IOException {
+		if (!(raw instanceof Map) || selected == null || !safeFile(selected)) return;
+		Map<?,?> value = (Map<?,?>)raw;
+		if (!(value.get("path") instanceof String)
+			|| !(value.get("sha256") instanceof String)
+			|| !WorldBuilderBoundedInventory.isHash((String)value.get("sha256"))) return;
+		Path source = selected.toRealPath();
+		if (!((String)value.get("sha256")).equals(WorldBuilderHashes.sha256(source))) return;
+		Path destination;
+		try {
+			destination = WorldBuilderPortablePath.resolveContained(packageStage,
+				(String)value.get("path"), "portable-npc-provider-import");
+		} catch (WorldBuilderContractException unsafe) {
+			return;
+		}
+		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
+			if (!safeFile(destination) || Files.size(destination) != Files.size(source)
+				|| !WorldBuilderHashes.sha256(destination).equals(
+					WorldBuilderHashes.sha256(source))) return;
+		} else copyRegular(source, destination);
 	}
 
 	private static void addEvidence(Path requested, Path source,

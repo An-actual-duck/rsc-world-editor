@@ -466,6 +466,72 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual(refreshed_provider,
                 Path(refreshed_discovery["candidates"][0]["root"]))
 
+    def test_guided_import_captures_neutral_generated_npc_manifest_and_bound_archives(self):
+        with tempfile.TemporaryDirectory(prefix="portable-provider-npcs-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            source = base / "server"
+            installation.mkdir()
+            definitions = source / "server/conf/server/defs"
+            self.write_json(definitions / "ItemDefs.json", {
+                "item": [{"id": 3309, "name": "NPC discovery fixture item"}]
+            })
+            video = source / "Client_Base/Cache/video"
+            video.mkdir(parents=True)
+            authentic = video / "Authentic_Sprites.orsc"
+            custom = video / "Custom_Sprites.osar"
+            authentic.write_bytes(b"exact authentic NPC archive\n")
+            custom.write_bytes(b"exact custom NPC archive\n")
+            producer = source / "tools/item-visual-provider/generated/npc-definitions-v1.json"
+            producer_document = {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-npc-definitions",
+                "provider": {},
+                "assetProviders": {
+                    "authenticSpriteArchive": {
+                        "path": "assets/archives/Authentic_Sprites.orsc",
+                        "sha256": hashlib.sha256(authentic.read_bytes()).hexdigest(),
+                        "numericEntryCount": 1,
+                    },
+                    "customSpriteArchive": {
+                        "path": "assets/archives/Custom_Sprites.osar",
+                        "sha256": hashlib.sha256(custom.read_bytes()).hexdigest(),
+                        "entryCount": 1,
+                    },
+                },
+                "selection": {},
+                "npcDefinitions": [],
+                "animationDefinitions": [],
+            }
+            self.write_json(producer, producer_document)
+            before = snapshot(source)
+
+            command = (
+                "import-item-provider",
+                "--installation-root", installation,
+                "--source-root", source,
+                "--definitions", definitions,
+                "--authentic-archive", authentic,
+                "--custom-archive", custom,
+            )
+            first = self.run_cli(*command)
+            self.assertEqual(0, first.returncode, first.stderr)
+            first_summary = json.loads(first.stdout)
+            provider = Path(first_summary["root"])
+            self.assertEqual(producer.read_bytes(),
+                (provider / "npc-definitions-v1.json").read_bytes())
+            self.assertEqual(authentic.read_bytes(),
+                (provider / "assets/archives/Authentic_Sprites.orsc").read_bytes())
+            self.assertEqual(custom.read_bytes(),
+                (provider / "assets/archives/Custom_Sprites.osar").read_bytes())
+            self.assertEqual(before, snapshot(source))
+
+            repeated = self.run_cli(*command)
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual(first_summary["providerId"],
+                json.loads(repeated.stdout)["providerId"])
+            self.assertEqual(before, snapshot(source))
+
     def test_corrupt_and_legacy_cache_records_are_preserved_but_never_selected(self):
         with tempfile.TemporaryDirectory(prefix="portable-provider-cache-safety-") as temp:
             base = Path(temp)

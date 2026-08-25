@@ -109,6 +109,24 @@ automatically and does not use the advanced package chooser. The chooser and
 installation-local provider catalog remain recovery/developer paths for server
 distributions which have not adopted the portable layout.
 
+For recognized legacy layouts, providerless discovery also recognizes the
+neutral producer output `npc-definitions-v1.json`. A server may place it at its
+root, beside its selected definitions (including a `world-builder/`
+subdirectory), or at the neutral generator convention
+`tools/item-visual-provider/generated/npc-definitions-v1.json`. During local
+provider publication, World Builder copies that data-only manifest and the
+exact hash-matched authentic/custom archives to the manifest's declared
+portable paths. The server remains read-only and no server or client JAR is
+executed. Distinct manifests at more than one recognized location are not
+guessed; unresolved NPCs retain the existing explicit placeholder diagnostics.
+
+This bridge means a server maintainer can keep the deterministic neutral
+producer output in the server tree while ordinary users only choose **Detect
+Server Map**. World Builder captures it into the installation-local provider
+automatically. Because a project's immutable source evidence is intentional,
+an existing placeholder project is not rewritten in place; recreate that
+project after the server's NPC producer output changes.
+
 ## Compatibility discovery
 
 For existing OpenRSC installations, the launcher recognizes these neutral
