@@ -108,6 +108,11 @@ def sprite_archive(subspace: str, entry: str, payload: bytes) -> bytes:
     return gzip.compress(raw, mtime=0)
 
 
+def sprite_entry_hash(entry: str, payload: bytes) -> str:
+    """Hash the complete OSAR entry record, including its terminated name."""
+    return hashlib.sha256(entry.encode("latin-1") + b"\0" + payload).hexdigest()
+
+
 class NpcDefinitionProviderTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -287,7 +292,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "requiredFrameCount": 15,
                 "customArchive": {
                     "subspace": "npc", "entry": "fixture", "frameCount": 15,
-                    "entrySha256": hashlib.sha256(custom_entry).hexdigest(),
+                    "entrySha256": sprite_entry_hash("fixture", custom_entry),
                     "spritepackOverrideKey": "npc:fixture",
                 },
                 "authenticArchive": {
@@ -401,7 +406,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "category": "npc",
                 "name": "fixture",
                 "requiredFrameCount": 15,
-                "customEntrySha256": hashlib.sha256(sprite_entry(15)).hexdigest(),
+                "customEntrySha256": sprite_entry_hash("fixture", sprite_entry(15)),
                 "authenticBaseSpriteId": 0,
                 "status": "resolved",
             }], report["animations"])
@@ -423,7 +428,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "requiredFrameCount": 15,
                 "customSpriteSubspace": "npc",
                 "customSpriteEntry": "fixture",
-                "customEntrySha256": hashlib.sha256(sprite_entry(15)).hexdigest(),
+                "customEntrySha256": sprite_entry_hash("fixture", sprite_entry(15)),
                 "authenticBaseSpriteId": 0,
                 "authenticFrameSha256s": [
                     hashlib.sha256(f"authentic-npc-frame-{frame}\n".encode("ascii"))

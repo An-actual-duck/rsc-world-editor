@@ -735,12 +735,12 @@ final class WorldBuilderNpcDefinitionProvider {
 				for (int entryIndex = 0; entryIndex < entries; entryIndex++) {
 					if (++count > MAX_FILES) throw new IllegalArgumentException(
 						"too many entries");
+					int start = input.offset;
 					String entry = osarName(input.name(), "Custom animation entry");
 					String key = subspace + "/" + entry;
 					if (!folded.add(key.toLowerCase(java.util.Locale.ROOT))) {
 						throw new IllegalArgumentException("colliding entry");
 					}
-					int start = input.offset;
 					int frames = input.sprite();
 					byte[] payload = Arrays.copyOfRange(expanded, start, input.offset);
 					result.put(key, new SpriteEntry(frames,
