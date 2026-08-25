@@ -85,7 +85,7 @@ final class WorldBuilderPortableProvider {
 
 		CacheLookup cache = localCandidates(source, installation, sourceEvidenceSha256);
 		List<Candidate> local = cache.candidates;
-		List<Candidate> legacy = collapseMirroredCandidates(legacyCandidates(source));
+		List<Candidate> legacy = normalizedLegacyCandidates(source);
 		if (local.size() == 1) {
 			Candidate selected = local.get(0);
 			return new Discovery(Status.LOCAL, source, local, selected,
@@ -411,6 +411,30 @@ final class WorldBuilderPortableProvider {
 		return result;
 	}
 
+	private List<Candidate> normalizedLegacyCandidates(Path source) throws IOException {
+		List<Candidate> discovered = legacyCandidates(source);
+		boolean hasClientAuthority = false;
+		for (Candidate candidate : discovered) {
+			if (!serverFallback(candidate)) {
+				hasClientAuthority = true;
+				break;
+			}
+		}
+		if (hasClientAuthority) {
+			List<Candidate> client = new ArrayList<Candidate>();
+			for (Candidate candidate : discovered) {
+				if (!serverFallback(candidate)) client.add(candidate);
+			}
+			discovered = client;
+		}
+		return collapseMirroredCandidates(discovered);
+	}
+
+	private static boolean serverFallback(Candidate candidate) {
+		return candidate.profileId.startsWith("legacy-server-conf-server-data")
+			|| candidate.profileId.startsWith("legacy-server-data");
+	}
+
 	/**
 	 * A normal OpenRSC distribution may retain the same renderer archives in a
 	 * client cache and in server data.  Those mirrors are not competing content
@@ -717,7 +741,7 @@ final class WorldBuilderPortableProvider {
 	private String sourceEvidence(Path source, String discovery) throws IOException {
 		Path realSource = source.toRealPath();
 		Map<String,FileRecord> evidence = new TreeMap<String,FileRecord>();
-		for (Candidate candidate : legacyCandidates(realSource)) {
+		for (Candidate candidate : normalizedLegacyCandidates(realSource)) {
 			addEvidence(candidate.root, realSource, evidence);
 			addEvidence(candidate.itemVisuals, realSource, evidence);
 			addEvidence(candidate.definitions, realSource, evidence);

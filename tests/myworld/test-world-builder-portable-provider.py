@@ -229,7 +229,7 @@ class PortableProviderTest(unittest.TestCase):
             self.assertEqual(str(spritepacks),
                 report["candidates"][0]["spritepacks"])
 
-    def test_conflicting_server_archive_mirror_remains_ambiguous(self):
+    def test_server_archive_fallback_does_not_compete_with_client_authority(self):
         with tempfile.TemporaryDirectory(prefix="portable-provider-conflict-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"
@@ -249,9 +249,12 @@ class PortableProviderTest(unittest.TestCase):
 
             report = self.discover(installation, source)
 
-            self.assertEqual("ambiguous", report["status"])
-            self.assertIsNone(report["selectedProfileId"])
-            self.assertEqual(2, len(report["candidates"]))
+            self.assertEqual("recognized", report["status"])
+            self.assertEqual("legacy-client-base-cache-video",
+                report["selectedProfileId"])
+            self.assertEqual(1, len(report["candidates"]))
+            self.assertEqual(str(client / "Custom_Sprites.osar"),
+                report["candidates"][0]["customArchive"])
 
     def test_multiple_definition_roots_are_reported_as_ambiguous(self):
         with tempfile.TemporaryDirectory(prefix="portable-provider-definitions-") as temp:

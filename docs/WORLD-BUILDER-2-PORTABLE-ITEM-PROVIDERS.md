@@ -22,8 +22,9 @@ warning and uses the standard placeholder for affected records.
 Providerless compatibility discovery also recognizes normal client/server
 archive mirrors. If their shared archives are byte-identical, the layout with
 the more complete role set (such as client spritepacks) is selected
-automatically. If corresponding archive bytes differ, both candidates remain
-visible and the launcher requires an explicit choice instead of guessing.
+automatically. A recognized client cache is renderer-authoritative and
+server-data archive roots are fallbacks only when no client cache is present.
+Conflicting client roots remain visible and require an explicit choice.
 
 The normal end-user path does not involve an AI handoff, build-output folder,
 or internal JSON filename:
