@@ -73,7 +73,13 @@ user can recreate the project without guessing what went wrong.
 `world-builder-npc-definition-mapping` contract or the richer
 `world-builder-npc-definitions` producer contract. The latter includes exact
 archive bindings and the complete animation closure for placed extension NPCs;
-the Editor verifies and normalizes it automatically. This keeps provider
+the Editor verifies and normalizes it automatically. Verification includes the
+actual raw custom-OSAR entry hash and frame count, the runtime category/name
+lookup, the renderer-required 15/18/27-frame shape, and every consecutive
+authentic sprite payload hash. Missing, extra, aliased, colliding, malformed,
+or hash-drifted animation evidence produces an explicit project-local NPC
+placeholder and `NPC_ANIMATION_PLACEHOLDER` diagnostic rather than a later
+client crash or invisible NPC. This keeps provider
 production portable without requiring end users to translate server and client
 definition shapes by hand.
 

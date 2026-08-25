@@ -1,6 +1,8 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -15,11 +17,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * Normalizes sparse target/provider NPC definitions into the sequential runtime
- * registry without executing target code. Missing definitions become explicit
- * project-local placeholders and actionable warnings.
+ * registry without executing target code. Rich providers also bind every used
+ * animation to its exact custom and authentic sprite payloads. Missing or
+ * unusable definitions become explicit project-local placeholders and
+ * actionable warnings.
  */
 final class WorldBuilderNpcDefinitionProvider {
 	static final String TYPE = "world-builder-npc-definition-mapping";
@@ -30,6 +37,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	private static final long MAX_BYTES = 16L * 1024L * 1024L;
 	private static final int MAX_ID = 65535;
 	private static final int MAX_FILES = 8192;
+	private static final long MAX_EXPANDED_BYTES = 512L * 1024L * 1024L;
 	private static final Set<String> PACKAGE_ROLES = set(
 		"authentic-sprite-archive", "custom-sprite-archive", "external-png",
 		"item-visual-schema", "compatibility-item-visual-manifest",
@@ -108,9 +116,14 @@ final class WorldBuilderNpcDefinitionProvider {
 			if (definition == null) {
 				definition = placeholder(template, id);
 				if (requiredId) warnings.add(new Warning(id,
-					"NPC_DEFINITION_PLACEHOLDER",
-					"No authoritative provider definition exists for NPC " + id
-						+ "; a deterministic project-local placeholder was generated."));
+					provider.animationFailure == null
+						? "NPC_DEFINITION_PLACEHOLDER" : "NPC_ANIMATION_PLACEHOLDER",
+					provider.animationFailure == null
+						? "No authoritative provider definition exists for NPC " + id
+							+ "; a deterministic project-local placeholder was generated."
+						: "NPC " + id + " animation evidence is unusable: "
+							+ provider.animationFailure
+							+ " A deterministic project-local placeholder was generated."));
 				items.add(new Item(id, requiredId ? "placeholder" : "gap-placeholder"));
 			} else {
 				items.add(new Item(id, "resolved"));
@@ -120,7 +133,8 @@ final class WorldBuilderNpcDefinitionProvider {
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
 		document.put("npcs", rewritten);
 		return new Result(WorldBuilderJsonDocuments.pretty(document)
-			.getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings);
+			.getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings,
+			provider.animations);
 	}
 
 	static void writeReport(Path projectStage, Result result)
@@ -138,6 +152,9 @@ final class WorldBuilderNpcDefinitionProvider {
 		List<Object> items = new ArrayList<Object>();
 		for (Item item : result.items) items.add(item.json());
 		report.put("npcs", items);
+		List<Object> animations = new ArrayList<Object>();
+		for (Animation item : result.animations) animations.add(item.json());
+		report.put("animations", animations);
 		List<Object> warnings = new ArrayList<Object>();
 		for (Warning warning : result.warnings) warnings.add(warning.json());
 		report.put("warnings", warnings);
@@ -162,13 +179,15 @@ final class WorldBuilderNpcDefinitionProvider {
 			for (Object raw : (List<?>)rawWarnings) {
 				if (!(raw instanceof Map)) continue;
 				Map<?,?> warning = (Map<?,?>)raw;
-				if (!"NPC_DEFINITION_PLACEHOLDER".equals(warning.get("code"))) continue;
+				if (!(warning.get("code") instanceof String)
+					|| !((String)warning.get("code")).startsWith("NPC_")
+					|| !((String)warning.get("code")).endsWith("_PLACEHOLDER")) continue;
 				Object id = warning.get("npcId");
 				if (id instanceof Number) ids.add(Integer.valueOf(((Number)id).intValue()));
 			}
 			if (ids.isEmpty()) return null;
-			return "\n\nNPC provider warning: no authoritative definitions were supplied for "
-				+ "NPC IDs " + ids + ". They will appear as clearly named placeholders "
+			return "\n\nNPC provider warning: complete definitions and animation visuals were not "
+				+ "available for NPC IDs " + ids + ". They will appear as clearly named placeholders "
 				+ "using NPC 0's visuals. Install a complete provider containing "
 				+ FILE_NAME + " and recreate this project for faithful NPC visuals.\n"
 				+ "Details: " + report;
@@ -215,9 +234,12 @@ final class WorldBuilderNpcDefinitionProvider {
 					object(row.get("definition"), "definition"), id, name);
 				definitions.put(Integer.valueOf(id), definition);
 			}
-			return new Provider(definitions, WorldBuilderHashes.sha256(candidate));
+			return new Provider(definitions, WorldBuilderHashes.sha256(candidate),
+				Collections.<Animation>emptyList(), null);
 		} catch (TargetMismatch mismatch) {
 			throw providerMismatch(candidate.toString(), mismatch.getMessage(), mismatch);
+		} catch (AnimationFailure invalid) {
+			return Provider.animationFailure(invalid.getMessage());
 		} catch (Exception invalid) {
 			return Provider.empty();
 		}
@@ -237,26 +259,44 @@ final class WorldBuilderNpcDefinitionProvider {
 		Map<String,Object> metadata = object(document.get("provider"), "provider");
 		validateProducerMetadata(metadata);
 		Map<String,Object> assets = object(document.get("assetProviders"), "assetProviders");
-		validateProducerAssets(root,
-			assets);
+		AssetIndexes assetIndexes;
+		try {
+			assetIndexes = validateProducerAssets(root, assets);
+		} catch (AnimationFailure invalid) {
+			throw invalid;
+		} catch (IOException invalid) {
+			throw new AnimationFailure("The NPC animation asset provider is malformed: "
+				+ invalid.getMessage(), invalid);
+		}
 		List<Object> animations = array(document.get("animationDefinitions"),
 			"animationDefinitions");
 		Set<Integer> animationIds = new TreeSet<Integer>();
+		Map<Integer,Animation> animationEvidence = new TreeMap<Integer,Animation>();
 		int previousAnimation = -1;
 		for (int index = 0; index < animations.size(); index++) {
-			Map<String,Object> animation = object(animations.get(index),
-				"animationDefinitions#record=" + index);
-			validateProducerAnimation(animation);
-			int id = integer(animation.get("animationId"), 0, MAX_ID, "animationId");
-			if (id <= previousAnimation) throw new IOException(
-				"producer animation definitions are not sorted and unique");
-			previousAnimation = id;
-			animationIds.add(Integer.valueOf(id));
+			try {
+				Map<String,Object> animation = object(animations.get(index),
+					"animationDefinitions#record=" + index);
+				Animation evidence = validateProducerAnimation(animation, assetIndexes);
+				int id = integer(animation.get("animationId"), 0, MAX_ID,
+					"animationId");
+				if (id <= previousAnimation) throw new AnimationFailure(
+					"Producer animation definitions are not sorted and unique.");
+				previousAnimation = id;
+				animationIds.add(Integer.valueOf(id));
+				animationEvidence.put(Integer.valueOf(id), evidence);
+			} catch (AnimationFailure invalid) {
+				throw invalid;
+			} catch (IOException invalid) {
+				throw new AnimationFailure("Animation record " + index
+					+ " is malformed: " + invalid.getMessage(), invalid);
+			}
 		}
 
 		List<Object> rows = array(document.get("npcDefinitions"), "npcDefinitions");
 		TreeMap<Integer,Map<String,Object>> definitions =
 			new TreeMap<Integer,Map<String,Object>>();
+		Set<Integer> referencedAnimationIds = new TreeSet<Integer>();
 		int previous = -1;
 		for (int index = 0; index < rows.size(); index++) {
 			Map<String,Object> row = object(rows.get(index),
@@ -277,15 +317,19 @@ final class WorldBuilderNpcDefinitionProvider {
 				if (animation >= 0 && !animationIds.contains(Integer.valueOf(animation))) {
 					throw new IOException("producer NPC references an unresolved animation");
 				}
+				if (animation >= 0) referencedAnimationIds.add(Integer.valueOf(animation));
 			}
 			definitions.put(Integer.valueOf(id), producerDefinition(row, id, name, sprites));
 		}
 		Map<String,Object> selection = object(document.get("selection"), "selection");
 		validateProducerSelection(selection,
 			definitions.keySet());
+		if (!referencedAnimationIds.equals(animationIds)) throw new AnimationFailure(
+			"The provider animation inventory contains missing or unreferenced animation IDs.");
 		validateProducerTarget(copiedTarget, declarativeMaximum, placements,
 			metadata, assets, selection);
-		return new Provider(definitions, WorldBuilderHashes.sha256(candidate));
+		return new Provider(definitions, WorldBuilderHashes.sha256(candidate),
+			new ArrayList<Animation>(animationEvidence.values()), null);
 	}
 
 	private static void validateProducerTarget(Path copiedTarget, int declarativeMaximum,
@@ -394,10 +438,15 @@ final class WorldBuilderNpcDefinitionProvider {
 		return result;
 	}
 
-	private static void validateProducerAssets(Path root, Map<String,Object> assets)
+	private static AssetIndexes validateProducerAssets(
+		Path root, Map<String,Object> assets)
 		throws IOException {
 		exact(assets, set("customSpriteArchive", "authenticSpriteArchive"),
 			"assetProviders");
+		Path customPath = null;
+		Path authenticPath = null;
+		int customCount = -1;
+		int authenticCount = -1;
 		for (String key : Arrays.asList("customSpriteArchive", "authenticSpriteArchive")) {
 			Map<String,Object> asset = object(assets.get(key), key);
 			exact(asset, "customSpriteArchive".equals(key)
@@ -405,8 +454,9 @@ final class WorldBuilderNpcDefinitionProvider {
 				: set("path", "sha256", "numericEntryCount"), key);
 			String relative = text(asset.get("path"), 1, 512, key + ".path");
 			String hash = hash(asset.get("sha256"), key + ".sha256");
-			integer(asset.get("customSpriteArchive".equals(key) ? "entryCount"
-				: "numericEntryCount"), 0, Integer.MAX_VALUE, key + ".entryCount");
+			int declaredCount = integer(asset.get("customSpriteArchive".equals(key)
+				? "entryCount" : "numericEntryCount"), 0, MAX_FILES,
+				key + ".entryCount");
 			Path path;
 			try {
 				path = WorldBuilderPortablePath.resolveContained(root, relative,
@@ -418,6 +468,25 @@ final class WorldBuilderNpcDefinitionProvider {
 				|| Files.isSymbolicLink(path) || !hash.equals(WorldBuilderHashes.sha256(path))) {
 				throw new IOException("producer asset differs from its binding");
 			}
+			if ("customSpriteArchive".equals(key)) {
+				customPath = path; customCount = declaredCount;
+			} else {
+				authenticPath = path; authenticCount = declaredCount;
+			}
+		}
+		try {
+			Map<String,SpriteEntry> custom = readOsar(customPath);
+			Map<Integer,String> authentic = readAuthentic(authenticPath);
+			if (custom.size() != customCount || authentic.size() != authenticCount) {
+				throw new AnimationFailure(
+					"The selected NPC sprite archive inventory counts differ from the provider.");
+			}
+			return new AssetIndexes(custom, authentic);
+		} catch (AnimationFailure invalid) {
+			throw invalid;
+		} catch (IOException invalid) {
+			throw new AnimationFailure(
+				"The selected NPC sprite archives could not be indexed safely.", invalid);
 		}
 	}
 
@@ -441,48 +510,85 @@ final class WorldBuilderNpcDefinitionProvider {
 		}
 	}
 
-	private static void validateProducerAnimation(Map<String,Object> animation)
+	private static Animation validateProducerAnimation(
+		Map<String,Object> animation, AssetIndexes assets)
 		throws IOException {
 		exact(animation, PRODUCER_ANIMATION_KEYS, "animation definition");
-		text(animation.get("name"), 1, 256, "animation name");
-		text(animation.get("category"), 1, 128, "animation category");
+		int animationId = integer(animation.get("animationId"), 0, MAX_ID,
+			"animationId");
+		String name = osarName(text(animation.get("name"), 1, 128,
+			"animation name"), "Animation name");
+		String category = osarName(text(animation.get("category"), 1, 128,
+			"animation category"), "Animation category");
 		for (String key : Arrays.asList("charColour", "blueMask", "genderModel")) {
 			integer(animation.get(key), Integer.MIN_VALUE, Integer.MAX_VALUE, key);
 		}
-		bool(animation.get("hasCombatFrames"), "hasCombatFrames");
-		bool(animation.get("hasSpecialCombatFrames"), "hasSpecialCombatFrames");
+		boolean combat = bool(animation.get("hasCombatFrames"), "hasCombatFrames");
+		boolean special = bool(animation.get("hasSpecialCombatFrames"),
+			"hasSpecialCombatFrames");
+		if (special && !combat) throw new AnimationFailure(
+			"Animation " + animationId
+				+ " declares special-combat frames without combat frames.");
 		int count = integer(animation.get("requiredFrameCount"), 1, 4096,
 			"requiredFrameCount");
+		int rendererCount = 15 + (combat ? 3 : 0) + (special ? 9 : 0);
+		if (count != rendererCount) throw new AnimationFailure(
+			"Animation " + animationId + " requires " + rendererCount
+				+ " renderer frames but declares " + count + ".");
 		Map<String,Object> custom = object(animation.get("customArchive"),
 			"customArchive");
 		exact(custom, set("subspace", "entry", "frameCount", "entrySha256",
 			"spritepackOverrideKey"), "customArchive");
-		portable(text(custom.get("subspace"), 1, 256, "custom subspace"));
-		portable(text(custom.get("entry"), 1, 256, "custom entry"));
+		String subspace = portable(text(custom.get("subspace"), 1, 128,
+			"custom subspace"));
+		String entry = portable(text(custom.get("entry"), 1, 128, "custom entry"));
+		if (!category.equals(subspace) || !name.equals(entry)) {
+			throw new AnimationFailure("Animation " + animationId
+				+ " custom lookup differs from its runtime category/name identity.");
+		}
 		if (integer(custom.get("frameCount"), 1, 4096, "custom frameCount") != count) {
 			throw new IOException("custom animation frame count is inconsistent");
 		}
-		hash(custom.get("entrySha256"), "custom entrySha256");
-		text(custom.get("spritepackOverrideKey"), 1, 512,
+		String customHash = hash(custom.get("entrySha256"), "custom entrySha256");
+		String override = text(custom.get("spritepackOverrideKey"), 1, 512,
 			"spritepackOverrideKey");
+		if (!(category + ":" + name).equals(override)) throw new AnimationFailure(
+			"Animation " + animationId + " spritepack override identity is inconsistent.");
+		SpriteEntry customEntry = assets.custom.get(category + "/" + name);
+		if (customEntry == null || customEntry.frames != count
+			|| !customHash.equals(customEntry.sha256)) throw new AnimationFailure(
+			"Animation " + animationId + " custom OSAR entry " + category + "/"
+				+ name + " is absent, has the wrong frame count, or differs from its hash.");
 
 		Map<String,Object> authentic = object(animation.get("authenticArchive"),
 			"authenticArchive");
 		exact(authentic, set("baseSpriteId", "frames"), "authenticArchive");
-		integer(authentic.get("baseSpriteId"), 0, MAX_ID, "baseSpriteId");
+		int baseSpriteId = integer(authentic.get("baseSpriteId"), 0, MAX_ID,
+			"baseSpriteId");
 		List<Object> frames = array(authentic.get("frames"), "authentic frames");
 		if (frames.size() != count) throw new IOException(
 			"authentic animation frame count is inconsistent");
-		int previous = -1;
-		for (Object raw : frames) {
+		int previous = baseSpriteId - 1;
+		for (int index = 0; index < frames.size(); index++) {
+			Object raw = frames.get(index);
 			Map<String,Object> frame = object(raw, "authentic frame");
 			exact(frame, set("spriteId", "entrySha256"), "authentic frame");
 			int spriteId = integer(frame.get("spriteId"), 0, MAX_ID, "spriteId");
-			if (spriteId <= previous) throw new IOException(
-				"authentic frame IDs are not sorted and unique");
+			if (spriteId != baseSpriteId + index || spriteId <= previous) {
+				throw new AnimationFailure("Animation " + animationId
+					+ " authentic sprite IDs are not consecutive from the declared base.");
+			}
 			previous = spriteId;
-			hash(frame.get("entrySha256"), "authentic frame entrySha256");
+			String frameHash = hash(frame.get("entrySha256"),
+				"authentic frame entrySha256");
+			if (!frameHash.equals(assets.authentic.get(Integer.valueOf(spriteId)))) {
+				throw new AnimationFailure("Animation " + animationId
+					+ " authentic sprite " + spriteId
+					+ " is absent or differs from its declared hash.");
+			}
 		}
+		return new Animation(animationId, category, name, count,
+			customHash, baseSpriteId);
 	}
 
 	private static void validateProducerSelection(Map<String,Object> selection,
@@ -534,8 +640,9 @@ final class WorldBuilderNpcDefinitionProvider {
 		return text(raw, 0, maximum, label);
 	}
 
-	private static void bool(Object raw, String label) throws IOException {
+	private static boolean bool(Object raw, String label) throws IOException {
 		if (!(raw instanceof Boolean)) throw new IOException(label + " is invalid");
+		return ((Boolean)raw).booleanValue();
 	}
 
 	private static String hash(Object raw, String label) throws IOException {
@@ -550,6 +657,122 @@ final class WorldBuilderNpcDefinitionProvider {
 		} catch (WorldBuilderContractException invalid) {
 			throw new IOException("producer path is unsafe", invalid);
 		}
+	}
+
+	private static String osarName(String value, String label) throws IOException {
+		if (!value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}")) {
+			throw new AnimationFailure(label + " is not a portable OSAR name.");
+		}
+		return value;
+	}
+
+	private static Map<String,SpriteEntry> readOsar(Path path)
+		throws IOException {
+		byte[] expanded;
+		try (InputStream input = new GZIPInputStream(Files.newInputStream(path));
+			ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+			byte[] buffer = new byte[8192];
+			long total = 0L;
+			for (int read; (read = input.read(buffer)) >= 0;) {
+				if (read == 0) continue;
+				total += read;
+				if (total > MAX_EXPANDED_BYTES) throw new AnimationFailure(
+					"The custom NPC sprite archive expands beyond 512 MiB.");
+				output.write(buffer, 0, read);
+			}
+			expanded = output.toByteArray();
+		} catch (AnimationFailure invalid) {
+			throw invalid;
+		} catch (IOException invalid) {
+			throw new AnimationFailure(
+				"The custom NPC sprite archive is not a readable GZIP OSAR.", invalid);
+		}
+		try {
+			SpriteInput input = new SpriteInput(expanded);
+			int subspaceCount = input.u8();
+			if (subspaceCount < 1) throw new IllegalArgumentException("no subspaces");
+			Map<String,SpriteEntry> result = new TreeMap<String,SpriteEntry>();
+			Set<String> folded = new TreeSet<String>();
+			Set<String> foldedSubspaces = new TreeSet<String>();
+			int count = 0;
+			for (int subspaceIndex = 0; subspaceIndex < subspaceCount;
+				subspaceIndex++) {
+				String subspace = osarName(input.name(), "Custom animation subspace");
+				if (!foldedSubspaces.add(subspace.toLowerCase(java.util.Locale.ROOT))) {
+					throw new IllegalArgumentException("colliding subspace");
+				}
+				int entries = input.u16();
+				for (int entryIndex = 0; entryIndex < entries; entryIndex++) {
+					if (++count > MAX_FILES) throw new IllegalArgumentException(
+						"too many entries");
+					String entry = osarName(input.name(), "Custom animation entry");
+					String key = subspace + "/" + entry;
+					if (!folded.add(key.toLowerCase(java.util.Locale.ROOT))) {
+						throw new IllegalArgumentException("colliding entry");
+					}
+					int start = input.offset;
+					int frames = input.sprite();
+					byte[] payload = Arrays.copyOfRange(expanded, start, input.offset);
+					result.put(key, new SpriteEntry(frames,
+						WorldBuilderHashes.sha256(payload)));
+				}
+			}
+			if (input.remaining() != 0) throw new IllegalArgumentException("trailing data");
+			return result;
+		} catch (AnimationFailure invalid) {
+			throw invalid;
+		} catch (RuntimeException invalid) {
+			throw new AnimationFailure(
+				"The custom NPC sprite archive has unsafe names or malformed frames.", invalid);
+		}
+	}
+
+	private static Map<Integer,String> readAuthentic(Path path)
+		throws IOException {
+		Map<Integer,String> result = new TreeMap<Integer,String>();
+		Set<String> folded = new TreeSet<String>();
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			java.util.Enumeration<? extends ZipEntry> entries = archive.entries();
+			int count = 0;
+			while (entries.hasMoreElements()) {
+				ZipEntry entry = entries.nextElement();
+				if (++count > MAX_FILES || entry.isDirectory()) throw new AnimationFailure(
+					"The authentic NPC sprite archive inventory is unsafe or excessive.");
+				String name = portable(entry.getName());
+				if (!folded.add(name.toLowerCase(java.util.Locale.ROOT))) {
+					throw new AnimationFailure(
+						"The authentic NPC sprite archive contains colliding names.");
+				}
+				String leaf = name.substring(name.lastIndexOf('/') + 1);
+				if (leaf.endsWith(".dat")) leaf = leaf.substring(0, leaf.length() - 4);
+				if (!leaf.matches("0|[1-9][0-9]{0,4}")) continue;
+				int id = Integer.parseInt(leaf);
+				if (id > MAX_ID || result.containsKey(Integer.valueOf(id))) {
+					throw new AnimationFailure(
+						"The authentic NPC sprite archive repeats or exceeds its ID domain.");
+				}
+				try (InputStream input = archive.getInputStream(entry);
+					ByteArrayOutputStream payload = new ByteArrayOutputStream()) {
+					byte[] buffer = new byte[8192];
+					for (int read; (read = input.read(buffer)) >= 0;) {
+						if (read == 0) continue;
+						if ((long)payload.size() + read > MAX_BYTES) throw new AnimationFailure(
+							"An authentic NPC sprite entry exceeds 16 MiB.");
+						payload.write(buffer, 0, read);
+					}
+					if (payload.size() < 1) throw new AnimationFailure(
+						"An authentic NPC sprite entry is empty.");
+					result.put(Integer.valueOf(id),
+						WorldBuilderHashes.sha256(payload.toByteArray()));
+				}
+			}
+		} catch (AnimationFailure invalid) {
+			throw invalid;
+		} catch (IOException invalid) {
+			throw new AnimationFailure(
+				"The authentic NPC sprite archive is not a readable bounded ZIP.", invalid);
+		}
+		return result;
 	}
 
 	private static void validatePackageInventory(Path root, Path candidate)
@@ -799,21 +1022,31 @@ final class WorldBuilderNpcDefinitionProvider {
 		TargetMismatch(String message) { super(message); }
 	}
 
+	private static final class AnimationFailure extends IOException {
+		private static final long serialVersionUID = 1L;
+		AnimationFailure(String message) { super(message); }
+		AnimationFailure(String message, Throwable cause) { super(message, cause); }
+	}
+
 	static final class Result {
 		final byte[] customDefinitions;
 		final String providerSha256;
 		final List<Item> items;
 		final List<Warning> warnings;
+		final List<Animation> animations;
 		Result(byte[] customDefinitions, String providerSha256,
-			List<Item> items, List<Warning> warnings) {
+			List<Item> items, List<Warning> warnings, List<Animation> animations) {
 			this.customDefinitions = customDefinitions;
 			this.providerSha256 = providerSha256;
 			this.items = Collections.unmodifiableList(new ArrayList<Item>(items));
 			this.warnings = Collections.unmodifiableList(new ArrayList<Warning>(warnings));
+			this.animations = Collections.unmodifiableList(
+				new ArrayList<Animation>(animations));
 		}
 		static Result unchanged() {
 			return new Result(null, "", Collections.<Item>emptyList(),
-				Collections.<Warning>emptyList());
+				Collections.<Warning>emptyList(),
+				Collections.<Animation>emptyList());
 		}
 		boolean changed() { return customDefinitions != null; }
 	}
@@ -821,12 +1054,119 @@ final class WorldBuilderNpcDefinitionProvider {
 	private static final class Provider {
 		final Map<Integer,Map<String,Object>> definitions;
 		final String sha256;
-		Provider(Map<Integer,Map<String,Object>> definitions, String sha256) {
+		final List<Animation> animations;
+		final String animationFailure;
+		Provider(Map<Integer,Map<String,Object>> definitions, String sha256,
+			List<Animation> animations, String animationFailure) {
 			this.definitions = definitions; this.sha256 = sha256;
+			this.animations = animations; this.animationFailure = animationFailure;
 		}
 		static Provider empty() {
-			return new Provider(Collections.<Integer,Map<String,Object>>emptyMap(), "");
+			return new Provider(Collections.<Integer,Map<String,Object>>emptyMap(), "",
+				Collections.<Animation>emptyList(), null);
 		}
+		static Provider animationFailure(String message) {
+			return new Provider(Collections.<Integer,Map<String,Object>>emptyMap(), "",
+				Collections.<Animation>emptyList(), message);
+		}
+	}
+
+	static final class Animation {
+		final int animationId;
+		final String category;
+		final String name;
+		final int requiredFrameCount;
+		final String customEntrySha256;
+		final int authenticBaseSpriteId;
+
+		Animation(int animationId, String category, String name,
+			int requiredFrameCount, String customEntrySha256,
+			int authenticBaseSpriteId) {
+			this.animationId = animationId; this.category = category;
+			this.name = name; this.requiredFrameCount = requiredFrameCount;
+			this.customEntrySha256 = customEntrySha256;
+			this.authenticBaseSpriteId = authenticBaseSpriteId;
+		}
+
+		Map<String,Object> json() {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("animationId", Long.valueOf(animationId));
+			value.put("category", category); value.put("name", name);
+			value.put("requiredFrameCount", Long.valueOf(requiredFrameCount));
+			value.put("customEntrySha256", customEntrySha256);
+			value.put("authenticBaseSpriteId", Long.valueOf(authenticBaseSpriteId));
+			value.put("status", "resolved");
+			return value;
+		}
+	}
+
+	private static final class AssetIndexes {
+		final Map<String,SpriteEntry> custom;
+		final Map<Integer,String> authentic;
+		AssetIndexes(Map<String,SpriteEntry> custom, Map<Integer,String> authentic) {
+			this.custom = custom; this.authentic = authentic;
+		}
+	}
+
+	private static final class SpriteEntry {
+		final int frames;
+		final String sha256;
+		SpriteEntry(int frames, String sha256) {
+			this.frames = frames; this.sha256 = sha256;
+		}
+	}
+
+	private static final class SpriteInput {
+		final byte[] bytes;
+		int offset;
+		SpriteInput(byte[] bytes) { this.bytes = bytes; }
+		int u8() {
+			if (offset >= bytes.length) throw new IllegalArgumentException("truncated OSAR");
+			return bytes[offset++] & 0xff;
+		}
+		int u16() { return u8() << 8 | u8(); }
+		String name() {
+			StringBuilder value = new StringBuilder();
+			while (true) {
+				int next = u8();
+				if (next == 0) break;
+				if (value.length() >= 128) throw new IllegalArgumentException(
+					"long OSAR name");
+				value.append((char)next);
+			}
+			if (value.length() == 0) throw new IllegalArgumentException("empty OSAR name");
+			return value.toString();
+		}
+		int sprite() {
+			int type = u8();
+			if (type > 4) throw new IllegalArgumentException("entry type");
+			if (type >= 1 && type <= 3 && u8() > 11) {
+				throw new IllegalArgumentException("entry layer");
+			}
+			int frames = u8();
+			if (frames < 1) throw new IllegalArgumentException("empty entry");
+			int palette = u8() + 1;
+			skip((long)palette * 3L);
+			for (int frame = 0; frame < frames; frame++) {
+				int width = u16(), height = u16(), shifted = u8();
+				u16(); u16(); u16(); u16();
+				long pixels = (long)width * (long)height;
+				if (width < 1 || height < 1 || shifted > 1 || pixels > 16777216L) {
+					throw new IllegalArgumentException("frame dimensions");
+				}
+				for (long pixel = 0L; pixel < pixels; pixel++) {
+					if (u8() >= palette) throw new IllegalArgumentException(
+						"pixel palette index");
+				}
+			}
+			return frames;
+		}
+		void skip(long count) {
+			if (count < 0L || count > remaining()) throw new IllegalArgumentException(
+				"truncated OSAR payload");
+			offset += (int)count;
+		}
+		int remaining() { return bytes.length - offset; }
 	}
 
 	static final class Item {

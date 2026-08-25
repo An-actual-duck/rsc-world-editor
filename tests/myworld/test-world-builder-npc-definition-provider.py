@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Neutral NPC provider normalization and placeholder regression coverage."""
 
-import json
+import gzip
 import hashlib
+import json
 import os
+import struct
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
@@ -74,6 +77,21 @@ def producer_definition(npc_id: int, name: str) -> dict:
 def write_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+
+def sprite_entry(frame_count: int) -> bytes:
+    payload = bytearray((0, frame_count, 0, 0x12, 0x34, 0x56))
+    for _ in range(frame_count):
+        payload.extend(struct.pack(">HHBhhHHB", 1, 1, 0, 0, 0, 1, 1, 0))
+    return bytes(payload)
+
+
+def sprite_archive(subspace: str, entry: str, payload: bytes) -> bytes:
+    raw = (
+        bytes((1,)) + subspace.encode("latin-1") + b"\0"
+        + (1).to_bytes(2, "big") + entry.encode("latin-1") + b"\0" + payload
+    )
+    return gzip.compress(raw, mtime=0)
 
 
 class NpcDefinitionProviderTest(unittest.TestCase):
@@ -159,14 +177,44 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             "files": rows,
         })
 
+    def bind_producer_package(self, selected: Path) -> None:
+        root = selected.parent
+        roles = {
+            "item-visuals.json": "full-item-visual-manifest",
+            "npc-definitions-v1.json": "full-npc-definition-manifest",
+            "assets/archives/Authentic_Sprites.orsc": "authentic-sprite-archive",
+            "assets/archives/Custom_Sprites.osar": "custom-sprite-archive",
+        }
+        rows = []
+        for relative in sorted(roles):
+            payload = (root / relative).read_bytes()
+            rows.append({
+                "path": relative, "role": roles[relative], "size": len(payload),
+                "sha256": hashlib.sha256(payload).hexdigest(),
+            })
+        write_json(root / "package-manifest-v1.json", {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-item-visual-provider-package",
+            "providerDirectory": "world-builder-provider",
+            "catalogSha256": "a" * 64,
+            "files": rows,
+        })
+
     def producer_package(self, target: Path, selected: Path, npc_id: int = 2,
                          unresolved_animation: bool = False) -> None:
         root = selected.parent
         authentic = root / "assets/archives/Authentic_Sprites.orsc"
         custom = root / "assets/archives/Custom_Sprites.osar"
         authentic.parent.mkdir(parents=True)
-        authentic.write_bytes(b"authentic-fixture")
-        custom.write_bytes(b"custom-fixture")
+        authentic_frames = {
+            frame: (f"authentic-npc-frame-{frame}\n").encode("ascii")
+            for frame in range(15)
+        }
+        with zipfile.ZipFile(authentic, "w", zipfile.ZIP_DEFLATED) as archive:
+            for frame, payload in authentic_frames.items():
+                archive.writestr(str(frame), payload)
+        custom_entry = sprite_entry(15)
+        custom.write_bytes(sprite_archive("npc", "fixture", custom_entry))
         target_video = target / "Client_Base/Cache/video"
         target_video.mkdir(parents=True)
         (target_video / "Authentic_Sprites.orsc").write_bytes(authentic.read_bytes())
@@ -202,7 +250,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             "assetProviders": {
                 "authenticSpriteArchive": {
                     "path": "assets/archives/Authentic_Sprites.orsc",
-                    "sha256": authentic_hash, "numericEntryCount": 1,
+                    "sha256": authentic_hash, "numericEntryCount": 15,
                 },
                 "customSpriteArchive": {
                     "path": "assets/archives/Custom_Sprites.osar",
@@ -222,38 +270,23 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "animationId": 0, "name": "fixture", "category": "npc",
                 "charColour": 0, "blueMask": 0, "genderModel": 0,
                 "hasCombatFrames": False, "hasSpecialCombatFrames": False,
-                "requiredFrameCount": 1,
+                "requiredFrameCount": 15,
                 "customArchive": {
-                    "subspace": "npc", "entry": "fixture", "frameCount": 1,
-                    "entrySha256": "6" * 64,
+                    "subspace": "npc", "entry": "fixture", "frameCount": 15,
+                    "entrySha256": hashlib.sha256(custom_entry).hexdigest(),
                     "spritepackOverrideKey": "npc:fixture",
                 },
                 "authenticArchive": {
                     "baseSpriteId": 0,
-                    "frames": [{"spriteId": 0, "entrySha256": "7" * 64}],
+                    "frames": [
+                        {"spriteId": frame,
+                         "entrySha256": hashlib.sha256(payload).hexdigest()}
+                        for frame, payload in authentic_frames.items()
+                    ],
                 },
             }],
         })
-        roles = {
-            "item-visuals.json": "full-item-visual-manifest",
-            "npc-definitions-v1.json": "full-npc-definition-manifest",
-            "assets/archives/Authentic_Sprites.orsc": "authentic-sprite-archive",
-            "assets/archives/Custom_Sprites.osar": "custom-sprite-archive",
-        }
-        rows = []
-        for relative in sorted(roles):
-            payload = (root / relative).read_bytes()
-            rows.append({
-                "path": relative, "role": roles[relative], "size": len(payload),
-                "sha256": hashlib.sha256(payload).hexdigest(),
-            })
-        write_json(root / "package-manifest-v1.json", {
-            "schemaVersion": 1,
-            "manifestType": "world-builder-item-visual-provider-package",
-            "providerDirectory": "world-builder-provider",
-            "catalogSha256": "a" * 64,
-            "files": rows,
-        })
+        self.bind_producer_package(selected)
 
     def test_exact_sparse_provider_record_is_resolved_with_only_gap_placeholder(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-resolved-") as temp:
@@ -335,6 +368,11 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             base = Path(temp)
             target, selected = self.fixture(base)
             self.producer_package(target, selected)
+            target_archives_before = {
+                path.name: path.read_bytes()
+                for path in (target / "Client_Base/Cache/video").iterdir()
+                if path.is_file()
+            }
             custom, report = self.consume(target, selected, base / "stage")
             resolved = custom["npcs"][1]
             self.assertEqual("Neutral producer NPC", resolved["name"])
@@ -344,6 +382,75 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             self.assertEqual(145, resolved["camera1"])
             self.assertEqual([], report["warnings"])
             self.assertEqual("resolved", report["npcs"][1]["status"])
+            self.assertEqual([{
+                "animationId": 0,
+                "category": "npc",
+                "name": "fixture",
+                "requiredFrameCount": 15,
+                "customEntrySha256": hashlib.sha256(sprite_entry(15)).hexdigest(),
+                "authenticBaseSpriteId": 0,
+                "status": "resolved",
+            }], report["animations"])
+            repeated_custom, repeated_report = self.consume(
+                target, selected, base / "repeat-stage"
+            )
+            self.assertEqual(custom, repeated_custom)
+            self.assertEqual(report, repeated_report)
+            self.assertEqual(target_archives_before, {
+                path.name: path.read_bytes()
+                for path in (target / "Client_Base/Cache/video").iterdir()
+                if path.is_file()
+            })
+
+    def test_rich_animation_assets_and_renderer_shape_fail_soft_with_detail(self):
+        def mutate_custom_hash(document: dict) -> None:
+            document["animationDefinitions"][0]["customArchive"]["entrySha256"] = "f" * 64
+
+        def mutate_authentic_hash(document: dict) -> None:
+            document["animationDefinitions"][0]["authenticArchive"]["frames"][4][
+                "entrySha256"
+            ] = "e" * 64
+
+        def mutate_renderer_count(document: dict) -> None:
+            animation = document["animationDefinitions"][0]
+            animation["requiredFrameCount"] = 14
+            animation["customArchive"]["frameCount"] = 14
+            animation["authenticArchive"]["frames"] = animation[
+                "authenticArchive"
+            ]["frames"][:14]
+
+        def add_unreferenced_animation(document: dict) -> None:
+            extra = json.loads(json.dumps(document["animationDefinitions"][0]))
+            extra["animationId"] = 1
+            document["animationDefinitions"].append(extra)
+
+        cases = (
+            ("custom-hash", mutate_custom_hash, "custom OSAR entry"),
+            ("authentic-hash", mutate_authentic_hash, "authentic sprite 4"),
+            ("renderer-count", mutate_renderer_count, "requires 15 renderer frames"),
+            ("unreferenced", add_unreferenced_animation,
+             "missing or unreferenced animation IDs"),
+        )
+        for label, mutate, expected in cases:
+            with self.subTest(label=label), tempfile.TemporaryDirectory(
+                prefix="npc-provider-animation-closure-"
+            ) as temp:
+                base = Path(temp)
+                target, selected = self.fixture(base)
+                self.producer_package(target, selected)
+                manifest = selected.parent / "npc-definitions-v1.json"
+                document = json.loads(manifest.read_text(encoding="utf-8"))
+                mutate(document)
+                write_json(manifest, document)
+                self.bind_producer_package(selected)
+
+                custom, report = self.consume(target, selected, base / "stage")
+
+                self.assertEqual("[Missing NPC 2]", custom["npcs"][1]["name"])
+                self.assertEqual([], report["animations"])
+                self.assertEqual("NPC_ANIMATION_PLACEHOLDER",
+                                 report["warnings"][0]["code"])
+                self.assertIn(expected, report["warnings"][0]["message"])
 
     def test_rich_producer_with_unresolved_animation_falls_back_safely(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-animation-") as temp:

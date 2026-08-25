@@ -451,8 +451,8 @@ captured definition catalog remains a blocker.
 
 This narrows the observed missing-scenery problem to a concrete definition or
 model dependency instead of treating archive capture as proof that every
-object can render. NPC animation closure, additional definition/archive
-formats, and additional root adapters remain pending.
+object can render. Additional definition/archive formats and additional root
+adapters remain pending.
 
 Phase 1 now begins from the existing compiled layout-adapter registry rather
 than introducing a second discovery framework. Descriptorless adapters return
@@ -580,6 +580,23 @@ summary points the user to that report. Noncanonical names, structural archive
 damage, and IDs beyond the compiled bounded domain block atomically rather than
 being guessed. Repeated equivalent imports produce byte-identical project-local
 archives and reports; the selected server archive is never rewritten.
+
+Rich neutral NPC providers now receive record-level animation closure rather
+than whole-archive trust. For every animation used by a selected extension NPC,
+the Editor proves the exact runtime `category/name` lookup, the 15/18/27-frame
+renderer shape implied by its combat flags, the raw custom-OSAR entry hash and
+frame count, and a consecutive authentic-sprite range whose individual payload
+hashes match. The provider may not omit a referenced animation or include an
+unreferenced one. Archive inventories remain bounded, portable, collision-free,
+and structurally parsed without executing target code. A stale target binding
+still blocks as a capability mismatch; malformed or incomplete visual evidence
+instead preserves the placement through the established clearly named NPC-0
+placeholder and records `NPC_ANIMATION_PLACEHOLDER` with the exact failure in
+`diagnostics/npc-definition-provider-warnings.json`. Successful closure and
+repeat normalization are deterministic and leave the selected server bytes
+unchanged. This closes the asset side of the current rich-provider contract;
+foreign animation IDs or semantics not already represented by the pinned
+runtime still require a later versioned runtime animation-registry binding.
 
 ## Implementation phases
 
