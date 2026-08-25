@@ -556,6 +556,23 @@ definition identity, output package schema, and tool version.
 Any unknown, loss, approximation, unapproved repair, or parity delta makes
 project creation fail. A warning cannot downgrade a blocker.
 
+`discovery-reconciliation-v1` is separate diagnostic evidence generated after
+the converted layered package passes generic validation. It records one
+canonical ledger for boundary, ground-item, NPC, and scenery placements:
+
+- declared base, overlay, and removal record counts;
+- embedded packed-scenery marker and normalized-placement counts;
+- applied replacement and removal counts;
+- effective, emitted, definition-resolved, and package record counts;
+- exact source-role and provenance fingerprints; and
+- exact effective/package placement-identity fingerprints.
+
+The four families are canonically ordered and each must reconcile with no
+issues. A count or identity difference blocks conversion before publication.
+For a created packed-origin project the report is retained at
+`diagnostics/discovery-reconciliation-v1.json`; it is support evidence rather
+than target authority and never weakens the immutable source snapshot.
+
 The descriptorless OpenRSC packed compatibility profile recognizes one exact,
 documented upstream data defect: NPC 67 at start `(647,3534)`, minimum
 `(632,3519)`, and maximum `(662,6549)`. The last value cannot identify a

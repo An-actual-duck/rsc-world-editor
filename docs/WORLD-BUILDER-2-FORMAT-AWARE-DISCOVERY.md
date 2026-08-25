@@ -1,7 +1,9 @@
 # World Builder 2 Format-Aware Discovery and Streamlined Launch
 
-Status: **approved product direction; implementation pending**  
-Product: `rsc-world-editor-v2` / **World Builder 2**  
+Status: **approved product direction; implementation in progress — Phase 0**
+
+Product: `rsc-world-editor-v2` / **World Builder 2**
+
 Repository ownership: World Editor tooling first; runtime-provider changes only
 when the normalized content contract requires new client/server consumption
 
@@ -431,6 +433,13 @@ Discovery of arbitrary server layouts does not belong in the runtime. The
 runtime must not inspect a selected target or become coupled to a private-server
 repository.
 
+Implementation note: Phase 0 began with the versioned
+`discovery-reconciliation-v1` placement ledger. Packed conversion now measures
+all declared placement sources, embedded scenery normalization, effective
+composition, emitted/package counts, and exact family identity fingerprints.
+The broader canonical definition/asset graph and additional format adapters
+remain pending.
+
 ## Implementation phases
 
 ### Phase 0 — Baseline inventory and acceptance fixtures
@@ -578,4 +587,3 @@ later support:
 
 Those extensions must reuse the canonical graph and safety boundary rather
 than creating parallel provider systems.
-

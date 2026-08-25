@@ -42,6 +42,9 @@ final class WorldBuilderAdaptiveContracts {
 			"world-builder-conversion-plan", "conversion-plan-v1.schema.json"),
 		CONVERSION_REPORT("conversion-report", 1,
 			"world-builder-conversion-report", "conversion-report-v1.schema.json"),
+		DISCOVERY_RECONCILIATION("discovery-reconciliation", 1,
+			"world-builder-discovery-reconciliation",
+			"discovery-reconciliation-v1.schema.json"),
 		ADAPTIVE_EXPORT("adaptive-export", 2,
 			"world-builder-adaptive-export", "export-manifest-v2.schema.json"),
 		MUTATION_PLAN("mutation-plan", 1,
@@ -145,6 +148,8 @@ final class WorldBuilderAdaptiveContracts {
 			case SOURCE_SNAPSHOT: validateSource(root); return;
 			case CONVERSION_PLAN: validateConversionPlan(root); return;
 			case CONVERSION_REPORT: validateConversionReport(root); return;
+			case DISCOVERY_RECONCILIATION:
+				validateDiscoveryReconciliation(root); return;
 			case ADAPTIVE_EXPORT: validateExport(root); return;
 			case MUTATION_PLAN: validateMutationPlan(root); return;
 			case ADAPTIVE_RECEIPT: validateReceipt(root); return;
@@ -592,6 +597,77 @@ final class WorldBuilderAdaptiveContracts {
 			invalid(op, "Conversion blocked/output state is inconsistent with parity results.");
 		}
 		hash(root, "reportFingerprintSha256", op);
+	}
+
+	private static void validateDiscoveryReconciliation(Map<String,Object> root)
+		throws WorldBuilderContractException {
+		String op = "validate-discovery-reconciliation";
+		exact(root, op, "schemaVersion", "manifestType", "adapterId",
+			"representation", "sourceFingerprintSha256",
+			"outputPackageFingerprintSha256", "families", "status", "issues",
+			"reconciliationFingerprintSha256");
+		identifier(root, "adapterId", op);
+		if (!"packed".equals(enumeration(root, "representation", op, "packed"))) {
+			invalid(op, "Discovery reconciliation representation is unsupported.");
+		}
+		hash(root, "sourceFingerprintSha256", op);
+		hash(root, "outputPackageFingerprintSha256", op);
+		List<?> families = array(root.get("families"), op, "families", 4, 4);
+		String[] expectedFamilies = {"boundary", "ground-item", "npc", "scenery"};
+		for (int index = 0; index < families.size(); index++) {
+			Map<String,Object> family = object(
+				families.get(index), op, "family reconciliation");
+			exact(family, op, "family", "declaredBaseRecords",
+				"declaredOverlayRecords", "declaredRemovalRecords",
+				"embeddedMarkersRead", "embeddedPlacementsNormalized",
+				"replacementsApplied", "removalsApplied", "effectiveRecords",
+				"emittedRecords", "packageRecords", "definitionsResolved",
+				"sourceRoles", "sourceProvenanceSha256",
+				"effectiveIdentitySha256", "packageIdentitySha256", "status");
+			String actualFamily = enumeration(family, "family", op,
+				"boundary", "ground-item", "npc", "scenery");
+			if (!expectedFamilies[index].equals(actualFamily)) {
+				invalid(op, "Discovery reconciliation families are not canonical.");
+			}
+			long base = boundedCount(family, "declaredBaseRecords", op);
+			long overlay = boundedCount(family, "declaredOverlayRecords", op);
+			long removals = boundedCount(family, "declaredRemovalRecords", op);
+			long markers = boundedCount(family, "embeddedMarkersRead", op);
+			long embedded = boundedCount(
+				family, "embeddedPlacementsNormalized", op);
+			long replacementsApplied = boundedCount(
+				family, "replacementsApplied", op);
+			long removalsApplied = boundedCount(family, "removalsApplied", op);
+			long effective = boundedCount(family, "effectiveRecords", op);
+			long emitted = boundedCount(family, "emittedRecords", op);
+			long packaged = boundedCount(family, "packageRecords", op);
+			long definitions = boundedCount(family, "definitionsResolved", op);
+			if (base + overlay + removals + markers + embedded
+				+ replacementsApplied + removalsApplied < 0L) {
+				invalid(op, "Discovery reconciliation counts overflow.");
+			}
+			if (!"scenery".equals(actualFamily) && (markers != 0L || embedded != 0L)) {
+				invalid(op, "Only scenery may contain embedded terrain markers.");
+			}
+			if (effective != emitted || emitted != packaged
+				|| packaged != definitions) {
+				invalid(op, "Discovery reconciliation loses family records between stages.");
+			}
+			identifierList(family.get("sourceRoles"), op,
+				"sourceRoles", 1, 256, true);
+			hash(family, "sourceProvenanceSha256", op);
+			String effectiveHash = hash(family, "effectiveIdentitySha256", op);
+			String packageHash = hash(family, "packageIdentitySha256", op);
+			if (!effectiveHash.equals(packageHash)
+				|| !"matched".equals(enumeration(family, "status", op, "matched"))) {
+				invalid(op, "Discovery reconciliation family parity is not matched.");
+			}
+		}
+		if (!"matched".equals(enumeration(root, "status", op, "matched"))
+			|| !issues(root.get("issues"), op).isEmpty()) {
+			invalid(op, "A successful discovery reconciliation cannot contain issues.");
+		}
+		hash(root, "reconciliationFingerprintSha256", op);
 	}
 
 	private static void validateExport(Map<String,Object> root)

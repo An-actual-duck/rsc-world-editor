@@ -118,6 +118,19 @@ final class WorldBuilderPackedConverter {
 			}
 			observe("package-validated", stage);
 
+			Map<String,Object> reconciliation =
+				WorldBuilderDiscoveryReconciliation.packed(model, validated,
+					WorldBuilderPackedLayoutAdapter.ID,
+					source.sourceFingerprintSha256,
+					expectedPackage.fingerprintSha256);
+			Path reconciliationPath = stage.resolve(
+				WorldBuilderDiscoveryReconciliation.FILE_NAME);
+			writeJson(reconciliationPath, reconciliation);
+			WorldBuilderAdaptiveContracts.read(
+				WorldBuilderAdaptiveContracts.Kind.DISCOVERY_RECONCILIATION,
+				reconciliationPath);
+			String reconciliationSha256 = WorldBuilderHashes.sha256(reconciliationPath);
+
 			String planSha256 = WorldBuilderHashes.sha256(planPath);
 			Map<String,Object> report = report(
 				model, planSha256, expectedPackage.fingerprintSha256);
@@ -131,12 +144,13 @@ final class WorldBuilderPackedConverter {
 				WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
 			requireSelfFingerprint(report, "reportFingerprintSha256");
 			String reportSha256 = WorldBuilderHashes.sha256(reportPath);
-			requireExactOutput(stage, expectedPackage.files.size() + 2);
+			requireExactOutput(stage, expectedPackage.files.size() + 3);
 			source.reverify();
 			observe("before-publish", stage);
 			source.reverify();
 			requireFinalStage(stage, common.definitions, model, expectedPackage,
-				planSha256, reportSha256, expectedPackage.files.size() + 2);
+				planSha256, reportSha256, reconciliationSha256,
+				expectedPackage.files.size() + 3);
 			try {
 				Files.move(stage, output, StandardCopyOption.ATOMIC_MOVE);
 			} catch (java.nio.file.AtomicMoveNotSupportedException unsupported) {
@@ -144,7 +158,7 @@ final class WorldBuilderPackedConverter {
 					"Choose an output parent that supports same-filesystem atomic moves.");
 			}
 			return new Result(output, source.sourceFingerprintSha256, planSha256,
-				reportSha256,
+				reportSha256, reconciliationSha256,
 				expectedPackage.fingerprintSha256,
 				model.terrain.size(), model.placements.size());
 		} catch (IOException failure) {
@@ -420,6 +434,7 @@ final class WorldBuilderPackedConverter {
 		if (files.size() != expectedFiles
 			|| !files.contains("conversion-plan.json")
 			|| !files.contains("conversion-report.json")
+			|| !files.contains(WorldBuilderDiscoveryReconciliation.FILE_NAME)
 			|| !directories.equals(requiredDirectories)) {
 			throw blocked("Staged conversion output contains missing or untracked files.",
 				"Inspect the atomic package writer and retry from immutable evidence.");
@@ -433,11 +448,16 @@ final class WorldBuilderPackedConverter {
 		WorldBuilderPackedConversionModel.PackageExpectation expectedPackage,
 		String planSha256,
 		String reportSha256,
+		String reconciliationSha256,
 		int expectedFiles) throws IOException, WorldBuilderContractException {
 		Path planPath = stage.resolve("conversion-plan.json");
 		Path reportPath = stage.resolve("conversion-report.json");
+		Path reconciliationPath = stage.resolve(
+			WorldBuilderDiscoveryReconciliation.FILE_NAME);
 		if (!planSha256.equals(WorldBuilderHashes.sha256(planPath))
-			|| !reportSha256.equals(WorldBuilderHashes.sha256(reportPath))) {
+			|| !reportSha256.equals(WorldBuilderHashes.sha256(reportPath))
+			|| !reconciliationSha256.equals(
+				WorldBuilderHashes.sha256(reconciliationPath))) {
 			throw blocked("Staged conversion contracts changed after validation.",
 				"Retry conversion in an output parent not modified by another process.");
 		}
@@ -445,6 +465,9 @@ final class WorldBuilderPackedConverter {
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_PLAN, planPath);
 		WorldBuilderAdaptiveContracts.read(
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_REPORT, reportPath);
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_RECONCILIATION,
+			reconciliationPath);
 		WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
 		WorldBuilderGenericLayeredPackage validated =
 			WorldBuilderGenericLayeredPackage.inspect(
@@ -522,17 +545,20 @@ final class WorldBuilderPackedConverter {
 		final String sourceFingerprintSha256;
 		final String planSha256;
 		final String reportSha256;
+		final String reconciliationSha256;
 		final String outputFingerprintSha256;
 		final int terrainCount;
 		final int placementCount;
 
 		Result(Path output, String sourceFingerprintSha256, String planSha256,
-			String reportSha256, String outputFingerprintSha256,
+			String reportSha256, String reconciliationSha256,
+			String outputFingerprintSha256,
 			int terrainCount, int placementCount) {
 			this.output = output;
 			this.sourceFingerprintSha256 = sourceFingerprintSha256;
 			this.planSha256 = planSha256;
 			this.reportSha256 = reportSha256;
+			this.reconciliationSha256 = reconciliationSha256;
 			this.outputFingerprintSha256 = outputFingerprintSha256;
 			this.terrainCount = terrainCount;
 			this.placementCount = placementCount;
@@ -544,6 +570,7 @@ final class WorldBuilderPackedConverter {
 			value.put("sourceFingerprintSha256", sourceFingerprintSha256);
 			value.put("planSha256", planSha256);
 			value.put("reportSha256", reportSha256);
+			value.put("reconciliationSha256", reconciliationSha256);
 			value.put("outputFingerprintSha256", outputFingerprintSha256);
 			value.put("terrainCount", Long.valueOf(terrainCount));
 			value.put("placementCount", Long.valueOf(placementCount));

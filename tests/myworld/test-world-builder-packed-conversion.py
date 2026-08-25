@@ -717,6 +717,36 @@ public final class PackedConversionFailureHarness {
                 self.assertIn("server/maps/placements/", decision["provenance"])
                 self.assertIn("#record=", decision["provenance"])
 
+            reconciliation = json.loads(
+                (temp_root / "first-root/converted/discovery-reconciliation.json")
+                .read_text(encoding="utf-8")
+            )
+            self.assertEqual("matched", reconciliation["status"])
+            self.assertEqual(FAMILIES, [
+                family["family"] for family in reconciliation["families"]
+            ])
+            scenery = next(
+                family for family in reconciliation["families"]
+                if family["family"] == "scenery"
+            )
+            self.assertEqual(2, scenery["declaredBaseRecords"])
+            self.assertEqual(1, scenery["declaredOverlayRecords"])
+            self.assertEqual(1, scenery["declaredRemovalRecords"])
+            self.assertEqual(0, scenery["embeddedMarkersRead"])
+            self.assertEqual(1, scenery["replacementsApplied"])
+            self.assertEqual(1, scenery["removalsApplied"])
+            self.assertEqual(1, scenery["effectiveRecords"])
+            self.assertEqual(
+                scenery["effectiveRecords"], scenery["emittedRecords"]
+            )
+            self.assertEqual(
+                scenery["emittedRecords"], scenery["packageRecords"]
+            )
+            self.assertEqual(
+                scenery["effectiveIdentitySha256"],
+                scenery["packageIdentitySha256"],
+            )
+
             first_output = temp_root / "first-root/converted"
             manifest = json.loads((first_output / "package/manifest.json").read_text())
             self.assertTrue(manifest["packageId"].startswith("world-builder.converted."))

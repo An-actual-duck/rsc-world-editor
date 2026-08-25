@@ -31,9 +31,10 @@ final class WorldBuilderPackedConversionModel {
 	private static final String WORLD_SPACE = "global";
 	private static final int MAX_SECTORS = 65536;
 	static final int DEFAULT_CUMULATIVE_RECORD_LIMIT = 65536;
+	private static final List<String> ORDERED_FAMILIES = Collections.unmodifiableList(
+		Arrays.asList("boundary", "ground-item", "npc", "scenery"));
 	private static final Set<String> ALL_FAMILIES = Collections.unmodifiableSet(
-		new HashSet<String>(Arrays.asList(
-			"boundary", "ground-item", "npc", "scenery")));
+		new HashSet<String>(ORDERED_FAMILIES));
 
 	interface PlacementIdFactory {
 		String create(String stableFacts);
@@ -54,6 +55,7 @@ final class WorldBuilderPackedConversionModel {
 	final List<String> placementIdentities;
 	final List<Object> placementSummaries;
 	final List<Object> decisions;
+	final Map<String,ReconciliationFamily> reconciliation;
 	final int reverseMatched;
 
 	private WorldBuilderPackedConversionModel(
@@ -63,7 +65,8 @@ final class WorldBuilderPackedConversionModel {
 		List<String> placementSemantics,
 		List<String> placementIdentities,
 		List<Object> placementSummaries,
-		List<Object> decisions) {
+		List<Object> decisions,
+		Map<String,ReconciliationFamily> reconciliation) {
 		this.terrain = Collections.unmodifiableList(new ArrayList<TerrainSector>(terrain));
 		this.placements = Collections.unmodifiableList(new ArrayList<Placement>(placements));
 		this.levels = Collections.unmodifiableList(new ArrayList<Integer>(levels));
@@ -74,6 +77,12 @@ final class WorldBuilderPackedConversionModel {
 		this.placementSummaries = Collections.unmodifiableList(
 			new ArrayList<Object>(placementSummaries));
 		this.decisions = Collections.unmodifiableList(new ArrayList<Object>(decisions));
+		Map<String,ReconciliationFamily> copied =
+			new LinkedHashMap<String,ReconciliationFamily>();
+		for (String family : ORDERED_FAMILIES) {
+			copied.put(family, reconciliation.get(family).copy());
+		}
+		this.reconciliation = Collections.unmodifiableMap(copied);
 		this.reverseMatched = terrain.size();
 	}
 
@@ -135,8 +144,11 @@ final class WorldBuilderPackedConversionModel {
 
 		Map<String,Map<String,Placement>> effective =
 			new LinkedHashMap<String,Map<String,Placement>>();
-		for (String family : ALL_FAMILIES) {
+		Map<String,ReconciliationFamily> reconciliation =
+			new LinkedHashMap<String,ReconciliationFamily>();
+		for (String family : ORDERED_FAMILIES) {
 			effective.put(family, new LinkedHashMap<String,Placement>());
+			reconciliation.put(family, new ReconciliationFamily(family));
 		}
 		Set<String> declaredFamilies = new HashSet<String>();
 		Set<String> generatedIds = new HashSet<String>();
@@ -144,6 +156,16 @@ final class WorldBuilderPackedConversionModel {
 		List<Placement> embeddedScenery = embeddedSceneryPlacements(
 			source, terrain, definitions, idFactory, generatedIds,
 			cumulativeRecordLimit);
+		ReconciliationFamily sceneryLedger = reconciliation.get("scenery");
+		for (TerrainSector sector : terrain) {
+			for (EmbeddedSceneryMarker marker : sector.embeddedScenery) {
+				sceneryLedger.embeddedMarkersRead++;
+				sceneryLedger.sourceRoles.add("server-terrain");
+				sceneryLedger.sourceFacts.add("server-terrain\u0000"
+					+ marker.provenance() + "\u0000" + marker.rawEncoding);
+			}
+		}
+		sceneryLedger.embeddedPlacementsNormalized = embeddedScenery.size();
 		Map<String,Placement> sceneryBase = effective.get("scenery");
 		for (Placement placement : embeddedScenery) {
 			if (sceneryBase.put(placement.slot, placement) != null) {
@@ -162,6 +184,19 @@ final class WorldBuilderPackedConversionModel {
 			List<Placement> records = parsePlacementSource(source, placementSource,
 				definitions, idFactory, generatedIds,
 				cumulativeRecordLimit - inputRecordCount);
+			ReconciliationFamily familyLedger = reconciliation.get(placementSource.family);
+			familyLedger.sourceRoles.add(inputRole);
+			if ("base".equals(placementSource.kind)) {
+				familyLedger.declaredBaseRecords += records.size();
+			} else if ("overlay".equals(placementSource.kind)) {
+				familyLedger.declaredOverlayRecords += records.size();
+			} else if ("removal".equals(placementSource.kind)) {
+				familyLedger.declaredRemovalRecords += records.size();
+			}
+			for (Placement placement : records) {
+				familyLedger.sourceFacts.add(inputRole + "\u0000" + placement.provenance
+					+ "\u0000" + placementSource.kind + "\u0000" + placement.semantic());
+			}
 			inputRecordCount += records.size();
 			Map<String,Placement> family = effective.get(placementSource.family);
 			Set<String> sourceSlots = new HashSet<String>();
@@ -199,6 +234,7 @@ final class WorldBuilderPackedConversionModel {
 					}
 					for (String removalKey : removalKeys) {
 						Placement removed = family.remove(removalKey);
+						familyLedger.removalsApplied++;
 						effectiveRecordCount--;
 						addDecision(decisions, new Decision("removal", inputRole,
 							placement.provenance + " removes " + removed.provenance,
@@ -215,6 +251,7 @@ final class WorldBuilderPackedConversionModel {
 					if (existing != null) {
 						if (explicitSceneryCompletesTerrainMarker) {
 							family.remove(effectiveKey);
+							familyLedger.replacementsApplied++;
 							addDecision(decisions, new Decision("replacement", inputRole,
 								placement.provenance + " supplies direction for "
 									+ existing.provenance,
@@ -250,6 +287,7 @@ final class WorldBuilderPackedConversionModel {
 					} else {
 						for (String replacementKey : replacementKeys) {
 							Placement replaced = family.remove(replacementKey);
+							familyLedger.replacementsApplied++;
 							addDecision(decisions, new Decision("replacement", inputRole,
 								placement.provenance + " replaces " + replaced.provenance,
 								replaced.placementId, "replaced"), cumulativeRecordLimit,
@@ -287,6 +325,10 @@ final class WorldBuilderPackedConversionModel {
 			semantics.add(semantic);
 			identities.add(WorldBuilderPlacementSemantics.identity(
 				placement.placementId, semantic));
+			ReconciliationFamily familyLedger = reconciliation.get(placement.family);
+			familyLedger.effectiveRecords++;
+			familyLedger.effectiveIdentities.add(
+				WorldBuilderPlacementSemantics.identity(placement.placementId, semantic));
 			SummaryKey summary = new SummaryKey(placement.family, placement.level,
 				placement.sourceRole, placement.definitionId);
 			Long count = summaries.get(summary);
@@ -322,7 +364,48 @@ final class WorldBuilderPackedConversionModel {
 		}
 		return new WorldBuilderPackedConversionModel(terrain, placements,
 			new ArrayList<Integer>(levelSet), semantics, identities, summaryDocuments,
-			decisionDocuments);
+			decisionDocuments, reconciliation);
+	}
+
+	List<Object> reconciliationFamilies(WorldBuilderGenericLayeredPackage validated)
+		throws WorldBuilderContractException {
+		List<Object> result = new ArrayList<Object>(ORDERED_FAMILIES.size());
+		for (String family : ORDERED_FAMILIES) {
+			ReconciliationFamily ledger = reconciliation.get(family);
+			long packageRecords = packageCount(validated, family);
+			List<String> packageIdentities = new ArrayList<String>();
+			for (String identity : validated.placementIdentities) {
+				int separator = identity.indexOf('\u0000');
+				if (separator >= 0 && identity.startsWith(family + "\u0000", separator + 1)) {
+					packageIdentities.add(identity);
+				}
+			}
+			Collections.sort(packageIdentities);
+			if (ledger.effectiveRecords != packageRecords
+				|| !ledger.identitySha256().equals(fingerprint(packageIdentities))) {
+				throw blocked("package",
+					"Discovery reconciliation found missing or changed " + family
+						+ " placements after package validation.");
+			}
+			result.add(ledger.toJson(packageRecords, fingerprint(packageIdentities)));
+		}
+		return result;
+	}
+
+	private static long packageCount(WorldBuilderGenericLayeredPackage value,
+		String family) {
+		if ("boundary".equals(family)) return value.boundaryCount;
+		if ("ground-item".equals(family)) return value.groundItemCount;
+		if ("npc".equals(family)) return value.npcCount;
+		return value.sceneryCount;
+	}
+
+	private static String fingerprint(List<String> values) {
+		List<String> sorted = new ArrayList<String>(values);
+		Collections.sort(sorted);
+		java.security.MessageDigest digest = WorldBuilderHashes.newDigest();
+		for (String value : sorted) WorldBuilderHashes.updateText(digest, value);
+		return WorldBuilderHashes.hex(digest.digest());
 	}
 
 	PackageExpectation writePackage(Path packageRoot, String sourceFingerprintSha256)
@@ -1369,6 +1452,68 @@ final class WorldBuilderPackedConversionModel {
 		point.put("x", Long.valueOf(x));
 		point.put("y", Long.valueOf(y));
 		return point;
+	}
+
+	static final class ReconciliationFamily {
+		final String family;
+		long declaredBaseRecords;
+		long declaredOverlayRecords;
+		long declaredRemovalRecords;
+		long embeddedMarkersRead;
+		long embeddedPlacementsNormalized;
+		long replacementsApplied;
+		long removalsApplied;
+		long effectiveRecords;
+		final Set<String> sourceRoles = new TreeSet<String>();
+		final List<String> sourceFacts = new ArrayList<String>();
+		final List<String> effectiveIdentities = new ArrayList<String>();
+
+		ReconciliationFamily(String family) {
+			this.family = family;
+		}
+
+		ReconciliationFamily copy() {
+			ReconciliationFamily value = new ReconciliationFamily(family);
+			value.declaredBaseRecords = declaredBaseRecords;
+			value.declaredOverlayRecords = declaredOverlayRecords;
+			value.declaredRemovalRecords = declaredRemovalRecords;
+			value.embeddedMarkersRead = embeddedMarkersRead;
+			value.embeddedPlacementsNormalized = embeddedPlacementsNormalized;
+			value.replacementsApplied = replacementsApplied;
+			value.removalsApplied = removalsApplied;
+			value.effectiveRecords = effectiveRecords;
+			value.sourceRoles.addAll(sourceRoles);
+			value.sourceFacts.addAll(sourceFacts);
+			value.effectiveIdentities.addAll(effectiveIdentities);
+			return value;
+		}
+
+		String identitySha256() {
+			return fingerprint(effectiveIdentities);
+		}
+
+		Map<String,Object> toJson(long packageRecords, String packageIdentitySha256) {
+			Map<String,Object> value = new LinkedHashMap<String,Object>();
+			value.put("family", family);
+			value.put("declaredBaseRecords", Long.valueOf(declaredBaseRecords));
+			value.put("declaredOverlayRecords", Long.valueOf(declaredOverlayRecords));
+			value.put("declaredRemovalRecords", Long.valueOf(declaredRemovalRecords));
+			value.put("embeddedMarkersRead", Long.valueOf(embeddedMarkersRead));
+			value.put("embeddedPlacementsNormalized",
+				Long.valueOf(embeddedPlacementsNormalized));
+			value.put("replacementsApplied", Long.valueOf(replacementsApplied));
+			value.put("removalsApplied", Long.valueOf(removalsApplied));
+			value.put("effectiveRecords", Long.valueOf(effectiveRecords));
+			value.put("emittedRecords", Long.valueOf(effectiveRecords));
+			value.put("packageRecords", Long.valueOf(packageRecords));
+			value.put("definitionsResolved", Long.valueOf(effectiveRecords));
+			value.put("sourceRoles", new ArrayList<String>(sourceRoles));
+			value.put("sourceProvenanceSha256", fingerprint(sourceFacts));
+			value.put("effectiveIdentitySha256", identitySha256());
+			value.put("packageIdentitySha256", packageIdentitySha256);
+			value.put("status", "matched");
+			return value;
+		}
 	}
 
 	private static final class SummaryKey implements Comparable<SummaryKey> {

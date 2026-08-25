@@ -370,6 +370,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			baselineFingerprint = adopted.fingerprintSha256;
 		} else {
 			Path conversionOutput = stage.resolve(".conversion-output");
+			ensureRealDirectory(stage.resolve("diagnostics"));
 			WorldBuilderPackedConverter.Result converted;
 			try {
 				converted = new WorldBuilderPackedConverter().convertForProject(
@@ -385,6 +386,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				conversionDirectory.resolve("plan.json"));
 			moveAtomicNew(conversionOutput.resolve("conversion-report.json"),
 				conversionDirectory.resolve("report.json"));
+			moveAtomicNew(conversionOutput.resolve(
+				WorldBuilderDiscoveryReconciliation.FILE_NAME),
+				stage.resolve(WorldBuilderDiscoveryReconciliation.PROJECT_RELATIVE_PATH));
 			ensureRealDirectory(stage.resolve("source/layered-baseline"));
 			moveAtomicNew(conversionOutput.resolve("package"),
 				stage.resolve(BASELINE_DIRECTORY));

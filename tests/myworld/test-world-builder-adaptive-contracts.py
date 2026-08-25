@@ -507,6 +507,42 @@ def conversion_report() -> dict:
     }
 
 
+def discovery_reconciliation() -> dict:
+    families = []
+    for family in ("boundary", "ground-item", "npc", "scenery"):
+        families.append({
+            "family": family,
+            "declaredBaseRecords": 1,
+            "declaredOverlayRecords": 0,
+            "declaredRemovalRecords": 0,
+            "embeddedMarkersRead": 2 if family == "scenery" else 0,
+            "embeddedPlacementsNormalized": 1 if family == "scenery" else 0,
+            "replacementsApplied": 0,
+            "removalsApplied": 0,
+            "effectiveRecords": 1,
+            "emittedRecords": 1,
+            "packageRecords": 1,
+            "definitionsResolved": 1,
+            "sourceRoles": [f"placement.{family}-base"],
+            "sourceProvenanceSha256": HASH_A,
+            "effectiveIdentitySha256": HASH_B,
+            "packageIdentitySha256": HASH_B,
+            "status": "matched",
+        })
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-discovery-reconciliation",
+        "adapterId": "example-packed-v1",
+        "representation": "packed",
+        "sourceFingerprintSha256": HASH_C,
+        "outputPackageFingerprintSha256": HASH_D,
+        "families": families,
+        "status": "matched",
+        "issues": [],
+        "reconciliationFingerprintSha256": HASH_A,
+    }
+
+
 def export_manifest(standalone: bool = False) -> dict:
     return {
         "schemaVersion": 2,
@@ -899,6 +935,7 @@ VALID_CONTRACTS = {
     "source-snapshot": source_snapshot,
     "conversion-plan": conversion_plan,
     "conversion-report": conversion_report,
+    "discovery-reconciliation": discovery_reconciliation,
     "adaptive-export": export_manifest,
     "mutation-plan": mutation_plan,
     "adaptive-receipt": import_receipt,
@@ -913,6 +950,9 @@ SCHEMA_CONTRACTS = {
     "source-snapshot-v2.schema.json": (2, "world-builder-source-snapshot"),
     "conversion-plan-v1.schema.json": (1, "world-builder-conversion-plan"),
     "conversion-report-v1.schema.json": (1, "world-builder-conversion-report"),
+    "discovery-reconciliation-v1.schema.json": (
+        1, "world-builder-discovery-reconciliation"
+    ),
     "export-manifest-v2.schema.json": (2, "world-builder-adaptive-export"),
     "target-mutation-plan-v1.schema.json": (1, "world-builder-target-mutation-plan"),
     "import-receipt-v3.schema.json": (3, "world-builder-adaptive-import-receipt"),
@@ -1625,6 +1665,37 @@ class AdaptiveContractTests(unittest.TestCase):
         ]
         self.assert_refused(
             "conversion-report", downgraded, "CONTRACT_VALUE_INVALID"
+        )
+
+    def test_discovery_reconciliation_requires_exact_family_parity(self):
+        missing_scenery = discovery_reconciliation()
+        missing_scenery["families"][3]["packageRecords"] = 0
+        self.assert_refused(
+            "discovery-reconciliation", missing_scenery,
+            "CONTRACT_VALUE_INVALID",
+        )
+
+        changed_identity = discovery_reconciliation()
+        changed_identity["families"][3]["packageIdentitySha256"] = HASH_C
+        self.assert_refused(
+            "discovery-reconciliation", changed_identity,
+            "CONTRACT_VALUE_INVALID",
+        )
+
+        wrong_order = discovery_reconciliation()
+        wrong_order["families"][2], wrong_order["families"][3] = (
+            wrong_order["families"][3], wrong_order["families"][2]
+        )
+        self.assert_refused(
+            "discovery-reconciliation", wrong_order,
+            "CONTRACT_VALUE_INVALID",
+        )
+
+        non_scenery_markers = discovery_reconciliation()
+        non_scenery_markers["families"][0]["embeddedMarkersRead"] = 1
+        self.assert_refused(
+            "discovery-reconciliation", non_scenery_markers,
+            "CONTRACT_VALUE_INVALID",
         )
 
     def test_export_binds_manifest_and_package_validation_evidence(self):

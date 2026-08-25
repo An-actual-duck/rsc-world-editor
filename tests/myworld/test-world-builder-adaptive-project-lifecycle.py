@@ -4232,6 +4232,37 @@ public final class FakeAdaptiveClient {
                 "#entry=h0x48y37&tile=6",
                 embedded_completions[0]["provenance"],
             )
+            reconciliation_path = (
+                project / "diagnostics/discovery-reconciliation-v1.json"
+            )
+            self.assertTrue(reconciliation_path.is_file())
+            reconciliation = json.loads(
+                reconciliation_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual("matched", reconciliation["status"])
+            scenery_reconciliation = next(
+                family for family in reconciliation["families"]
+                if family["family"] == "scenery"
+            )
+            self.assertEqual(3, scenery_reconciliation["embeddedMarkersRead"])
+            self.assertEqual(
+                2, scenery_reconciliation["embeddedPlacementsNormalized"]
+            )
+            self.assertIn(
+                "server-terrain", scenery_reconciliation["sourceRoles"]
+            )
+            self.assertEqual(
+                scenery_reconciliation["effectiveRecords"],
+                scenery_reconciliation["emittedRecords"],
+            )
+            self.assertEqual(
+                scenery_reconciliation["emittedRecords"],
+                scenery_reconciliation["packageRecords"],
+            )
+            self.assertEqual(
+                scenery_reconciliation["effectiveIdentitySha256"],
+                scenery_reconciliation["packageIdentitySha256"],
+            )
             manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
             snapshot = json.loads(
                 (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
