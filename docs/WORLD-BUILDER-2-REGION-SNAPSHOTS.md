@@ -1,16 +1,18 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **Editor foundation implemented; interactive Copy in progress**
+Status: **interactive Region Copy implemented and owner-validated; Cut/Paste UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: interactive selection and supervised Copy bridge are in progress
+Runtime provider: interactive selection and supervised Copy bridge implemented
 
-Current packaged UI status as of 2026-08-25: the contracts and advanced Editor
-commands below are implemented and tested, but there is no region-selection
-toolbar mode, numbered-marker interaction, ghost preview, or snapshot-library
-window. The client's **Copy inspected** action copies inspected terrain/entity
-values into current editing controls; it is not region Copy. Region sharing is
-therefore an implementation foundation, not yet a discoverable creator tool.
+Current packaged UI status as of 2026-08-26: the **Region Copy** toolbar mode
+provides ordered numbered markers, prospective segment preview, enclosed-tile
+preview, marker undo, reopen, clear/cancel, snapshot naming, and Copy into the
+project-local content-addressed library. The result shows the snapshot identity,
+tile and placement counts, and footprint-crossing count. The client's older
+**Copy inspected** action still only copies one inspected value into current
+editing controls; it is unrelated to Region Copy. A full library browser and
+interactive Cut, Paste, import, and export surfaces remain pending.
 
 The first discoverable increment uses the running Editor supervisor as the
 sole bridge to these contracts. The runtime gathers one ordered selection and
@@ -27,9 +29,9 @@ executable authority where prose and malformed external input disagree.
 
 ## Product boundary
 
-The Editor now owns a complete non-interactive foundation for sharing and
-applying regions in an isolated adaptive project. It does not provide the final
-in-game marker or ghost-preview experience. Every operation is project-local;
+The Editor owns the portable snapshot engine and an owner-validated interactive
+Copy workflow for isolated adaptive projects. Cut/Paste and library-management
+surfaces are not yet exposed in the runtime UI. Every operation is project-local;
 no command in this feature resolves or writes the target server.
 
 The frozen World Builder v1 workflow is unchanged. Region bundles belong only
