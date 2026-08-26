@@ -398,6 +398,16 @@ the four correctly oriented edges and deterministic corner joins. A filled
 wall rectangle must not mean a dense wall on every interior tile unless the
 creator explicitly selects a terrain-like wall-fill operation.
 
+**Smart Walls** should be enabled by default. In this mode the creator selects
+one boundary definition and the tool stores it in the correct North- or
+East-wall field for each cardinal perimeter edge. Diagonal-wall inputs are not
+applicable, corners are owned and de-duplicated deterministically, and terrain
+Fill may still operate on the enclosed tiles in the same atomic operation.
+Smart Walls must require a valid selected boundary only when wall placement is
+enabled; a terrain-only rectangle remains valid. Turning Smart Walls off
+exposes the existing raw North, East, and Diagonal field behavior for expert or
+unusual edits without silently reorienting it.
+
 The cursor selects the first corner, movement shows the complete prospective
 bounds and tile count, and the second click commits only after all coverage,
 range, field, and operation limits validate. Cancellation changes nothing.
@@ -405,8 +415,9 @@ Line and rectangle operations should share geometry, preview, batching,
 reconciliation, and undo primitives with freehand painting.
 
 Readiness: **design-ready after the shared operation model**. Rectangle terrain
-enumeration is straightforward; wall edge ownership, corner joins, atomic
-multi-batch application, and visible preview require explicit implementation.
+enumeration and the default Smart Walls behavior are specified; wall edge
+ownership, corner joins, atomic multi-batch application, and visible preview
+require explicit implementation.
 
 ### Quick house and enclosed-area tools
 
@@ -424,6 +435,16 @@ arbitrary shapes. “House type” should be a versioned preset describing safe
 authoring behavior, not executable content and not an opaque bundle of raw
 server flags. Door placement can remain explicit until predictable automatic
 placement rules are agreed.
+
+A later dedicated **Structure** mode should provide ordered multipoint
+placement for orthogonal and diagonal buildings. It should show numbered
+camera-facing markers, preview each segment, close the polygon explicitly, use
+North/East storage for cardinal segments and diagonal encoding only for actual
+diagonal segments, and optionally fill the enclosed floor/roof. The existing
+Editor-owned ordered-polygon selection schemas and geometry rules are the
+starting foundation, but the packaged client still needs authenticated marker
+interaction, ghost preview, and an authoritative runtime transaction; the
+offline copy/cut/paste commands alone do not provide this experience.
 
 Readiness: **foundational design required**. Lines, ordered selections,
 multi-field previews, region transactions, and undo should land first. House
@@ -777,7 +798,7 @@ material-sharing model that custom materials later have to replace.
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
-| Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
+| Rectangle outline/fill | Design-ready after operation model | Smart Walls UI, preview, wall edges/corners and atomic multi-batch apply |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
