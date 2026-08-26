@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of distinct Freehand and Line terrain tools, their icons, selection state, previews, and bounded commit behavior |
+| Last reconciled | 2026-08-26, after implementing 4,096-tile atomic lines and a persistent anchor marker; owner validation of the expanded operation remains pending |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -369,14 +369,24 @@ opens, and their supplied hand/line toolbar icons use a purple selection color
 distinct from ordinary terrain field toggles. Escape or changing tools cancels
 an active anchor.
 
-The first release accepts at most 64 unique tiles so the complete line fits in
-one authoritative request and either commits or refuses as a unit. Longer lines
-are visibly refused before they modify terrain. Lifting that limit requires a
-true multi-batch transaction. Automatic wall orientation, corner joins, and
-more detailed unavailable-tile preview remain future polish.
+The expanded implementation accepts up to 4,096 unique tiles regardless of
+brush size. The client sends only the endpoints, brush size, and selected
+fields; the server reconstructs the deterministic footprint, validates the
+entire operation and draft capacity, and commits it as one authoritative
+transaction before returning bounded result chunks. Invalid operations change
+nothing. Atomic lines remain on already allocated terrain rather than silently
+creating sectors.
 
-Readiness: **initial implementation complete and owner-validated**. The first
-increment is intentionally bounded to one atomic batch.
+After the first click, the anchor tile receives a persistent bright outline and
+X marker while the orange prospective footprint follows the pointer. The marker
+and preview remain through the authoritative commit and disappear after success,
+refusal, or cancellation. Automatic wall orientation, corner joins, more
+detailed unavailable-tile preview, and operation-level undo remain future
+polish.
+
+Readiness: **large atomic implementation complete; owner visual validation
+pending**. The original 64-tile interaction and styling were owner-validated;
+the expanded transaction and marker are the current validation target.
 
 ### Rectangle outline and fill tools
 
@@ -732,9 +742,9 @@ This is a technical dependency order, not an assignment or fixed release plan:
    undoable operation model.
 4. Maintain the implemented centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7
    footprints as the shared geometry for every terrain tool.
-5. Owner-validate the initial deterministic, single-batch Line tool, then add
-   a true multi-batch line transaction and rectangle Outline/Fill using the
-   same geometry, preview, transaction, and undo path.
+5. Owner-validate the implemented 4,096-tile atomic Line transaction and anchor
+   marker, then reuse its endpoint geometry and whole-operation validation for
+   rectangle Outline/Fill and later operation-level undo.
 6. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
 7. Use the implemented Editor-owned ordered selection, local snapshot,
@@ -765,7 +775,7 @@ material-sharing model that custom materials later have to replace.
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | Initial implementation complete and owner-validated | Multi-batch transaction, automatic wall orientation/joins, unavailable-tile preview |
+| Line tools | 4,096-tile atomic implementation complete; owner validation pending | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
