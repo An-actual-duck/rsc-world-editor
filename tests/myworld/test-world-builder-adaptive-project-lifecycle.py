@@ -622,6 +622,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -655,6 +656,7 @@ public final class AdaptiveProjectSupervisorHarness {
         Path project = Paths.get(args[0]);
         String classes = args[1];
         boolean finalizationMode = args.length > 2 && "finalization".equals(args[2]);
+        boolean regionCopyMode = args.length > 2 && "region-copy".equals(args[2]);
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
         String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
@@ -763,7 +765,9 @@ public final class AdaptiveProjectSupervisorHarness {
         List<String> server = command(classes, "FakeServer", project, port);
         List<String> client = finalizationMode
             ? commandWithMode(classes, "FakeClient", project, port, "mutate")
-            : command(classes, "FakeClient", project, port);
+            : regionCopyMode
+                ? commandWithMode(classes, "FakeClient", project, port, "region-copy")
+                : command(classes, "FakeClient", project, port);
         if (args.length > 2 && "unsafe".equals(args[2])) {
             boolean refused = false;
             try {
@@ -835,10 +839,11 @@ public final class AdaptiveProjectSupervisorHarness {
 
         int result = supervisor.superviseAdaptiveWithCommands(
             project, server, client, 5000L);
-        require(result == 0, "adaptive isolated run");
+        require(result == 0, "adaptive isolated run: " + new String(Files.readAllBytes(
+            project.resolve("logs/client.log")), StandardCharsets.UTF_8));
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject finalized =
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
-        if (finalizationMode) {
+        if (finalizationMode || regionCopyMode) {
             require(!workingFingerprintBefore.equals(
                     finalized.working.fingerprintSha256),
                 "normal client close must save the changed working fingerprint");
@@ -849,6 +854,11 @@ public final class AdaptiveProjectSupervisorHarness {
             "run/world-builder/fake-server-stopped")), "server stopped normally");
         require(Files.isRegularFile(project.resolve(
             "run/world-builder/fake-client-stopped")), "client stopped normally");
+        if (regionCopyMode) {
+            require(Files.isRegularFile(project.resolve(
+                "run/world-builder/fake-region-copy-accepted")),
+                "interactive region Copy response");
+        }
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
@@ -921,7 +931,8 @@ public final class AdaptiveProjectSupervisorHarness {
             Path client = project.resolve("working/runtime/client");
             Files.write(client.resolve("clientSettings.conf"),
                 "generated=true\n".getBytes(StandardCharsets.UTF_8));
-            if (args.length > 2 && "mutate".equals(args[2])) {
+            if (args.length > 2 && ("mutate".equals(args[2])
+                    || "region-copy".equals(args[2]))) {
                 Path packageRoot = project.resolve("working/layered-world/package");
                 Path manifestPath = packageRoot.resolve("manifest.json");
                 Map<String,Object> packageManifest = WorldBuilderJsonDocuments.readObject(
@@ -936,6 +947,49 @@ public final class AdaptiveProjectSupervisorHarness {
                 declaration.put("sha256", WorldBuilderHashes.sha256(terrain));
                 Files.write(manifestPath, WorldBuilderJsonDocuments.pretty(packageManifest)
                     .getBytes(StandardCharsets.UTF_8));
+            }
+            if (args.length > 2 && "region-copy".equals(args[2])) {
+                Path control = project.resolve("run/world-builder");
+                Map<String,Object> request = new LinkedHashMap<String,Object>();
+                request.put("schemaVersion", Long.valueOf(1L));
+                request.put("manifestType", "world-builder-region-copy-request");
+                request.put("requestId", "0123456789abcdef0123456789abcdef");
+                request.put("name", "Interactive fixture");
+                request.put("worldSpace", "global");
+                List<Object> markers = new ArrayList<Object>();
+                int[][] coordinates = {{119,647},{121,647},{121,649},{119,649}};
+                for (int index = 0; index < coordinates.length; index++) {
+                    Map<String,Object> marker = new LinkedHashMap<String,Object>();
+                    marker.put("marker", Long.valueOf(index + 1L));
+                    marker.put("x", Long.valueOf(coordinates[index][0]));
+                    marker.put("y", Long.valueOf(coordinates[index][1]));
+                    markers.add(marker);
+                }
+                request.put("markers", markers);
+                request.put("levels", Arrays.<Object>asList(Long.valueOf(0L)));
+                Files.write(control.resolve("region-copy.request.json"),
+                    WorldBuilderJsonDocuments.pretty(request).getBytes(StandardCharsets.UTF_8),
+                    StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+                Path response = control.resolve("region-copy.response.json");
+                long deadline = System.currentTimeMillis() + 5000L;
+                while (!Files.isRegularFile(response) && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(25L);
+                }
+                require(Files.isRegularFile(response), "interactive region Copy timeout");
+                Map<String,Object> answer = WorldBuilderJsonDocuments.readObject(
+                    Files.readAllBytes(response), "interactive region Copy response");
+                require("accepted".equals(answer.get("status")),
+                    "interactive region Copy was refused: " + answer);
+                @SuppressWarnings("unchecked") Map<String,Object> copy =
+                    (Map<String,Object>)answer.get("result");
+                require(((Long)copy.get("tileCount")).longValue() == 9L,
+                    "interactive region Copy tile count");
+                require(Files.isRegularFile(project.resolve(
+                    (String)copy.get("libraryRelativePath"))),
+                    "interactive region Copy library entry");
+                Files.delete(response);
+                Files.write(control.resolve("fake-region-copy-accepted"),
+                    "accepted\n".getBytes(StandardCharsets.US_ASCII));
             }
             Thread.sleep(250L);
             Files.write(project.resolve("run/world-builder/fake-client-stopped"),
@@ -2276,6 +2330,49 @@ public final class FakeAdaptiveClient {
             self.assertEqual(3, undo_result.returncode)
             self.assertIn("NO_TARGET", undo_result.stderr)
             self.assertFalse(missing_target.exists())
+
+    def test_supervised_interactive_region_copy_saves_then_publishes_library_entry(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-copy-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "standalone-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Interactive Region Copy", 43841,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            manifest_before = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+
+            supervised = self.run_supervision(project, "region-copy")
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            self.assertEqual("adaptive-supervision-ok\n", supervised.stdout)
+            manifest_after = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+            self.assertNotEqual(manifest_before, manifest_after)
+            self.assertEqual(
+                1, len(list((project / "snapshot-library/v1").glob("*.wbr")))
+            )
+            control = project / "run/world-builder"
+            self.assertTrue((control / "fake-region-copy-accepted").is_file())
+            for name in (
+                ".region-copy.request.pending.json",
+                "region-copy.request.json",
+                "region-copy.response.json",
+                ".region-copy.response.tmp",
+                ".region-copy.response.runtime.tmp",
+            ):
+                self.assertFalse((control / name).exists(), name)
 
     def test_standalone_runtime_catalog_persists_all_placement_families(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-placement-catalog-") as temp:

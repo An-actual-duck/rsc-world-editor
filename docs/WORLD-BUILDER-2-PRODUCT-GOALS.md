@@ -342,10 +342,15 @@ terrain, unsupported bounds, or an unavailable destination before removing the
 source. Cross-level moves, duplication, rotation during drag, and multi-object
 movement can follow after same-level single-scenery movement is reliable.
 
-Readiness: **partially ready**. Authoritative scenery inspection, placement,
-rotation, removal, definition browsing, collision checks, and stable placement
-records exist. There is no Move tool, ghost preview, or single authoritative
-move transaction.
+Readiness: **same-level atomic implementation complete and owner-validated**.
+The contextual Scenery controls now provide Place, Move, Rotate, and Remove.
+Move uses a two-click source/destination gesture with persistent source and
+destination markers, a footprint-matched cyan ghost, whole-destination
+validation, one collision/spatial-index transaction, refusal without source
+loss, cancellation, stable placement identity and direction, and verified
+save/reopen persistence. Cross-level moves, duplication, rotation during the
+move gesture, multi-object movement, and explicit focus-loss cancellation
+remain later increments.
 
 ### Line tools
 
@@ -689,6 +694,17 @@ content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
 There is not yet an in-game marker protocol or selection UI, and there is no
 region tool on the packaged toolbar.
+
+The first interactive vertical slice is intentionally **Copy before Cut and
+Paste**. It adds a Selection tool, ordered numbered world markers, prospective
+segment/enclosure preview, marker removal and full cancellation, an explicit
+Close action, and Copy into the existing project-local library. Copy must first
+publish any pending adaptive draft and then capture that exact authoritative
+working revision through the Editor supervisor; the runtime must not duplicate
+the snapshot engine or write an alternate format. The result must expose the
+snapshot name, content identity, tile count, placement count, and any crossing
+footprint reports. This establishes the interaction and supervisor bridge that
+Cut, Paste ghosts, import/export dialogs, and the full library browser reuse.
 
 ### Copy, cut, and paste behavior
 

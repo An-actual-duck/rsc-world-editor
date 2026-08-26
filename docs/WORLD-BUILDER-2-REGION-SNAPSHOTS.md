@@ -1,9 +1,9 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **Editor foundation implemented; runtime interaction pending**
+Status: **Editor foundation implemented; interactive Copy in progress**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: unchanged by this feature
+Runtime provider: interactive selection and supervised Copy bridge are in progress
 
 Current packaged UI status as of 2026-08-25: the contracts and advanced Editor
 commands below are implemented and tested, but there is no region-selection
@@ -11,6 +11,15 @@ toolbar mode, numbered-marker interaction, ghost preview, or snapshot-library
 window. The client's **Copy inspected** action copies inspected terrain/entity
 values into current editing controls; it is not region Copy. Region sharing is
 therefore an implementation foundation, not yet a discoverable creator tool.
+
+The first discoverable increment uses the running Editor supervisor as the
+sole bridge to these contracts. The runtime gathers one ordered selection and
+requests Copy; the supervisor invokes this service while it already owns the
+project transaction lock. If the runtime has pending edits, it publishes the
+complete adaptive package before submitting the request. A successful response
+identifies the content-addressed library entry and reports captured tiles,
+placements, and footprint crossings. Selection markers never mutate the map,
+and cancellation or a failed Copy leaves both map and library unchanged.
 
 This document is normative for region snapshot versions 1 and 2. “MUST”, “MUST NOT”,
 “SHALL”, and “SHALL NOT” are requirements. The Java validators are the

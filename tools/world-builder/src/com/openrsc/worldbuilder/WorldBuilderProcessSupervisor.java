@@ -86,8 +86,10 @@ public final class WorldBuilderProcessSupervisor {
 				serverCommand = launch.serverCommand();
 				clientCommand = launch.clientCommand();
 			}
-			int exit = superviseLocked(ProcessLayout.adaptive(project), port,
-				serverCommand, clientCommand, readyTimeoutMillis);
+			ProcessLayout layout = ProcessLayout.adaptive(project);
+			int exit = superviseLocked(layout, port,
+				serverCommand, clientCommand, readyTimeoutMillis,
+				new WorldBuilderRegionControlBridge(project, layout.control));
 			requireAdaptiveMutableLayout(project);
 			relocateLegacyDatabaseLogs(project);
 			if (exit == 0) {
@@ -100,7 +102,7 @@ public final class WorldBuilderProcessSupervisor {
 		}
 	}
 
-	private static void relocateLegacyDatabaseLogs(Path project)
+	static void relocateLegacyDatabaseLogs(Path project)
 		throws IOException, WorldBuilderContractException {
 		Path server = project.resolve("working/runtime/server");
 		Path logs = server.resolve("logs");
@@ -270,7 +272,7 @@ public final class WorldBuilderProcessSupervisor {
 					clientCommand = defaultClientCommand(workspace, port);
 				}
 				int exit = superviseLocked(ProcessLayout.legacy(workspace), port,
-					serverCommand, clientCommand, readyTimeoutMillis);
+					serverCommand, clientCommand, readyTimeoutMillis, null);
 				if (preparedCommands && exit == 0) {
 					commitPendingLayeredTerrain(workspace);
 					validateWorkspace(workspace, port);
@@ -306,7 +308,8 @@ public final class WorldBuilderProcessSupervisor {
 	}
 
 	private int superviseLocked(ProcessLayout layout, int port, List<String> serverCommand,
-		List<String> clientCommand, long readyTimeoutMillis)
+		List<String> clientCommand, long readyTimeoutMillis,
+		WorldBuilderRegionControlBridge regionBridge)
 		throws IOException, WorldBuilderDiscoveryException, InterruptedException {
 		Path run = layout.run;
 		Path logs = layout.logs;
@@ -319,6 +322,7 @@ public final class WorldBuilderProcessSupervisor {
 		Files.createDirectories(control);
 		Files.deleteIfExists(ready);
 		Files.deleteIfExists(shutdown);
+		if (regionBridge != null) regionBridge.reset();
 
 		Path serverLog = logs.resolve("server.log");
 		Path clientLog = logs.resolve("client.log");
@@ -353,6 +357,7 @@ public final class WorldBuilderProcessSupervisor {
 			active[1] = startProcess(clientCommand, layout.client, clientLog);
 			writePid(run.resolve("client.pid"), active[1]);
 			while (active[1].isAlive() && active[0].isAlive()) {
+				if (regionBridge != null) regionBridge.poll();
 				Thread.sleep(200L);
 			}
 			serverFailedFirst = !active[0].isAlive() && active[1].isAlive();

@@ -108,20 +108,28 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-copy")) {
-			recoverRegionTransaction(root);
-			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, false);
-			WorldBuilderRegionContracts.Selection selection = readSelection(selectionPath);
-			Capture capture = capture(verified, selection, name);
-			LibraryRecord library = publishToLibrary(root, capture.snapshot);
-			Map<String,Object> result = baseResult("copy", capture.snapshot.id, library);
-			result.put("workingSha256", verified.working.fingerprintSha256);
-			result.put("tileCount", Long.valueOf(capture.snapshot.tileCount));
-			result.put("placementCount", Long.valueOf(capture.snapshot.placementCount));
-			result.put("footprintBoundaryReports",
-				capture.snapshot.root.get("footprintBoundaryReports"));
-			return WorldBuilderJsonDocuments.pretty(result);
+			return copyUnderProjectLock(root, readSelection(selectionPath), name);
 		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String copyUnderProjectLock(Path project,
+		WorldBuilderRegionContracts.Selection selection, String name)
+		throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, false);
+		Capture capture = capture(verified, selection, name);
+		LibraryRecord library = publishToLibrary(root, capture.snapshot);
+		Map<String,Object> result = baseResult("copy", capture.snapshot.id, library);
+		result.put("name", name);
+		result.put("workingSha256", verified.working.fingerprintSha256);
+		result.put("tileCount", Long.valueOf(capture.snapshot.tileCount));
+		result.put("placementCount", Long.valueOf(capture.snapshot.placementCount));
+		result.put("footprintBoundaryReports",
+			capture.snapshot.root.get("footprintBoundaryReports"));
+		return WorldBuilderJsonDocuments.pretty(result);
 	}
 
 	String cutPreview(Path project, Path selectionPath, String name)
