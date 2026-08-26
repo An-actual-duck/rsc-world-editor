@@ -86,20 +86,63 @@ transaction, and undo paths.
 
 The intended order for the active product focus is:
 
-1. reproduce and eliminate the drag-stroke lockup, measure the current
+1. establish a deterministic development terrain seed, a reusable local
+   sandbox, and automated long-held/repeated-area scribble coverage;
+2. reproduce and eliminate the drag-stroke lockup, measure the current
    acknowledgement and rebuild path, and make every gesture terminate cleanly;
-2. add immediate reversible brush feedback and incremental authoritative
+3. add immediate reversible brush feedback and incremental authoritative
    reconciliation, then expose centered 1-by-1 through 7-by-7 footprints;
-3. reuse that operation/preview path for line and rectangle outline/fill tools;
-4. add an atomic scenery Move gesture with a destination ghost and collision
+4. reuse that operation/preview path for line and rectangle outline/fill tools;
+5. add an atomic scenery Move gesture with a destination ghost and collision
    validation; and
-5. expose and visually validate the existing region snapshot foundation through
+6. expose and visually validate the existing region snapshot foundation through
    an in-game selection, Copy/Cut/Paste, library, import, and export workflow.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
 materials, and declarative object actions remain important, but they must not
 displace this immediate interaction milestone unless the product owner changes
 the priority again.
+
+### Development-only reusable test environment
+
+Tool work needs a deterministic map without depending on a real private-server
+map and without asking a developer to create a new project on every launch.
+This should consist of two related facilities:
+
+1. An immutable generated terrain seed containing at least one complete
+   48-by-48 sector. A 2-by-2 sector, 96-by-96-tile initial seed is preferred so
+   ordinary brush and camera tests can begin near the center instead of being
+   dominated by coverage edges.
+2. A persistent ignored development sandbox created from that seed once and
+   reopened on later development launches. It retains deliberate edits until
+   an explicit reset command replaces it from the known seed.
+
+The seed should use simple documented non-void terrain, a centered valid
+Builder spawn, no target-derived content, and only the minimum packaged
+definitions needed for ordinary tool operations. A dedicated development
+launcher should create the sandbox when absent, select the existing project
+when present, provision the isolated Builder session normally, and launch it
+without repeating the desktop **Create New Project** flow.
+
+Automated tests must not share the mutable persistent sandbox. Each test clones
+the immutable seed into a bounded temporary installation/project, performs its
+actions, verifies authoritative package and client/server evidence, and removes
+only its own temporary fixture. Long-held strokes, repeated loops over the same
+tiles, partial batches, more than 64 unique tiles, the gesture limit, release
+outside the scene, focus loss, refusal, reconnect, save, close, and reopen
+belong in this matrix.
+
+Neither the immutable development seed nor the mutable sandbox is a creator
+map, release default, or server target. Candidate inspection must continue to
+prove that public archives contain no bundled world or development workspace.
+Automated interaction can validate state and rendering inputs; subjective
+fluidity and appearance remain owner-native checks without screenshots.
+
+Readiness: **design-ready and the first implementation prerequisite**.
+Standalone-empty project generation, deterministic fixtures, isolated runtime
+launch, automated authoring probes, package inspection, and release no-world
+guards already exist. They need one supported developer entrypoint and the
+specific reusable-seed/sandbox lifecycle above.
 
 ## Goal 1 — A fluid, purpose-built editor
 
@@ -624,29 +667,31 @@ separate capability exists.
 
 This is a technical dependency order, not an assignment or fixed release plan:
 
-1. Reproduce the broken drag lifecycle, profile acknowledgement/rebuild costs,
+1. Add the immutable terrain seed, persistent development sandbox, explicit
+   reset, and isolated automated fixture cloning described above.
+2. Reproduce the broken drag lifecycle, profile acknowledgement/rebuild costs,
    and guarantee cleanup on release, refusal, focus loss, mode change,
    disconnect, and shutdown.
-2. Generalize the current terrain stroke into one immediate, previewable,
+3. Generalize the current terrain stroke into one immediate, previewable,
    reconcilable, and undoable operation model; expose centered 1-by-1, 3-by-3,
    5-by-5, and 7-by-7 footprints through it.
-3. Add deterministic line and rectangle Outline/Fill tools using that same
+4. Add deterministic line and rectangle Outline/Fill tools using that same
    geometry, preview, transaction, and undo path.
-4. Add same-level single-scenery Move with a ghost destination and one atomic
+5. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
-5. Use the implemented Editor-owned ordered selection, local snapshot,
+6. Use the implemented Editor-owned ordered selection, local snapshot,
    copy/cut/paste, and strict import/export contracts as the runtime boundary;
    add marker placement, ghost previews, transactions, toolbar/library UI, and
    durable undo/redo.
-6. Design and implement the detached camera anchor and the quiescent Builder
+7. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
-7. Use selection, lines, rectangles, and snapshots to build the conversion
+8. Use selection, lines, rectangles, and snapshots to build the conversion
    outlier workbench and quick-house/prefab tools.
-8. Revise the custom-material identity model for creator-to-creator sharing,
+9. Revise the custom-material identity model for creator-to-creator sharing,
    then implement drop-in floor/wall materials.
-9. Design declarative scenery Action presets and server-format adapters only
+10. Design declarative scenery Action presets and server-format adapters only
    after definition identity and portable dependency handling are settled.
-10. Consider RGB terrain and broader custom content only through new explicit
+11. Consider RGB terrain and broader custom content only through new explicit
     capabilities and schema versions; wide elevation already uses that boundary.
 
 Some increments can be reordered, but region snapshots should not invent a
@@ -656,6 +701,7 @@ material-sharing model that custom materials later have to replace.
 
 | Goal | Current readiness | Main missing work |
 | --- | --- | --- |
+| Reusable development test environment | Design-ready; first prerequisite | Generated seed, persistent sandbox launcher, reset and isolated test cloning |
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready | Immediate preview, pipelining, reconciliation, incremental rebuild |
