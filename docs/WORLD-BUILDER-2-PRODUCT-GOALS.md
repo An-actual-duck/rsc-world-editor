@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after implementing 4,096-tile atomic lines and a persistent anchor marker; owner validation of the expanded operation remains pending |
+| Last reconciled | 2026-08-26, after implementing 4,096-tile atomic lines and a raised high-contrast anchor pin; owner validation of the corrected marker remains pending |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -378,7 +378,8 @@ nothing. Atomic lines remain on already allocated terrain rather than silently
 creating sectors.
 
 After the first click, the anchor tile receives a persistent bright outline and
-X marker while the orange prospective footprint follows the pointer. The marker
+X plus a raised magenta-and-white pin with a black contrast border and stem,
+while the orange prospective footprint follows the pointer. The marker
 and preview remain through the authoritative commit and disappear after success,
 refusal, or cancellation. Automatic wall orientation, corner joins, more
 detailed unavailable-tile preview, and operation-level undo remain future
