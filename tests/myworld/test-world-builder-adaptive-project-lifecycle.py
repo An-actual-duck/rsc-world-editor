@@ -869,8 +869,11 @@ public final class AdaptiveProjectSupervisorHarness {
         }
         if (regionPasteMode) {
             require(Files.isRegularFile(project.resolve(
+                "run/world-builder/fake-region-paste-live")),
+                "interactive region Paste live activation");
+            require(!Files.exists(project.resolve(
                 "run/world-builder/fake-region-paste-restarted")),
-                "interactive region Paste controlled restart");
+                "interactive region Paste must not restart");
             List<String> refreshedServer =
                 WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
             String refreshedManifest = propertyValue(refreshedServer,
@@ -879,7 +882,7 @@ public final class AdaptiveProjectSupervisorHarness {
                 "Region Paste must change the production manifest binding");
             require(WorldBuilderHashes.sha256(project.resolve(
                 "working/layered-world/package/manifest.json")).equals(refreshedManifest),
-                "Region Paste restart must use the published manifest binding");
+                "Region Paste publication must bind the next cold launch");
         }
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");
@@ -1015,12 +1018,7 @@ public final class AdaptiveProjectSupervisorHarness {
             }
             if (args.length > 2 && "region-paste".equals(args[2])) {
                 Path control = project.resolve("run/world-builder");
-                Path firstRun = control.resolve("fake-region-paste-first");
-                if (Files.exists(firstRun)) {
-                    Files.write(control.resolve("fake-region-paste-restarted"),
-                        "restarted\n".getBytes(StandardCharsets.US_ASCII));
-                } else {
-                    Map<String,Object> libraryRequest = pasteRequest(
+                Map<String,Object> libraryRequest = pasteRequest(
                         "11111111111111111111111111111111", "library", "", 0, 0, 0,
                         "", "");
                     Map<String,Object> libraryAnswer = submitPaste(control, libraryRequest);
@@ -1051,9 +1049,16 @@ public final class AdaptiveProjectSupervisorHarness {
                     Map<String,Object> applyAnswer = submitPaste(control, applyRequest);
                     require("accepted".equals(applyAnswer.get("status")),
                         "interactive Paste apply response");
-                    Files.write(firstRun,
-                        "applied\n".getBytes(StandardCharsets.US_ASCII));
-                }
+                    @SuppressWarnings("unchecked") Map<String,Object> applyResult =
+                        (Map<String,Object>)applyAnswer.get("result");
+                    require(((String)applyResult.get("packageManifestSha256"))
+                            .matches("[0-9a-f]{64}"),
+                        "interactive Paste live manifest identity");
+                    require(((String)applyResult.get("packageInventorySha256"))
+                            .matches("[0-9a-f]{64}"),
+                        "interactive Paste live inventory identity");
+                    Files.write(control.resolve("fake-region-paste-live"),
+                        "activated\n".getBytes(StandardCharsets.US_ASCII));
             }
             Thread.sleep(250L);
             Files.write(project.resolve("run/world-builder/fake-client-stopped"),
@@ -2475,7 +2480,7 @@ public final class FakeAdaptiveClient {
             ):
                 self.assertFalse((control / name).exists(), name)
 
-    def test_supervised_interactive_region_paste_restarts_into_published_world(self):
+    def test_supervised_interactive_region_paste_stays_live_after_publication(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-paste-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"
@@ -2517,8 +2522,8 @@ public final class FakeAdaptiveClient {
             )["fingerprints"]["workingSha256"]
             self.assertNotEqual(before, after)
             control = project / "run/world-builder"
-            self.assertTrue((control / "fake-region-paste-first").is_file())
-            self.assertTrue((control / "fake-region-paste-restarted").is_file())
+            self.assertTrue((control / "fake-region-paste-live").is_file())
+            self.assertFalse((control / "fake-region-paste-restarted").exists())
             for name in (
                 ".region-paste.request.pending.json",
                 "region-paste.request.json",

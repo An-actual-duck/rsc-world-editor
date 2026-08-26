@@ -49,7 +49,6 @@ final class WorldBuilderRegionControlBridge {
 	private final Path pasteRequest;
 	private final Path pasteResponse;
 	private final Path pasteResponseStage;
-	private boolean restartPending;
 
 	WorldBuilderRegionControlBridge(Path project, Path control) throws IOException {
 		this.project = project.toAbsolutePath().normalize();
@@ -80,7 +79,6 @@ final class WorldBuilderRegionControlBridge {
 		deleteRegularIfPresent(pasteResponseStage, "staged region Paste response");
 		deleteRegularIfPresent(control.resolve(".region-paste.response.runtime.tmp"),
 			"staged runtime region Paste response");
-		restartPending = false;
 	}
 
 	void poll() throws IOException {
@@ -126,10 +124,6 @@ final class WorldBuilderRegionControlBridge {
 		publishResponse(responseRoot);
 	}
 
-	boolean restartPending() {
-		return restartPending;
-	}
-
 	private void pollPaste() throws IOException {
 		if (!Files.exists(pasteRequest, LinkOption.NOFOLLOW_LINKS)) return;
 		if (Files.exists(pasteResponse, LinkOption.NOFOLLOW_LINKS)) return;
@@ -169,7 +163,6 @@ final class WorldBuilderRegionControlBridge {
 					String confirmation = requireText(root, "confirmation", 70, 74);
 					resultText = service.applyPasteUnderProjectLock(project, snapshotId,
 						level, x, y, expectedPlan, confirmation);
-					restartPending = true;
 				} else {
 					throw new IllegalArgumentException("Region Paste operation is unsupported.");
 				}

@@ -1,6 +1,6 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy owner-validated; interactive Paste implemented pending owner validation; Cut UI pending**
+Status: **interactive Region Copy/Paste owner-validated; live Paste activation pending owner validation; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: interactive Copy and supervised library/preview/apply Paste bridges implemented
@@ -13,9 +13,11 @@ tile and placement counts, and footprint-crossing count. Paste lists every
 verified project-local snapshot, lets the creator choose one, anchors marker 1
 to a clicked destination, and renders the exact translated outline plus visible
 collision markers. Apply is bound to the preview hash; occupied destinations
-require a second explicit overwrite click. Successful publication causes a
-controlled client/server restart because layered-region hot reload is explicitly
-unsupported, after which the published result is visible. The client's older
+require a second explicit overwrite click. Successful publication is validated
+against its exact manifest and inventory identities, then activated in the
+running isolated Builder without restarting the client or server. If that
+bounded activation fails, the already-published working package remains
+authoritative and a normal close/reopen safely loads it. The client's older
 **Copy inspected** action still only copies one inspected value into current
 editing controls; it is unrelated to Region Copy. Interactive Cut and graphical
 import/export surfaces remain pending.
@@ -302,7 +304,8 @@ does not duplicate package mutation inside the runtime.
 ## Runtime work remaining
 
 The runtime provider now implements ordered Copy and exact Paste library,
-preview, confirmation, publication, and controlled-restart coordination. The
+preview, confirmation, atomic publication, and exact live-package activation.
+The
 remaining region-snapshot workflow is:
 
 1. interactive Cut using the same ordered selection and atomic transaction;

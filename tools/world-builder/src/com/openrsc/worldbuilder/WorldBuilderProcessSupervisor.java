@@ -30,8 +30,6 @@ import java.util.regex.Pattern;
 public final class WorldBuilderProcessSupervisor {
 	private static final long DEFAULT_READY_TIMEOUT_MILLIS = 60_000L;
 	private static final long SHUTDOWN_TIMEOUT_MILLIS = 20_000L;
-	private static final int RESTART_AFTER_REGION_PASTE = -1000;
-	private static final int MAX_REGION_PASTE_RESTARTS = 1024;
 	private static final Pattern SOURCE_FINGERPRINT = Pattern.compile(
 		"\\\"sourceFingerprintSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
 	private static final Pattern RUNTIME_PORT = Pattern.compile(
@@ -85,27 +83,15 @@ public final class WorldBuilderProcessSupervisor {
 			List<String> clientCommand = suppliedClientCommand;
 			ProcessLayout layout = ProcessLayout.adaptive(project);
 			int exit;
-			int restarts = 0;
-			do {
-				if (productionCommands) {
-					AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
-					serverCommand = launch.serverCommand();
-					clientCommand = launch.clientCommand();
-				}
-				WorldBuilderRegionControlBridge regionBridge =
-					new WorldBuilderRegionControlBridge(project, layout.control);
-				exit = superviseLocked(layout, port,
-					serverCommand, clientCommand, readyTimeoutMillis, regionBridge);
-				if (exit != RESTART_AFTER_REGION_PASTE) break;
-				if (++restarts > MAX_REGION_PASTE_RESTARTS) {
-					throw new IOException(
-						"World Builder exceeded its bounded automatic Paste restart count.");
-				}
-				requireAdaptiveMutableLayout(project);
-				verified = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
-					project, true);
-				System.out.println("Restarting World Builder after atomic Region Paste.");
-			} while (true);
+			if (productionCommands) {
+				AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
+				serverCommand = launch.serverCommand();
+				clientCommand = launch.clientCommand();
+			}
+			WorldBuilderRegionControlBridge regionBridge =
+				new WorldBuilderRegionControlBridge(project, layout.control);
+			exit = superviseLocked(layout, port,
+				serverCommand, clientCommand, readyTimeoutMillis, regionBridge);
 			requireAdaptiveMutableLayout(project);
 			relocateLegacyDatabaseLogs(project);
 			if (exit == 0) {
@@ -393,10 +379,6 @@ public final class WorldBuilderProcessSupervisor {
 				}
 			}
 			serverExit = active[0].waitFor();
-			if (!serverFailedFirst && serverExit == 0 && clientExit == 0
-				&& regionBridge != null && regionBridge.restartPending()) {
-				return RESTART_AFTER_REGION_PASTE;
-			}
 			return serverFailedFirst || serverExit != 0 ? 5 : clientExit;
 		} finally {
 			if (active[1] != null && active[1].isAlive()) {

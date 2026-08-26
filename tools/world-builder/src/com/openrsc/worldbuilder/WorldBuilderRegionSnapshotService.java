@@ -331,6 +331,11 @@ final class WorldBuilderRegionSnapshotService {
 				output.put("snapshotId", snapshotId);
 				output.put("planFingerprintSha256", planHash);
 				output.put("workingSha256", result.workingFingerprintSha256);
+				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject publishedProject =
+					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+				output.put("packageManifestSha256", publishedProject.working.manifestSha256);
+				output.put("packageInventorySha256",
+					publishedProject.working.nativeInventorySha256);
 				output.put("worldModified", Boolean.TRUE);
 				return WorldBuilderJsonDocuments.pretty(output);
 			} catch (Exception failure) {

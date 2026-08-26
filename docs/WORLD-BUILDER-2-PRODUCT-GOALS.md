@@ -688,7 +688,7 @@ The selection must define whether boundary segments lying on its edge belong
 inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
-Readiness: **interactive Region Copy owner-validated; interactive Paste implemented
+Readiness: **interactive Region Copy/Paste owner-validated; live Paste activation
 pending owner validation**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
@@ -698,8 +698,9 @@ prospective segments, enclosed-tile preview, undo/reopen/clear controls,
 snapshot naming, save-before-Copy supervision, and a visible library result.
 Paste now browses the verified project-local library, assigns marker 1 to a
 clicked destination, displays the translated ghost and collision pins, requires
-hash-bound apply plus a second overwrite click when occupied, and restarts the
-isolated Builder after atomic publication. Interactive Cut and graphical
+hash-bound apply plus a second overwrite click when occupied, and activates the
+exact atomically published package without restarting the isolated Builder.
+Interactive Cut and graphical
 import/export remain pending.
 
 The first interactive vertical slice is intentionally **Copy before Cut and
@@ -745,8 +746,10 @@ pending**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
 The supervisor-mediated transaction, collision preview, client ghost rendering,
-and controlled post-publication restart are implemented without duplicating the
-Editor mutation engine. Cut UI and durable undo/redo remain runtime work. Before calling the feature
+and exact post-publication live activation are implemented without duplicating
+the Editor mutation engine. A failed live activation preserves the published
+package and instructs the creator to close/reopen as a safe recovery path. Cut
+UI and durable undo/redo remain runtime work. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
