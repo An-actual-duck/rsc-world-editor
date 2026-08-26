@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, low-latency Builder control, and centered brushes through 7-by-7 |
+| Last reconciled | 2026-08-26, after implementing distinct Freehand and Line terrain tools; owner visual validation remains pending |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -43,7 +43,9 @@ World Builder 2 already provides a substantial base for these goals:
 - UUID projects with immutable source evidence and isolated mutable working
   packages;
 - layered terrain authoring and all four static placement families;
-- 1-by-1 and 3-by-3 terrain brushes;
+- centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7 terrain brushes;
+- mutually exclusive Freehand and Line terrain tools, with Freehand selected by
+  default and a live world-space footprint outline for both modes;
 - a continuous Ctrl-drag terrain gesture with tile-grid interpolation, bounded
   to 4,096 unique tiles and sent through timed authoritative batches of at
   most 64 tiles;
@@ -69,7 +71,8 @@ and recoverable. Owner testing confirmed that long scribbles paint without
 gaps, do not require mouse release to begin appearing, and do not disable later
 brush or non-brush actions.
 
-The brush is still not visually immediate. It permits only one authoritative
+The brush now shows its complete footprint before commit, but accepted terrain
+still does not appear immediately. It permits only one authoritative
 batch in flight, applies accepted patches after the server response, and reloads
 the terrain scene at the end of each accepted batch. In the isolated test world
 the visible trail currently catches up about one to two seconds after the
@@ -292,8 +295,8 @@ uses one deterministic center-first footprint path for 1-by-1, 3-by-3,
 5-by-5, and 7-by-7 click and continuous-drag painting. Compact and full Editor
 controls expose every size, right-click cycles through them, overlapping drag
 samples remain coalesced, and a single 7-by-7 sample remains inside the
-64-tile batch ceiling. Complete pointer-hover footprint preview and explicit
-edge/unavailable-tile indication remain.
+64-tile batch ceiling. A world-space pointer-hover outline now shows the
+complete footprint. Explicit unavailable-tile indication remains.
 
 ### Relative raise and lower tools
 
@@ -356,9 +359,24 @@ corner joins, brush width, level, maximum length, and out-of-coverage handling
 must be explicit and platform-independent. No line should partially commit
 because its later tiles are invalid; preview should identify the blocker first.
 
-Readiness: **design-ready** after the stroke transaction is generalized. A
-simple tile line is close to the existing batch model. Wall lines need extra
-orientation and join rules.
+The initial implementation provides a two-click anchor/destination interaction,
+an orange live world-space outline, deterministic endpoint-inclusive Bresenham
+geometry, centered 1-by-1 through 7-by-7 footprints, and deterministic
+de-duplication. It applies every currently selected terrain field, including
+the explicitly selected North, East, and Diagonal wall values. Freehand and
+Line are always mutually exclusive, Freehand is selected whenever the editor
+opens, and their supplied hand/line toolbar icons use a purple selection color
+distinct from ordinary terrain field toggles. Escape or changing tools cancels
+an active anchor.
+
+The first release accepts at most 64 unique tiles so the complete line fits in
+one authoritative request and either commits or refuses as a unit. Longer lines
+are visibly refused before they modify terrain. Lifting that limit requires a
+true multi-batch transaction. Automatic wall orientation, corner joins, and
+more detailed unavailable-tile preview remain future polish.
+
+Readiness: **initial implementation complete; owner visual validation
+pending**. The first increment is intentionally bounded to one atomic batch.
 
 ### Rectangle outline and fill tools
 
@@ -708,13 +726,15 @@ This is a technical dependency order, not an assignment or fixed release plan:
    later tool changes.
 2. Maintain the validated drag recovery: exact wide-batch framing, interpolated
    sampling, periodic flushing, clean gesture termination, and bounded timeout.
-3. Instrument the remaining input-to-paint latency, then generalize the current
+3. Maintain the implemented Freehand footprint preview and instrument the
+   remaining input-to-paint latency, then generalize the current
    terrain stroke into one immediate, previewable, pipelined, reconcilable, and
    undoable operation model.
-4. Expose centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7 footprints through that
-   shared operation model.
-5. Add deterministic line and rectangle Outline/Fill tools using that same
-   geometry, preview, transaction, and undo path.
+4. Maintain the implemented centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7
+   footprints as the shared geometry for every terrain tool.
+5. Owner-validate the initial deterministic, single-batch Line tool, then add
+   a true multi-batch line transaction and rectangle Outline/Fill using the
+   same geometry, preview, transaction, and undo path.
 6. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
 7. Use the implemented Editor-owned ordered selection, local snapshot,
@@ -743,9 +763,9 @@ material-sharing model that custom materials later have to replace.
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
-| Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Complete hover preview and unavailable-tile indication |
+| Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
+| Line tools | Initial implementation complete; owner validation pending | Multi-batch transaction, automatic wall orientation/joins, unavailable-tile preview |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
