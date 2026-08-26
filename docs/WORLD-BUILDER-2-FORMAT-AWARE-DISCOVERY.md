@@ -1,11 +1,21 @@
 # World Builder 2 Format-Aware Discovery and Streamlined Launch
 
-Status: **approved product direction; implementation in progress — Phase 2**
+Status: **implemented and released for recognized layouts; compatibility
+profiles remain extensible**
 
 Product: `rsc-world-editor-v2` / **World Builder 2**
 
 Repository ownership: World Editor tooling first; runtime-provider changes only
 when the normalized content contract requires new client/server consumption
+
+Release reconciliation: Phases 0 through 5 shipped in
+[`v0.5.0-alpha.11`](releases/world-builder-v2-v0.5.0-alpha.11-validation.md).
+The owner validated the adjacent-server workflow against a real target without
+screenshots, including project creation, launch, custom content, save/reopen,
+and the formerly missing scenery case. Unfamiliar or ambiguous formats can
+still require Advanced/Recovery guidance; adding another neutral adapter is
+continuing compatibility work, not an incomplete phase of the released
+recognized-layout path.
 
 This document is the implementation guide for making ordinary server adoption
 automatic. It records the intended user experience, discovery architecture,
@@ -37,10 +47,13 @@ explicit previewed import transaction.
 
 ## Why this work is needed
 
-The current release can consume explicit neutral provider packages and some
-recognized layouts, but unusual server definitions and assets may still need a
-maintainer-generated package or advanced file selection. That is too much
-knowledge and responsibility for an ordinary user.
+Before this work, releases could consume explicit neutral provider packages and
+some recognized layouts, but unusual server definitions and assets could still
+need a maintainer-generated package or advanced file selection. That was too
+much knowledge and responsibility for an ordinary user. The released ordinary
+path now discovers recognized adjacent layouts, generates and caches its local
+provider evidence internally, and keeps raw provider controls under
+Advanced/Recovery.
 
 Custom content generally preserves familiar concepts—definition IDs,
 placements, models, textures, animations, and sprites—but private servers vary
@@ -616,6 +629,8 @@ rich NPC provider contract without relying on target code.
 
 ### Phase 0 — Baseline inventory and acceptance fixtures
 
+Implementation status: **complete and released**.
+
 - Freeze synthetic fixtures for currently supported packed, layered, explicit
   provider, and standalone paths.
 - Capture a sanitized structural fixture reproducing the observed missing
@@ -629,6 +644,9 @@ missing-scenery loss stage is identified or precisely narrowed.
 
 ### Phase 1 — Adapter framework and authoritative root selection
 
+Implementation status: **complete and released for the checked-in profile
+matrix**. New structural formats extend the same adapter boundary.
+
 - Separate probing, authority selection, parsing, composition, and
   normalization.
 - Implement versioned project-neutral adapter interfaces.
@@ -641,6 +659,8 @@ profile selection with no manual paths; ambiguity lists truthful candidates.
 
 ### Phase 2 — Complete definitions, placements, and asset closure
 
+Implementation status: **complete and released for recognized evidence**.
+
 - Normalize all five definition families and four placement families.
 - Compose base/custom/world/patch/removal variants.
 - Resolve texture, model, animation, sprite, spritepack, and external-image
@@ -652,6 +672,10 @@ Exit gate: exact reconciliation passes for every family, including the
 missing-scenery fixture, and repeat generation is byte-deterministic.
 
 ### Phase 3 — Automatic cache and refresh behavior
+
+Implementation status: **complete and released for new-project discovery and
+relaunch**. Explicit refresh/rebase of an already edited project remains a
+deferred extension.
 
 - Bind cache identity to complete authoritative evidence and adapter versions.
 - Reuse unchanged providers and atomically regenerate changed providers.
@@ -683,6 +707,8 @@ untouched. Recognized stale evidence is regenerated automatically only while
 creating a new project.
 
 ### Phase 4 — Three-action launcher
+
+Implementation status: **complete and released**.
 
 - Reduce the primary UI to the three approved actions.
 - Default Continue to the selected/recent project.
@@ -719,6 +745,11 @@ and asks the user which map to import. The selected map is revalidated and
 bound through isolated project creation without changing the source server.
 
 ### Phase 5 — Compatibility matrix and release hardening
+
+Implementation status: **complete for `v0.5.0-alpha.11`**. Native Windows GUI
+launch was not performed on the Linux validation host; Windows packaging,
+launcher, updater, and transaction checks passed and that limitation remains
+recorded in the release validation.
 
 - Test multiple structural layouts and schema variants on Linux and Windows
   launch paths.

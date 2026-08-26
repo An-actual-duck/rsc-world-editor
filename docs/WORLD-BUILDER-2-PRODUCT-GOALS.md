@@ -6,9 +6,11 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
+| Last reconciled | 2026-08-25, after `v0.5.0-alpha.11` publication |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Primary themes | Editor experience, creator content, legacy conversion and reusable regions |
+| Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
+| Longer themes | Creator content, legacy conversion, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
 to grow, contract, or change. It is not a frozen specification. Later design
@@ -44,6 +46,9 @@ World Builder 2 already provides a substantial base for these goals:
 - 1-by-1 and 3-by-3 terrain brushes;
 - a continuous Ctrl-drag terrain gesture, bounded to 4,096 unique tiles and
   sent through authoritative batches of at most 64 tiles;
+- absolute and relative elevation editing across the unsigned 16-bit
+  `0..65535` range;
+- contextual toolbar actions for terrain, scenery, NPCs, and ground items;
 - project-local save, close, reopen, export, transactional import, recovery,
   and exact undo;
 - a reversible Build presentation mode with a terrain grid and simplified
@@ -55,9 +60,46 @@ sends one authoritative batch at a time, waits for the server response, applies
 the accepted client patches, and rebuilds the scene. That safe architecture
 explains why the tool works but feels like “apply, then update.”
 
+Owner testing also found that some drag sequences can leave terrain painting
+unable to continue. The exact trigger is not yet isolated. Focus loss, modifier
+release, mouse release outside the scene, mode changes, refusal, disconnect,
+and a delayed final response must all be treated as candidate lifecycle edges
+until a reproducer and fix prove otherwise.
+
 The current Build presentation mode suppresses client scenery animation while
 active and simplifies several renderer settings. It does not establish a fully
 detached camera or a comprehensive server simulation pause.
+
+The Editor repository also contains a complete non-interactive region snapshot
+foundation. Ordered polygon capture, copy, cut, paste, import, export,
+collision plans, recovery, and all four placement families are tested. The
+packaged client has no region-selection toolbar mode, numbered markers, ghost
+preview, or snapshot-library workflow yet. Its visible **Copy inspected** action
+copies inspected field values and must not be mistaken for region Copy.
+
+## Current product focus — interaction before tool count
+
+The next tool release should establish one responsive interaction foundation
+and then build additional tools on it. Adding many independent commands first
+would preserve the current delayed feel and multiply input-state, preview,
+transaction, and undo paths.
+
+The intended order for the active product focus is:
+
+1. reproduce and eliminate the drag-stroke lockup, measure the current
+   acknowledgement and rebuild path, and make every gesture terminate cleanly;
+2. add immediate reversible brush feedback and incremental authoritative
+   reconciliation, then expose centered 1-by-1 through 7-by-7 footprints;
+3. reuse that operation/preview path for line and rectangle outline/fill tools;
+4. add an atomic scenery Move gesture with a destination ghost and collision
+   validation; and
+5. expose and visually validate the existing region snapshot foundation through
+   an in-game selection, Copy/Cut/Paste, library, import, and export workflow.
+
+Detached-camera work, deeper world quiescence, quick-house presets, creator
+materials, and declarative object actions remain important, but they must not
+displace this immediate interaction milestone unless the product owner changes
+the priority again.
 
 ## Goal 1 — A fluid, purpose-built editor
 
@@ -135,6 +177,11 @@ floor, or wall operation immediately. The safe target behavior is:
 5. roll back or clearly mark only refused tiles if the authoritative state
    differs.
 
+Pointer movement between rendered samples must be interpolated over the tile
+grid so a fast drag cannot leave accidental holes. Sampling, preview drawing,
+request batching, response handling, and package saving are separate concerns:
+slow authority or persistence must not prevent the cursor preview from moving.
+
 The final project state remains server-authoritative. A local preview is not a
 save and cannot silently survive a refusal, disconnect, level change, or
 runtime restart. Duplicate tiles in one stroke should be coalesced while the
@@ -147,30 +194,76 @@ accepted, and refused parts of a stroke without obscuring the actual material.
 Readiness: **partially ready**. The current drag gesture, bounded tile batches,
 server validation, local terrain patching, and timing measurements are strong
 foundations. Pipelined requests, speculative preview state, incremental scene
-rebuilds, reconciliation, and stroke-level undo are not implemented.
+rebuilds, reconciliation, stroke-level undo, and a proven fix for the reported
+stuck-stroke lifecycle are not implemented.
+
+### Centered brush footprints through 7-by-7
+
+The normal square brush choices should be 1-by-1, 3-by-3, 5-by-5, and 7-by-7.
+Odd sizes keep one unambiguous tile directly under the pointer. For size `n`,
+the footprint is the complete square radius `(n - 1) / 2` around that center;
+it must not drift toward one corner as camera angle, level, or screen position
+changes.
+
+The complete footprint should be visible before painting. Drag interpolation
+operates on successive center tiles, while duplicate footprint tiles within one
+logical stroke are coalesced. A 7-by-7 sample contains 49 tiles and fits the
+current 64-tile authoritative batch ceiling, but a continuous stroke may span
+many batches and must remain one predictable gesture. Edge and unavailable-tile
+behavior must be previewed rather than silently clipping the brush.
+
+Readiness: **design-ready after the drag lifecycle audit**. The current 1-by-1
+and centered 3-by-3 implementation, 64-tile batches, and 4,096-tile gesture
+bound are useful foundations. The client and runtime currently reject sizes 5
+and 7 and expose no complete footprint preview.
 
 ### Relative raise and lower tools
 
-Creators should be able to raise or lower existing terrain by a small delta
-instead of first reading and then replacing each tile with an absolute
-elevation. Initial controls should include:
+Creators can raise or lower existing terrain by a configurable delta instead of
+first reading and then replacing each tile with an absolute elevation. The
+released controls include:
 
 - raise one step and lower one step;
 - configurable integer delta;
-- 1-by-1 and 3-by-3 brushes using the same continuous stroke behavior;
-- exact preview of clamped or refused tiles before commit; and
-- an optional smoothing or falloff tool as a later increment.
+- Set, Raise, and Lower modes;
+- 1-by-1 and 3-by-3 brushes using the same continuous stroke behavior; and
+- atomic refusal when a relative operation would exceed `0..65535`.
+
+The next polish should add the centered 5-by-5 and 7-by-7 footprints, immediate
+preview, and a clear indication of any operation that would be refused before
+commit. Smoothing and falloff remain later increments.
 
 Relative edits must be computed from one authoritative before-state for the
 whole stroke. Repeated packets, retries, or overlapping brush samples must not
 apply the delta twice.
 
-The current layered tile encoding stores elevation as an unsigned byte and the
-editor accepts `0..255`. Relative raise/lower inside that range is a contained
-extension. Raising the underlying elevation cap is separate schema work.
+The current layered tile encoding stores elevation as an unsigned 16-bit value.
+Packages, protocol, runtime validation, save/reopen, conversion, and region
+snapshots preserve `0..65535` without reinterpreting released v1 bytes.
 
-Readiness: **design-ready** for byte-range relative edits. The existing stroke
-transaction and terrain snapshots provide most of the required foundation.
+Readiness: **runtime and persistence implemented; interaction partially
+ready**. The next terrain-tool increment should concentrate on shared fluid
+preview, centered brush sizes, and gesture polish rather than another elevation
+encoding.
+
+### Drag-and-drop scenery movement
+
+Scenery mode should gain **Move** alongside Place, Rotate, and Remove. A creator
+selects an existing scenery placement, drags or chooses its destination tile,
+sees a ghost using the preserved definition and direction, and commits one
+atomic move. Escape, right-click cancellation, focus loss, a mode change, or an
+invalid destination leaves the original placement untouched.
+
+The first increment should preserve level, placement identity, definition,
+direction, and any project-local metadata. It should refuse overlap, missing
+terrain, unsupported bounds, or an unavailable destination before removing the
+source. Cross-level moves, duplication, rotation during drag, and multi-object
+movement can follow after same-level single-scenery movement is reliable.
+
+Readiness: **partially ready**. Authoritative scenery inspection, placement,
+rotation, removal, definition browsing, collision checks, and stable placement
+records exist. There is no Move tool, ghost preview, or single authoritative
+move transaction.
 
 ### Line tools
 
@@ -187,6 +280,25 @@ because its later tiles are invalid; preview should identify the blocker first.
 Readiness: **design-ready** after the stroke transaction is generalized. A
 simple tile line is close to the existing batch model. Wall lines need extra
 orientation and join rules.
+
+### Rectangle outline and fill tools
+
+A two-corner rectangle tool should provide both **Outline** and **Fill** modes.
+For terrain, Fill applies the currently enabled terrain fields to every tile in
+the rectangle; Outline applies only its perimeter. For walls, Outline creates
+the four correctly oriented edges and deterministic corner joins. A filled
+wall rectangle must not mean a dense wall on every interior tile unless the
+creator explicitly selects a terrain-like wall-fill operation.
+
+The cursor selects the first corner, movement shows the complete prospective
+bounds and tile count, and the second click commits only after all coverage,
+range, field, and operation limits validate. Cancellation changes nothing.
+Line and rectangle operations should share geometry, preview, batching,
+reconciliation, and undo primitives with freehand painting.
+
+Readiness: **design-ready after the shared operation model**. Rectangle terrain
+enumeration is straightforward; wall edge ownership, corner joins, atomic
+multi-batch application, and visible preview require explicit implementation.
 
 ### Quick house and enclosed-area tools
 
@@ -229,6 +341,38 @@ The longer-term editor should consider:
 These are a direction, not a promise that every tool belongs in one release.
 They should reuse a small number of well-tested selection, preview, operation,
 undo, and snapshot primitives instead of growing separate unsafe command paths.
+
+### Long-term declarative Action mode
+
+Placed scenery should eventually support an **Action** mode. A creator could
+right-click a placement, inspect its existing interaction definition, clone it
+into a new project-local definition, choose one or more safe behavior presets,
+edit their bounded parameters, preview validation, and save the new definition
+without hand-editing server code.
+
+The motivating presets include:
+
+- an agility shortcut with requirements, success destination, failure
+  destination, animations, messages, and optional damage;
+- a fast-travel or teleport interaction with explicit source and destination;
+- simple doors, ladders, entrances, and one-way transitions; and
+- reusable named actions whose dependencies travel with a region snapshot.
+
+This must be declarative and versioned. World Builder must not execute imported
+scripts, plugins, expressions, JARs, or arbitrary creator code. Locations,
+definition identity, action labels, requirements, failure states, and runtime
+effects need strict schemas, bounds, compatibility reporting, and a deployment
+adapter for each supported server behavior format. Saving “as a new object”
+also requires collision-free project-local definition identity and portable
+remapping when shared.
+
+Readiness: **foundational design required and intentionally long-term**. The
+current project can preserve bounded scenery definitions and placements, but
+server interaction behavior is not standardized across private servers. Safe
+action schemas, supported presets, definition allocation, runtime preview,
+snapshot dependencies, export adapters, and target compatibility all need a
+separate design before implementation. It is not part of the immediate fluid
+tools milestone.
 
 ## Goal 2 — Creator-supplied materials and broader content
 
@@ -411,7 +555,8 @@ Readiness: **Editor foundation implemented; interactive runtime pending**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
-There is not yet an in-game marker protocol or selection UI.
+There is not yet an in-game marker protocol or selection UI, and there is no
+region tool on the packaged toolbar.
 
 ### Copy, cut, and paste behavior
 
@@ -444,7 +589,11 @@ Readiness: **Editor foundation implemented; interactive runtime pending**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
 Server-authoritative interactive transactions, preview packets, undo/redo, and
-client ghost rendering remain runtime work.
+client ghost rendering remain runtime work. Before calling the feature
+creator-ready, the exposed workflow must be tested end to end for irregular
+ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
+placement families, wide elevations, close/reopen recovery, and `.wbr`
+export/import between two independent projects.
 
 ### Exportable and shareable snapshots
 
@@ -475,24 +624,30 @@ separate capability exists.
 
 This is a technical dependency order, not an assignment or fixed release plan:
 
-1. Generalize the current terrain stroke into one previewable, undoable editor
-   operation model.
-2. Build on the implemented atomic `0..65535` relative raise/lower capability
-   and add deterministic line tools.
-3. Add immediate local stroke previews, pipelined authoritative
-   reconciliation, and incremental scene rebuilds.
-4. Design and implement the detached camera anchor and the quiescent Builder
-   execution profile.
+1. Reproduce the broken drag lifecycle, profile acknowledgement/rebuild costs,
+   and guarantee cleanup on release, refusal, focus loss, mode change,
+   disconnect, and shutdown.
+2. Generalize the current terrain stroke into one immediate, previewable,
+   reconcilable, and undoable operation model; expose centered 1-by-1, 3-by-3,
+   5-by-5, and 7-by-7 footprints through it.
+3. Add deterministic line and rectangle Outline/Fill tools using that same
+   geometry, preview, transaction, and undo path.
+4. Add same-level single-scenery Move with a ghost destination and one atomic
+   authoritative transaction.
 5. Use the implemented Editor-owned ordered selection, local snapshot,
-   copy/cut/paste, and strict import/export contracts as the runtime boundary.
-6. Add runtime marker placement, ghost previews, authoritative transactions,
-   and durable undo/redo against those contracts.
-7. Use selection and snapshots to build the conversion outlier workbench and
-   quick-house/prefab tools.
+   copy/cut/paste, and strict import/export contracts as the runtime boundary;
+   add marker placement, ghost previews, transactions, toolbar/library UI, and
+   durable undo/redo.
+6. Design and implement the detached camera anchor and the quiescent Builder
+   execution profile.
+7. Use selection, lines, rectangles, and snapshots to build the conversion
+   outlier workbench and quick-house/prefab tools.
 8. Revise the custom-material identity model for creator-to-creator sharing,
    then implement drop-in floor/wall materials.
-9. Consider RGB terrain and broader custom content only through new explicit
-   capabilities and schema versions; wide elevation already uses that boundary.
+9. Design declarative scenery Action presets and server-format adapters only
+   after definition identity and portable dependency handling are settled.
+10. Consider RGB terrain and broader custom content only through new explicit
+    capabilities and schema versions; wide elevation already uses that boundary.
 
 Some increments can be reordered, but region snapshots should not invent a
 material-sharing model that custom materials later have to replace.
@@ -504,8 +659,11 @@ material-sharing model that custom materials later have to replace.
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready | Immediate preview, pipelining, reconciliation, incremental rebuild |
+| Centered 5-by-5 and 7-by-7 brushes | Design-ready after drag audit | General footprint logic, preview, controls and validation |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
+| Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
+| Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
 | Wider elevation | Implemented | Polished Editor UI and additional visual validation |
@@ -514,6 +672,7 @@ material-sharing model that custom materials later have to replace.
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Editor foundation implemented | Runtime marker/ghost transaction and durable undo UX |
 | Exportable snapshots | Editor foundation implemented | Custom material/sprite payload capability |
+| Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 
 ## Decisions to settle before implementation planning
 
@@ -522,9 +681,17 @@ material-sharing model that custom materials later have to replace.
 - Which exact scheduler, plugin, entity, animation, and timer families remain
   active in the quiescent Builder profile?
 - Does a refused tile roll back only itself or the entire logical stroke?
+- Should ordinary primary-button drag paint while the brush is selected, or
+  should Ctrl remain required after accidental-edit prevention is reviewed?
+- Which input events terminate a stroke, and what visible state proves there
+  is no pending or stuck gesture?
 - What undo/redo durability is required across save, close, and reopen?
-- Is byte-range relative elevation sufficient for the first terrain-tool
-  increment, or should wider elevation be designed first?
+- Which deterministic grid-line rule and diagonal wall join rule become the
+  portable line contract?
+- Does rectangle wall Fill mean perimeter enclosure only, or should a separate
+  dense-fill operation exist?
+- Must scenery Move preserve the exact placement ID, and which metadata becomes
+  part of the atomic move identity?
 - What stable namespace identifies a creator/material pack, and how is it
   preserved when shared?
 - When custom materials become bundleable, will paste translate their logical
@@ -536,6 +703,9 @@ material-sharing model that custom materials later have to replace.
   must remain hard blockers?
 - What is the smallest useful house preset: rectangle, orthogonal polygon, or
   arbitrary closed polygon?
+- Which first declarative Action presets are portable enough to support across
+  server formats, and how are target-specific behaviors reported when no safe
+  adapter exists?
 
 These questions are intended to make future discussion concrete. Answers may
 be added here without activating implementation work.

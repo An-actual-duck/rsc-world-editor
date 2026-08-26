@@ -5,6 +5,13 @@ Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: unchanged by this feature
 
+Current packaged UI status as of 2026-08-25: the contracts and advanced Editor
+commands below are implemented and tested, but there is no region-selection
+toolbar mode, numbered-marker interaction, ghost preview, or snapshot-library
+window. The client's **Copy inspected** action copies inspected terrain/entity
+values into current editing controls; it is not region Copy. Region sharing is
+therefore an implementation foundation, not yet a discoverable creator tool.
+
 This document is normative for region snapshot versions 1 and 2. “MUST”, “MUST NOT”,
 “SHALL”, and “SHALL NOT” are requirements. The Java validators are the
 executable authority where prose and malformed external input disagree.
