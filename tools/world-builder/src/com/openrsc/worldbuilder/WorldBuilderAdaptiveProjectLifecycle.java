@@ -221,6 +221,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
 			WorldBuilderWideElevationPromotion.promoteInPlace(
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
+			if (developmentTerrainSeed) {
+				WorldBuilderEmptyWorldGenerator.seedDevelopmentWorking(
+					stage.resolve(WORKING_PACKAGE_DIRECTORY));
+			}
 			for (String relative : Arrays.asList(
 				"exports", "backups", "receipts", "diagnostics", "logs", "run")) {
 				ensureRealDirectory(stage.resolve(relative));

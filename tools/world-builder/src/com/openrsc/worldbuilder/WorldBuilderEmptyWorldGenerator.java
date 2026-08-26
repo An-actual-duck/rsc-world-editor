@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** Generates the canonical structural void used by standalone empty projects. */
@@ -30,8 +31,6 @@ final class WorldBuilderEmptyWorldGenerator {
 	static final int INITIAL_LOCAL_Y = Math.floorMod(INITIAL_Y, 48);
 	private static final String PACKAGE_PATH = "source/layered-baseline/package";
 	private static final String PACKAGE_ID = "world-builder.empty-world-v1";
-	private static final String DEVELOPMENT_PACKAGE_ID =
-		"world-builder.development-terrain-v1";
 	private static final String PACKAGE_VERSION = "1.0.0";
 	private static final String WORLD_SPACE =
 		WorldBuilderCanonicalVoidTerrain.WORLD_SPACE;
@@ -83,7 +82,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		writeJson(runtimePath, runtime);
 
 		WorldBuilderGenericLayeredPackage layered = generatePackage(
-			projectRoot, projectRoot.resolve(PACKAGE_PATH), definitions, development);
+			projectRoot, projectRoot.resolve(PACKAGE_PATH), definitions);
 		String generatorId = development ? DEVELOPMENT_GENERATOR_ID : GENERATOR_ID;
 		String descriptorRelative = development
 			? DEVELOPMENT_DESCRIPTOR_PATH : DESCRIPTOR_PATH;
@@ -117,13 +116,12 @@ final class WorldBuilderEmptyWorldGenerator {
 
 	private static WorldBuilderGenericLayeredPackage generatePackage(
 		Path projectRoot, Path packageRoot,
-		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
-		boolean development)
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
 		throws IOException, WorldBuilderContractException {
 		Path placements = packageRoot.resolve("placements/global/lp0.json");
 		Files.createDirectories(placements.getParent());
 		ArrayList<Object> sectors = new ArrayList<Object>();
-		int radius = development ? 1 : 0;
+		int radius = 0;
 		for (int sectorX = INITIAL_SECTOR_X - radius;
 			sectorX <= INITIAL_SECTOR_X + radius; sectorX++) {
 			for (int sectorY = INITIAL_SECTOR_Y - radius;
@@ -132,9 +130,8 @@ final class WorldBuilderEmptyWorldGenerator {
 					INITIAL_LEVEL, sectorX, sectorY);
 				Path terrain = packageRoot.resolve(terrainRelative);
 				Files.createDirectories(terrain.getParent());
-				Files.write(terrain, development
-					? WorldBuilderCanonicalVoidTerrain.visibleFloorSector()
-					: WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
+				Files.write(terrain,
+					WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
 						INITIAL_LOCAL_X, INITIAL_LOCAL_Y));
 				Map<String,Object> sector = new LinkedHashMap<String,Object>();
 				sector.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
@@ -162,8 +159,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		Map<String,Object> manifest = new LinkedHashMap<String,Object>();
 		manifest.put("schemaVersion", Long.valueOf(1L));
 		manifest.put("packageType", "layered-world");
-		manifest.put("packageId", development
-			? DEVELOPMENT_PACKAGE_ID : PACKAGE_ID);
+		manifest.put("packageId", PACKAGE_ID);
 		manifest.put("packageVersion", PACKAGE_VERSION);
 		manifest.put("coordinateModel", "signed-layered-v1");
 		Map<String,Object> storage = new LinkedHashMap<String,Object>();
@@ -179,8 +175,8 @@ final class WorldBuilderEmptyWorldGenerator {
 		ArrayList<Object> levels = new ArrayList<Object>();
 		Map<String,Object> level = new LinkedHashMap<String,Object>();
 		level.put("level", Long.valueOf(INITIAL_LEVEL));
-		level.put("name", development ? "Development Terrain 0" : "Empty Layer 0");
-		level.put("role", development ? "development-seed" : "empty-origin");
+		level.put("name", "Empty Layer 0");
+		level.put("role", "empty-origin");
 		level.put("worldSpace", WORLD_SPACE);
 		levels.add(level);
 		manifest.put("levels", levels);
@@ -199,6 +195,26 @@ final class WorldBuilderEmptyWorldGenerator {
 		return WorldBuilderGenericLayeredPackage.inspect(
 			WorldBuilderReadOnlyTarget.open(projectRoot), PACKAGE_PATH,
 			"standalone-empty", definitions);
+	}
+
+	@SuppressWarnings("unchecked")
+	static void seedDevelopmentWorking(Path packageRoot) throws IOException {
+		String terrainRelative = terrainPath(
+			INITIAL_LEVEL, INITIAL_SECTOR_X, INITIAL_SECTOR_Y);
+		Path terrain = packageRoot.resolve(terrainRelative);
+		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.visibleFloorSector());
+		Path manifestPath = packageRoot.resolve("manifest.json");
+		Map<String,Object> manifest;
+		try {
+			manifest = WorldBuilderJsonDocuments.readObject(manifestPath);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw new IOException("Generated development manifest is malformed", malformed);
+		}
+		List<Object> sectors = (List<Object>)manifest.get("terrainSectors");
+		Map<String,Object> sector = (Map<String,Object>)sectors.get(0);
+		sector.put("sha256", WorldBuilderHashes.sha256(terrain));
+		Files.write(manifestPath, WorldBuilderJsonDocuments.pretty(manifest)
+			.getBytes(StandardCharsets.UTF_8));
 	}
 
 	static WorldBuilderGenericLayeredPackage bindInitialLocation(

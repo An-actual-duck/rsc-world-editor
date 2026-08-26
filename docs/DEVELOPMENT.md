@@ -25,8 +25,9 @@ Run the complete repository test suite:
 
 Tool interaction work uses a generated development-only world rather than a
 private-server map. The first prepare builds the exact locked independent
-runtime and creates one persistent ignored project with a flat 3-by-3-sector
-(`144`-by-`144` tile) field centered on layer `0` spawn `120,648`:
+runtime and creates one persistent ignored project with a complete flat
+48-by-48-tile working sector centered on layer `0` spawn `120,648`. Its
+immutable baseline remains the runtime-validated canonical standalone seed:
 
 ```bash
 ./scripts/world-builder-tool-test-environment.sh prepare

@@ -1902,13 +1902,13 @@ public final class FakeAdaptiveClient {
 
     def assert_development_terrain_package(self, package: Path) -> None:
         manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual("world-builder.development-terrain-v1", manifest["packageId"])
-        self.assertEqual("Development Terrain 0", manifest["levels"][0]["name"])
-        self.assertEqual("development-seed", manifest["levels"][0]["role"])
+        self.assertEqual("world-builder.empty-world-v1", manifest["packageId"])
+        self.assertEqual("Empty Layer 0", manifest["levels"][0]["name"])
+        self.assertEqual("empty-origin", manifest["levels"][0]["role"])
         sectors = manifest["terrainSectors"]
-        self.assertEqual(9, len(sectors))
+        self.assertEqual(1, len(sectors))
         self.assertEqual(
-            [(x, y) for x in range(1, 4) for y in range(12, 15)],
+            [(2, 13)],
             [(sector["sectorX"], sector["sectorY"]) for sector in sectors],
         )
         for sector in sectors:
@@ -1919,12 +1919,12 @@ public final class FakeAdaptiveClient {
         minimum_y = sectors[0]["sectorY"] * 48
         maximum_x = (sectors[-1]["sectorX"] + 1) * 48 - 1
         maximum_y = (sectors[-1]["sectorY"] + 1) * 48 - 1
-        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["x"] - minimum_x, 71)
-        self.assertGreaterEqual(maximum_x - STANDALONE_INITIAL_LOCATION["x"], 71)
-        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["y"] - minimum_y, 71)
-        self.assertGreaterEqual(maximum_y - STANDALONE_INITIAL_LOCATION["y"], 71)
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["x"] - minimum_x, 23)
+        self.assertGreaterEqual(maximum_x - STANDALONE_INITIAL_LOCATION["x"], 23)
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["y"] - minimum_y, 23)
+        self.assertGreaterEqual(maximum_y - STANDALONE_INITIAL_LOCATION["y"], 23)
 
-    def test_development_terrain_seed_is_large_deterministic_and_reopenable(self):
+    def test_development_terrain_seed_has_full_working_sector_and_canonical_baseline(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-development-terrain-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"
@@ -1961,7 +1961,7 @@ public final class FakeAdaptiveClient {
                 "development-terrain-v1",
                 project_manifest["standalone"]["generatorId"],
             )
-            self.assert_development_terrain_package(
+            self.assert_canonical_empty_package(
                 project / "source/layered-baseline/package"
             )
             self.assert_development_terrain_package(

@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-25, after `v0.5.0-alpha.11` publication |
+| Last reconciled | 2026-08-26, after owner validation of drag recovery and the reusable tool environment |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -44,8 +44,9 @@ World Builder 2 already provides a substantial base for these goals:
   packages;
 - layered terrain authoring and all four static placement families;
 - 1-by-1 and 3-by-3 terrain brushes;
-- a continuous Ctrl-drag terrain gesture, bounded to 4,096 unique tiles and
-  sent through authoritative batches of at most 64 tiles;
+- a continuous Ctrl-drag terrain gesture with tile-grid interpolation, bounded
+  to 4,096 unique tiles and sent through timed authoritative batches of at
+  most 64 tiles;
 - absolute and relative elevation editing across the unsigned 16-bit
   `0..65535` range;
 - contextual toolbar actions for terrain, scenery, NPCs, and ground items;
@@ -55,20 +56,41 @@ World Builder 2 already provides a substantial base for these goals:
   renderer settings; and
 - a detailed, unimplemented custom wall/floor material design.
 
-The current drag brush is not yet visually immediate. It queues unique tiles,
-sends one authoritative batch at a time, waits for the server response, applies
-the accepted client patches, and rebuilds the scene. That safe architecture
-explains why the tool works but feels like “apply, then update.”
+The reported scribble lockup is resolved in the locked runtime. The root cause
+was a framing gate that accepted the legacy 282-byte subtype-7 packet but
+rejected a full 64-tile wide-elevation batch at 286 bytes before it reached the
+handler. The client then waited forever for an acknowledgement that could not
+exist. Exact subtype framing validation, interpolated tile sampling, periodic
+batch flushing, and a bounded recovery timeout now keep the gesture complete
+and recoverable. Owner testing confirmed that long scribbles paint without
+gaps, do not require mouse release to begin appearing, and do not disable later
+brush or non-brush actions.
 
-Owner testing also found that some drag sequences can leave terrain painting
-unable to continue. The exact trigger is not yet isolated. Focus loss, modifier
-release, mouse release outside the scene, mode changes, refusal, disconnect,
-and a delayed final response must all be treated as candidate lifecycle edges
-until a reproducer and fix prove otherwise.
+The brush is still not visually immediate. It permits only one authoritative
+batch in flight, applies accepted patches after the server response, and reloads
+the terrain scene at the end of each accepted batch. In the isolated test world
+the visible trail currently catches up about one to two seconds after the
+pointer. Because that world contains no NPC or gameplay population, this result
+also establishes that ordinary NPC simulation is not the primary latency
+source. The server's normal tick cadence, acknowledgement serialization, and
+coarse client rebuild path are the next measurement and optimization targets.
 
 The current Build presentation mode suppresses client scenery animation while
 active and simplifies several renderer settings. It does not establish a fully
 detached camera or a comprehensive server simulation pause.
+
+The product direction is two explicit ways to open the same project:
+
+- **Builder** is the eventual default authoring experience: detached bird's-eye
+  camera, optional hidden avatar, editing-first controls, and a quiescent
+  isolated runtime.
+- **Live Interaction** retains the current player-centered client and normal
+  interaction needed to inspect the authored world as a player would.
+
+The first Builder implementation should preserve an authenticated but hidden
+controller/session as the camera anchor. Removing the session entirely would
+unnecessarily replace working authentication, project binding, scene residency,
+streaming, validation, and save contracts.
 
 The Editor repository also contains a complete non-interactive region snapshot
 foundation. Ordered polygon capture, copy, cut, paste, import, export,
@@ -88,14 +110,15 @@ The intended order for the active product focus is:
 
 1. establish a deterministic development terrain seed, a reusable local
    sandbox, and automated long-held/repeated-area scribble coverage;
-2. reproduce and eliminate the drag-stroke lockup, measure the current
-   acknowledgement and rebuild path, and make every gesture terminate cleanly;
-3. add immediate reversible brush feedback and incremental authoritative
-   reconciliation, then expose centered 1-by-1 through 7-by-7 footprints;
-4. reuse that operation/preview path for line and rectangle outline/fill tools;
-5. add an atomic scenery Move gesture with a destination ghost and collision
+2. eliminate the drag-stroke lockup and make every gesture terminate cleanly;
+3. instrument input, send, server acceptance, acknowledgement, client apply,
+   and rebuild timing, then add immediate reversible brush feedback, ordered
+   pipelining, and incremental authoritative reconciliation;
+4. expose centered 1-by-1 through 7-by-7 footprints through that shared path;
+5. reuse that operation/preview path for line and rectangle outline/fill tools;
+6. add an atomic scenery Move gesture with a destination ghost and collision
    validation; and
-6. expose and visually validate the existing region snapshot foundation through
+7. expose and visually validate the existing region snapshot foundation through
    an in-game selection, Copy/Cut/Paste, library, import, and export workflow.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
@@ -109,10 +132,11 @@ Tool work needs a deterministic map without depending on a real private-server
 map and without asking a developer to create a new project on every launch.
 This should consist of two related facilities:
 
-1. An immutable generated terrain seed containing a 3-by-3-sector,
-   144-by-144-tile field. The odd sector count keeps the familiar `120,648`
-   spawn in the center sector with at least 71 tiles of working room in every
-   direction instead of placing it near a coverage edge.
+1. An immutable generated terrain seed containing one complete 48-by-48-tile
+   sector. The familiar `120,648` spawn sits near its center with at least 23
+   tiles of working room in every direction instead of starting on a coverage
+   edge. Keeping the seed to one sector also preserves the runtime's strict
+   standalone-empty safety contract.
 2. A persistent ignored development sandbox created from that seed once and
    reopened on later development launches. It retains deliberate edits until
    an explicit reset command replaces it from the known seed.
@@ -234,11 +258,11 @@ Wall painting should show each segment as it is added, including direction and
 corner behavior. Preview colors or outlines should distinguish unacknowledged,
 accepted, and refused parts of a stroke without obscuring the actual material.
 
-Readiness: **partially ready**. The current drag gesture, bounded tile batches,
-server validation, local terrain patching, and timing measurements are strong
-foundations. Pipelined requests, speculative preview state, incremental scene
-rebuilds, reconciliation, stroke-level undo, and a proven fix for the reported
-stuck-stroke lifecycle are not implemented.
+Readiness: **partially ready**. The drag lifecycle, exact packet framing,
+interpolation, periodic batching, bounded recovery, server validation, and local
+terrain patching are implemented and owner-validated. Fine-grained timing
+instrumentation, pipelined requests, speculative preview state, incremental
+scene rebuilds, reconciliation, and stroke-level undo remain.
 
 ### Centered brush footprints through 7-by-7
 
@@ -255,7 +279,7 @@ current 64-tile authoritative batch ceiling, but a continuous stroke may span
 many batches and must remain one predictable gesture. Edge and unavailable-tile
 behavior must be previewed rather than silently clipping the brush.
 
-Readiness: **design-ready after the drag lifecycle audit**. The current 1-by-1
+Readiness: **design-ready**. The current 1-by-1
 and centered 3-by-3 implementation, 64-tile batches, and 4,096-tile gesture
 bound are useful foundations. The client and runtime currently reject sizes 5
 and 7 and expose no complete footprint preview.
@@ -667,31 +691,33 @@ separate capability exists.
 
 This is a technical dependency order, not an assignment or fixed release plan:
 
-1. Add the immutable terrain seed, persistent development sandbox, explicit
-   reset, and isolated automated fixture cloning described above.
-2. Reproduce the broken drag lifecycle, profile acknowledgement/rebuild costs,
-   and guarantee cleanup on release, refusal, focus loss, mode change,
-   disconnect, and shutdown.
-3. Generalize the current terrain stroke into one immediate, previewable,
-   reconcilable, and undoable operation model; expose centered 1-by-1, 3-by-3,
-   5-by-5, and 7-by-7 footprints through it.
-4. Add deterministic line and rectangle Outline/Fill tools using that same
+1. Maintain the implemented immutable terrain seed, persistent development
+   sandbox, recoverable reset, and isolated automated fixture cloning alongside
+   later tool changes.
+2. Maintain the validated drag recovery: exact wide-batch framing, interpolated
+   sampling, periodic flushing, clean gesture termination, and bounded timeout.
+3. Instrument the remaining input-to-paint latency, then generalize the current
+   terrain stroke into one immediate, previewable, pipelined, reconcilable, and
+   undoable operation model.
+4. Expose centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7 footprints through that
+   shared operation model.
+5. Add deterministic line and rectangle Outline/Fill tools using that same
    geometry, preview, transaction, and undo path.
-5. Add same-level single-scenery Move with a ghost destination and one atomic
+6. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
-6. Use the implemented Editor-owned ordered selection, local snapshot,
+7. Use the implemented Editor-owned ordered selection, local snapshot,
    copy/cut/paste, and strict import/export contracts as the runtime boundary;
    add marker placement, ghost previews, transactions, toolbar/library UI, and
    durable undo/redo.
-7. Design and implement the detached camera anchor and the quiescent Builder
+8. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
-8. Use selection, lines, rectangles, and snapshots to build the conversion
+9. Use selection, lines, rectangles, and snapshots to build the conversion
    outlier workbench and quick-house/prefab tools.
-9. Revise the custom-material identity model for creator-to-creator sharing,
+10. Revise the custom-material identity model for creator-to-creator sharing,
    then implement drop-in floor/wall materials.
-10. Design declarative scenery Action presets and server-format adapters only
+11. Design declarative scenery Action presets and server-format adapters only
    after definition identity and portable dependency handling are settled.
-11. Consider RGB terrain and broader custom content only through new explicit
+12. Consider RGB terrain and broader custom content only through new explicit
     capabilities and schema versions; wide elevation already uses that boundary.
 
 Some increments can be reordered, but region snapshots should not invent a
@@ -704,8 +730,8 @@ material-sharing model that custom materials later have to replace.
 | Reusable development test environment | Implemented | Extend its automated action probes alongside each new tool |
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
-| Fluid paint trails | Partially ready | Immediate preview, pipelining, reconciliation, incremental rebuild |
-| Centered 5-by-5 and 7-by-7 brushes | Design-ready after drag audit | General footprint logic, preview, controls and validation |
+| Fluid paint trails | Partially ready; drag recovery owner-validated | Timing instrumentation, immediate preview, pipelining, reconciliation, incremental rebuild |
+| Centered 5-by-5 and 7-by-7 brushes | Design-ready | General footprint logic, preview, controls and validation |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |

@@ -43,12 +43,14 @@ Packaged launchers use the identical JAR under
 
 For tool development, `create-project --development-terrain-seed` is a strict
 standalone-only option used by
-`scripts/world-builder-tool-test-environment.sh`. It generates nine complete
-visible-floor sectors around `120,648`; it cannot be combined with a
+`scripts/world-builder-tool-test-environment.sh`. It generates one complete
+visible-floor sector centered around `120,648`; it cannot be combined with a
 target-backed discovery report. Ordinary standalone creation retains its
 canonical one-sector structural void with a centered 3-by-3 visibility patch.
-The development generator is invoked locally and no generated sector or
-sandbox is stored in source control or a release archive.
+The development project retains that canonical immutable baseline and applies
+the complete visible sector only to its initial mutable working draft. The
+generator is invoked locally and no generated sector or sandbox is stored in
+source control or a release archive.
 
 ## Desktop project launcher
 

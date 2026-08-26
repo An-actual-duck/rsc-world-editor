@@ -185,7 +185,7 @@ project="${projects[0]}"
 printf 'World Builder tool test environment ready.\n'
 printf '  installation: %s\n' "$INSTALLATION"
 printf '  project:      %s\n' "$project"
-printf '  seed:         %s (3x3 sectors, 144x144 tiles, spawn 120,648)\n' "$SEED_ID"
+printf '  seed:         %s (1 sector, 48x48 tiles, centered spawn 120,648)\n' "$SEED_ID"
 printf '  reset:        %s reset --confirm RESET\n' "$0"
 
 if [[ "$MODE" == launch ]]; then
