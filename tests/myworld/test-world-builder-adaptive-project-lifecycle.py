@@ -333,6 +333,7 @@ package com.openrsc.worldbuilder;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
@@ -657,6 +658,7 @@ public final class AdaptiveProjectSupervisorHarness {
         String classes = args[1];
         boolean finalizationMode = args.length > 2 && "finalization".equals(args[2]);
         boolean regionCopyMode = args.length > 2 && "region-copy".equals(args[2]);
+        boolean regionPasteMode = args.length > 2 && "region-paste".equals(args[2]);
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
         String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
@@ -767,7 +769,9 @@ public final class AdaptiveProjectSupervisorHarness {
             ? commandWithMode(classes, "FakeClient", project, port, "mutate")
             : regionCopyMode
                 ? commandWithMode(classes, "FakeClient", project, port, "region-copy")
-                : command(classes, "FakeClient", project, port);
+                : regionPasteMode
+                    ? commandWithMode(classes, "FakeClient", project, port, "region-paste")
+                    : command(classes, "FakeClient", project, port);
         if (args.length > 2 && "unsafe".equals(args[2])) {
             boolean refused = false;
             try {
@@ -843,7 +847,7 @@ public final class AdaptiveProjectSupervisorHarness {
             project.resolve("logs/client.log")), StandardCharsets.UTF_8));
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject finalized =
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
-        if (finalizationMode || regionCopyMode) {
+        if (finalizationMode || regionCopyMode || regionPasteMode) {
             require(!workingFingerprintBefore.equals(
                     finalized.working.fingerprintSha256),
                 "normal client close must save the changed working fingerprint");
@@ -858,6 +862,11 @@ public final class AdaptiveProjectSupervisorHarness {
             require(Files.isRegularFile(project.resolve(
                 "run/world-builder/fake-region-copy-accepted")),
                 "interactive region Copy response");
+        }
+        if (regionPasteMode) {
+            require(Files.isRegularFile(project.resolve(
+                "run/world-builder/fake-region-paste-restarted")),
+                "interactive region Paste controlled restart");
         }
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");
@@ -991,9 +1000,88 @@ public final class AdaptiveProjectSupervisorHarness {
                 Files.write(control.resolve("fake-region-copy-accepted"),
                     "accepted\n".getBytes(StandardCharsets.US_ASCII));
             }
+            if (args.length > 2 && "region-paste".equals(args[2])) {
+                Path control = project.resolve("run/world-builder");
+                Path firstRun = control.resolve("fake-region-paste-first");
+                if (Files.exists(firstRun)) {
+                    Files.write(control.resolve("fake-region-paste-restarted"),
+                        "restarted\n".getBytes(StandardCharsets.US_ASCII));
+                } else {
+                    Map<String,Object> libraryRequest = pasteRequest(
+                        "11111111111111111111111111111111", "library", "", 0, 0, 0,
+                        "", "");
+                    Map<String,Object> libraryAnswer = submitPaste(control, libraryRequest);
+                    @SuppressWarnings("unchecked") Map<String,Object> libraryResult =
+                        (Map<String,Object>)libraryAnswer.get("result");
+                    @SuppressWarnings("unchecked") List<Object> snapshots =
+                        (List<Object>)libraryResult.get("snapshots");
+                    require(snapshots.size() == 1, "interactive Paste library result");
+                    @SuppressWarnings("unchecked") Map<String,Object> snapshot =
+                        (Map<String,Object>)snapshots.get(0);
+                    String snapshotId = (String)snapshot.get("snapshotId");
+                    Map<String,Object> previewRequest = pasteRequest(
+                        "22222222222222222222222222222222", "preview", snapshotId,
+                        0, 125, 648, "", "");
+                    Map<String,Object> previewAnswer = submitPaste(control, previewRequest);
+                    @SuppressWarnings("unchecked") Map<String,Object> previewResult =
+                        (Map<String,Object>)previewAnswer.get("result");
+                    @SuppressWarnings("unchecked") Map<String,Object> plan =
+                        (Map<String,Object>)previewResult.get("operationPlan");
+                    require(!((Boolean)plan.get("blocked")).booleanValue(),
+                        "interactive Paste preview blocked");
+                    String planHash = (String)plan.get("planFingerprintSha256");
+                    boolean overwrite = ((Boolean)plan.get("overwriteRequired")).booleanValue();
+                    Map<String,Object> applyRequest = pasteRequest(
+                        "33333333333333333333333333333333", "apply", snapshotId,
+                        0, 125, 648, planHash,
+                        (overwrite ? "OVERWRITE " : "PASTE ") + planHash);
+                    Map<String,Object> applyAnswer = submitPaste(control, applyRequest);
+                    require("accepted".equals(applyAnswer.get("status")),
+                        "interactive Paste apply response");
+                    Files.write(firstRun,
+                        "applied\n".getBytes(StandardCharsets.US_ASCII));
+                }
+            }
             Thread.sleep(250L);
             Files.write(project.resolve("run/world-builder/fake-client-stopped"),
                 "stopped\n".getBytes(StandardCharsets.US_ASCII));
+        }
+
+        private static Map<String,Object> pasteRequest(String requestId,
+            String operation, String snapshotId, int level, int x, int y,
+            String expectedPlan, String confirmation) {
+            Map<String,Object> request = new LinkedHashMap<String,Object>();
+            request.put("schemaVersion", Long.valueOf(1L));
+            request.put("manifestType", "world-builder-region-paste-request");
+            request.put("requestId", requestId);
+            request.put("operation", operation);
+            request.put("snapshotId", snapshotId);
+            request.put("level", Long.valueOf(level));
+            request.put("x", Long.valueOf(x));
+            request.put("y", Long.valueOf(y));
+            request.put("expectedPlan", expectedPlan);
+            request.put("confirmation", confirmation);
+            return request;
+        }
+
+        private static Map<String,Object> submitPaste(Path control,
+            Map<String,Object> request) throws Exception {
+            Path requestPath = control.resolve("region-paste.request.json");
+            Path response = control.resolve("region-paste.response.json");
+            Files.write(requestPath, WorldBuilderJsonDocuments.pretty(request)
+                .getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE);
+            long deadline = System.currentTimeMillis() + 10000L;
+            while (!Files.isRegularFile(response) && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25L);
+            }
+            require(Files.isRegularFile(response), "interactive region Paste timeout");
+            Map<String,Object> answer = WorldBuilderJsonDocuments.readObject(
+                Files.readAllBytes(response), "interactive region Paste response");
+            require("accepted".equals(answer.get("status")),
+                "interactive region Paste was refused: " + answer);
+            Files.delete(response);
+            return answer;
         }
     }
 
@@ -2371,6 +2459,59 @@ public final class FakeAdaptiveClient {
                 "region-copy.response.json",
                 ".region-copy.response.tmp",
                 ".region-copy.response.runtime.tmp",
+            ):
+                self.assertFalse((control / name).exists(), name)
+
+    def test_supervised_interactive_region_paste_restarts_into_published_world(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-paste-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "standalone-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Interactive Region Paste", 43842,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.place_representative_definitions(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Interactive Paste fixture",
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            before = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+
+            supervised = self.run_supervision(project, "region-paste")
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            self.assertIn("adaptive-supervision-ok", supervised.stdout)
+            after = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+            self.assertNotEqual(before, after)
+            control = project / "run/world-builder"
+            self.assertTrue((control / "fake-region-paste-first").is_file())
+            self.assertTrue((control / "fake-region-paste-restarted").is_file())
+            for name in (
+                ".region-paste.request.pending.json",
+                "region-paste.request.json",
+                "region-paste.response.json",
+                ".region-paste.response.tmp",
+                ".region-paste.response.runtime.tmp",
             ):
                 self.assertFalse((control / name).exists(), name)
 

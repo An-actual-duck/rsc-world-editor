@@ -688,14 +688,19 @@ The selection must define whether boundary segments lying on its edge belong
 inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
-Readiness: **interactive Region Copy implemented and owner-validated**. The
+Readiness: **interactive Region Copy owner-validated; interactive Paste implemented
+pending owner validation**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
 The packaged **Region Copy** tool now provides ordered numbered markers,
 prospective segments, enclosed-tile preview, undo/reopen/clear controls,
 snapshot naming, save-before-Copy supervision, and a visible library result.
-Interactive Cut, Paste, import/export, and library browsing remain pending.
+Paste now browses the verified project-local library, assigns marker 1 to a
+clicked destination, displays the translated ghost and collision pins, requires
+hash-bound apply plus a second overwrite click when occupied, and restarts the
+isolated Builder after atomic publication. Interactive Cut and graphical
+import/export remain pending.
 
 The first interactive vertical slice is intentionally **Copy before Cut and
 Paste**. It adds a Selection tool, ordered numbered world markers, prospective
@@ -735,11 +740,13 @@ The first version should preserve orientation and level offsets. Rotation,
 mirroring, selective terrain/placement paste, clipping, and merge strategies
 can follow after exact untranslated paste is reliable.
 
-Readiness: **Editor foundation implemented; interactive runtime pending**.
+Readiness: **Editor foundation and interactive Paste implemented; owner validation
+pending**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
-Server-authoritative interactive transactions, preview packets, undo/redo, and
-client ghost rendering remain runtime work. Before calling the feature
+The supervisor-mediated transaction, collision preview, client ghost rendering,
+and controlled post-publication restart are implemented without duplicating the
+Editor mutation engine. Cut UI and durable undo/redo remain runtime work. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
@@ -828,7 +835,7 @@ material-sharing model that custom materials later have to replace.
 | True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Interactive Copy implemented and owner-validated | Cut/Paste ghosts, library/import/export UI, collision confirmation, and durable undo UX |
+| Region copy/cut/paste | Copy owner-validated; interactive Paste implemented pending validation | Cut, richer placement ghosts, import/export UI, and durable undo UX |
 | Exportable snapshots | Editor foundation implemented | Custom material/sprite payload capability |
 | Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 

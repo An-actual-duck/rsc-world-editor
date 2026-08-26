@@ -1,18 +1,24 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy implemented and owner-validated; Cut/Paste UI pending**
+Status: **interactive Region Copy owner-validated; interactive Paste implemented pending owner validation; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: interactive selection and supervised Copy bridge implemented
+Runtime provider: interactive Copy and supervised library/preview/apply Paste bridges implemented
 
-Current packaged UI status as of 2026-08-26: the **Region Copy** toolbar mode
+Current packaged UI status as of 2026-08-26: the **Copy/Paste** toolbar mode
 provides ordered numbered markers, prospective segment preview, enclosed-tile
 preview, marker undo, reopen, clear/cancel, snapshot naming, and Copy into the
 project-local content-addressed library. The result shows the snapshot identity,
-tile and placement counts, and footprint-crossing count. The client's older
+tile and placement counts, and footprint-crossing count. Paste lists every
+verified project-local snapshot, lets the creator choose one, anchors marker 1
+to a clicked destination, and renders the exact translated outline plus visible
+collision markers. Apply is bound to the preview hash; occupied destinations
+require a second explicit overwrite click. Successful publication causes a
+controlled client/server restart because layered-region hot reload is explicitly
+unsupported, after which the published result is visible. The client's older
 **Copy inspected** action still only copies one inspected value into current
-editing controls; it is unrelated to Region Copy. A full library browser and
-interactive Cut, Paste, import, and export surfaces remain pending.
+editing controls; it is unrelated to Region Copy. Interactive Cut and graphical
+import/export surfaces remain pending.
 
 The first discoverable increment uses the running Editor supervisor as the
 sole bridge to these contracts. The runtime gathers one ordered selection and
@@ -29,9 +35,10 @@ executable authority where prose and malformed external input disagree.
 
 ## Product boundary
 
-The Editor owns the portable snapshot engine and an owner-validated interactive
-Copy workflow for isolated adaptive projects. Cut/Paste and library-management
-surfaces are not yet exposed in the runtime UI. Every operation is project-local;
+The Editor owns the portable snapshot engine, an owner-validated interactive
+Copy workflow, and the exact interactive Paste transaction for isolated adaptive
+projects. Cut and portable import/export surfaces are not yet exposed in the
+runtime UI. Every operation is project-local;
 no command in this feature resolves or writes the target server.
 
 The frozen World Builder v1 workflow is unchanged. Region bundles belong only
@@ -288,25 +295,24 @@ region-paste-apply --project P --snapshot ID --level L --x X --y Y \
 # use "OVERWRITE H" only when preview says overwriteRequired=true
 ```
 
-These advanced commands are the Editor-owned contract boundary. The packaged
-in-game UI will call equivalent reviewed APIs only after runtime work below.
+These advanced commands remain the Editor-owned contract boundary. The packaged
+in-game Paste UI calls the equivalent reviewed APIs through the supervisor; it
+does not duplicate package mutation inside the runtime.
 
-## Runtime work still required
+## Runtime work remaining
 
-The runtime provider must implement a separate reviewed capability before the
-feature is exposed as an in-game creator workflow:
+The runtime provider now implements ordered Copy and exact Paste library,
+preview, confirmation, publication, and controlled-restart coordination. The
+remaining region-snapshot workflow is:
 
-1. authenticated ordered marker placement, insertion, movement, removal, and
-   closure packets;
-2. server-authoritative selection computation using this exact geometry rule;
-3. a complete ghost preview for terrain, all placement families, footprint
-   crossings, missing coverage, and overwrite collisions;
-4. hash-bound cut/paste transaction requests that cannot bypass the preview;
-5. runtime/editor coordination so the quiescent loaded world observes only the
-   newly validated complete package;
-6. durable user-facing undo/redo and recovery across save, close, interruption,
+1. interactive Cut using the same ordered selection and atomic transaction;
+2. marker insertion and movement beyond current append/undo/reopen controls;
+3. richer placement-family ghost models beyond the exact footprint outline,
+   destination anchor, and collision pins;
+4. graphical `.wbr` import/export and library management;
+5. durable user-facing undo/redo and recovery across save, close, interruption,
    and reopen; and
-7. custom material/sprite/definition capability negotiation and safe logical-ID
+6. custom material/sprite/definition capability negotiation and safe logical-ID
    remapping before any such dependency may resolve.
 
 Runtime work MUST preserve loopback authentication, package/catalog binding,

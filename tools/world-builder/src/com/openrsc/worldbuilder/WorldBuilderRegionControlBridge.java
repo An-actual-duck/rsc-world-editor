@@ -21,8 +21,13 @@ import java.util.regex.Pattern;
 final class WorldBuilderRegionControlBridge {
 	static final String REQUEST_FILE = "region-copy.request.json";
 	static final String RESPONSE_FILE = "region-copy.response.json";
+	static final String PASTE_REQUEST_FILE = "region-paste.request.json";
+	static final String PASTE_RESPONSE_FILE = "region-paste.response.json";
 	private static final String REQUEST_PENDING = ".region-copy.request.pending.json";
+	private static final String PASTE_REQUEST_PENDING =
+		".region-paste.request.pending.json";
 	private static final String RESPONSE_STAGE = ".region-copy.response.tmp";
+	private static final String PASTE_RESPONSE_STAGE = ".region-paste.response.tmp";
 	private static final String RUNTIME_RESPONSE_STAGE =
 		".region-copy.response.runtime.tmp";
 	private static final long MAX_REQUEST_BYTES = 256L * 1024L;
@@ -32,12 +37,19 @@ final class WorldBuilderRegionControlBridge {
 		"markers", "levels"));
 	private static final Set<String> MARKER_KEYS = new HashSet<String>(Arrays.asList(
 		"marker", "x", "y"));
+	private static final Set<String> PASTE_REQUEST_KEYS = new HashSet<String>(Arrays.asList(
+		"schemaVersion", "manifestType", "requestId", "operation", "snapshotId",
+		"level", "x", "y", "expectedPlan", "confirmation"));
 
 	private final Path project;
 	private final Path control;
 	private final Path request;
 	private final Path response;
 	private final Path responseStage;
+	private final Path pasteRequest;
+	private final Path pasteResponse;
+	private final Path pasteResponseStage;
+	private boolean restartPending;
 
 	WorldBuilderRegionControlBridge(Path project, Path control) throws IOException {
 		this.project = project.toAbsolutePath().normalize();
@@ -48,6 +60,9 @@ final class WorldBuilderRegionControlBridge {
 		this.request = this.control.resolve(REQUEST_FILE);
 		this.response = this.control.resolve(RESPONSE_FILE);
 		this.responseStage = this.control.resolve(RESPONSE_STAGE);
+		this.pasteRequest = this.control.resolve(PASTE_REQUEST_FILE);
+		this.pasteResponse = this.control.resolve(PASTE_RESPONSE_FILE);
+		this.pasteResponseStage = this.control.resolve(PASTE_RESPONSE_STAGE);
 	}
 
 	void reset() throws IOException {
@@ -58,9 +73,18 @@ final class WorldBuilderRegionControlBridge {
 		deleteRegularIfPresent(responseStage, "staged region Copy response");
 		deleteRegularIfPresent(control.resolve(RUNTIME_RESPONSE_STAGE),
 			"staged runtime region Copy response");
+		deleteRegularIfPresent(control.resolve(PASTE_REQUEST_PENDING),
+			"pending region Paste request");
+		deleteRegularIfPresent(pasteRequest, "region Paste request");
+		deleteRegularIfPresent(pasteResponse, "region Paste response");
+		deleteRegularIfPresent(pasteResponseStage, "staged region Paste response");
+		deleteRegularIfPresent(control.resolve(".region-paste.response.runtime.tmp"),
+			"staged runtime region Paste response");
+		restartPending = false;
 	}
 
 	void poll() throws IOException {
+		pollPaste();
 		if (!Files.exists(request, LinkOption.NOFOLLOW_LINKS)) return;
 		if (Files.exists(response, LinkOption.NOFOLLOW_LINKS)) return;
 		String requestId = "00000000000000000000000000000000";
@@ -97,9 +121,103 @@ final class WorldBuilderRegionControlBridge {
 		responseRoot.put("schemaVersion", Long.valueOf(1L));
 		responseRoot.put("manifestType", "world-builder-region-copy-response");
 		responseRoot.put("requestId", requestId);
-		publishResponse(responseRoot);
 		Files.deleteIfExists(request);
 		WorldBuilderAdaptiveDurability.forceDirectory(control);
+		publishResponse(responseRoot);
+	}
+
+	boolean restartPending() {
+		return restartPending;
+	}
+
+	private void pollPaste() throws IOException {
+		if (!Files.exists(pasteRequest, LinkOption.NOFOLLOW_LINKS)) return;
+		if (Files.exists(pasteResponse, LinkOption.NOFOLLOW_LINKS)) return;
+		String requestId = "00000000000000000000000000000000";
+		String operation = "unknown";
+		Map<String,Object> responseRoot = new LinkedHashMap<String,Object>();
+		try {
+			Map<String,Object> root = readPasteRequest();
+			requestId = requireText(root, "requestId", 32, 32);
+			if (!REQUEST_ID.matcher(requestId).matches()) {
+				throw new IllegalArgumentException("Region Paste request ID is invalid.");
+			}
+			operation = requireText(root, "operation", 5, 16);
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			String resultText;
+			WorldBuilderProcessSupervisor.relocateLegacyDatabaseLogs(project);
+			if ("library".equals(operation)) {
+				resultText = service.listLibraryUnderProjectLock(project);
+			} else {
+				String snapshotId = requireText(root, "snapshotId", 64, 64);
+				if (!WorldBuilderBoundedInventory.isHash(snapshotId)) {
+					throw new IllegalArgumentException("Region Paste snapshot ID is invalid.");
+				}
+				int level = requireSigned(root, "level");
+				int x = requireSigned(root, "x");
+				int y = requireSigned(root, "y");
+				new WorldBuilderAdaptiveProjectLifecycle().saveAfterSupervisedRun(project);
+				if ("preview".equals(operation)) {
+					resultText = service.pastePreviewUnderProjectLock(
+						project, snapshotId, level, x, y);
+				} else if ("apply".equals(operation)) {
+					String expectedPlan = requireText(root, "expectedPlan", 64, 64);
+					if (!WorldBuilderBoundedInventory.isHash(expectedPlan)) {
+						throw new IllegalArgumentException("Region Paste plan hash is invalid.");
+					}
+					String confirmation = requireText(root, "confirmation", 70, 74);
+					resultText = service.applyPasteUnderProjectLock(project, snapshotId,
+						level, x, y, expectedPlan, confirmation);
+					restartPending = true;
+				} else {
+					throw new IllegalArgumentException("Region Paste operation is unsupported.");
+				}
+			}
+			Map<String,Object> result = WorldBuilderJsonDocuments.readObject(
+				resultText.getBytes(StandardCharsets.UTF_8), "region Paste result");
+			responseRoot.put("status", "accepted");
+			responseRoot.put("result", result);
+		} catch (WorldBuilderContractException refusal) {
+			responseRoot.put("status", "refused");
+			responseRoot.put("errorCode", refusal.code());
+			responseRoot.put("message", refusal.getMessage());
+			responseRoot.put("nextStep", refusal.nextStep());
+		} catch (Exception failure) {
+			responseRoot.put("status", "refused");
+			responseRoot.put("errorCode", WorldBuilderErrorCodes.MUTATION_FAILED);
+			responseRoot.put("message", boundedMessage(failure));
+			responseRoot.put("nextStep",
+				"Review the snapshot, destination, and current project state, then retry.");
+		}
+		responseRoot.put("schemaVersion", Long.valueOf(1L));
+		responseRoot.put("manifestType", "world-builder-region-paste-response");
+		responseRoot.put("requestId", requestId);
+		responseRoot.put("operation", operation);
+		Files.deleteIfExists(pasteRequest);
+		WorldBuilderAdaptiveDurability.forceDirectory(control);
+		publishResponse(responseRoot, pasteResponse, pasteResponseStage,
+			"Region Paste response");
+	}
+
+	private Map<String,Object> readPasteRequest()
+		throws IOException, WorldBuilderDiscoveryException {
+		if (!Files.isRegularFile(pasteRequest, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(pasteRequest)) {
+			throw new IOException("Region Paste request is not a safe regular file.");
+		}
+		long size = Files.size(pasteRequest);
+		if (size < 2L || size > MAX_REQUEST_BYTES) {
+			throw new IOException("Region Paste request size is invalid.");
+		}
+		Map<String,Object> root = WorldBuilderJsonDocuments.readObject(pasteRequest);
+		if (!root.keySet().equals(PASTE_REQUEST_KEYS)
+			|| !(root.get("schemaVersion") instanceof Long)
+			|| ((Long)root.get("schemaVersion")).longValue() != 1L
+			|| !"world-builder-region-paste-request".equals(root.get("manifestType"))) {
+			throw new IllegalArgumentException("Region Paste request contract is invalid.");
+		}
+		return root;
 	}
 
 	private Map<String,Object> readRequest()
@@ -167,19 +285,24 @@ final class WorldBuilderRegionControlBridge {
 	}
 
 	private void publishResponse(Map<String,Object> root) throws IOException {
-		if (Files.exists(response, LinkOption.NOFOLLOW_LINKS)
-			|| Files.exists(responseStage, LinkOption.NOFOLLOW_LINKS)) {
-			throw new IOException("Region Copy response destination is already occupied.");
+		publishResponse(root, response, responseStage, "Region Copy response");
+	}
+
+	private void publishResponse(Map<String,Object> root, Path destination,
+		Path stage, String label) throws IOException {
+		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)
+			|| Files.exists(stage, LinkOption.NOFOLLOW_LINKS)) {
+			throw new IOException(label + " destination is already occupied.");
 		}
 		byte[] bytes = WorldBuilderJsonDocuments.pretty(root)
 			.getBytes(StandardCharsets.UTF_8);
-		Files.write(responseStage, bytes, StandardOpenOption.CREATE_NEW,
+		Files.write(stage, bytes, StandardOpenOption.CREATE_NEW,
 			StandardOpenOption.WRITE);
-		WorldBuilderAdaptiveDurability.forceFile(responseStage);
+		WorldBuilderAdaptiveDurability.forceFile(stage);
 		try {
-			Files.move(responseStage, response, StandardCopyOption.ATOMIC_MOVE);
+			Files.move(stage, destination, StandardCopyOption.ATOMIC_MOVE);
 		} catch (AtomicMoveNotSupportedException unsupported) {
-			Files.move(responseStage, response);
+			Files.move(stage, destination);
 		}
 		WorldBuilderAdaptiveDurability.forceDirectory(control);
 	}
@@ -213,6 +336,13 @@ final class WorldBuilderRegionControlBridge {
 			throw new IllegalArgumentException("Region Copy " + key + " is not an integer.");
 		}
 		return ((Long)raw).longValue();
+	}
+
+	private static int requireSigned(Map<String,Object> root, String key) {
+		long value = requireInteger(root, key);
+		if (!signed(value)) throw new IllegalArgumentException(
+			"Region Paste " + key + " is outside the signed coordinate range.");
+		return (int)value;
 	}
 
 	@SuppressWarnings("unchecked")

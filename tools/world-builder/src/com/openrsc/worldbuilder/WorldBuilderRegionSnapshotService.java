@@ -47,6 +47,7 @@ final class WorldBuilderRegionSnapshotService {
 	private static final int MAX_SPATIAL_INDEX_ENTRIES = 1_000_000;
 	private static final int MAX_LIBRARY_ENTRIES = 1024;
 	private static final int MAX_LIBRARY_DIRECTORY_ENTRIES = MAX_LIBRARY_ENTRIES + 1;
+	private static final long MAX_LIBRARY_LIST_BYTES = 512L * 1024L * 1024L;
 	private static final int MAX_RECOVERY_DIRECTORY_ENTRIES =
 		WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES;
 	private static final long MAX_RECOVERY_TREE_BYTES = 512L * 1024L * 1024L;
@@ -212,24 +213,35 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-paste-preview")) {
-			recoverRegionTransaction(root);
-			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
-			Bundle bundle = loadLibrary(root, snapshotId);
-			Map<String,Object> report = compatibility(verified, bundle.snapshot);
-			PreparedMutation prepared = preparePaste(verified, bundle.snapshot,
-				level, x, y, report);
-			try {
-				Map<String,Object> result = new LinkedHashMap<String,Object>();
-				result.put("operation", "paste-preview");
-				result.put("snapshotId", snapshotId);
-				result.put("compatibilityReport", report);
-				result.put("operationPlan", prepared.plan);
-				result.put("worldModified", Boolean.FALSE);
-				return WorldBuilderJsonDocuments.pretty(result);
-			} finally {
-				prepared.discard();
-			}
+			return pastePreviewUnderProjectLock(root, snapshotId, level, x, y);
+		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String pastePreviewUnderProjectLock(Path project, String snapshotId,
+		int level, int x, int y) throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
+		Bundle bundle = loadLibrary(root, snapshotId);
+		Map<String,Object> report = compatibility(verified, bundle.snapshot);
+		PreparedMutation prepared = preparePaste(verified, bundle.snapshot,
+			level, x, y, report);
+		try {
+			Map<String,Object> result = new LinkedHashMap<String,Object>();
+			result.put("operation", "paste-preview");
+			result.put("snapshotId", snapshotId);
+			result.put("name", text(bundle.snapshot.root, "name"));
+			result.put("tileCount", Long.valueOf(bundle.snapshot.tileCount));
+			result.put("placementCount", Long.valueOf(bundle.snapshot.placementCount));
+			result.put("previewFootprint", previewFootprint(bundle.snapshot, level, x, y));
+			result.put("compatibilityReport", report);
+			result.put("operationPlan", prepared.plan);
+			result.put("worldModified", Boolean.FALSE);
+			return WorldBuilderJsonDocuments.pretty(result);
+		} finally {
+			prepared.discard();
 		}
 	}
 
@@ -240,12 +252,28 @@ final class WorldBuilderRegionSnapshotService {
 			expectedPlan, confirmation);
 	}
 
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String applyPasteUnderProjectLock(Path project, String snapshotId,
+		int level, int x, int y, String expectedPlan, String confirmation)
+		throws IOException, WorldBuilderContractException {
+		return applyUnderProjectLock(project.toAbsolutePath().normalize(), snapshotId,
+			new Destination(level, x, y), "paste", expectedPlan, confirmation);
+	}
+
 	private String apply(Path requestedProject, String snapshotId,
 		Destination destination, String operation, String expectedPlan,
 		String confirmation) throws IOException, WorldBuilderContractException {
 		Path project = requestedProject.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, "region-" + operation)) {
+			return applyUnderProjectLock(project, snapshotId, destination, operation,
+				expectedPlan, confirmation);
+		}
+	}
+
+	private String applyUnderProjectLock(Path project, String snapshotId,
+		Destination destination, String operation, String expectedPlan,
+		String confirmation) throws IOException, WorldBuilderContractException {
 			recoverRegionTransaction(project);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
@@ -317,7 +345,90 @@ final class WorldBuilderRegionSnapshotService {
 			} finally {
 				if (!published && transaction == null) prepared.discard();
 			}
+	}
+
+	/** Lists every verified content-addressed project-local snapshot deterministically. */
+	String listLibraryUnderProjectLock(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
+		List<Object> records = new ArrayList<Object>();
+		Path requestedLibrary = root.resolve(LIBRARY).normalize();
+		if (Files.exists(requestedLibrary, LinkOption.NOFOLLOW_LINKS)) {
+			Path verifiedLibrary = library(root, false);
+			List<Path> entries = new ArrayList<Path>();
+			long representedBytes = 0L;
+			try (DirectoryStream<Path> inventory = Files.newDirectoryStream(verifiedLibrary)) {
+				for (Path entry : inventory) {
+					if (entries.size() >= MAX_LIBRARY_DIRECTORY_ENTRIES) throw problem(
+						WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
+						"Snapshot library inventory exceeds its bound.",
+						"Archive reviewed bundles outside the project before continuing.");
+					if (Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)) {
+						representedBytes += Files.size(entry);
+						if (representedBytes > MAX_LIBRARY_LIST_BYTES) throw problem(
+							WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, LIBRARY,
+							"Snapshot library exceeds the 512 MiB interactive browsing bound.",
+							"Archive reviewed bundles outside the project before browsing in-game.");
+					}
+					entries.add(entry);
+				}
+			}
+			Collections.sort(entries, new Comparator<Path>() {
+				@Override public int compare(Path left, Path right) {
+					return left.getFileName().toString().compareTo(right.getFileName().toString());
+				}
+			});
+			for (Path entry : entries) {
+				String filename = entry.getFileName().toString();
+				if (!filename.endsWith(BUNDLE_EXTENSION)
+					|| filename.length() != 64 + BUNDLE_EXTENSION.length()) throw problem(
+						WorldBuilderErrorCodes.UNSAFE_PATH, LIBRARY + "/" + filename,
+						"Snapshot library contains a non-canonical entry.",
+						"Keep only exact content-addressed .wbr bundles in the library.");
+				String snapshotId = filename.substring(0, 64);
+				Bundle bundle = loadLibrary(root, snapshotId);
+				Map<String,Object> record = new LinkedHashMap<String,Object>();
+				record.put("snapshotId", bundle.snapshot.id);
+				record.put("name", text(bundle.snapshot.root, "name"));
+				record.put("tileCount", Long.valueOf(bundle.snapshot.tileCount));
+				record.put("placementCount", Long.valueOf(bundle.snapshot.placementCount));
+				record.put("levelCount", Long.valueOf(list(bundle.snapshot.root, "levels").size()));
+				record.put("bundleSha256", WorldBuilderHashes.sha256(bundle.bytes));
+				records.add(record);
+			}
 		}
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("operation", "library");
+		result.put("snapshots", records);
+		result.put("worldModified", Boolean.FALSE);
+		return WorldBuilderJsonDocuments.pretty(result);
+	}
+
+	private static Map<String,Object> previewFootprint(
+		WorldBuilderRegionContracts.Snapshot snapshot, int level, int x, int y)
+		throws WorldBuilderContractException {
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		List<Object> markers = new ArrayList<Object>();
+		for (Object raw : list(snapshot.root, "polygon")) {
+			Map<String,Object> relative = map(raw);
+			Map<String,Object> marker = new LinkedHashMap<String,Object>();
+			marker.put("marker", relative.get("marker"));
+			marker.put("x", Long.valueOf(checkedAdd(x,
+				integer(relative, "xOffset"), "preview x")));
+			marker.put("y", Long.valueOf(checkedAdd(y,
+				integer(relative, "yOffset"), "preview y")));
+			markers.add(marker);
+		}
+		List<Object> levels = new ArrayList<Object>();
+		for (Object raw : list(snapshot.root, "levels")) {
+			levels.add(Long.valueOf(checkedAdd(level,
+				integer(map(raw), "levelOffset"), "preview level")));
+		}
+		result.put("markers", markers);
+		result.put("levels", levels);
+		return result;
 	}
 
 	private WorldBuilderRegionContracts.Selection readSelection(Path requested)
