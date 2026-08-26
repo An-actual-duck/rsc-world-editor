@@ -333,6 +333,7 @@ public final class WorldBuilderCli {
 		Path target = null;
 		Path report = null;
 		Path itemVisualMappings = null;
+		boolean developmentTerrainSeed = false;
 		String displayName = null;
 		String confirmation = null;
 		int port = 0;
@@ -350,6 +351,9 @@ public final class WorldBuilderCli {
 			} else if ("--item-visual-mappings".equals(argument)
 				&& index + 1 < args.length) {
 				itemVisualMappings = Paths.get(args[++index]);
+			} else if ("--development-terrain-seed".equals(argument)
+				&& !developmentTerrainSeed) {
+				developmentTerrainSeed = true;
 			} else if ("--display-name".equals(argument) && index + 1 < args.length) {
 				displayName = args[++index];
 			} else if ("--port".equals(argument) && index + 1 < args.length) {
@@ -376,7 +380,7 @@ public final class WorldBuilderCli {
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
 				new WorldBuilderAdaptiveProjectLifecycle().create(
 					installation, runtime, target, report, displayName, port, confirmation,
-					itemVisualMappings);
+					itemVisualMappings, developmentTerrainSeed);
 			System.out.print(created.toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
@@ -1803,7 +1807,8 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli create-project --installation-root <World Builder 2>"
 			+ " --runtime-root <builder-runtime> [--target-root <server-root>]"
 			+ " --discovery-report <report.json> --display-name <name> --port <port>"
-			+ " [--item-visual-mappings <mapping.json>] --confirm CREATE"
+			+ " [--item-visual-mappings <mapping.json>]"
+			+ " [--development-terrain-seed] --confirm CREATE"
 			+ "\n  WorldBuilderCli list-projects --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli select-project --installation-root <World Builder 2>"
 			+ " --project-id <uuid>"

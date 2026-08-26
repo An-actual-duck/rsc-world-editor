@@ -83,6 +83,16 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path requestedTargetRoot, Path discoveryReportPath, String requestedDisplayName,
 		int port, String confirmation, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		return create(requestedInstallRoot, requestedRuntimeRoot, requestedTargetRoot,
+			discoveryReportPath, requestedDisplayName, port, confirmation,
+			itemVisualMappings, false);
+	}
+
+	ProjectResult create(Path requestedInstallRoot, Path requestedRuntimeRoot,
+		Path requestedTargetRoot, Path discoveryReportPath, String requestedDisplayName,
+		int port, String confirmation, Path itemVisualMappings,
+		boolean developmentTerrainSeed)
+		throws IOException, WorldBuilderContractException {
 		if (!"CREATE".equals(confirmation)) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation",
 				"Adaptive project creation requires exact CREATE confirmation.",
@@ -120,6 +130,12 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Discovery did not select packed, layered, or standalone input.",
 				"Run adaptive discovery against one supported stable origin.");
 		}
+		if (developmentTerrainSeed && !"standalone-empty".equals(origin)) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				"development-terrain-seed",
+				"The development terrain seed is available only for standalone projects.",
+				"Use an exact standalone discovery report without a server target.");
+		}
 		String displayName = requireDisplayName(requestedDisplayName);
 		Path target = requestedTargetRoot == null ? null
 			: realDirectory(requestedTargetRoot, "target root");
@@ -143,7 +159,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			try {
 				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
-					discoveryReportPath, displayName, origin, port, itemVisualMappings);
+					discoveryReportPath, displayName, origin, port, itemVisualMappings,
+					developmentTerrainSeed);
 			} finally {
 				lock.release();
 			}
@@ -154,7 +171,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
 		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
-		int port, Path itemVisualMappings) throws IOException, WorldBuilderContractException {
+		int port, Path itemVisualMappings, boolean developmentTerrainSeed)
+		throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
 		if (existing.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_LIMIT_EXCEEDED, REGISTRY_FILE,
@@ -185,8 +203,11 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			PreparedOrigin prepared;
 			if ("standalone-empty".equals(origin)) {
 				WorldBuilderEmptyWorldGenerator.Result empty =
-					WorldBuilderEmptyWorldGenerator.generate(
-						stage, runtimeSha256, sourceRuntime);
+					developmentTerrainSeed
+						? WorldBuilderEmptyWorldGenerator.generateDevelopment(
+							stage, runtimeSha256, sourceRuntime)
+						: WorldBuilderEmptyWorldGenerator.generate(
+							stage, runtimeSha256, sourceRuntime);
 				prepared = PreparedOrigin.empty(empty);
 			} else {
 				prepared = prepareTargetOrigin(stage, target, report, stagedReport,
@@ -216,7 +237,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					WORKING_PACKAGE_DIRECTORY, "working", stagedDefinitions);
 			if ("standalone-empty".equals(origin)) {
 				stagedWorking = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
-					stagedTarget, stagedWorking);
+					stagedTarget, stagedWorking, prepared.standaloneGeneratorId);
 			}
 			if (Files.exists(stage.resolve(
 				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY),
@@ -490,7 +511,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		manifest.put("target", target);
 		Map<String,Object> standaloneValue = new LinkedHashMap<String,Object>();
 		standaloneValue.put("generatorId", standalone
-			? WorldBuilderEmptyWorldGenerator.GENERATOR_ID : "");
+			? prepared.standaloneGeneratorId : "");
 		standaloneValue.put("catalogId", standalone
 			? WorldBuilderEmptyWorldGenerator.CATALOG_ID : "");
 		standaloneValue.put("runtimeId", standalone
@@ -617,8 +638,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if ("standalone-empty".equals(string(manifest, "origin"))) {
 			Map<String,Object> standalone = object(
 				manifest.get("standalone"), "standalone");
-			if (!WorldBuilderEmptyWorldGenerator.GENERATOR_ID.equals(
-					string(standalone, "generatorId"))
+			String generatorId = string(standalone, "generatorId");
+			if (!WorldBuilderEmptyWorldGenerator.supportedGeneratorId(generatorId)
 				|| !definitions.catalogId.equals(string(standalone, "catalogId"))
 				|| !WorldBuilderEmptyWorldGenerator.RUNTIME_ID.equals(
 					string(standalone, "runtimeId"))) {
@@ -631,8 +652,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderGenericLayeredPackage.inspect(projectTarget,
 				BASELINE_DIRECTORY, "baseline", definitions);
 		if ("standalone-empty".equals(string(manifest, "origin"))) {
+			String generatorId = string(object(
+				manifest.get("standalone"), "standalone"), "generatorId");
 			baseline = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
-				projectTarget, baseline);
+				projectTarget, baseline, generatorId);
 		}
 		if (!baseline.fingerprintSha256.equals(
 			string(fingerprints, "layeredBaselineSha256"))) {
@@ -644,8 +667,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderGenericLayeredPackage.inspect(projectTarget,
 				WORKING_PACKAGE_DIRECTORY, "working", definitions);
 		if ("standalone-empty".equals(string(manifest, "origin"))) {
+			String generatorId = string(object(
+				manifest.get("standalone"), "standalone"), "generatorId");
 			working = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
-				projectTarget, working);
+				projectTarget, working, generatorId);
 		}
 		if (requireWorkingFingerprint && !working.fingerprintSha256.equals(
 			string(fingerprints, "workingSha256"))) {
@@ -2393,6 +2418,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		final String conversionFingerprintSha256;
 		final String importProfileId;
 		final boolean installEnabled;
+		final String standaloneGeneratorId;
 
 		PreparedOrigin(List<InventoryRecord> originalEvidence,
 			List<InventoryRecord> definitionEvidence, String adapterId,
@@ -2402,7 +2428,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			String selectedConfigurationSha256,
 			String originDescriptorSourcePath, String definitionSha256,
 			String packageFingerprintSha256, String conversionFingerprintSha256,
-			String importProfileId, boolean installEnabled) {
+			String importProfileId, boolean installEnabled,
+			String standaloneGeneratorId) {
 			this.originalEvidence = originalEvidence;
 			this.definitionEvidence = definitionEvidence;
 			this.adapterId = adapterId;
@@ -2417,6 +2444,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			this.conversionFingerprintSha256 = conversionFingerprintSha256;
 			this.importProfileId = importProfileId;
 			this.installEnabled = installEnabled;
+			this.standaloneGeneratorId = standaloneGeneratorId;
 		}
 
 		static PreparedOrigin target(Path projectStage, List<Evidence> evidence,
@@ -2458,13 +2486,13 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"source/original/" + configuration.relativePath,
 				configuration.sha256, descriptor,
 				capability.definitionCatalogSha256, packageFingerprint,
-				conversionFingerprint, profile, capability.installEnabled);
+				conversionFingerprint, profile, capability.installEnabled, "");
 		}
 
 		static PreparedOrigin empty(WorldBuilderEmptyWorldGenerator.Result empty) {
 			List<InventoryRecord> original = Arrays.<InventoryRecord>asList(
 				new InventoryRecord("empty-origin",
-					WorldBuilderEmptyWorldGenerator.DESCRIPTOR_PATH, true,
+					empty.descriptorPath, true,
 					empty.descriptorSize, empty.descriptorSha256));
 			List<InventoryRecord> definitions = Arrays.<InventoryRecord>asList(
 				new InventoryRecord("default-definition-catalog",
@@ -2474,8 +2502,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					WorldBuilderEmptyWorldGenerator.RUNTIME_PATH, true,
 					empty.runtimeEvidenceSize, empty.runtimeEvidenceSha256));
 			return new PreparedOrigin(original, definitions, "", "", "", "", "", "",
-				WorldBuilderEmptyWorldGenerator.DESCRIPTOR_PATH,
-				empty.catalogSha256, empty.packageFingerprintSha256, "", "", false);
+				empty.descriptorPath,
+				empty.catalogSha256, empty.packageFingerprintSha256, "", "", false,
+				empty.generatorId);
 		}
 	}
 

@@ -109,10 +109,10 @@ Tool work needs a deterministic map without depending on a real private-server
 map and without asking a developer to create a new project on every launch.
 This should consist of two related facilities:
 
-1. An immutable generated terrain seed containing at least one complete
-   48-by-48 sector. A 2-by-2 sector, 96-by-96-tile initial seed is preferred so
-   ordinary brush and camera tests can begin near the center instead of being
-   dominated by coverage edges.
+1. An immutable generated terrain seed containing a 3-by-3-sector,
+   144-by-144-tile field. The odd sector count keeps the familiar `120,648`
+   spawn in the center sector with at least 71 tiles of working room in every
+   direction instead of placing it near a coverage edge.
 2. A persistent ignored development sandbox created from that seed once and
    reopened on later development launches. It retains deliberate edits until
    an explicit reset command replaces it from the known seed.
@@ -138,11 +138,11 @@ prove that public archives contain no bundled world or development workspace.
 Automated interaction can validate state and rendering inputs; subjective
 fluidity and appearance remain owner-native checks without screenshots.
 
-Readiness: **design-ready and the first implementation prerequisite**.
-Standalone-empty project generation, deterministic fixtures, isolated runtime
-launch, automated authoring probes, package inspection, and release no-world
-guards already exist. They need one supported developer entrypoint and the
-specific reusable-seed/sandbox lifecycle above.
+Readiness: **implemented as the first interaction-tool prerequisite**.
+`scripts/world-builder-tool-test-environment.sh` prepares, validates, reuses,
+launches, and recoverably resets the ignored sandbox. Automated lifecycle tests
+clone the same deterministic generator into temporary projects, while release
+inspection continues to enforce the no-world boundary.
 
 ## Goal 1 — A fluid, purpose-built editor
 
@@ -701,7 +701,7 @@ material-sharing model that custom materials later have to replace.
 
 | Goal | Current readiness | Main missing work |
 | --- | --- | --- |
-| Reusable development test environment | Design-ready; first prerequisite | Generated seed, persistent sandbox launcher, reset and isolated test cloning |
+| Reusable development test environment | Implemented | Extend its automated action probes alongside each new tool |
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready | Immediate preview, pipelining, reconciliation, incremental rebuild |

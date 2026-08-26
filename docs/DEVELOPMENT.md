@@ -21,6 +21,43 @@ Run the complete repository test suite:
 ./scripts/test.sh
 ```
 
+## Reusable tool test environment
+
+Tool interaction work uses a generated development-only world rather than a
+private-server map. The first prepare builds the exact locked independent
+runtime and creates one persistent ignored project with a flat 3-by-3-sector
+(`144`-by-`144` tile) field centered on layer `0` spawn `120,648`:
+
+```bash
+./scripts/world-builder-tool-test-environment.sh prepare
+```
+
+Later prepares validate and reuse the same UUID project. Launch it directly,
+without the desktop Create Project flow, with:
+
+```bash
+./scripts/world-builder-tool-test-environment.sh launch
+```
+
+The default installation is beneath
+`output/development/world-builder-tool-test-environment/` and is ignored by
+Git. Print its exact path with the `path` mode. To return to a new deterministic
+seed, use the explicit recoverable reset:
+
+```bash
+./scripts/world-builder-tool-test-environment.sh reset --confirm RESET
+```
+
+Reset moves the complete previous installation under the environment's
+`retired/` directory before creating another; it does not delete the old
+project. A runtime-lock or seed-identity change also refuses silent reuse and
+requires this explicit reset.
+
+The persistent sandbox is for human/AI exploratory work only. Automated tests
+create independent temporary projects from the same generator and never reuse
+the mutable sandbox. Public packaging continues to reject terrain, placements,
+projects, databases, logs, and other generated development state.
+
 Tests create temporary server layouts, packed and layered inputs, standalone
 empty origins, UUID project registries, historical workspaces, conversion
 outputs, release archives, and fake isolated runtimes. They must not use an

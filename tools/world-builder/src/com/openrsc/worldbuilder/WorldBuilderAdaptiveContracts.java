@@ -506,7 +506,10 @@ final class WorldBuilderAdaptiveContracts {
 		if ("standalone-empty".equals(origin)) {
 			if (!adapter.isEmpty() || !capability.isEmpty() || selected.present
 				|| !conversion.isEmpty()
-				|| !"source/original/empty-world-v1.json".equals(descriptor.relativePath)) {
+				|| !(WorldBuilderEmptyWorldGenerator.DESCRIPTOR_PATH.equals(
+					descriptor.relativePath)
+					|| WorldBuilderEmptyWorldGenerator.DEVELOPMENT_DESCRIPTOR_PATH.equals(
+						descriptor.relativePath))) {
 				invalid(op, "Standalone source snapshot contains target lineage.");
 			}
 		} else if (adapter.isEmpty() || capability.isEmpty() || !selected.present) {

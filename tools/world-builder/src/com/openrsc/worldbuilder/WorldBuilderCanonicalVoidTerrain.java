@@ -46,4 +46,14 @@ final class WorldBuilderCanonicalVoidTerrain {
 		}
 		return result;
 	}
+
+	static byte[] visibleFloorSector() {
+		byte[] result = sector();
+		for (int offset = 0; offset < result.length;
+			offset += WorldBuilderRawLayeredTerrainCodec.TILE_BYTES) {
+			result[offset + 2] = (byte)VISIBLE_FLOOR_COLOR;
+			result[offset + 3] = (byte)VISIBLE_FLOOR_OVERLAY;
+		}
+		return result;
+	}
 }

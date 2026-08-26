@@ -11,10 +11,13 @@ import java.util.Map;
 /** Generates the canonical structural void used by standalone empty projects. */
 final class WorldBuilderEmptyWorldGenerator {
 	static final String GENERATOR_ID = "empty-world-v1";
+	static final String DEVELOPMENT_GENERATOR_ID = "development-terrain-v1";
 	static final String LEGACY_CATALOG_ID = "world-builder-empty-default-v1";
 	static final String CATALOG_ID = "world-builder-runtime-default-v1";
 	static final String RUNTIME_ID = "world-builder-empty-runtime-v1";
 	static final String DESCRIPTOR_PATH = "source/original/empty-world-v1.json";
+	static final String DEVELOPMENT_DESCRIPTOR_PATH =
+		"source/original/development-terrain-v1.json";
 	static final String CATALOG_PATH =
 		"source/runtime/default-definition-catalog.json";
 	static final String RUNTIME_PATH = "source/runtime/default-runtime-evidence.json";
@@ -27,6 +30,8 @@ final class WorldBuilderEmptyWorldGenerator {
 	static final int INITIAL_LOCAL_Y = Math.floorMod(INITIAL_Y, 48);
 	private static final String PACKAGE_PATH = "source/layered-baseline/package";
 	private static final String PACKAGE_ID = "world-builder.empty-world-v1";
+	private static final String DEVELOPMENT_PACKAGE_ID =
+		"world-builder.development-terrain-v1";
 	private static final String PACKAGE_VERSION = "1.0.0";
 	private static final String WORLD_SPACE =
 		WorldBuilderCanonicalVoidTerrain.WORLD_SPACE;
@@ -36,6 +41,20 @@ final class WorldBuilderEmptyWorldGenerator {
 
 	static Result generate(Path projectRoot, String applicationRuntimeSha256,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime)
+		throws IOException, WorldBuilderContractException {
+		return generate(projectRoot, applicationRuntimeSha256, sourceRuntime, false);
+	}
+
+	static Result generateDevelopment(Path projectRoot,
+		String applicationRuntimeSha256,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime)
+		throws IOException, WorldBuilderContractException {
+		return generate(projectRoot, applicationRuntimeSha256, sourceRuntime, true);
+	}
+
+	private static Result generate(Path projectRoot, String applicationRuntimeSha256,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
+		boolean development)
 		throws IOException, WorldBuilderContractException {
 		Path catalogPath = projectRoot.resolve(CATALOG_PATH);
 		Files.createDirectories(catalogPath.getParent());
@@ -64,13 +83,16 @@ final class WorldBuilderEmptyWorldGenerator {
 		writeJson(runtimePath, runtime);
 
 		WorldBuilderGenericLayeredPackage layered = generatePackage(
-			projectRoot, projectRoot.resolve(PACKAGE_PATH), definitions);
-		Path descriptorPath = projectRoot.resolve(DESCRIPTOR_PATH);
+			projectRoot, projectRoot.resolve(PACKAGE_PATH), definitions, development);
+		String generatorId = development ? DEVELOPMENT_GENERATOR_ID : GENERATOR_ID;
+		String descriptorRelative = development
+			? DEVELOPMENT_DESCRIPTOR_PATH : DESCRIPTOR_PATH;
+		Path descriptorPath = projectRoot.resolve(descriptorRelative);
 		Files.createDirectories(descriptorPath.getParent());
 		Map<String,Object> descriptor = new LinkedHashMap<String,Object>();
 		descriptor.put("schemaVersion", Long.valueOf(1L));
 		descriptor.put("manifestType", "world-builder-empty-world");
-		descriptor.put("generatorId", GENERATOR_ID);
+		descriptor.put("generatorId", generatorId);
 		descriptor.put("coordinateModel", "signed-layered-v1");
 		Map<String,Object> initial = new LinkedHashMap<String,Object>();
 		initial.put("level", Long.valueOf(INITIAL_LEVEL));
@@ -87,7 +109,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		descriptor.put("runtime", runtimeIdentity);
 		descriptor.put("packageFingerprintSha256", layered.fingerprintSha256);
 		writeJson(descriptorPath, descriptor);
-		return new Result(layered.fingerprintSha256,
+		return new Result(generatorId, descriptorRelative, layered.fingerprintSha256,
 			WorldBuilderHashes.sha256(descriptorPath), Files.size(descriptorPath),
 			catalogSha256, Files.size(catalogPath),
 			WorldBuilderHashes.sha256(runtimePath), Files.size(runtimePath));
@@ -95,16 +117,36 @@ final class WorldBuilderEmptyWorldGenerator {
 
 	private static WorldBuilderGenericLayeredPackage generatePackage(
 		Path projectRoot, Path packageRoot,
-		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions)
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
+		boolean development)
 		throws IOException, WorldBuilderContractException {
-		String terrainRelative = terrainPath(
-			INITIAL_LEVEL, INITIAL_SECTOR_X, INITIAL_SECTOR_Y);
-		Path terrain = packageRoot.resolve(terrainRelative);
 		Path placements = packageRoot.resolve("placements/global/lp0.json");
-		Files.createDirectories(terrain.getParent());
 		Files.createDirectories(placements.getParent());
-		Files.write(terrain, WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
-			INITIAL_LOCAL_X, INITIAL_LOCAL_Y));
+		ArrayList<Object> sectors = new ArrayList<Object>();
+		int radius = development ? 1 : 0;
+		for (int sectorX = INITIAL_SECTOR_X - radius;
+			sectorX <= INITIAL_SECTOR_X + radius; sectorX++) {
+			for (int sectorY = INITIAL_SECTOR_Y - radius;
+				sectorY <= INITIAL_SECTOR_Y + radius; sectorY++) {
+				String terrainRelative = terrainPath(
+					INITIAL_LEVEL, sectorX, sectorY);
+				Path terrain = packageRoot.resolve(terrainRelative);
+				Files.createDirectories(terrain.getParent());
+				Files.write(terrain, development
+					? WorldBuilderCanonicalVoidTerrain.visibleFloorSector()
+					: WorldBuilderCanonicalVoidTerrain.sectorWithVisibleFloorPatch(
+						INITIAL_LOCAL_X, INITIAL_LOCAL_Y));
+				Map<String,Object> sector = new LinkedHashMap<String,Object>();
+				sector.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
+				sector.put("level", Long.valueOf(INITIAL_LEVEL));
+				sector.put("path", terrainRelative);
+				sector.put("sectorX", Long.valueOf(sectorX));
+				sector.put("sectorY", Long.valueOf(sectorY));
+				sector.put("sha256", WorldBuilderHashes.sha256(terrain));
+				sector.put("worldSpace", WORLD_SPACE);
+				sectors.add(sector);
+			}
+		}
 
 		Map<String,Object> placement = new LinkedHashMap<String,Object>();
 		placement.put("schemaVersion", Long.valueOf(3L));
@@ -120,7 +162,8 @@ final class WorldBuilderEmptyWorldGenerator {
 		Map<String,Object> manifest = new LinkedHashMap<String,Object>();
 		manifest.put("schemaVersion", Long.valueOf(1L));
 		manifest.put("packageType", "layered-world");
-		manifest.put("packageId", PACKAGE_ID);
+		manifest.put("packageId", development
+			? DEVELOPMENT_PACKAGE_ID : PACKAGE_ID);
 		manifest.put("packageVersion", PACKAGE_VERSION);
 		manifest.put("coordinateModel", "signed-layered-v1");
 		Map<String,Object> storage = new LinkedHashMap<String,Object>();
@@ -136,21 +179,11 @@ final class WorldBuilderEmptyWorldGenerator {
 		ArrayList<Object> levels = new ArrayList<Object>();
 		Map<String,Object> level = new LinkedHashMap<String,Object>();
 		level.put("level", Long.valueOf(INITIAL_LEVEL));
-		level.put("name", "Empty Layer 0");
-		level.put("role", "empty-origin");
+		level.put("name", development ? "Development Terrain 0" : "Empty Layer 0");
+		level.put("role", development ? "development-seed" : "empty-origin");
 		level.put("worldSpace", WORLD_SPACE);
 		levels.add(level);
 		manifest.put("levels", levels);
-		ArrayList<Object> sectors = new ArrayList<Object>();
-		Map<String,Object> sector = new LinkedHashMap<String,Object>();
-		sector.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
-		sector.put("level", Long.valueOf(INITIAL_LEVEL));
-		sector.put("path", terrainRelative);
-		sector.put("sectorX", Long.valueOf(INITIAL_SECTOR_X));
-		sector.put("sectorY", Long.valueOf(INITIAL_SECTOR_Y));
-		sector.put("sha256", WorldBuilderHashes.sha256(terrain));
-		sector.put("worldSpace", WORLD_SPACE);
-		sectors.add(sector);
 		manifest.put("terrainSectors", sectors);
 		ArrayList<Object> sets = new ArrayList<Object>();
 		Map<String,Object> set = new LinkedHashMap<String,Object>();
@@ -170,11 +203,12 @@ final class WorldBuilderEmptyWorldGenerator {
 
 	static WorldBuilderGenericLayeredPackage bindInitialLocation(
 		WorldBuilderReadOnlyTarget target,
-		WorldBuilderGenericLayeredPackage layered)
+		WorldBuilderGenericLayeredPackage layered, String generatorId)
 		throws WorldBuilderContractException {
-		Map<String,Object> descriptor = target.readObject(DESCRIPTOR_PATH);
-		if (!GENERATOR_ID.equals(descriptor.get("generatorId"))) {
-			throw problem(DESCRIPTOR_PATH,
+		String descriptorPath = descriptorPath(generatorId);
+		Map<String,Object> descriptor = target.readObject(descriptorPath);
+		if (!generatorId.equals(descriptor.get("generatorId"))) {
+			throw problem(descriptorPath,
 				"Standalone generator identity is unsupported.",
 				"Restore a project created by the supported empty-world generator.");
 		}
@@ -225,7 +259,22 @@ final class WorldBuilderEmptyWorldGenerator {
 				"Standalone descriptor and authoring start metadata disagree.",
 				"Restore the complete immutable standalone source evidence.");
 		}
-		return layered.withInitialLocation(level, x, y, DESCRIPTOR_PATH);
+		return layered.withInitialLocation(level, x, y, descriptorPath);
+	}
+
+	static boolean supportedGeneratorId(String generatorId) {
+		return GENERATOR_ID.equals(generatorId)
+			|| DEVELOPMENT_GENERATOR_ID.equals(generatorId);
+	}
+
+	static String descriptorPath(String generatorId)
+		throws WorldBuilderContractException {
+		if (GENERATOR_ID.equals(generatorId)) return DESCRIPTOR_PATH;
+		if (DEVELOPMENT_GENERATOR_ID.equals(generatorId)) {
+			return DEVELOPMENT_DESCRIPTOR_PATH;
+		}
+		throw problem("generatorId", "Standalone generator identity is unsupported.",
+			"Restore a project created by a supported standalone generator.");
 	}
 
 	private static String terrainPath(int level, int sectorX, int sectorY) {
@@ -273,6 +322,8 @@ final class WorldBuilderEmptyWorldGenerator {
 	}
 
 	static final class Result {
+		final String generatorId;
+		final String descriptorPath;
 		final String packageFingerprintSha256;
 		final String descriptorSha256;
 		final long descriptorSize;
@@ -281,9 +332,12 @@ final class WorldBuilderEmptyWorldGenerator {
 		final String runtimeEvidenceSha256;
 		final long runtimeEvidenceSize;
 
-		Result(String packageFingerprintSha256, String descriptorSha256,
+		Result(String generatorId, String descriptorPath,
+			String packageFingerprintSha256, String descriptorSha256,
 			long descriptorSize, String catalogSha256, long catalogSize,
 			String runtimeEvidenceSha256, long runtimeEvidenceSize) {
+			this.generatorId = generatorId;
+			this.descriptorPath = descriptorPath;
 			this.packageFingerprintSha256 = packageFingerprintSha256;
 			this.descriptorSha256 = descriptorSha256;
 			this.descriptorSize = descriptorSize;

@@ -29,7 +29,7 @@ final release validation remain separate from the implemented launch and Phase
 Build the standalone tools with:
 
 ```bash
-./scripts/build-world-builder-tools.sh
+./scripts/build-tools.sh
 ```
 
 The examples below use:
@@ -40,6 +40,15 @@ output/world-builder-tools/world-builder-tools.jar
 
 Packaged launchers use the identical JAR under
 `builder-runtime/launcher/world-builder-tools.jar`.
+
+For tool development, `create-project --development-terrain-seed` is a strict
+standalone-only option used by
+`scripts/world-builder-tool-test-environment.sh`. It generates nine complete
+visible-floor sectors around `120,648`; it cannot be combined with a
+target-backed discovery report. Ordinary standalone creation retains its
+canonical one-sector structural void with a centered 3-by-3 visibility patch.
+The development generator is invoked locally and no generated sector or
+sandbox is stored in source control or a release archive.
 
 ## Desktop project launcher
 

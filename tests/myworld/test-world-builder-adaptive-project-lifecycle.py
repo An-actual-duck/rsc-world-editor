@@ -1368,8 +1368,9 @@ public final class FakeAdaptiveClient {
         name: str,
         port: int,
         confirmation: str = "CREATE",
+        development: bool = False,
     ) -> tuple[subprocess.CompletedProcess, dict | None]:
-        result = self.run_cli(
+        arguments = [
             "create-project",
             "--installation-root",
             installation,
@@ -1385,7 +1386,10 @@ public final class FakeAdaptiveClient {
             port,
             "--confirm",
             confirmation,
-        )
+        ]
+        if development:
+            arguments.append("--development-terrain-seed")
+        result = self.run_cli(*arguments)
         return result, json.loads(result.stdout) if result.returncode == 0 else None
 
     def install_legacy_working_package(
@@ -1895,6 +1899,171 @@ public final class FakeAdaptiveClient {
         self.assertEqual([], placement["npcs"])
         self.assertEqual([], placement["scenery"])
         self.assertEqual(sha256(placement_path), placement_set["sha256"])
+
+    def assert_development_terrain_package(self, package: Path) -> None:
+        manifest = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual("world-builder.development-terrain-v1", manifest["packageId"])
+        self.assertEqual("Development Terrain 0", manifest["levels"][0]["name"])
+        self.assertEqual("development-seed", manifest["levels"][0]["role"])
+        sectors = manifest["terrainSectors"]
+        self.assertEqual(9, len(sectors))
+        self.assertEqual(
+            [(x, y) for x in range(1, 4) for y in range(12, 15)],
+            [(sector["sectorX"], sector["sectorY"]) for sector in sectors],
+        )
+        for sector in sectors:
+            terrain = package / sector["path"]
+            self.assertEqual(VISIBLE_FLOOR_TILE * (48 * 48), terrain.read_bytes())
+            self.assertEqual(sha256(terrain), sector["sha256"])
+        minimum_x = sectors[0]["sectorX"] * 48
+        minimum_y = sectors[0]["sectorY"] * 48
+        maximum_x = (sectors[-1]["sectorX"] + 1) * 48 - 1
+        maximum_y = (sectors[-1]["sectorY"] + 1) * 48 - 1
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["x"] - minimum_x, 71)
+        self.assertGreaterEqual(maximum_x - STANDALONE_INITIAL_LOCATION["x"], 71)
+        self.assertGreaterEqual(STANDALONE_INITIAL_LOCATION["y"] - minimum_y, 71)
+        self.assertGreaterEqual(maximum_y - STANDALONE_INITIAL_LOCATION["y"], 71)
+
+    def test_development_terrain_seed_is_large_deterministic_and_reopenable(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-development-terrain-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_executable_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "standalone-report.json"
+            self.discover(target, report)
+
+            created, summary = self.create_project(
+                installation,
+                runtime,
+                target,
+                report,
+                "Tool Test Environment",
+                43821,
+                development=True,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            descriptor = json.loads(
+                (
+                    project
+                    / "source/original/development-terrain-v1.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual("development-terrain-v1", descriptor["generatorId"])
+            self.assertEqual(STANDALONE_INITIAL_LOCATION, descriptor["initialLocation"])
+            project_manifest = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                "development-terrain-v1",
+                project_manifest["standalone"]["generatorId"],
+            )
+            self.assert_development_terrain_package(
+                project / "source/layered-baseline/package"
+            )
+            self.assert_development_terrain_package(
+                project / "working/layered-world/package"
+            )
+
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation, "--validate-only"
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-standalone", json.loads(reopened.stdout)["state"])
+
+    def test_development_environment_reuses_and_recoverably_resets_sandbox(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-development-sandbox-") as temp:
+            base = Path(temp)
+            prebuilt = self.make_executable_runtime(base / "runtime-fixture")
+            state = base / "development-state"
+            script = ROOT / "scripts/world-builder-tool-test-environment.sh"
+            environment = os.environ.copy()
+            environment.update(
+                {
+                    "WORLD_BUILDER_TOOL_TEST_ROOT": str(state),
+                    "WORLD_BUILDER_TOOL_TEST_PREBUILT_RUNTIME": str(prebuilt),
+                    "WORLD_BUILDER_TOOL_TEST_HARNESS": "1",
+                    "WORLD_BUILDER_TOOL_TEST_PORT": "43822",
+                }
+            )
+
+            first = subprocess.run(
+                [str(script), "prepare"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(0, first.returncode, first.stdout + first.stderr)
+            installation = state / "World Builder 2"
+            first_projects = sorted(
+                path for path in (installation / "projects").iterdir()
+                if path.is_dir() and not path.name.startswith(".")
+            )
+            self.assertEqual(1, len(first_projects))
+            first_project = first_projects[0]
+            persistence = first_project / "logs/persistent-development-marker.txt"
+            persistence.write_text("preserve me\n", encoding="utf-8")
+
+            second = subprocess.run(
+                [str(script), "prepare"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(0, second.returncode, second.stdout + second.stderr)
+            self.assertTrue(persistence.is_file())
+            self.assertEqual(
+                [first_project],
+                sorted(
+                    path for path in (installation / "projects").iterdir()
+                    if path.is_dir() and not path.name.startswith(".")
+                ),
+            )
+
+            unconfirmed = subprocess.run(
+                [str(script), "reset"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+            self.assertNotEqual(0, unconfirmed.returncode)
+            self.assertTrue(persistence.is_file())
+
+            reset = subprocess.run(
+                [str(script), "reset", "--confirm", "RESET"],
+                cwd=ROOT,
+                env=environment,
+                text=True,
+                capture_output=True,
+                timeout=120,
+            )
+            self.assertEqual(0, reset.returncode, reset.stdout + reset.stderr)
+            new_projects = sorted(
+                path for path in (installation / "projects").iterdir()
+                if path.is_dir() and not path.name.startswith(".")
+            )
+            self.assertEqual(1, len(new_projects))
+            self.assertNotEqual(first_project.name, new_projects[0].name)
+            retired = sorted((state / "retired").iterdir())
+            self.assertEqual(1, len(retired))
+            self.assertEqual(
+                "preserve me\n",
+                (
+                    retired[0]
+                    / "projects"
+                    / first_project.name
+                    / "logs/persistent-development-marker.txt"
+                ).read_text(encoding="utf-8"),
+            )
 
     def test_standalone_empty_create_save_reopen_and_no_target_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-empty-") as temp:
