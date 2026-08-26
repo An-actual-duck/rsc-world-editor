@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, and low-latency Builder control |
+| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, and low-latency Builder control; centered large brushes await visual validation |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -287,10 +287,13 @@ current 64-tile authoritative batch ceiling, but a continuous stroke may span
 many batches and must remain one predictable gesture. Edge and unavailable-tile
 behavior must be previewed rather than silently clipping the brush.
 
-Readiness: **design-ready**. The current 1-by-1
-and centered 3-by-3 implementation, 64-tile batches, and 4,096-tile gesture
-bound are useful foundations. The client and runtime currently reject sizes 5
-and 7 and expose no complete footprint preview.
+Readiness: **partially implemented; owner validation pending**. The runtime now
+uses one deterministic center-first footprint path for 1-by-1, 3-by-3,
+5-by-5, and 7-by-7 click and continuous-drag painting. Compact and full Editor
+controls expose every size, right-click cycles through them, overlapping drag
+samples remain coalesced, and a single 7-by-7 sample remains inside the
+64-tile batch ceiling. Complete pointer-hover footprint preview and explicit
+edge/unavailable-tile indication remain.
 
 ### Relative raise and lower tools
 
@@ -301,12 +304,13 @@ released controls include:
 - raise one step and lower one step;
 - configurable integer delta;
 - Set, Raise, and Lower modes;
-- 1-by-1 and 3-by-3 brushes using the same continuous stroke behavior; and
+- centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7 brushes using the same continuous
+  stroke behavior; and
 - atomic refusal when a relative operation would exceed `0..65535`.
 
-The next polish should add the centered 5-by-5 and 7-by-7 footprints, immediate
-preview, and a clear indication of any operation that would be refused before
-commit. Smoothing and falloff remain later increments.
+The next polish should add immediate footprint preview and a clear indication
+of any operation that would be refused before commit. Smoothing and falloff
+remain later increments.
 
 Relative edits must be computed from one authoritative before-state for the
 whole stroke. Repeated packets, retries, or overlapping brush samples must not
@@ -739,7 +743,7 @@ material-sharing model that custom materials later have to replace.
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
-| Centered 5-by-5 and 7-by-7 brushes | Design-ready | General footprint logic, preview, controls and validation |
+| Centered 5-by-5 and 7-by-7 brushes | Implemented; owner validation pending | Complete hover preview and unavailable-tile indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
