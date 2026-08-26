@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after implementing 4,096-tile atomic lines and a raised high-contrast anchor pin; owner validation of the corrected marker remains pending |
+| Last reconciled | 2026-08-26, after owner validation of 4,096-tile atomic lines and the OpenGL-visible anchor pin/target |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -385,9 +385,9 @@ refusal, or cancellation. Automatic wall orientation, corner joins, more
 detailed unavailable-tile preview, and operation-level undo remain future
 polish.
 
-Readiness: **large atomic implementation complete; owner visual validation
-pending**. The original 64-tile interaction and styling were owner-validated;
-the expanded transaction and marker are the current validation target.
+Readiness: **large atomic implementation complete and owner-validated**. The
+expanded transaction, large brushes, and OpenGL-visible anchor pin/target have
+all passed owner interaction and visual validation.
 
 ### Rectangle outline and fill tools
 
@@ -743,9 +743,9 @@ This is a technical dependency order, not an assignment or fixed release plan:
    undoable operation model.
 4. Maintain the implemented centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7
    footprints as the shared geometry for every terrain tool.
-5. Owner-validate the implemented 4,096-tile atomic Line transaction and anchor
-   marker, then reuse its endpoint geometry and whole-operation validation for
-   rectangle Outline/Fill and later operation-level undo.
+5. Reuse the owner-validated 4,096-tile atomic Line endpoint geometry and
+   whole-operation validation for rectangle Outline/Fill and later
+   operation-level undo.
 6. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
 7. Use the implemented Editor-owned ordered selection, local snapshot,
@@ -776,7 +776,7 @@ material-sharing model that custom materials later have to replace.
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | 4,096-tile atomic implementation complete; owner validation pending | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
+| Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
