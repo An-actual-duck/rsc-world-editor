@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of drag recovery and the reusable tool environment |
+| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, and low-latency Builder control |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -47,6 +47,9 @@ World Builder 2 already provides a substantial base for these goals:
 - a continuous Ctrl-drag terrain gesture with tile-grid interpolation, bounded
   to 4,096 unique tiles and sent through timed authoritative batches of at
   most 64 tiles;
+- a Builder-only low-latency control plane that drains authoritative requests
+  and replies on the runtime's 10 ms scheduler cadence without changing normal
+  server gameplay ticks;
 - absolute and relative elevation editing across the unsigned 16-bit
   `0..65535` range;
 - contextual toolbar actions for terrain, scenery, NPCs, and ground items;
@@ -72,8 +75,12 @@ the terrain scene at the end of each accepted batch. In the isolated test world
 the visible trail currently catches up about one to two seconds after the
 pointer. Because that world contains no NPC or gameplay population, this result
 also establishes that ordinary NPC simulation is not the primary latency
-source. The server's normal tick cadence, acknowledgement serialization, and
-coarse client rebuild path are the next measurement and optimization targets.
+source. The locked runtime now removes the ordinary 640 ms server-tick wait
+from the isolated Builder request/reply path while keeping gameplay simulation
+on its normal cadence. Owner testing found the result significantly more
+responsive and acceptable for continued tool development. Single-batch
+acknowledgement serialization and the coarse client rebuild path remain future
+optimization targets if larger or more complex tools expose visible stalls.
 
 The current Build presentation mode suppresses client scenery animation while
 active and simplifies several renderer settings. It does not establish a fully
@@ -259,10 +266,11 @@ corner behavior. Preview colors or outlines should distinguish unacknowledged,
 accepted, and refused parts of a stroke without obscuring the actual material.
 
 Readiness: **partially ready**. The drag lifecycle, exact packet framing,
-interpolation, periodic batching, bounded recovery, server validation, and local
-terrain patching are implemented and owner-validated. Fine-grained timing
-instrumentation, pipelined requests, speculative preview state, incremental
-scene rebuilds, reconciliation, and stroke-level undo remain.
+interpolation, periodic batching, bounded recovery, server validation, local
+terrain patching, and Builder-only low-latency request/reply pump are
+implemented and owner-validated. Fine-grained timing instrumentation, pipelined
+requests, speculative preview state, incremental scene rebuilds,
+reconciliation, and stroke-level undo remain optional deeper refinements.
 
 ### Centered brush footprints through 7-by-7
 
@@ -730,7 +738,7 @@ material-sharing model that custom materials later have to replace.
 | Reusable development test environment | Implemented | Extend its automated action probes alongside each new tool |
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
-| Fluid paint trails | Partially ready; drag recovery owner-validated | Timing instrumentation, immediate preview, pipelining, reconciliation, incremental rebuild |
+| Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Design-ready | General footprint logic, preview, controls and validation |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |

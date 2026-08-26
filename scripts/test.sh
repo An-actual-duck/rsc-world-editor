@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Repository checks must remain headless even when a graphical desktop is
+# available. Individual launcher tests can still exercise their direct fallback
+# paths without opening a terminal window on the developer's desktop.
+export WORLD_BUILDER_NO_TERMINAL=1
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 "$ROOT_DIR/scripts/build-tools.sh"
