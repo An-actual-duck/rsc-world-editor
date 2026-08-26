@@ -414,10 +414,13 @@ range, field, and operation limits validate. Cancellation changes nothing.
 Line and rectangle operations should share geometry, preview, batching,
 reconciliation, and undo primitives with freehand painting.
 
-Readiness: **design-ready after the shared operation model**. Rectangle terrain
-enumeration and the default Smart Walls behavior are specified; wall edge
-ownership, corner joins, atomic multi-batch application, and visible preview
-require explicit implementation.
+Readiness: **4,096-tile atomic implementation complete and owner-validated**.
+The two-corner Outline/Fill interaction, complete world-space preview and anchor
+pin, default-on Smart Walls, independent North/East selection, deterministic
+wall ownership and corner joins, compact/expanded flyout state, whole-operation
+validation, chunked reconciliation, and cancellation behavior passed owner
+interaction and visual validation. Unavailable-tile preview detail and
+operation-level undo remain future polish.
 
 ### Quick house and enclosed-area tools
 
@@ -764,8 +767,9 @@ This is a technical dependency order, not an assignment or fixed release plan:
    undoable operation model.
 4. Maintain the implemented centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7
    footprints as the shared geometry for every terrain tool.
-5. Reuse the owner-validated 4,096-tile atomic Line endpoint geometry and
-   whole-operation validation for rectangle Outline/Fill and later
+5. Maintain the owner-validated 4,096-tile atomic Line and Rectangle
+   Outline/Fill geometry, shared preview, whole-operation validation, Smart
+   Wall ownership, and bounded reconciliation while adding later
    operation-level undo.
 6. Add same-level single-scenery Move with a ghost destination and one atomic
    authoritative transaction.
@@ -798,7 +802,7 @@ material-sharing model that custom materials later have to replace.
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
-| Rectangle outline/fill | Design-ready after operation model | Smart Walls UI, preview, wall edges/corners and atomic multi-batch apply |
+| Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail and operation-level undo |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
