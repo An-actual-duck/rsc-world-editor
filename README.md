@@ -32,9 +32,9 @@ workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel. The adaptive v0.2.0-alpha.1 candidate was accepted on 2026-08-14;
-production artifacts are rebuilt from its published gate commit rather than
-promoted from the restricted validation archives.
+v1 channel. The current adaptive release is `v0.5.0-alpha.11`, accepted and
+published on 2026-08-25. Production artifacts were rebuilt from its published
+gate commit rather than promoted from restricted validation archives.
 
 ## Repository status
 
@@ -58,11 +58,9 @@ exports, backups, and logs are intentionally excluded from Git.
 End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
 Source checkouts are intended for development and release production. Published
-history includes the frozen legacy v1 line and the historical pre-adaptive
-`rsc-world-editor-v2-0.1.0-alpha.1`. That alpha retains its accepted historical
-validation, but it does not implement or approve the new adaptive product
-contract. The adaptive workflow remains in development with its release gate
-closed.
+history includes the frozen legacy v1 line, the historical pre-adaptive alpha,
+and the current adaptive `rsc-world-editor-v2-0.5.0-alpha.11`. Development
+continues after that alpha with its release gate closed.
 
 The legacy v1 packaged workflow is:
 
@@ -178,7 +176,7 @@ backups and receipts, verified rollback/recovery, changed-after refusal, and
 exact undo for adopted and converted projects. Phase 7 archive,
 packaged-runtime, transaction, and owner-native validation passed for the exact
 candidate recorded in the accepted
-[v0.2.0-alpha.1 adaptive validation record](docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md).
+[v0.5.0-alpha.11 adaptive validation record](docs/releases/world-builder-v2-v0.5.0-alpha.11-validation.md).
 The release was published from its exact gate commit. Development `main` has
 consumed and closed that gate so later changes cannot reuse the acceptance;
 the immutable release tag retains it. Restricted candidate files remain
@@ -186,8 +184,9 @@ evidence only.
 
 The dependent design for nontechnical creator-supplied floor and wall images
 is documented in [World Builder 2 Custom Wall and Floor
-Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md). Custom material packs are
-not implemented in v0.2.0-alpha.1 and remain planned for a later release.
+Materials](docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md). Existing target materials
+can be captured through recognized layouts; the simplest share-safe drop-in
+creator-material workflow remains planned for a later release.
 
 The living direction for editor-quality tools, a detached and quiescent Build
 mode, fluid terrain strokes, relative elevation, lines and house tools,
