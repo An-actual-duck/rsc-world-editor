@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-v2-release-gate",
+  "releaseVersion": "v0.5.0-alpha.11",
+  "validatedEditorCommit": "eef508cffe453fbe506f3079188f9f473ce597d8",
+  "runtimeProviderCommit": "e001c11d8da3c67d7fc2fe1df70b2101de783ae4",
+  "validationRecord": "docs/releases/world-builder-v2-v0.5.0-alpha.11-validation.md"
+}
