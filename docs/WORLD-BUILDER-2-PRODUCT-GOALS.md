@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after implementing distinct Freehand and Line terrain tools; owner visual validation remains pending |
+| Last reconciled | 2026-08-26, after owner validation of distinct Freehand and Line terrain tools, their icons, selection state, previews, and bounded commit behavior |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -375,8 +375,8 @@ are visibly refused before they modify terrain. Lifting that limit requires a
 true multi-batch transaction. Automatic wall orientation, corner joins, and
 more detailed unavailable-tile preview remain future polish.
 
-Readiness: **initial implementation complete; owner visual validation
-pending**. The first increment is intentionally bounded to one atomic batch.
+Readiness: **initial implementation complete and owner-validated**. The first
+increment is intentionally bounded to one atomic batch.
 
 ### Rectangle outline and fill tools
 
@@ -765,7 +765,7 @@ material-sharing model that custom materials later have to replace.
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | Initial implementation complete; owner validation pending | Multi-batch transaction, automatic wall orientation/joins, unavailable-tile preview |
+| Line tools | Initial implementation complete and owner-validated | Multi-batch transaction, automatic wall orientation/joins, unavailable-tile preview |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
 | Scenery drag-move | Partially ready | Move mode, ghost destination and atomic move transaction |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
