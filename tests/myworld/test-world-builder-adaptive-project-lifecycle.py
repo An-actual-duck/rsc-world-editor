@@ -668,6 +668,7 @@ public final class AdaptiveProjectSupervisorHarness {
         @SuppressWarnings("unchecked") Map<String,Object> fingerprints =
             (Map<String,Object>)projectManifest.get("fingerprints");
         String workingFingerprintBefore = (String)fingerprints.get("workingSha256");
+        String productionManifestBefore = "";
         if (!(args.length > 2 && "unsafe".equals(args[2]))) {
             String expectedOrigin = manifest.contains("\"origin\": \"target-layered\"")
                 ? "target-layered" : manifest.contains("\"origin\": \"target-packed\"")
@@ -688,6 +689,9 @@ public final class AdaptiveProjectSupervisorHarness {
             require(contains(productionServer,
                 "-Dopenrsc.layeredNativeTerrainPackagePath="
                     + project.resolve("working/layered-world/package")), "server package");
+            productionManifestBefore = propertyValue(productionServer,
+                "openrsc.layeredNativeTerrainManifestSha256");
+            require(!productionManifestBefore.isEmpty(), "server manifest binding");
             require(contains(productionServer,
                 "-Dopenrsc.worldBuilderControlDirectory="
                     + project.resolve("run/world-builder")), "server control");
@@ -867,6 +871,15 @@ public final class AdaptiveProjectSupervisorHarness {
             require(Files.isRegularFile(project.resolve(
                 "run/world-builder/fake-region-paste-restarted")),
                 "interactive region Paste controlled restart");
+            List<String> refreshedServer =
+                WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
+            String refreshedManifest = propertyValue(refreshedServer,
+                "openrsc.layeredNativeTerrainManifestSha256");
+            require(!productionManifestBefore.equals(refreshedManifest),
+                "Region Paste must change the production manifest binding");
+            require(WorldBuilderHashes.sha256(project.resolve(
+                "working/layered-world/package/manifest.json")).equals(refreshedManifest),
+                "Region Paste restart must use the published manifest binding");
         }
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");

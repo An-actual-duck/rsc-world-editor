@@ -83,15 +83,15 @@ public final class WorldBuilderProcessSupervisor {
 			requireAdaptiveMutableLayout(project);
 			List<String> serverCommand = suppliedServerCommand;
 			List<String> clientCommand = suppliedClientCommand;
-			if (productionCommands) {
-				AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
-				serverCommand = launch.serverCommand();
-				clientCommand = launch.clientCommand();
-			}
 			ProcessLayout layout = ProcessLayout.adaptive(project);
 			int exit;
 			int restarts = 0;
 			do {
+				if (productionCommands) {
+					AdaptiveLaunch launch = AdaptiveLaunch.create(verified, port);
+					serverCommand = launch.serverCommand();
+					clientCommand = launch.clientCommand();
+				}
 				WorldBuilderRegionControlBridge regionBridge =
 					new WorldBuilderRegionControlBridge(project, layout.control);
 				exit = superviseLocked(layout, port,
@@ -102,7 +102,8 @@ public final class WorldBuilderProcessSupervisor {
 						"World Builder exceeded its bounded automatic Paste restart count.");
 				}
 				requireAdaptiveMutableLayout(project);
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+				verified = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
+					project, true);
 				System.out.println("Restarting World Builder after atomic Region Paste.");
 			} while (true);
 			requireAdaptiveMutableLayout(project);
