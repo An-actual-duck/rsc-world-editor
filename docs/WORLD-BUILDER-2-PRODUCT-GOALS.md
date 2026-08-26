@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, and low-latency Builder control; centered large brushes await visual validation |
+| Last reconciled | 2026-08-26, after owner validation of drag recovery, the reusable tool environment, low-latency Builder control, and centered brushes through 7-by-7 |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -287,7 +287,7 @@ current 64-tile authoritative batch ceiling, but a continuous stroke may span
 many batches and must remain one predictable gesture. Edge and unavailable-tile
 behavior must be previewed rather than silently clipping the brush.
 
-Readiness: **partially implemented; owner validation pending**. The runtime now
+Readiness: **implemented and owner-validated; preview polish remains**. The runtime now
 uses one deterministic center-first footprint path for 1-by-1, 3-by-3,
 5-by-5, and 7-by-7 click and continuous-drag painting. Compact and full Editor
 controls expose every size, right-click cycles through them, overlapping drag
@@ -743,7 +743,7 @@ material-sharing model that custom materials later have to replace.
 | Detached camera | Partially ready | Camera anchor, scene residency, editor picking and protocol |
 | Quiescent Builder runtime | Foundational design required | Scheduler/plugin/entity audit and explicit allowlist |
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
-| Centered 5-by-5 and 7-by-7 brushes | Implemented; owner validation pending | Complete hover preview and unavailable-tile indication |
+| Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Complete hover preview and unavailable-tile indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
 | Line tools | Design-ready | Deterministic geometry, wall joins, complete preview |
 | Rectangle outline/fill | Design-ready after operation model | Preview, wall edges/corners and atomic multi-batch apply |
