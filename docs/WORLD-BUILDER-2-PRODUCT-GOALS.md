@@ -693,12 +693,12 @@ owner-validated**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
-The packaged **Region Copy** tool now provides ordered numbered markers,
-prospective segments, enclosed-tile preview, undo/reopen/clear controls,
-snapshot naming, save-before-Copy supervision, and a visible library result.
-Paste now browses the verified project-local library, assigns marker 1 to a
-clicked destination, displays the translated ghost and collision pins, requires
-hash-bound apply plus a second overwrite click when occupied, and activates the
+The packaged **Region Copy** and **Region Paste** tools are now separate toolbar
+icons with consolidated pop-outs. Copy uses `Start -> Stop -> Reset`, marker
+Undo, explicit Copy, and Export; Paste uses the current clipboard, Import,
+exact preview, `Paste -> Overwrite? -> Confirm` when occupied, and exact one-step
+Undo. Paste assigns marker 1 to a clicked destination, displays the translated
+ghost and collision pins, and activates the
 exact atomically published package without restarting the isolated Builder.
 Interactive Cut remains pending. Graphical portable Import/Export is implemented
 and owner-validated.
@@ -748,7 +748,8 @@ The supervisor-mediated transaction, collision preview, client ghost rendering,
 and exact post-publication live activation are implemented without duplicating
 the Editor mutation engine. A failed live activation preserves the published
 package and instructs the creator to close/reopen as a safe recovery path. Cut
-UI and durable undo/redo remain runtime work. Before calling the feature
+UI and general multi-operation undo/redo remain runtime work. Exact last-Paste
+Undo is implemented with post-Paste drift refusal. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
@@ -839,7 +840,7 @@ material-sharing model that custom materials later have to replace.
 | True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated | Cut, richer placement ghosts, rotation/mirroring, and durable undo UX |
+| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; consolidated UI and exact one-step Paste Undo pending owner validation | Cut, richer placement ghosts, rotation/mirroring, and general undo/redo UX |
 | Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |
 | Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 

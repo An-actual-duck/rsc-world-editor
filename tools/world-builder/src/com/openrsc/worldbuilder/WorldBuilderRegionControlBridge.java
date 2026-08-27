@@ -241,13 +241,24 @@ final class WorldBuilderRegionControlBridge {
 			if (!REQUEST_ID.matcher(requestId).matches()) {
 				throw new IllegalArgumentException("Region Paste request ID is invalid.");
 			}
-			operation = requireText(root, "operation", 5, 16);
+			operation = requireText(root, "operation", 4, 16);
 			WorldBuilderRegionSnapshotService service =
 				new WorldBuilderRegionSnapshotService();
 			String resultText;
 			WorldBuilderProcessSupervisor.relocateLegacyDatabaseLogs(project);
 			if ("library".equals(operation)) {
 				resultText = service.listLibraryUnderProjectLock(project);
+			} else if ("undo".equals(operation)) {
+				if (!requireText(root, "snapshotId", 0, 0).isEmpty()
+					|| requireSigned(root, "level") != 0
+					|| requireSigned(root, "x") != 0
+					|| requireSigned(root, "y") != 0
+					|| !requireText(root, "expectedPlan", 0, 0).isEmpty()
+					|| !requireText(root, "confirmation", 0, 0).isEmpty()) {
+					throw new IllegalArgumentException("Region Paste Undo fields are invalid.");
+				}
+				new WorldBuilderAdaptiveProjectLifecycle().saveAfterSupervisedRun(project);
+				resultText = service.undoLastPasteUnderProjectLock(project);
 			} else {
 				String snapshotId = requireText(root, "snapshotId", 64, 64);
 				if (!WorldBuilderBoundedInventory.isHash(snapshotId)) {

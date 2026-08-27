@@ -854,10 +854,15 @@ public final class AdaptiveProjectSupervisorHarness {
             project.resolve("logs/client.log")), StandardCharsets.UTF_8));
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject finalized =
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+        boolean regionPasteUndoCompleted = Files.isRegularFile(project.resolve(
+            "run/world-builder/fake-region-paste-undo-live"));
         if (finalizationMode || regionCopyMode || regionPasteMode) {
-            require(!workingFingerprintBefore.equals(
-                    finalized.working.fingerprintSha256),
-                "normal client close must save the changed working fingerprint");
+            require(regionPasteUndoCompleted
+                    ? workingFingerprintBefore.equals(finalized.working.fingerprintSha256)
+                    : !workingFingerprintBefore.equals(finalized.working.fingerprintSha256),
+                regionPasteUndoCompleted
+                    ? "Region Paste Undo must restore the exact working fingerprint"
+                    : "normal client close must save the changed working fingerprint");
         }
         require(!Files.exists(project.resolve("run/server.pid")), "server PID cleanup");
         require(!Files.exists(project.resolve("run/client.pid")), "client PID cleanup");
@@ -881,8 +886,12 @@ public final class AdaptiveProjectSupervisorHarness {
                 WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
             String refreshedManifest = propertyValue(refreshedServer,
                 "openrsc.layeredNativeTerrainManifestSha256");
-            require(!productionManifestBefore.equals(refreshedManifest),
-                "Region Paste must change the production manifest binding");
+            require(regionPasteUndoCompleted
+                    ? productionManifestBefore.equals(refreshedManifest)
+                    : !productionManifestBefore.equals(refreshedManifest),
+                regionPasteUndoCompleted
+                    ? "Region Paste Undo must restore the production manifest binding"
+                    : "Region Paste must change the production manifest binding");
             require(WorldBuilderHashes.sha256(project.resolve(
                 "working/layered-world/package/manifest.json")).equals(refreshedManifest),
                 "Region Paste publication must bind the next cold launch");
@@ -1061,6 +1070,21 @@ public final class AdaptiveProjectSupervisorHarness {
                             .matches("[0-9a-f]{64}"),
                         "interactive Paste live inventory identity");
                     Files.write(control.resolve("fake-region-paste-live"),
+                        "activated\n".getBytes(StandardCharsets.US_ASCII));
+                    Map<String,Object> undoRequest = pasteRequest(
+                        "66666666666666666666666666666666", "undo", "",
+                        0, 0, 0, "", "");
+                    Map<String,Object> undoAnswer = submitPaste(control, undoRequest);
+                    require("accepted".equals(undoAnswer.get("status")),
+                        "interactive Paste Undo response");
+                    @SuppressWarnings("unchecked") Map<String,Object> undoResult =
+                        (Map<String,Object>)undoAnswer.get("result");
+                    require("undo".equals(undoResult.get("operation")),
+                        "interactive Paste Undo operation");
+                    require(((String)undoResult.get("packageManifestSha256"))
+                            .matches("[0-9a-f]{64}"),
+                        "interactive Paste Undo manifest identity");
+                    Files.write(control.resolve("fake-region-paste-undo-live"),
                         "activated\n".getBytes(StandardCharsets.US_ASCII));
             }
             if (args.length > 2 && "region-bundle".equals(args[2])) {
@@ -2547,7 +2571,7 @@ public final class FakeAdaptiveClient {
             ):
                 self.assertFalse((control / name).exists(), name)
 
-    def test_supervised_interactive_region_paste_stays_live_after_publication(self):
+    def test_supervised_interactive_region_paste_and_undo_stay_live(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-paste-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"
@@ -2587,9 +2611,13 @@ public final class FakeAdaptiveClient {
             after = json.loads(
                 (project / "project.json").read_text(encoding="utf-8")
             )["fingerprints"]["workingSha256"]
-            self.assertNotEqual(before, after)
+            self.assertEqual(before, after)
             control = project / "run/world-builder"
             self.assertTrue((control / "fake-region-paste-live").is_file())
+            self.assertTrue((control / "fake-region-paste-undo-live").is_file())
+            self.assertFalse(
+                (project / "region-history/v1/last-paste-undo.json").exists()
+            )
             self.assertFalse((control / "fake-region-paste-restarted").exists())
             for name in (
                 ".region-paste.request.pending.json",
@@ -3101,6 +3129,47 @@ public final class FakeAdaptiveClient {
                 "--expected-plan", plan_hash, "--confirm", "OVERWRITE " + plan_hash
             )
             self.assertEqual(0, applied.returncode, applied.stderr)
+
+            undo_pointer = project / "region-history/v1/last-paste-undo.json"
+            self.assertTrue(undo_pointer.is_file())
+            undone = self.run_cli(
+                "region-paste-undo", "--project", project
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            undo_result = json.loads(undone.stdout)
+            self.assertEqual("undo", undo_result["operation"])
+            self.assertTrue(undo_result["worldModified"])
+            self.assertEqual(before, tree_bytes(package))
+            self.assertFalse(undo_pointer.exists())
+            repeated_undo = self.run_cli(
+                "region-paste-undo", "--project", project
+            )
+            self.assertEqual(3, repeated_undo.returncode, repeated_undo.stderr)
+            self.assertIn("NO_TARGET", repeated_undo.stderr)
+
+            refreshed = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "120", "--y", "647"
+            )
+            self.assertEqual(0, refreshed.returncode, refreshed.stderr)
+            refreshed_hash = json.loads(refreshed.stdout)["operationPlan"][
+                "planFingerprintSha256"
+            ]
+            reapplied = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot",
+                snapshot_id, "--level", "0", "--x", "120", "--y", "647",
+                "--expected-plan", refreshed_hash, "--confirm",
+                "OVERWRITE " + refreshed_hash
+            )
+            self.assertEqual(0, reapplied.returncode, reapplied.stderr)
+            self.set_tile_elevation(package, 119, 647, 4321)
+            saved_after_paste = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved_after_paste.returncode, saved_after_paste.stderr)
+            drifted_undo = self.run_cli(
+                "region-paste-undo", "--project", project
+            )
+            self.assertEqual(3, drifted_undo.returncode, drifted_undo.stderr)
+            self.assertIn("TARGET_DRIFT", drifted_undo.stderr)
 
             after = tree_bytes(package)
             unavailable = self.run_cli(

@@ -41,6 +41,10 @@ final class WorldBuilderRegionSnapshotService {
 	private static final String BUNDLE_EXTENSION = ".wbr";
 	private static final String TRANSACTION = "working/layered-world/.region-transaction-v1.json";
 	private static final String JOURNAL_TEMP_PREFIX = ".region-transaction-v1.json.new-";
+	private static final String PASTE_UNDO_ROOT = "region-history/v1";
+	private static final String PASTE_UNDO_POINTER = PASTE_UNDO_ROOT + "/last-paste-undo.json";
+	private static final String PASTE_UNDO_STAGE_PREFIX = ".paste-undo-stage-";
+	private static final String PASTE_UNDO_ENTRY_PREFIX = "paste-undo-";
 	private static final long MAX_BUNDLE_BYTES = 32L * 1024L * 1024L;
 	private static final long MAX_ENTRY_BYTES = 16L * 1024L * 1024L;
 	private static final long MAX_REPRESENTED_FOOTPRINT_TILES = 1_000_000L;
@@ -274,6 +278,76 @@ final class WorldBuilderRegionSnapshotService {
 			new Destination(level, x, y), "paste", expectedPlan, confirmation);
 	}
 
+	String undoLastPaste(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		Path project = requestedProject.toAbsolutePath().normalize();
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, "region-paste-undo")) {
+			return undoLastPasteUnderProjectLock(project);
+		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String undoLastPasteUnderProjectLock(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		Path project = requestedProject.toAbsolutePath().normalize();
+		recoverRegionTransaction(project);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+		PasteUndoRecord undo = readPasteUndo(project);
+		String liveTree = treeFingerprint(project.resolve(PACKAGE));
+		if (!undo.afterTreeSha256.equals(liveTree)
+			|| !undo.afterWorkingSha256.equals(verified.working.fingerprintSha256)) {
+			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, PASTE_UNDO_POINTER,
+				"The project changed after the recorded Paste; exact Undo is no longer safe.",
+				"Keep the later edits and create a new snapshot instead of forcing Undo.");
+		}
+		if (!treeEquals(undo.packageRoot, undo.beforeTreeSha256)) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+				"The retained pre-Paste package no longer matches its exact receipt.",
+				"Preserve region-history and restore the verified project backup; do not force Undo.");
+		}
+		Path stage = project.resolve("working/layered-world/.region-stage-" + UUID.randomUUID());
+		copyTree(undo.packageRoot, stage);
+		PreparedMutation prepared = new PreparedMutation(stage,
+			new LinkedHashMap<String,Object>(), undo.beforeWorkingSha256);
+		boolean published = false;
+		boolean saved = false;
+		RegionTransaction transaction = null;
+		try {
+			transaction = RegionTransaction.prepare(project, prepared,
+				verified.working.fingerprintSha256);
+			publishWorkingPackage(project, prepared.stage, transaction);
+			published = true;
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult result =
+				new WorldBuilderAdaptiveProjectLifecycle().saveAfterRegionPublication(project);
+			saved = true;
+			transaction.phase("manifest-saved");
+			completeWorkingPublication(project, transaction);
+			consumePasteUndo(project, undo);
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject restored =
+				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
+			Map<String,Object> output = new LinkedHashMap<String,Object>();
+			output.put("operation", "undo");
+			output.put("snapshotId", undo.snapshotId);
+			output.put("planFingerprintSha256", undo.planFingerprintSha256);
+			output.put("workingSha256", result.workingFingerprintSha256);
+			output.put("packageManifestSha256", restored.working.manifestSha256);
+			output.put("packageInventorySha256", restored.working.nativeInventorySha256);
+			output.put("worldModified", Boolean.TRUE);
+			return WorldBuilderJsonDocuments.pretty(output);
+		} catch (Exception failure) {
+			if (published && !saved) rollbackWorkingPublication(project, transaction, failure);
+			if (failure instanceof IOException) throw (IOException)failure;
+			if (failure instanceof WorldBuilderContractException) {
+				throw (WorldBuilderContractException)failure;
+			}
+			throw new IOException("Region Paste Undo failed: " + failure.getMessage(), failure);
+		} finally {
+			if (!published && transaction == null) prepared.discard();
+		}
+	}
+
 	private String apply(Path requestedProject, String snapshotId,
 		Destination destination, String operation, String expectedPlan,
 		String confirmation) throws IOException, WorldBuilderContractException {
@@ -331,6 +405,9 @@ final class WorldBuilderRegionSnapshotService {
 				publishWorkingPackage(project, prepared.stage, transaction);
 				published = true;
 				observer.observe("package-published", project);
+				if ("paste".equals(operation)) preservePasteUndo(project, transaction,
+					snapshotId, planHash, verified.working.fingerprintSha256,
+					prepared.afterWorkingSha256);
 				WorldBuilderAdaptiveProjectLifecycle.ProjectResult result =
 					new WorldBuilderAdaptiveProjectLifecycle()
 						.saveAfterRegionPublication(project);
@@ -1457,6 +1534,226 @@ final class WorldBuilderRegionSnapshotService {
 			"rollback-quarantined", "cleanup-tree-deleted");
 	}
 
+	private void preservePasteUndo(Path project, RegionTransaction transaction,
+		String snapshotId, String planFingerprintSha256, String beforeWorkingSha256,
+		String afterWorkingSha256)
+		throws IOException, WorldBuilderContractException {
+		Path historyParent = project.resolve("region-history").normalize();
+		Path history = project.resolve(PASTE_UNDO_ROOT).normalize();
+		if (!history.startsWith(project)) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
+			PASTE_UNDO_ROOT, "Region history escaped the project.",
+			"Restore the standard project-local region-history layout.");
+		if (!Files.exists(historyParent, LinkOption.NOFOLLOW_LINKS)) {
+			Files.createDirectory(historyParent);
+		}
+		if (!Files.isDirectory(historyParent, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(historyParent)) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, "region-history",
+			"Region history root is linked or not a real directory.",
+			"Replace it with a real project-local directory before pasting.");
+		if (!Files.exists(history, LinkOption.NOFOLLOW_LINKS)) Files.createDirectory(history);
+		if (!Files.isDirectory(history, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(history)) throw problem(WorldBuilderErrorCodes.UNSAFE_PATH,
+			PASTE_UNDO_ROOT, "Region history is linked or not a real directory.",
+			"Replace it with a real project-local directory before pasting.");
+		if (!history.toRealPath().startsWith(project.toRealPath())) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, PASTE_UNDO_ROOT,
+			"Region history resolves outside the project.",
+			"Restore the standard project-local region-history layout.");
+		PasteUndoRecord previous = Files.exists(project.resolve(PASTE_UNDO_POINTER),
+			LinkOption.NOFOLLOW_LINKS) ? readPasteUndo(project) : null;
+		String identity = UUID.randomUUID().toString();
+		Path stage = history.resolve(PASTE_UNDO_STAGE_PREFIX + identity);
+		Path entry = history.resolve(PASTE_UNDO_ENTRY_PREFIX + identity);
+		try {
+			Files.createDirectory(stage);
+			Path retained = stage.resolve("package");
+			copyTreeDurable(rollbackPath(project), retained);
+			Map<String,Object> receipt = new LinkedHashMap<String,Object>();
+			receipt.put("schemaVersion", Long.valueOf(1L));
+			receipt.put("manifestType", "world-builder-region-paste-undo");
+			receipt.put("snapshotId", snapshotId);
+			receipt.put("planFingerprintSha256", planFingerprintSha256);
+			receipt.put("beforeTreeSha256", transaction.value.get("beforeTreeSha256"));
+			receipt.put("afterTreeSha256", transaction.value.get("afterTreeSha256"));
+			receipt.put("beforeWorkingSha256", beforeWorkingSha256);
+			receipt.put("afterWorkingSha256", afterWorkingSha256);
+			byte[] receiptBytes = WorldBuilderJsonDocuments.pretty(receipt)
+				.getBytes(StandardCharsets.UTF_8);
+			Path receiptPath = stage.resolve("receipt.json");
+			Files.write(receiptPath, receiptBytes, StandardOpenOption.CREATE_NEW,
+				StandardOpenOption.WRITE);
+			WorldBuilderAdaptiveDurability.forceFile(receiptPath);
+			WorldBuilderAdaptiveDurability.forceDirectory(stage);
+			Files.move(stage, entry, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(history);
+			Map<String,Object> pointer = new LinkedHashMap<String,Object>();
+			pointer.put("schemaVersion", Long.valueOf(1L));
+			pointer.put("manifestType", "world-builder-region-paste-undo-pointer");
+			pointer.put("entry", entry.getFileName().toString());
+			pointer.put("receiptSha256", WorldBuilderHashes.sha256(receiptBytes));
+			writePasteUndoPointer(project.resolve(PASTE_UNDO_POINTER), pointer);
+			if (previous != null && !previous.entryRoot.equals(entry)) {
+				try { deleteTreeBounded(previous.entryRoot); }
+				catch (IOException ignored) { /* The new exact pointer remains authoritative. */ }
+			}
+		} catch (AtomicMoveNotSupportedException unsupported) {
+			deleteTreeBounded(stage);
+			if (!pasteUndoPointerReferences(project, entry)) deleteTreeBounded(entry);
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, PASTE_UNDO_ROOT,
+				"Filesystem cannot atomically publish exact Region Paste Undo state.",
+				"Use a local filesystem with same-directory atomic moves.", unsupported);
+		} catch (IOException | WorldBuilderContractException failure) {
+			deleteTreeBounded(stage);
+			if (!pasteUndoPointerReferences(project, entry)) deleteTreeBounded(entry);
+			throw failure;
+		}
+	}
+
+	private static boolean pasteUndoPointerReferences(Path project, Path entry) {
+		try { return readPasteUndo(project).entryRoot.equals(entry); }
+		catch (Exception ignored) { return false; }
+	}
+
+	private static PasteUndoRecord readPasteUndo(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path pointerPath = project.resolve(PASTE_UNDO_POINTER).normalize();
+		if (!Files.exists(pointerPath, LinkOption.NOFOLLOW_LINKS)) throw problem(
+			WorldBuilderErrorCodes.NO_TARGET, PASTE_UNDO_POINTER,
+			"There is no completed Region Paste available to undo.",
+			"Paste a region first; Undo only restores the exact latest Paste.");
+		Path historyParent = project.resolve("region-history").normalize();
+		Path history = project.resolve(PASTE_UNDO_ROOT).normalize();
+		if (!Files.isDirectory(historyParent, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(historyParent)
+			|| !Files.isDirectory(history, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(history)
+			|| !history.toRealPath().startsWith(project.toRealPath())) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_ROOT,
+			"Region Paste Undo history is missing, linked, or escaped.",
+			"Preserve region-history and restore its exact project-local directories.");
+		if (!Files.isRegularFile(pointerPath, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(pointerPath)
+			|| Files.size(pointerPath) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+				"Region Paste Undo pointer is unsafe.",
+				"Preserve region-history and restore its exact regular-file metadata.");
+		}
+		Map<String,Object> pointer;
+		try { pointer = WorldBuilderJsonDocuments.readObject(pointerPath); }
+		catch (WorldBuilderDiscoveryException malformed) { throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo pointer is malformed.",
+			"Preserve region-history and restore its exact receipt.", malformed); }
+		Set<String> pointerKeys = new HashSet<String>(Arrays.asList(
+			"schemaVersion", "manifestType", "entry", "receiptSha256"));
+		String entryName = pointer.get("entry") instanceof String
+			? (String)pointer.get("entry") : "";
+		String receiptHash = pointer.get("receiptSha256") instanceof String
+			? (String)pointer.get("receiptSha256") : "";
+		if (!pointer.keySet().equals(pointerKeys)
+			|| !Long.valueOf(1L).equals(pointer.get("schemaVersion"))
+			|| !"world-builder-region-paste-undo-pointer".equals(pointer.get("manifestType"))
+			|| !entryName.matches("paste-undo-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+			|| !WorldBuilderBoundedInventory.isHash(receiptHash)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo pointer contract is invalid.",
+			"Preserve region-history and restore its exact v1 pointer.");
+		Path entry = project.resolve(PASTE_UNDO_ROOT).resolve(entryName).normalize();
+		if (!entry.getParent().equals(history)
+			|| !Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(entry)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo entry is missing, linked, or escaped.",
+			"Preserve region-history and restore the exact retained entry.");
+		Path receiptPath = entry.resolve("receipt.json");
+		Path packageRoot = entry.resolve("package");
+		Set<String> entryNames = new HashSet<String>();
+		try (DirectoryStream<Path> entries = Files.newDirectoryStream(entry)) {
+			for (Path child : entries) entryNames.add(child.getFileName().toString());
+		}
+		if (!entryNames.equals(new HashSet<String>(Arrays.asList("receipt.json", "package")))) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+				"Region Paste Undo entry inventory is invalid.",
+				"Preserve region-history and restore the exact retained entry.");
+		}
+		if (!Files.isRegularFile(receiptPath, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(receiptPath)
+			|| Files.size(receiptPath) > WorldBuilderContractLimits.MAX_JSON_BYTES
+			|| !receiptHash.equals(WorldBuilderHashes.sha256(receiptPath))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo receipt does not match its pointer.",
+			"Preserve region-history and restore the exact retained receipt.");
+		Map<String,Object> receipt;
+		try { receipt = WorldBuilderJsonDocuments.readObject(receiptPath); }
+		catch (WorldBuilderDiscoveryException malformed) { throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo receipt is malformed.",
+			"Preserve region-history and restore the exact retained receipt.", malformed); }
+		Set<String> receiptKeys = new HashSet<String>(Arrays.asList("schemaVersion",
+			"manifestType", "snapshotId", "planFingerprintSha256", "beforeTreeSha256",
+			"afterTreeSha256", "beforeWorkingSha256", "afterWorkingSha256"));
+		if (!receipt.keySet().equals(receiptKeys)
+			|| !Long.valueOf(1L).equals(receipt.get("schemaVersion"))
+			|| !"world-builder-region-paste-undo".equals(receipt.get("manifestType"))) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+				"Region Paste Undo receipt contract is invalid.",
+				"Preserve region-history and restore the exact v1 receipt.");
+		}
+		return new PasteUndoRecord(entry, packageRoot,
+			undoHash(receipt, "snapshotId"), undoHash(receipt, "planFingerprintSha256"),
+			undoHash(receipt, "beforeTreeSha256"), undoHash(receipt, "afterTreeSha256"),
+			undoHash(receipt, "beforeWorkingSha256"), undoHash(receipt, "afterWorkingSha256"));
+	}
+
+	private static String undoHash(Map<String,Object> receipt, String key)
+		throws WorldBuilderContractException {
+		Object value = receipt.get(key);
+		if (!(value instanceof String)
+			|| !WorldBuilderBoundedInventory.isHash((String)value)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, PASTE_UNDO_POINTER,
+			"Region Paste Undo receipt has an invalid " + key + ".",
+			"Preserve region-history and restore the exact retained receipt.");
+		return (String)value;
+	}
+
+	private static void writePasteUndoPointer(Path pointer, Map<String,Object> value)
+		throws IOException {
+		byte[] bytes = WorldBuilderJsonDocuments.pretty(value).getBytes(StandardCharsets.UTF_8);
+		Path temporary = pointer.resolveSibling(".last-paste-undo.json.new-"
+			+ WorldBuilderHashes.sha256(bytes));
+		Files.write(temporary, bytes, StandardOpenOption.CREATE_NEW,
+			StandardOpenOption.WRITE);
+		try {
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			Files.move(temporary, pointer, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceDirectory(pointer.getParent());
+		} finally { Files.deleteIfExists(temporary); }
+	}
+
+	private static void copyTreeDurable(Path source, Path destination)
+		throws IOException, WorldBuilderContractException {
+		copyTree(source, destination);
+		for (Path file : files(destination).values()) {
+			WorldBuilderAdaptiveDurability.forceFile(file);
+			WorldBuilderAdaptiveDurability.forceDirectory(file.getParent());
+		}
+		WorldBuilderAdaptiveDurability.forceDirectory(destination);
+	}
+
+	private static void consumePasteUndo(Path project, PasteUndoRecord undo) {
+		try {
+			Path pointer = project.resolve(PASTE_UNDO_POINTER);
+			Files.deleteIfExists(pointer);
+			WorldBuilderAdaptiveDurability.forceDirectory(pointer.getParent());
+			deleteTreeBounded(undo.entryRoot);
+			WorldBuilderAdaptiveDurability.forceDirectory(undo.entryRoot.getParent());
+		} catch (IOException ignored) {
+			// A stale exact receipt cannot reapply because its after-state drift check fails.
+		}
+	}
+
 	private void cleanupArtifact(RegionTransaction transaction, Path source,
 		String kind, String expectedHash, String quarantinedMilestone,
 		String deletedMilestone) throws Exception {
@@ -2572,6 +2869,29 @@ final class WorldBuilderRegionSnapshotService {
 			this.afterWorkingSha256 = afterWorkingSha256;
 		}
 		void discard() throws IOException { deleteTree(stage); }
+	}
+
+	private static final class PasteUndoRecord {
+		final Path entryRoot;
+		final Path packageRoot;
+		final String snapshotId;
+		final String planFingerprintSha256;
+		final String beforeTreeSha256;
+		final String afterTreeSha256;
+		final String beforeWorkingSha256;
+		final String afterWorkingSha256;
+		PasteUndoRecord(Path entryRoot, Path packageRoot, String snapshotId,
+			String planFingerprintSha256, String beforeTreeSha256,
+			String afterTreeSha256, String beforeWorkingSha256,
+			String afterWorkingSha256) {
+			this.entryRoot = entryRoot; this.packageRoot = packageRoot;
+			this.snapshotId = snapshotId;
+			this.planFingerprintSha256 = planFingerprintSha256;
+			this.beforeTreeSha256 = beforeTreeSha256;
+			this.afterTreeSha256 = afterTreeSha256;
+			this.beforeWorkingSha256 = beforeWorkingSha256;
+			this.afterWorkingSha256 = afterWorkingSha256;
+		}
 	}
 
 	private static final class Destination {

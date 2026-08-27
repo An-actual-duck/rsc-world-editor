@@ -1,26 +1,29 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; Cut UI pending**
+Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; consolidated toolbar UI and exact one-step Paste Undo implemented pending owner validation; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: interactive Copy and supervised library/preview/apply Paste bridges implemented
+Runtime provider: separate Copy/Paste tools and supervised Copy, preview, apply, sharing, and exact last-Paste Undo bridges implemented
 
-Current packaged UI status as of 2026-08-26: the **Copy/Paste** toolbar mode
-provides ordered numbered markers, prospective segment preview, enclosed-tile
-preview, marker undo, reopen, clear/cancel, snapshot naming, and Copy into the
-project-local content-addressed library. The result shows the snapshot identity,
-tile and placement counts, and footprint-crossing count. Paste lists every
-verified project-local snapshot, lets the creator choose one, anchors marker 1
-to a clicked destination, and renders the exact translated outline plus visible
-collision markers. Apply is bound to the preview hash; occupied destinations
-require a second explicit overwrite click. Successful publication is validated
+Current packaged UI status as of 2026-08-26: **Region Copy** and **Region Paste**
+are separate primary toolbar tools instead of a combined mode with duplicate
+tab-like controls. Copy provides ordered numbered markers, prospective segment
+preview, enclosed-tile preview, a single `Start -> Stop -> Reset` selection
+control, marker Undo, explicit Copy, and Export. Copy places the closed selection
+on the session clipboard and in the project-local content-addressed library;
+Reset clears markers without discarding that clipboard. Paste uses the current
+copied or imported snapshot, anchors marker 1 to a clicked destination, and
+renders the exact translated outline plus visible collision markers. Empty
+destinations apply through `Paste`; occupied destinations require the explicit
+`Paste -> Overwrite? -> Confirm` sequence bound to the exact preview. Successful
+publication is validated
 against its exact manifest and inventory identities, then activated in the
 running isolated Builder without restarting the client or server. If that
 bounded activation fails, the already-published working package remains
 authoritative and a normal close/reopen safely loads it. The client's older
 **Copy inspected** action still only copies one inspected value into current
 editing controls; it is unrelated to Region Copy. Region Paste now also exposes
-**Import .wbr** and **Export selected** through native desktop file pickers.
+**Import .wbr** and **Export** through native desktop file pickers.
 Import validates and adds one portable bundle to the project library without
 changing the world, then refreshes the selectable Paste list. Export writes the
 selected snapshot to one new, non-overwriting `.wbr` file outside the project.
@@ -34,6 +37,11 @@ library, and the imported snapshot previewed and pasted live at its selected
 destination without restarting the isolated Builder.
 Compatibility issues remain visible and block Paste without discarding an
 otherwise valid imported bundle. Interactive Cut remains pending.
+Paste also exposes one-step Undo. The Editor retains the exact pre-Paste package
+and a hash-bound receipt, saves pending runtime edits before Undo, and restores
+only when the live package and project fingerprint still equal the recorded
+post-Paste state. Any later edit causes a drift refusal; there is no reverse
+guess or force mode.
 
 The first discoverable increment uses the running Editor supervisor as the
 sole bridge to these contracts. The runtime gathers one ordered selection and
@@ -69,6 +77,12 @@ projects/<project-uuid>/
   snapshot-library/
     v1/
       <snapshot-sha256>.wbr
+  region-history/
+    v1/
+      last-paste-undo.json
+      paste-undo-<uuid>/
+        receipt.json
+        package/
 ```
 
 The filename is the snapshot content identity. Library entries are independent
@@ -297,6 +311,15 @@ the complete snapshot. Content outside that ownership polygon is preserved.
 The staged complete package must pass the same generic validator before the
 copy-on-write publication and project save.
 
+The latest successful Paste retains one exact pre-Paste package under
+`region-history/v1`. Undo first saves pending runtime edits, then requires the
+current working-package tree and project fingerprint to match the recorded
+post-Paste identities. It restores the retained package through the same forced,
+recoverable package exchange, updates the project manifest, activates the exact
+restored package live, and consumes the receipt. A second Undo or an Undo after
+later edits refuses without mutation. This is deliberate one-step Paste Undo,
+not a general operation history or redo stack.
+
 ## Commands
 
 ```text
@@ -309,6 +332,7 @@ region-paste-preview --project P --snapshot ID --level L --x X --y Y
 region-paste-apply --project P --snapshot ID --level L --x X --y Y \
   --expected-plan H --confirm "PASTE H"
 # use "OVERWRITE H" only when preview says overwriteRequired=true
+region-paste-undo --project P
 ```
 
 These advanced commands remain the Editor-owned contract boundary. The packaged
@@ -317,8 +341,9 @@ does not duplicate package mutation inside the runtime.
 
 ## Runtime work remaining
 
-The runtime provider now implements ordered Copy and exact Paste library,
-preview, confirmation, atomic publication, and exact live-package activation.
+The runtime provider now implements ordered Copy, exact Paste preview and
+confirmation, portable sharing, atomic publication, exact live-package
+activation, and one-step last-Paste Undo.
 The
 remaining region-snapshot workflow is:
 
@@ -326,10 +351,9 @@ remaining region-snapshot workflow is:
 2. marker insertion and movement beyond current append/undo/reopen controls;
 3. richer placement-family ghost models beyond the exact footprint outline,
    destination anchor, and collision pins;
-4. richer graphical library management beyond the current selectable list and
-   native `.wbr` Import/Export actions;
-5. durable user-facing undo/redo and recovery across save, close, interruption,
-   and reopen; and
+4. richer graphical library management beyond the current clipboard and native
+   `.wbr` Import/Export actions;
+5. general multi-operation undo/redo beyond the exact one-step Paste Undo; and
 6. custom material/sprite/definition capability negotiation and safe logical-ID
    remapping before any such dependency may resolve.
 
@@ -351,5 +375,7 @@ bounded adversarial directories, ordinary open/save/launch recovery, partial
 before/after cleanup and journal-write/delete recovery,
 every publication recovery milestone, same-project four-family Copy/Paste,
 canonical cut voiding, exact paste restoration, and source/target preservation.
-Runtime marker/ghost/undo UX remains explicitly
-untested because it is not implemented here.
+The exact last-Paste receipt, successful restore, repeated-Undo refusal,
+post-Paste drift refusal, supervisor bridge, and restored working/manifest
+identities are automated. Owner visual validation of the consolidated runtime
+controls remains pending.

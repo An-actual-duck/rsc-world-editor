@@ -82,6 +82,9 @@ public final class WorldBuilderCli {
 		if ("region-paste-apply".equals(args[0])) {
 			return regionPaste(args, true);
 		}
+		if ("region-paste-undo".equals(args[0])) {
+			return regionPasteUndo(args);
+		}
 		if ("run-adaptive-project".equals(args[0])) {
 			return runAdaptiveProject(args);
 		}
@@ -644,6 +647,21 @@ public final class WorldBuilderCli {
 			return adaptiveRefusal(refusal);
 		} catch (Exception failure) {
 			System.err.println("ERROR: Region paste failed: " + failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int regionPasteUndo(String[] args) {
+		Path project = singlePathOption(args, "--project", "region-paste-undo");
+		if (project == null) return 2;
+		try {
+			System.out.print(new WorldBuilderRegionSnapshotService()
+				.undoLastPaste(project));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Region Paste Undo failed: " + failure.getMessage());
 			return 4;
 		}
 	}
@@ -1829,6 +1847,7 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli region-paste-apply --project <projects/uuid>"
 			+ " --snapshot <sha256> --level <level> --x <x> --y <y>"
 			+ " --expected-plan <sha256> --confirm 'PASTE|OVERWRITE <sha256>'"
+			+ "\n  WorldBuilderCli region-paste-undo --project <projects/uuid>"
 			+ "\n  WorldBuilderCli run-adaptive-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli export-adaptive --project <projects/uuid>"
 			+ "\n  WorldBuilderCli export-active-adaptive"
