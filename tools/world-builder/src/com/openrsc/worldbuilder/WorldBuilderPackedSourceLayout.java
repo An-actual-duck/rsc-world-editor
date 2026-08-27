@@ -1,14 +1,19 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
+import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Exact source-path profile for equivalent OpenRSC packed layouts. */
 final class WorldBuilderPackedSourceLayout {
@@ -39,6 +44,9 @@ final class WorldBuilderPackedSourceLayout {
 		Arrays.asList("MyWorldGroundItemLocs.json", "MyWorldSceneryLocs.json",
 			"MyWorldSceneryRemovals.json", "MyWorldNpcLocs.json",
 			"MyWorldNpcRemovals.json"));
+	private static final int CONFIGURATION_SCAN_DEPTH = 8;
+	private static final int MAX_CONFIGURATION_SCAN_ENTRIES = 100000;
+	private static final int MAX_CONFIGURATION_CANDIDATES = 256;
 
 	final String profileId;
 	final String videoRoot;
@@ -133,12 +141,72 @@ final class WorldBuilderPackedSourceLayout {
 		return "primary";
 	}
 
-	private static List<String> configurationPaths(WorldBuilderReadOnlyTarget target)
+	static List<String> configurationPaths(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
-		List<String> result = new ArrayList<String>();
+		final Set<String> discovered = new HashSet<String>();
 		for (String path : CONFIGURATION_PATHS) {
-			if (target.exists(path)) result.add(path);
+			if (target.exists(path)) discovered.add(path);
 		}
+
+		final Path serverRoot = target.root.resolve("server").normalize();
+		if (Files.isDirectory(serverRoot, LinkOption.NOFOLLOW_LINKS)
+			&& !Files.isSymbolicLink(serverRoot)) {
+			final int[] entries = {0};
+			try {
+				Files.walkFileTree(serverRoot, Collections.emptySet(),
+					CONFIGURATION_SCAN_DEPTH, new SimpleFileVisitor<Path>() {
+						@Override public FileVisitResult preVisitDirectory(
+							Path directory, BasicFileAttributes attributes) throws IOException {
+							if (++entries[0] > MAX_CONFIGURATION_SCAN_ENTRIES) {
+								throw new IOException("packed configuration scan exceeded "
+									+ MAX_CONFIGURATION_SCAN_ENTRIES + " entries");
+							}
+							return Files.isSymbolicLink(directory)
+								? FileVisitResult.SKIP_SUBTREE : FileVisitResult.CONTINUE;
+						}
+
+						@Override public FileVisitResult visitFile(
+							Path file, BasicFileAttributes attributes) throws IOException {
+							if (++entries[0] > MAX_CONFIGURATION_SCAN_ENTRIES) {
+								throw new IOException("packed configuration scan exceeded "
+									+ MAX_CONFIGURATION_SCAN_ENTRIES + " entries");
+							}
+							if (!attributes.isRegularFile() || Files.isSymbolicLink(file)
+								|| !file.getFileName().toString().endsWith(".conf")) {
+								return FileVisitResult.CONTINUE;
+							}
+							String relative = target.root.relativize(file.toAbsolutePath().normalize())
+								.toString().replace('\\', '/');
+							boolean mapConfiguration = false;
+							if (WorldBuilderDiscovery.isSupportedConfigurationPath(relative)) {
+								try {
+									mapConfiguration = WorldBuilderDiscovery
+										.looksLikePackedMapConfiguration(file);
+								} catch (IOException malformedOrUnreadable) {
+									// An unrelated or malformed named .conf is not a map candidate.
+								}
+							}
+							if (mapConfiguration) {
+								discovered.add(relative);
+								if (discovered.size() > MAX_CONFIGURATION_CANDIDATES) {
+									throw new IOException("more than "
+										+ MAX_CONFIGURATION_CANDIDATES
+										+ " packed map configurations were found");
+								}
+							}
+							return FileVisitResult.CONTINUE;
+						}
+					});
+			} catch (IOException failure) {
+				throw WorldBuilderReadOnlyTarget.problem(
+					WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED,
+					"server", "Bounded packed configuration discovery failed: "
+						+ failure.getMessage(),
+					"Reduce duplicate server configuration evidence and retry detection.",
+					failure);
+			}
+		}
+		List<String> result = new ArrayList<String>(discovered);
 		Collections.sort(result);
 		return result;
 	}
@@ -167,8 +235,8 @@ final class WorldBuilderPackedSourceLayout {
 			throw WorldBuilderReadOnlyTarget.problem(
 				WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION, normalized,
 				"Selected packed configuration path is not supported.",
-				"Use one automatic path from " + CONFIGURATION_PATHS
-					+ " or one explicit contained server/*.conf path.");
+				"Use one detected packed map configuration below server/ or a supported "
+					+ "legacy myworld.conf path.");
 		}
 		return normalized;
 	}

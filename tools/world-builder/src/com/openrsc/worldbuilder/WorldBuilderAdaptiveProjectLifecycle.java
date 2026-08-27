@@ -1425,7 +1425,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				string(capability, "adapterId"))
 			&& WorldBuilderPackedFallbackEvidence.CAPABILITY_ID.equals(
 				string(capability, "capabilityId"))
-			&& WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS.contains(capabilityPath)
+			&& WorldBuilderDiscovery.isSupportedConfigurationPath(capabilityPath)
 			&& bool(selected, "present")
 			&& ("primary".equals(selectedRole)
 				|| selectedRole.matches("packed-map-[1-9][0-9]*"))

@@ -204,12 +204,22 @@ class WorldBuilderDiscoveryTest(unittest.TestCase):
         "set RUNTIME_PROVIDER_DIR to run the pinned runtime-layout integration test",
     )
     def test_current_repository_matches_supported_layout(self):
-        result = self.run_discovery(Path(RUNTIME_PROVIDER_ROOT))
-        self.assertEqual(0, result.returncode, result.stderr)
-        manifest = json.loads(result.stdout)
-        self.assertEqual(10048, manifest["configuration"]["clientVersion"])
-        self.assertGreater(manifest["terrainSectorCount"], 1000)
-        self.assertTrue(all(file_state["present"] for file_state in manifest["files"]))
+        root = Path(RUNTIME_PROVIDER_ROOT)
+        ambiguous = self.run_discovery(root)
+        self.assertEqual(3, ambiguous.returncode, ambiguous.stderr)
+        self.assertIn("server/myworld-host.conf", ambiguous.stderr)
+        self.assertIn("server/myworld.conf", ambiguous.stderr)
+        for configuration in ("server/myworld-host.conf", "server/myworld.conf"):
+            with self.subTest(configuration=configuration):
+                selected = self.run_discovery(root, "--config", configuration)
+                self.assertEqual(0, selected.returncode, selected.stderr)
+                manifest = json.loads(selected.stdout)
+                self.assertEqual(configuration, manifest["selectedConfig"])
+                self.assertEqual(10048, manifest["configuration"]["clientVersion"])
+                self.assertGreater(manifest["terrainSectorCount"], 1000)
+                self.assertTrue(all(
+                    file_state["present"] for file_state in manifest["files"]
+                ))
 
     def test_absent_optional_overlays_are_recorded_without_creation(self):
         with tempfile.TemporaryDirectory(prefix="world-builder-optional-") as temp:
