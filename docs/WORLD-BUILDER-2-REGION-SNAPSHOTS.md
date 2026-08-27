@@ -24,6 +24,10 @@ editing controls; it is unrelated to Region Copy. Region Paste now also exposes
 Import validates and adds one portable bundle to the project library without
 changing the world, then refreshes the selectable Paste list. Export writes the
 selected snapshot to one new, non-overwriting `.wbr` file outside the project.
+The native chooser is foregrounded and runs independently of the client update
+loop, so leaving it open does not freeze rendering or cause an idle disconnect.
+The authenticated runtime publishes Import/Export requests through a dedicated
+sharing command rather than the Paste transaction.
 Compatibility issues remain visible and block Paste without discarding an
 otherwise valid imported bundle. Interactive Cut remains pending.
 
