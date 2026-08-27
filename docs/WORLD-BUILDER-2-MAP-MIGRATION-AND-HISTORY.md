@@ -9,6 +9,7 @@
 | Product | World Builder 2 only |
 | Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
 | Follow-up objective | Add understandable project-save history and verified restore |
+| Current priority | Owner-validate the implemented split-map workflow before resuming detached-camera work |
 
 This document extends the implemented adaptive map workflow. It does not
 reinterpret frozen schemas, weaken exact conversion, or authorize destructive

@@ -6,10 +6,10 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after owner-validating the mixed terrain and placement session history |
+| Last reconciled | 2026-08-27, after prioritizing the implemented legacy-landscape migration workflow for owner validation |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Current focus | Detached-camera Builder foundation and quiescent-runtime design |
+| Current focus | Legacy `Custom_Landscape.orsc` incorporation, combined export, safe target import, retirement, and recovery validation |
 | Longer themes | Fluid tools, creator content, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
@@ -821,7 +821,9 @@ The current product objective proceeds in three reviewable increments:
 
 This sequence temporarily takes priority over the broader tool roadmap below.
 It does not reduce the importance or readiness of the already implemented
-fluid-tool and region-sharing work.
+fluid-tool and region-sharing work. Detached-camera Builder design remains a
+later objective until this workflow has passed real-target validation and is
+available in a fresh release.
 
 ## Recommended dependency order
 
@@ -845,15 +847,18 @@ This is a technical dependency order, not an assignment or fixed release plan:
 7. Maintain the implemented Editor-owned ordered selection, marker UI, local
    snapshot, copy/cut/paste, ghost preview, strict import/export, live
    activation, and durable last-Paste Undo boundaries.
-8. Design and implement the detached camera anchor and the quiescent Builder
+8. Owner-validate and release the implemented legacy `Custom_Landscape.orsc`
+   incorporation, combined export, safe target import, reversible retirement,
+   and project-history workflow.
+9. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
-9. Use selection, lines, rectangles, and snapshots to build the conversion
+10. Use selection, lines, rectangles, and snapshots to build the conversion
    outlier workbench and quick-house/prefab tools.
-10. Revise the custom-material identity model for creator-to-creator sharing,
+11. Revise the custom-material identity model for creator-to-creator sharing,
    then implement drop-in floor/wall materials.
-11. Design declarative scenery Action presets and server-format adapters only
+12. Design declarative scenery Action presets and server-format adapters only
    after definition identity and portable dependency handling are settled.
-12. Consider RGB terrain and broader custom content only through new explicit
+13. Consider RGB terrain and broader custom content only through new explicit
     capabilities and schema versions; wide elevation already uses that boundary.
 
 Some increments can be reordered, but region snapshots should not invent a
