@@ -6,10 +6,10 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after owner-validating terrain history and extending the session stack to placements |
+| Last reconciled | 2026-08-27, after owner-validating the mixed terrain and placement session history |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Current focus | Fluid authoring tools and a shared, authoritative operation-history foundation |
+| Current focus | Detached-camera Builder foundation and quiescent-runtime design |
 | Longer themes | Fluid tools, creator content, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
@@ -136,8 +136,8 @@ The intended order for the active product focus is:
    an in-game selection, Copy/Cut/Paste, library, import, and export workflow;
    and
 8. establish one bounded authoritative Undo/Redo history for complete terrain
-   and placement operations. Terrain behavior is owner-validated; placement
-   behavior is implemented and pending owner validation.
+   and placement operations. Terrain and placement behavior are implemented
+   and owner-validated.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
 materials, and declarative object actions remain important, but they must not
@@ -832,22 +832,19 @@ This is a technical dependency order, not an assignment or fixed release plan:
    later tool changes.
 2. Maintain the validated drag recovery: exact wide-batch framing, interpolated
    sampling, periodic flushing, clean gesture termination, and bounded timeout.
-3. Maintain the implemented Freehand footprint preview and instrument the
-   remaining input-to-paint latency, then generalize the current
-   terrain stroke into one immediate, previewable, pipelined, reconcilable, and
-   undoable operation model.
+3. Maintain the implemented Freehand footprint preview, low-latency edit path,
+   and owner-validated mixed terrain/placement Undo/Redo stack; optional deeper
+   work may add speculative previews, pipelining, and incremental rebuilds.
 4. Maintain the implemented centered 1-by-1, 3-by-3, 5-by-5, and 7-by-7
    footprints as the shared geometry for every terrain tool.
 5. Maintain the owner-validated 4,096-tile atomic Line and Rectangle
    Outline/Fill geometry, shared preview, whole-operation validation, Smart
-   Wall ownership, and bounded reconciliation while adding later
-   operation-level undo.
-6. Add same-level single-scenery Move with a ghost destination and one atomic
-   authoritative transaction.
-7. Use the implemented Editor-owned ordered selection, local snapshot,
-   copy/cut/paste, and strict import/export contracts as the runtime boundary;
-   add marker placement, ghost previews, transactions, toolbar/library UI, and
-   durable undo/redo.
+   Wall ownership, bounded reconciliation, and operation-level Undo/Redo.
+6. Maintain the owner-validated same-level single-scenery Move gesture with its
+   ghost destination and atomic authoritative transaction.
+7. Maintain the implemented Editor-owned ordered selection, marker UI, local
+   snapshot, copy/cut/paste, ghost preview, strict import/export, live
+   activation, and durable last-Paste Undo boundaries.
 8. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
 9. Use selection, lines, rectangles, and snapshots to build the conversion
@@ -872,9 +869,9 @@ material-sharing model that custom materials later have to replace.
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, and owner validation of session Undo/Redo |
-| Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail and owner validation of session Undo/Redo |
-| Session terrain Undo/Redo | Implemented for clicks, complete drags, Lines, and Rectangles; pending owner validation | Extend the shared history primitive to placements, then reconcile region transactions |
+| Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins and unavailable-tile preview |
+| Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail |
+| Session operation Undo/Redo | Terrain and scenery/NPC/ground-item placement operations owner-validated in one ordered stack | Reconcile durable region transactions with the session stack |
 | Scenery drag-move | Same-level atomic implementation complete and owner-validated | Cross-level, multi-object, duplicate, and rotate-during-move workflows |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
