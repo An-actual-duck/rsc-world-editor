@@ -5735,6 +5735,43 @@ public final class FakeAdaptiveClient {
             self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_named_server_configuration_is_preserved_through_project_creation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-named-config-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            selected = target / "server/configurations/production-world.conf"
+            selected.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(target / "server/myworld.conf"), str(selected))
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            discovery = self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Named configuration", 43835,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            self.assertEqual(
+                "server/configurations/production-world.conf",
+                discovery["selectedConfiguration"]["relativePath"],
+            )
+            project = Path(summary["projectRoot"])
+            copied = project / "source/original/server/configurations/production-world.conf"
+            self.assertTrue(copied.is_file())
+            self.assertEqual(selected.read_bytes(), copied.read_bytes())
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_explicit_packed_map_choice_is_preserved_through_project_creation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-map-choice-") as temp:
             base = Path(temp)

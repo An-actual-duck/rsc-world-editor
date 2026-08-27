@@ -28,11 +28,21 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		boolean locations = false;
 		boolean tileDefinitions = false;
 		List<ProbeResult.Anchor> anchors = new ArrayList<ProbeResult.Anchor>();
+		List<String> discoveredConfigurations =
+			WorldBuilderPackedSourceLayout.configurationPaths(target);
 		for (String configPath : WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS) {
-			boolean present = target.exists(configPath);
+			boolean present = discoveredConfigurations.contains(configPath);
 			config |= present;
 			anchors.add(new ProbeResult.Anchor("active-configuration-candidate",
 				configPath, present, false));
+		}
+		for (String configPath : discoveredConfigurations) {
+			if (WorldBuilderPackedSourceLayout.CONFIGURATION_PATHS.contains(configPath)) {
+				continue;
+			}
+			config = true;
+			anchors.add(new ProbeResult.Anchor("active-configuration-candidate",
+				configPath, true, false));
 		}
 		boolean clientTerrain = false;
 		for (String videoRoot : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {

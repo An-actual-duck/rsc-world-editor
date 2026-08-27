@@ -167,6 +167,20 @@ public final class WorldBuilderDiscovery {
 				&& !relative.contains("..");
 	}
 
+	static boolean looksLikePackedMapConfiguration(Path path) throws IOException {
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)
+			|| Files.size(path) > WorldBuilderContractLimits.MAX_JSON_BYTES) {
+			return false;
+		}
+		Config config = Config.read(path);
+		return config.contains("client_version")
+			&& config.contains("based_map_data")
+			&& config.contains("member_world")
+			&& config.contains("custom_landscape")
+			&& config.contains("want_myworld");
+	}
+
 	private static Path canonicalRoot(Path requestedRoot)
 		throws IOException, WorldBuilderDiscoveryException {
 		if (requestedRoot == null) {
@@ -472,6 +486,11 @@ public final class WorldBuilderDiscovery {
 				matches.add(value);
 			}
 			return new Config(values);
+		}
+
+		boolean contains(String key) {
+			List<String> matches = values.get(key.toLowerCase(Locale.ROOT));
+			return matches != null && !matches.isEmpty();
 		}
 
 		boolean requiredBoolean(String key) throws WorldBuilderDiscoveryException {

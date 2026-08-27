@@ -521,12 +521,18 @@ values above `8` remain conversion blockers. Every copied input or canonical
 alias is size/hash verified and recorded in the derived evidence; the original
 target paths and bytes remain intact.
 
-The third source-path increment adds exact active-configuration profiles for
+The third source-path increment recognizes the established
 `server/myworld.conf`, root-level `myworld.conf`,
-`conf/server/myworld.conf`, and `server/conf/server/myworld.conf`. Automatic
-detection requires exactly one populated candidate. Multiple candidates block
-with all paths reported; the lower-level advanced CLI may name one exact
-compiled candidate explicitly. The selected file must still parse the same
+`conf/server/myworld.conf`, and `server/conf/server/myworld.conf` locations.
+The later stabilization increment also performs a bounded, no-follow scan for
+other `*.conf` files below `server/`. A file becomes a map candidate only when
+it contains the complete packed-map signature (`client_version`,
+`based_map_data`, `member_world`, `custom_landscape`, and `want_myworld`), so
+logging and unrelated service configurations do not clutter the chooser.
+Automatic detection requires exactly one populated candidate. Multiple map
+configurations block with every path reported; the desktop launcher offers the
+most recently modified candidate as a convenience or lets the user choose any
+detected candidate explicitly. The selected file must still parse the same
 bounded configuration keys and semantics, is inventoried under its original
 path, and is copied read-only into the isolated project. Runtime preparation
 uses the generated project-local configuration, so no canonical configuration

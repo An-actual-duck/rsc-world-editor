@@ -1287,6 +1287,64 @@ public final class AdaptiveDiscoveryDriftHarness {
                 self.assertIn(configuration_path, profile["observed"])
                 self.assertEqual(before, self.snapshot(root))
 
+    def test_named_packed_configuration_below_server_is_discovered_read_only(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-named-config-") as temp:
+            root = self.legacy_fixture(temp)
+            selected = root / "server/configurations/production-world.conf"
+            selected.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(root / "server/myworld.conf"), str(selected))
+            before = self.snapshot(root)
+
+            result, report = self.assert_read_only(root)
+
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual("compatible", report["status"])
+            self.assertEqual(
+                "server/configurations/production-world.conf",
+                report["selectedConfiguration"]["relativePath"],
+            )
+            self.assertEqual(before, self.snapshot(root))
+
+    def test_all_named_map_configurations_are_offered_but_unrelated_conf_is_ignored(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-packed-named-choice-") as temp:
+            root = self.legacy_fixture(temp)
+            original = root / "server/myworld.conf"
+            first = root / "server/configurations/new-world.conf"
+            second = root / "server/profiles/old-world.conf"
+            first.parent.mkdir(parents=True, exist_ok=True)
+            second.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original, first)
+            shutil.copy2(original, second)
+            original.unlink()
+            unrelated = root / "server/logging.conf"
+            unrelated.write_text("level: info\n", encoding="utf-8")
+            before = self.snapshot(root)
+
+            report = self.assert_blocked(root, "AMBIGUOUS_CONFIGURATION")
+
+            candidates = {
+                candidate["relativePath"]: candidate["role"]
+                for candidate in report["configurationCandidates"]
+            }
+            self.assertEqual(
+                {
+                    "server/configurations/new-world.conf",
+                    "server/profiles/old-world.conf",
+                },
+                set(candidates),
+            )
+            selected_result, selected = self.assert_read_only(
+                root,
+                "--configuration-role",
+                candidates["server/configurations/new-world.conf"],
+            )
+            self.assertEqual(0, selected_result.returncode, selected_result.stderr)
+            self.assertEqual(
+                "server/configurations/new-world.conf",
+                selected["selectedConfiguration"]["relativePath"],
+            )
+            self.assertEqual(before, self.snapshot(root))
+
     def test_multiple_packed_configuration_paths_are_ambiguous(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-packed-config-ambiguous-") as temp:
             root = self.legacy_fixture(temp)
