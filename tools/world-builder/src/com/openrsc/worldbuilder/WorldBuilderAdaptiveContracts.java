@@ -33,6 +33,8 @@ final class WorldBuilderAdaptiveContracts {
 		MAP_MIGRATION_CHOICE("map-migration-choice", 1,
 			"world-builder-map-migration-choice",
 			"map-migration-choice-v1.schema.json"),
+		PROJECT_REVISION("project-revision", 1,
+			"world-builder-project-revision", "project-revision-v1.schema.json"),
 		PROJECT_MANIFEST("project-manifest", 2,
 			"world-builder-project", "project-manifest-v2.schema.json"),
 		PROJECT_REGISTRY("project-registry", 1,
@@ -149,6 +151,7 @@ final class WorldBuilderAdaptiveContracts {
 			case TARGET_CAPABILITY: validateCapability(root); return;
 			case DISCOVERY_REPORT: validateDiscovery(root); return;
 			case MAP_MIGRATION_CHOICE: validateMapMigrationChoice(root); return;
+			case PROJECT_REVISION: validateProjectRevision(root); return;
 			case PROJECT_MANIFEST: validateProject(root); return;
 			case PROJECT_REGISTRY: validateRegistry(root); return;
 			case ACTIVE_PROJECT: validateActiveProject(root); return;
@@ -164,6 +167,47 @@ final class WorldBuilderAdaptiveContracts {
 			case ADAPTIVE_RECEIPT: validateReceipt(root); return;
 			default: throw new AssertionError(kind);
 		}
+	}
+
+	private static void validateProjectRevision(Map<String,Object> root)
+		throws WorldBuilderContractException {
+		String op = "validate-project-revision";
+		exact(root, op, "schemaVersion", "manifestType", "revisionId", "projectId",
+			"createdAt", "reason", "description", "parentRevisionId", "sourceSha256",
+			"definitionsSha256", "runtimeSha256",
+			"workingPackageFingerprintSha256", "fileCount", "totalBytes", "files",
+			"revisionFingerprintSha256");
+		uuid(root, "revisionId", op, false);
+		uuid(root, "projectId", op, false);
+		String created = text(root, "createdAt", op, 20, 64);
+		try {
+			if (!Instant.parse(created).toString().equals(created)) {
+				invalid(op, "Project revision timestamp is not canonical UTC.");
+			}
+		} catch (java.time.format.DateTimeParseException malformed) {
+			invalid(op, "Project revision timestamp is not an ISO-8601 UTC instant.");
+		}
+		enumeration(root, "reason", op,
+			"editing-session", "before-restore", "explicit-backup");
+		text(root, "description", op, 0, 1024);
+		uuid(root, "parentRevisionId", op, true);
+		hash(root, "sourceSha256", op);
+		hash(root, "definitionsSha256", op);
+		hash(root, "runtimeSha256", op);
+		hash(root, "workingPackageFingerprintSha256", op);
+		List<WorldBuilderBoundedInventory.Record> files =
+			WorldBuilderBoundedInventory.read(root.get("files"), op, 1, false);
+		long total = 0L;
+		for (WorldBuilderBoundedInventory.Record file : files) {
+			if (!file.present) invalid(op, "Project revision files must all be present.");
+			total = boundedByteTotal(total, file.size, op,
+				"Project revision file byte total");
+		}
+		if (integer(root, "fileCount", op) != files.size()
+			|| integer(root, "totalBytes", op) != total) {
+			invalid(op, "Project revision file totals do not match its inventory.");
+		}
+		hash(root, "revisionFingerprintSha256", op);
 	}
 
 	private static void validateMapMigrationChoice(Map<String,Object> root)
