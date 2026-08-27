@@ -326,6 +326,16 @@ final class WorldBuilderDesktopLauncher {
 				@Override public void run() { inspectInstalledSource(); }
 			}));
 			file.add(new JSeparator());
+			file.add(menu("Export Selected Project Complete Map Package…", new Runnable() {
+				@Override public void run() { exportSelectedProject(); }
+			}));
+			file.add(menu("Import Selected Project Map Changes to Server…", new Runnable() {
+				@Override public void run() { importSelectedProject(); }
+			}));
+			file.add(menu("Undo Last Server Map Import…", new Runnable() {
+				@Override public void run() { undoSelectedProjectImport(); }
+			}));
+			file.add(new JSeparator());
 			file.add(menu("Exit", new Runnable() {
 				@Override public void run() { closeRequested(); }
 			}));
@@ -343,6 +353,10 @@ final class WorldBuilderDesktopLauncher {
 			}));
 			recovery.add(menu("Refresh Project List", new Runnable() {
 				@Override public void run() { refreshProjects(null); }
+			}));
+			recovery.add(new JSeparator());
+			recovery.add(menu("Recover Interrupted Server Map Import…", new Runnable() {
+				@Override public void run() { recoverSelectedProjectImport(); }
 			}));
 			recovery.add(new JSeparator());
 			recovery.add(menu("Export Detected Server Diagnostics", new Runnable() {
@@ -502,6 +516,138 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			launchProject(entry.projectId, model.defaultTarget());
+		}
+
+		private void importSelectedProject() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("import map changes");
+			if (entry == null) return;
+			runTask("Exporting the selected project and preparing an exact import preview…",
+				new Task<WorldBuilderLauncherModel.PreparedImport>() {
+					@Override public WorldBuilderLauncherModel.PreparedImport run()
+						throws Exception { return model.prepareServerImport(entry); }
+				}, new Success<WorldBuilderLauncherModel.PreparedImport>() {
+					@Override public void accept(
+						final WorldBuilderLauncherModel.PreparedImport prepared) {
+						if (!confirmTransaction("Import Map Changes to Server",
+							"Import Map Changes", prepared.summary())) return;
+						runTask("Backing up the server and importing the reviewed map…",
+							new Task<String>() {
+								@Override public String run() throws Exception {
+									return model.applyServerImport(prepared);
+								}
+							}, transactionSuccess(entry.projectId,
+								"Map Import Complete"));
+					}
+				});
+		}
+
+		private void exportSelectedProject() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("export the complete map");
+			if (entry == null) return;
+			runTask("Validating and exporting the complete project map…",
+				new Task<Path>() {
+					@Override public Path run() throws Exception {
+						return model.exportCompleteMap(entry);
+					}
+				}, new Success<Path>() {
+					@Override public void accept(Path exported) {
+						String message = "The complete immutable map package was exported to:\n\n"
+							+ exported;
+						details.setText(message);
+						details.setCaretPosition(0);
+						JOptionPane.showMessageDialog(frame, message,
+							"Complete Map Exported", JOptionPane.INFORMATION_MESSAGE);
+					}
+				});
+		}
+
+		private void undoSelectedProjectImport() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("undo a server import");
+			if (entry == null) return;
+			runTask("Preparing an exact undo preview…",
+				new Task<WorldBuilderLauncherModel.PreparedUndo>() {
+					@Override public WorldBuilderLauncherModel.PreparedUndo run()
+						throws Exception { return model.prepareServerUndo(entry); }
+				}, new Success<WorldBuilderLauncherModel.PreparedUndo>() {
+					@Override public void accept(
+						final WorldBuilderLauncherModel.PreparedUndo prepared) {
+						if (!confirmTransaction("Undo Last Server Map Import",
+							"Undo Import", prepared.summary())) return;
+						runTask("Restoring the verified server backup…",
+							new Task<String>() {
+								@Override public String run() throws Exception {
+									return model.applyServerUndo(prepared);
+								}
+							}, transactionSuccess(entry.projectId,
+								"Server Import Undone"));
+					}
+				});
+		}
+
+		private void recoverSelectedProjectImport() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("recover an interrupted server import");
+			if (entry == null) return;
+			runTask("Inspecting durable transaction evidence…",
+				new Task<WorldBuilderLauncherModel.PreparedRecovery>() {
+					@Override public WorldBuilderLauncherModel.PreparedRecovery run()
+						throws Exception { return model.prepareServerRecovery(entry); }
+				}, new Success<WorldBuilderLauncherModel.PreparedRecovery>() {
+					@Override public void accept(
+						final WorldBuilderLauncherModel.PreparedRecovery prepared) {
+						if (!confirmTransaction("Recover Interrupted Server Map Import",
+							"Recover Import", prepared.summary())) return;
+						runTask("Restoring the exact verified transaction state…",
+							new Task<String>() {
+								@Override public String run() throws Exception {
+									return model.applyServerRecovery(prepared);
+								}
+							}, transactionSuccess(entry.projectId,
+								"Recovery Complete"));
+					}
+				});
+		}
+
+		private WorldBuilderLauncherModel.ProjectEntry selectedForServerAction(
+			String action) {
+			if (busy || editorRunning) {
+				JOptionPane.showMessageDialog(frame,
+					"Close the editor and wait for the current task before you " + action + ".",
+					"Project Is In Use", JOptionPane.INFORMATION_MESSAGE);
+				return null;
+			}
+			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
+			if (entry == null) showError("Select a project first.", null);
+			return entry;
+		}
+
+		private boolean confirmTransaction(String title, String action, String summary) {
+			JTextArea visible = readOnlyText();
+			visible.setRows(18);
+			visible.setColumns(72);
+			visible.setText(summary + "\n\nThe server must remain offline. World Builder "
+				+ "will refuse any drift and will keep verified recovery evidence.");
+			visible.setCaretPosition(0);
+			Object[] options = {action, "Cancel"};
+			return JOptionPane.showOptionDialog(frame, new JScrollPane(visible), title,
+				JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null,
+				options, options[1]) == 0;
+		}
+
+		private Success<String> transactionSuccess(
+			final String projectId, final String title) {
+			return new Success<String>() {
+				@Override public void accept(String message) {
+					details.setText(message);
+					details.setCaretPosition(0);
+					JOptionPane.showMessageDialog(frame, message, title,
+						JOptionPane.INFORMATION_MESSAGE);
+					refreshProjects(projectId);
+				}
+			};
 		}
 
 		private void createEmpty() {

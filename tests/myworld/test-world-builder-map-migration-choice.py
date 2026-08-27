@@ -119,6 +119,52 @@ public final class ScriptedMigrationLauncherHarness {
 }
 """
 
+LAUNCHER_TRANSACTION_HARNESS = r"""
+package com.openrsc.worldbuilder;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+public final class LauncherMigrationTransactionHarness {
+    public static void main(String[] arguments) throws Exception {
+        WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(
+            Paths.get(arguments[0]), Paths.get(arguments[1]),
+            Paths.get(arguments[2]), Integer.parseInt(arguments[4]), null);
+        WorldBuilderLauncherModel.ProjectEntry selected = null;
+        for (WorldBuilderLauncherModel.ProjectEntry entry : model.projects()) {
+            if (entry.projectId.equals(arguments[3])) selected = entry;
+        }
+        if (selected == null) throw new AssertionError("project not found");
+        WorldBuilderLauncherModel.PreparedImport prepared =
+            model.prepareServerImport(selected);
+        Files.write(Paths.get(arguments[5]),
+            prepared.preview.toJson().getBytes(StandardCharsets.UTF_8));
+        if (!prepared.summary().contains(
+            "Legacy Custom_Landscape retirement: 2 exact files")) {
+            throw new AssertionError(prepared.summary());
+        }
+        System.out.println(model.applyServerImport(prepared));
+        Path target = Paths.get(arguments[2]);
+        if (Files.exists(target.resolve(
+                "server/conf/server/data/Custom_Landscape.orsc"))
+            || Files.exists(target.resolve(
+                "Client_Base/Cache/video/Custom_Landscape.orsc"))) {
+            throw new AssertionError("legacy landscape was not retired");
+        }
+        WorldBuilderLauncherModel.PreparedUndo undo = model.prepareServerUndo(selected);
+        System.out.println(model.applyServerUndo(undo));
+        if (!Files.isRegularFile(target.resolve(
+                "server/conf/server/data/Custom_Landscape.orsc"))
+            || !Files.isRegularFile(target.resolve(
+                "Client_Base/Cache/video/Custom_Landscape.orsc"))) {
+            throw new AssertionError("legacy landscape was not restored");
+        }
+    }
+}
+"""
+
 
 def load_fixtures(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -176,6 +222,21 @@ class MapMigrationChoiceTest(unittest.TestCase):
         sources = sorted(str(path) for path in SOURCE_ROOT.rglob("*.java"))
         subprocess.run(
             ["javac", "-source", "8", "-target", "8", "-d", str(cls.classes), *sources],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+        )
+        transaction_harness = (
+            cls.classes
+            / "harness/com/openrsc/worldbuilder/LauncherMigrationTransactionHarness.java"
+        )
+        transaction_harness.parent.mkdir(parents=True, exist_ok=True)
+        transaction_harness.write_text(LAUNCHER_TRANSACTION_HARNESS, encoding="utf-8")
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(transaction_harness),
+            ],
             check=True,
             cwd=ROOT,
             capture_output=True,
@@ -676,18 +737,23 @@ class MapMigrationChoiceTest(unittest.TestCase):
         # through the normal previewed import transaction. Both legacy files are
         # backed up, retired after layered activation, and restored by exact undo.
         target_bytes_before_import = LIFECYCLE.tree_bytes(target)
-        exported = self.run_cli("export-adaptive", "--project", project)
-        self.assertEqual(exported.returncode, 0, exported.stderr)
-        export_root = Path(json.loads(exported.stdout)["exportDirectory"])
-        preview = self.run_cli(
-            "import-adaptive", "--project", project, "--export", export_root,
-            "--target-root", target,
+        project_id = manifest["projectId"]
+        plan_path = self.root / "launcher-import-plan.json"
+        transaction = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
+                str(installation), str(runtime), str(target), project_id,
+                "43902", str(plan_path),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
         )
-        self.assertEqual(preview.returncode, 0, preview.stderr)
-        self.assertIn(
-            "Legacy Custom_Landscape retirement: 2 exact files", preview.stderr
-        )
-        plan = json.loads(preview.stdout)
+        self.assertEqual(transaction.returncode, 0, transaction.stderr)
+        self.assertIn("Map changes were imported successfully", transaction.stdout)
+        self.assertIn("last map import was undone successfully", transaction.stdout)
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
         retirements = [
             action for action in plan["actions"]
             if action["role"].startswith("retire-legacy-landscape-")
@@ -697,17 +763,6 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertTrue(
             all(not action["after"]["present"] for action in retirements)
         )
-        applied = self.run_cli(
-            "import-adaptive", "--project", project, "--export", export_root,
-            "--target-root", target, "--confirm", "IMPORT",
-            "--transaction-id", plan["transactionId"],
-            "--plan-sha256", plan["planFingerprintSha256"],
-        )
-        self.assertEqual(applied.returncode, 0, applied.stderr)
-        self.assertFalse(server_terrain.exists())
-        self.assertFalse((
-            target / "Client_Base/Cache/video/Custom_Landscape.orsc"
-        ).exists())
         for action in retirements:
             backup = project / action["backupRelativePath"]
             self.assertTrue(backup.is_file())
@@ -715,19 +770,6 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 hashlib.sha256(backup.read_bytes()).hexdigest(),
                 action["before"]["sha256"],
             )
-
-        undo_preview = self.run_cli(
-            "undo-adaptive", "--project", project, "--target-root", target
-        )
-        self.assertEqual(undo_preview.returncode, 0, undo_preview.stderr)
-        undo_plan = json.loads(undo_preview.stdout)
-        undone = self.run_cli(
-            "undo-adaptive", "--project", project, "--target-root", target,
-            "--confirm", "UNDO",
-            "--transaction-id", undo_plan["transactionId"],
-            "--plan-sha256", undo_plan["planFingerprintSha256"],
-        )
-        self.assertEqual(undone.returncode, 0, undone.stderr)
         self.assertEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
 
 

@@ -349,6 +349,84 @@ final class WorldBuilderLauncherModel {
 		return new WorldBuilderProcessSupervisor().runAdaptiveProject(project.projectRoot);
 	}
 
+	PreparedImport prepareServerImport(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before importing.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveExporter.ExportResult exported =
+			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
+		WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+		WorldBuilderAdaptiveImporter.Preview preview = importer.preview(
+			entry.projectRoot, exported.exportDirectory, target);
+		return new PreparedImport(importer, preview, target);
+	}
+
+	Path exportCompleteMap(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before exporting.");
+		return new WorldBuilderAdaptiveExporter().export(entry.projectRoot).exportDirectory;
+	}
+
+	String applyServerImport(PreparedImport prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Import preview was not supplied.");
+		WorldBuilderAdaptiveImporter.ImportResult result =
+			prepared.importer.apply(prepared.preview, "IMPORT");
+		return "Map changes were imported successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	PreparedUndo prepareServerUndo(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before undoing an import.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+		return new PreparedUndo(undo, undo.preview(entry.projectRoot, target), target);
+	}
+
+	String applyServerUndo(PreparedUndo prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Undo preview was not supplied.");
+		WorldBuilderAdaptiveUndo.UndoResult result =
+			prepared.undo.apply(prepared.preview, "UNDO");
+		return "The last map import was undone successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	PreparedRecovery prepareServerRecovery(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before recovery.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
+		return new PreparedRecovery(recovery,
+			recovery.preview(entry.projectRoot, target), target);
+	}
+
+	String applyServerRecovery(PreparedRecovery prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Recovery preview was not supplied.");
+		WorldBuilderAdaptiveRecovery.RecoveryResult result =
+			prepared.recovery.apply(prepared.preview, "RECOVER");
+		return "Interrupted map import recovery completed successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	private Path targetFor(ProjectEntry entry) throws IOException {
+		if (!entry.sourceDisplay.isEmpty()) {
+			try {
+				Path recorded = java.nio.file.Paths.get(entry.sourceDisplay);
+				if (recorded.isAbsolute()) {
+					return requireDirectory(recorded, "project's recorded server target");
+				}
+			} catch (java.nio.file.InvalidPathException invalid) {
+				throw new IOException("The project's recorded server target is invalid.", invalid);
+			}
+		}
+		if (defaultTarget != null) return defaultTarget;
+		throw new IOException("This project has no available server target. Standalone "
+			+ "projects can be edited and exported, but cannot overwrite a server.");
+	}
+
 	private static Path requireDirectory(Path requested, String label) throws IOException {
 		if (requested == null) throw new IOException(label + " was not supplied.");
 		Path normalized = requested.toAbsolutePath().normalize();
@@ -401,6 +479,57 @@ final class WorldBuilderLauncherModel {
 
 		@Override public String toString() {
 			return (active ? "▶ " : "   ") + displayName;
+		}
+	}
+
+	static final class PreparedImport {
+		final WorldBuilderAdaptiveImporter importer;
+		final WorldBuilderAdaptiveImporter.Preview preview;
+		final Path target;
+
+		PreparedImport(WorldBuilderAdaptiveImporter importer,
+			WorldBuilderAdaptiveImporter.Preview preview, Path target) {
+			this.importer = importer;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
+		}
+	}
+
+	static final class PreparedUndo {
+		final WorldBuilderAdaptiveUndo undo;
+		final WorldBuilderAdaptiveUndo.Preview preview;
+		final Path target;
+
+		PreparedUndo(WorldBuilderAdaptiveUndo undo,
+			WorldBuilderAdaptiveUndo.Preview preview, Path target) {
+			this.undo = undo;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
+		}
+	}
+
+	static final class PreparedRecovery {
+		final WorldBuilderAdaptiveRecovery recovery;
+		final WorldBuilderAdaptiveRecovery.Preview preview;
+		final Path target;
+
+		PreparedRecovery(WorldBuilderAdaptiveRecovery recovery,
+			WorldBuilderAdaptiveRecovery.Preview preview, Path target) {
+			this.recovery = recovery;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}
 
