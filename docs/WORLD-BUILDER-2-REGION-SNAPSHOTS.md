@@ -360,9 +360,10 @@ remaining region-snapshot workflow is:
    destination anchor, and collision pins;
 3. richer graphical library management beyond the current clipboard and native
    `.wbr` Import/Export actions;
-4. integration with the new session operation-history primitive, which
-   currently covers terrain clicks, complete drags, Lines, and Rectangles but
-   not region transactions; and
+4. integration with the session operation-history primitive, which currently
+   covers terrain clicks, complete drags, Lines, Rectangles, and ordinary
+   scenery/NPC/ground-item placement mutations but not region transactions;
+   and
 5. custom material/sprite/definition capability negotiation and safe logical-ID
    remapping before any such dependency may resolve.
 

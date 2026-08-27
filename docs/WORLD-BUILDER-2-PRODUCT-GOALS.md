@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after owner-validating Region Cut and implementing session terrain Undo/Redo |
+| Last reconciled | 2026-08-27, after owner-validating terrain history and extending the session stack to placements |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid authoring tools and a shared, authoritative operation-history foundation |
@@ -55,8 +55,10 @@ World Builder 2 already provides a substantial base for these goals:
 - absolute and relative elevation editing across the unsigned 16-bit
   `0..65535` range;
 - contextual toolbar actions for terrain, scenery, NPCs, and ground items;
-- bounded session terrain Undo/Redo for a click, one complete Ctrl-drag gesture,
-  one Line, or one Rectangle, with toolbar controls and `Ctrl+Z`/`Ctrl+Y`;
+- one bounded session Undo/Redo stack for terrain clicks, complete Ctrl-drag
+  gestures, Lines, Rectangles, scenery Place/Move/Rotate/Remove, NPC
+  Place/Remove, and ground-item Place/Remove, with toolbar controls and
+  `Ctrl+Z`/`Ctrl+Y`;
 - project-local save, close, reopen, export, transactional import, recovery,
   and exact undo;
 - a reversible Build presentation mode with a terrain grid and simplified
@@ -134,7 +136,8 @@ The intended order for the active product focus is:
    an in-game selection, Copy/Cut/Paste, library, import, and export workflow;
    and
 8. establish one bounded authoritative Undo/Redo history for complete terrain
-   operations, then extend that same primitive to placements.
+   and placement operations. Terrain behavior is owner-validated; placement
+   behavior is implemented and pending owner validation.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
 materials, and declarative object actions remain important, but they must not
@@ -467,7 +470,8 @@ tools can then become a friendly composition layer over those primitives.
 
 The longer-term editor should consider:
 
-- undo and redo for terrain and placements;
+- region-transaction integration with the implemented terrain/placement
+  session Undo/Redo stack;
 - rectangle, ellipse, fill, replace, flatten, smooth, and gradient tools;
 - eyedropper sampling for every terrain field and placement family;
 - favorites, search, recent choices, thumbnails, and named palettes;
@@ -768,8 +772,9 @@ the Editor mutation engine. A failed live activation preserves the published
 package and instructs the creator to close/reopen as a safe recovery path. Cut
 uses the same recovery-safe publication and live activation path. Exact
 last-Paste Undo is implemented with post-Paste drift refusal. The separate
-session terrain history is now implemented, but region transactions have not
-yet been unified into that general operation stack. Before calling the feature
+session history now covers terrain and ordinary scenery, NPC, and ground-item
+placement operations in exact edit order, but region transactions have not yet
+been unified into that general operation stack. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
