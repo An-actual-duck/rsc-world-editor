@@ -6,11 +6,11 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of graphical cross-project Region Import/Paste |
+| Last reconciled | 2026-08-27, adding legacy landscape migration, GUI target transactions, and project history |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
-| Longer themes | Creator content, legacy conversion, detached authoring, and safe declarative object actions |
+| Current focus | Streamlined legacy-map migration, complete export, GUI target transactions, and project history |
+| Longer themes | Fluid tools, creator content, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
 to grow, contract, or change. It is not a frozen specification. Later design
@@ -670,6 +670,14 @@ generates provider evidence internally, moves manual provider/file selection
 behind Advanced/Recovery, and uses the currently observed incomplete-scenery
 import as a mandatory end-to-end regression case.
 
+The next conversion and lifecycle increment is specified in
+[World Builder 2 Map Migration, GUI Transactions, and Project
+History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). It retains the
+launcher's three primary actions, adds a simple post-selection legacy-landscape
+migration choice, exposes complete project export and the existing safe target
+transactions in the GUI, makes migrated legacy retirement recoverable, and
+separates creative project history from server-import backups.
+
 ### Ordered region selection
 
 Copy, cut, paste, repair, and prefab tools should share one selection model.
@@ -783,6 +791,23 @@ dependencies, and incompatible-custom-content reports are implemented. Import
 and export do not mutate the working world. Material/sprite payload bundling
 remains blocked until its separate capability exists.
 
+## Immediate delivery sequence
+
+The current product objective should proceed in three reviewable increments:
+
+1. add the streamlined legacy-landscape migration choice and immutable
+   migration/retirement lineage, using the currently available real split-map
+   case before it is retired and retaining exact temporary fixtures afterward;
+2. expose complete project export and the existing target Import, Undo, and
+   Recovery transaction engine through the desktop GUI, with only
+   capability-gated and fully reversible legacy retirement; and
+3. add immutable project revision history, a selected-project backup browser,
+   and verified Load Backup.
+
+This sequence temporarily takes priority over the broader tool roadmap below.
+It does not reduce the importance or readiness of the already implemented
+fluid-tool and region-sharing work.
+
 ## Recommended dependency order
 
 This is a technical dependency order, not an assignment or fixed release plan:
@@ -840,6 +865,11 @@ material-sharing model that custom materials later have to replace.
 | Wider elevation | Implemented | Polished Editor UI and additional visual validation |
 | True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
+| Legacy landscape migration | Design-ready on available conversion | Post-selection prompt, immutable lineage, real split-map validation |
+| Complete map export in GUI | Export engine implemented | Selected-project GUI action and destination/reveal UX |
+| GUI server Import/Undo/Recovery | Transaction engine implemented | Readable GUI projection without weakening exact plans |
+| Recoverable legacy retirement | Design-ready | Capability-gated mutation profile, verified backup, receipt, rollback, undo |
+| Project backup history | Design-ready | Revision schema/storage, browser, pre-restore snapshot, verified restore |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; consolidated UI and exact one-step Paste Undo pending owner validation | Cut, richer placement ghosts, rotation/mirroring, and general undo/redo UX |
 | Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |

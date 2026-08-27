@@ -312,8 +312,9 @@ rebases an old one.
 
 ### E. Install a finished target-backed map
 
-The Import script is the only supported path that changes the server/client.
-It:
+The adaptive transaction engine is the only supported path that changes the
+server/client. It is currently exposed by the Import script and may also be
+projected through the desktop GUI without creating a second mutation path. It:
 
 1. verifies the project's source, conversion, working package, and export;
 2. rediscovers the target and rejects drift;
@@ -327,6 +328,14 @@ It:
 8. writes a durable receipt and supports exact `UNDO`; and
 9. reminds the administrator which client/map identity must be distributed to
    players.
+
+The approved post-release GUI and migration extension is specified in
+[World Builder 2 Map Migration, GUI Transactions, and Project
+History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). A migrated
+`Custom_Landscape.orsc` may be retired only by a compiled capability-gated
+mutation profile after exact conversion, package installation, verified
+backup, and safe activation. Undo restores its exact bytes and configuration;
+file-name detection alone never authorizes removal.
 
 Import MAY install adapter-approved map packages, client map data, and bounded
 configuration. It MUST NOT overwrite arbitrary customized binaries. If the
@@ -820,8 +829,10 @@ a shipped map.
 The adapter SHOULD install a package under a content-addressed destination such
 as `.../packages/<package-fingerprint>/` and switch a separate active reference.
 The adapter determines the exact bounded path. Existing packed source maps are
-backed up and retained unless a separately approved mutation plan explicitly
-needs a different reversible treatment.
+backed up and retained unless versioned migration lineage and a separately
+approved mutation profile explicitly authorize recoverable retirement. Such
+treatment remains receipt-bound, rollback-safe, and exactly undoable; it is
+never an unrecorded deletion.
 
 ### Isolated validation before import
 
