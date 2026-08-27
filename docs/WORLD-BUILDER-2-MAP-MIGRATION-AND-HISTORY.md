@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Approved product direction; implementation pending |
+| Status | Migration and GUI transaction increments implemented; project history pending |
 | Captured | 2026-08-27 |
 | Product | World Builder 2 only |
 | Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
@@ -54,9 +54,12 @@ The following are already implemented:
 - separate Linux and Windows scripts for Import, Undo, and Recovery; and
 - copy-on-write project save publication and startup recovery.
 
-The current gaps are discoverability and product semantics. The GUI does not
-present legacy retirement, complete project export, target import, undo,
-recovery, or project revision history as one understandable workflow.
+The migration choice, immutable lineage, complete-project export action, GUI
+Import/Undo/Recovery projection, and recoverable legacy retirement are now
+implemented. The remaining major gap in this objective is creator-facing
+project revision history. Destination selection/reveal for complete exports is
+also future launcher polish; the current GUI reports the immutable generated
+export path.
 
 ## Legacy custom-landscape migration
 
@@ -119,6 +122,22 @@ A migrated project needs versioned immutable evidence containing at least:
 The project manifest may expose a simple derived state such as
 `legacyLandscapeMigrated`, but target mutation relies on the complete versioned
 evidence rather than one boolean.
+
+The first contract is `world-builder-map-migration-choice` schema version 1.
+It binds two distinct immutable discovery fingerprints: the normally selected
+target authority and a separately validated packed-conversion candidate. It
+also binds both selected configurations, the exact byte-identical server/client
+legacy terrain records, the affirmative incorporation decision, retirement
+intent, and its own fingerprint.
+
+The packed candidate does not replace or masquerade as the selected target
+report. Project creation must re-run and match both discoveries at its drift
+boundaries, then copy their union without allowing generated packed-fallback
+descriptor/configuration evidence to collide with the selected target's real
+descriptor/configuration evidence. Generated conversion authority therefore
+needs its own contained namespace or staging root. The immutable selected
+target evidence remains available for later attachment and import; the packed
+evidence supplies conversion input only.
 
 ## Complete map export in the GUI
 
@@ -353,8 +372,8 @@ risk-appropriate test gate before the next begins.
 
 | Area | Readiness | Missing work |
 | --- | --- | --- |
-| Legacy packed detection/conversion | Available foundation | Streamlined post-selection migration choice and lineage |
-| Complete layered export | Available foundation | Desktop GUI action and destination/reveal experience |
-| Target import/undo/recovery | Available foundation | Desktop GUI projection and readable plans |
-| Legacy retirement | Design-ready | Versioned lineage plus mutation-profile and transaction extensions |
+| Legacy packed detection/conversion | Implemented | Owner validation on additional real-world targets |
+| Complete layered export | GUI action implemented | Optional destination/reveal experience |
+| Target import/undo/recovery | GUI projection implemented | Owner visual validation and release testing |
+| Legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
 | Project revision history | Design-ready | Schema, storage, browser, restore transaction, and tests |

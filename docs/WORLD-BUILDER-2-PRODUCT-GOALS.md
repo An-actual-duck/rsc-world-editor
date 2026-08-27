@@ -793,15 +793,14 @@ remains blocked until its separate capability exists.
 
 ## Immediate delivery sequence
 
-The current product objective should proceed in three reviewable increments:
+The current product objective proceeds in three reviewable increments:
 
-1. add the streamlined legacy-landscape migration choice and immutable
-   migration/retirement lineage, using the currently available real split-map
-   case before it is retired and retaining exact temporary fixtures afterward;
-2. expose complete project export and the existing target Import, Undo, and
-   Recovery transaction engine through the desktop GUI, with only
-   capability-gated and fully reversible legacy retirement; and
-3. add immutable project revision history, a selected-project backup browser,
+1. **Implemented:** streamlined legacy-landscape migration choice and immutable
+   migration/retirement lineage, with exact temporary fixtures retained;
+2. **Implemented, pending owner validation:** complete project export and the
+   existing target Import, Undo, and Recovery transaction engine in the desktop
+   GUI, including capability-gated and fully reversible legacy retirement; and
+3. **Next:** add immutable project revision history, a selected-project backup browser,
    and verified Load Backup.
 
 This sequence temporarily takes priority over the broader tool roadmap below.
@@ -865,10 +864,10 @@ material-sharing model that custom materials later have to replace.
 | Wider elevation | Implemented | Polished Editor UI and additional visual validation |
 | True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
-| Legacy landscape migration | Design-ready on available conversion | Post-selection prompt, immutable lineage, real split-map validation |
-| Complete map export in GUI | Export engine implemented | Selected-project GUI action and destination/reveal UX |
-| GUI server Import/Undo/Recovery | Transaction engine implemented | Readable GUI projection without weakening exact plans |
-| Recoverable legacy retirement | Design-ready | Capability-gated mutation profile, verified backup, receipt, rollback, undo |
+| Legacy landscape migration | Implemented and fixture-tested | Owner validation on additional real-world targets |
+| Complete map export in GUI | Selected-project action implemented | Optional destination/reveal UX polish |
+| GUI server Import/Undo/Recovery | Implemented over the exact transaction engines | Owner visual validation and release testing |
+| Recoverable legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
 | Project backup history | Design-ready | Revision schema/storage, browser, pre-restore snapshot, verified restore |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; consolidated UI and exact one-step Paste Undo pending owner validation | Cut, richer placement ghosts, rotation/mirroring, and general undo/redo UX |

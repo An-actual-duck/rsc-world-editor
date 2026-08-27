@@ -142,6 +142,51 @@ final class WorldBuilderLauncherModel {
 			Collections.<ConfigurationChoice>emptyList(), "");
 	}
 
+	LegacyMigrationPreview inspectLegacyMigration(DiscoveryPreview selected)
+		throws IOException, WorldBuilderContractException {
+		return inspectLegacyMigration(selected, null);
+	}
+
+	LegacyMigrationPreview inspectLegacyMigration(
+		DiscoveryPreview selected, String requestedConfiguration)
+		throws IOException, WorldBuilderContractException {
+		if (selected == null || !selected.canCreateServerProject()
+			|| !"layered".equals(selected.representation)) return null;
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(selected.source);
+		boolean evidence = false;
+		for (String root : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
+			evidence |= target.exists(root + "/Custom_Landscape.orsc");
+		}
+		for (String root : WorldBuilderPackedSourceLayout.DATA_ROOTS) {
+			evidence |= target.exists(root + "/Custom_Landscape.orsc");
+		}
+		if (!evidence) return null;
+		List<ConfigurationChoice> choices = legacyConfigurationChoices(target);
+		if (requestedConfiguration == null && choices.size() > 1) {
+			return new LegacyMigrationPreview(null, choices);
+		}
+		WorldBuilderAdaptiveDiscoveryReport legacy =
+			new WorldBuilderLegacyLandscapeDiscovery().discover(
+				selected.source, requestedConfiguration);
+		WorldBuilderMapMigrationChoice.create(selected.report, legacy, true);
+		return new LegacyMigrationPreview(legacy, choices);
+	}
+
+	private static List<ConfigurationChoice> legacyConfigurationChoices(
+		WorldBuilderReadOnlyTarget target)
+		throws IOException, WorldBuilderContractException {
+		List<ConfigurationChoice> result = new ArrayList<ConfigurationChoice>();
+		for (WorldBuilderAdapterInspection.ConfigurationCandidate candidate
+			: WorldBuilderPackedSourceLayout.configurationCandidates(target)) {
+			Path path = target.requiredFile(candidate.relativePath);
+			result.add(new ConfigurationChoice(candidate.role, candidate.relativePath,
+				candidate.sha256, Files.getLastModifiedTime(
+					path, LinkOption.NOFOLLOW_LINKS).toMillis()));
+		}
+		Collections.sort(result);
+		return Collections.unmodifiableList(result);
+	}
+
 	private static List<ConfigurationChoice> configurationChoices(
 		Map<String,Object> document, Path source) throws IOException {
 		Object raw = document.get("configurationCandidates");
@@ -223,6 +268,32 @@ final class WorldBuilderLauncherModel {
 		return create(preview, displayName, null);
 	}
 
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult createMigrated(
+		DiscoveryPreview selected, LegacyMigrationPreview migration,
+		String displayName, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
+		if (migration == null || migration.report == null) throw new IOException(
+			"Legacy landscape incorporation was requested without a validated candidate.");
+		Path selectedReport = Files.createTempFile(
+			installation, ".desktop-selected-discovery-", ".json");
+		Path legacyReport = Files.createTempFile(
+			installation, ".desktop-legacy-discovery-", ".json");
+		try {
+			Files.write(selectedReport,
+				selected.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			Files.write(legacyReport,
+				migration.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			return new WorldBuilderAdaptiveProjectLifecycle().createMigrated(
+				installation, runtime, selected.source, selectedReport, legacyReport,
+				displayName, port, "CREATE", itemVisualMappings, true);
+		} finally {
+			Files.deleteIfExists(selectedReport);
+			Files.deleteIfExists(legacyReport);
+		}
+	}
+
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
@@ -276,6 +347,84 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException,
 			WorldBuilderDiscoveryException, InterruptedException {
 		return new WorldBuilderProcessSupervisor().runAdaptiveProject(project.projectRoot);
+	}
+
+	PreparedImport prepareServerImport(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before importing.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveExporter.ExportResult exported =
+			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
+		WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+		WorldBuilderAdaptiveImporter.Preview preview = importer.preview(
+			entry.projectRoot, exported.exportDirectory, target);
+		return new PreparedImport(importer, preview, target);
+	}
+
+	Path exportCompleteMap(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before exporting.");
+		return new WorldBuilderAdaptiveExporter().export(entry.projectRoot).exportDirectory;
+	}
+
+	String applyServerImport(PreparedImport prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Import preview was not supplied.");
+		WorldBuilderAdaptiveImporter.ImportResult result =
+			prepared.importer.apply(prepared.preview, "IMPORT");
+		return "Map changes were imported successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	PreparedUndo prepareServerUndo(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before undoing an import.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+		return new PreparedUndo(undo, undo.preview(entry.projectRoot, target), target);
+	}
+
+	String applyServerUndo(PreparedUndo prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Undo preview was not supplied.");
+		WorldBuilderAdaptiveUndo.UndoResult result =
+			prepared.undo.apply(prepared.preview, "UNDO");
+		return "The last map import was undone successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	PreparedRecovery prepareServerRecovery(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project before recovery.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
+		return new PreparedRecovery(recovery,
+			recovery.preview(entry.projectRoot, target), target);
+	}
+
+	String applyServerRecovery(PreparedRecovery prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException("Recovery preview was not supplied.");
+		WorldBuilderAdaptiveRecovery.RecoveryResult result =
+			prepared.recovery.apply(prepared.preview, "RECOVER");
+		return "Interrupted map import recovery completed successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	private Path targetFor(ProjectEntry entry) throws IOException {
+		if (!entry.sourceDisplay.isEmpty()) {
+			try {
+				Path recorded = java.nio.file.Paths.get(entry.sourceDisplay);
+				if (recorded.isAbsolute()) {
+					return requireDirectory(recorded, "project's recorded server target");
+				}
+			} catch (java.nio.file.InvalidPathException invalid) {
+				throw new IOException("The project's recorded server target is invalid.", invalid);
+			}
+		}
+		if (defaultTarget != null) return defaultTarget;
+		throw new IOException("This project has no available server target. Standalone "
+			+ "projects can be edited and exported, but cannot overwrite a server.");
 	}
 
 	private static Path requireDirectory(Path requested, String label) throws IOException {
@@ -333,6 +482,57 @@ final class WorldBuilderLauncherModel {
 		}
 	}
 
+	static final class PreparedImport {
+		final WorldBuilderAdaptiveImporter importer;
+		final WorldBuilderAdaptiveImporter.Preview preview;
+		final Path target;
+
+		PreparedImport(WorldBuilderAdaptiveImporter importer,
+			WorldBuilderAdaptiveImporter.Preview preview, Path target) {
+			this.importer = importer;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
+		}
+	}
+
+	static final class PreparedUndo {
+		final WorldBuilderAdaptiveUndo undo;
+		final WorldBuilderAdaptiveUndo.Preview preview;
+		final Path target;
+
+		PreparedUndo(WorldBuilderAdaptiveUndo undo,
+			WorldBuilderAdaptiveUndo.Preview preview, Path target) {
+			this.undo = undo;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
+		}
+	}
+
+	static final class PreparedRecovery {
+		final WorldBuilderAdaptiveRecovery recovery;
+		final WorldBuilderAdaptiveRecovery.Preview preview;
+		final Path target;
+
+		PreparedRecovery(WorldBuilderAdaptiveRecovery recovery,
+			WorldBuilderAdaptiveRecovery.Preview preview, Path target) {
+			this.recovery = recovery;
+			this.preview = preview;
+			this.target = target;
+		}
+
+		String summary() {
+			return preview.humanSummary() + "\nServer target: " + target;
+		}
+	}
+
 	private static final class ProjectProvenance {
 		final String sourceDisplay;
 		final String configurationPath;
@@ -375,6 +575,21 @@ final class WorldBuilderLauncherModel {
 			return "blocked".equals(status)
 				&& WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION.equals(issueCode)
 				&& configurationChoices.size() > 1;
+		}
+	}
+
+	static final class LegacyMigrationPreview {
+		final WorldBuilderAdaptiveDiscoveryReport report;
+		final List<ConfigurationChoice> configurationChoices;
+
+		LegacyMigrationPreview(WorldBuilderAdaptiveDiscoveryReport report,
+			List<ConfigurationChoice> configurationChoices) {
+			this.report = report;
+			this.configurationChoices = configurationChoices;
+		}
+
+		boolean needsConfigurationChoice() {
+			return report == null && configurationChoices.size() > 1;
 		}
 	}
 

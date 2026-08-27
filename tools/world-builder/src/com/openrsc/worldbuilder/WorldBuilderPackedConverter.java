@@ -58,25 +58,37 @@ final class WorldBuilderPackedConverter {
 
 	Result convert(Path sourceRoot, Path discoveryReport, Path requestedOutput)
 		throws IOException, WorldBuilderContractException {
-		return convertInternal(sourceRoot, discoveryReport, requestedOutput, null);
+		return convertInternal(sourceRoot, discoveryReport, requestedOutput, null, false);
 	}
 
 	/** Internal Phase 3 conversion confined to one unpublished project stage. */
 	Result convertForProject(Path sourceRoot, Path discoveryReport,
 		Path requestedOutput, Path projectStage)
 		throws IOException, WorldBuilderContractException {
-		return convertInternal(sourceRoot, discoveryReport, requestedOutput, projectStage);
+		return convertInternal(sourceRoot, discoveryReport, requestedOutput, projectStage,
+			false);
+	}
+
+	/** Internal conversion from the distinct legacy input namespace. */
+	Result convertForMigrationProject(Path sourceRoot, Path discoveryReport,
+		Path requestedOutput, Path projectStage)
+		throws IOException, WorldBuilderContractException {
+		return convertInternal(sourceRoot, discoveryReport, requestedOutput, projectStage,
+			true);
 	}
 
 	private Result convertInternal(Path sourceRoot, Path discoveryReport,
-		Path requestedOutput, Path projectStage)
+		Path requestedOutput, Path projectStage, boolean migrationSource)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderPackedConversionSource source;
 		try {
 			source = projectStage == null
 				? WorldBuilderPackedConversionSource.open(sourceRoot, discoveryReport)
-				: WorldBuilderPackedConversionSource.openForProject(
-					sourceRoot, discoveryReport, projectStage);
+				: migrationSource
+					? WorldBuilderPackedConversionSource.openForMigrationProject(
+						sourceRoot, discoveryReport, projectStage)
+					: WorldBuilderPackedConversionSource.openForProject(
+						sourceRoot, discoveryReport, projectStage);
 		} catch (WorldBuilderContractException refusal) {
 			throw asConversionRefusal(refusal);
 		}

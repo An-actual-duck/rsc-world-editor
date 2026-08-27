@@ -152,6 +152,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			TRANSACTION_CONTENT_CONFIG,
 			"backups/" + transactionId + "/before/" + configurationPath, true,
 			configurationBytes));
+		appendLegacyLandscapeRetirement(project, target, capability, configuration,
+			selectedReference, expectedLineage, transactionId, actions, true);
 
 		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
 		addConfigurationChange(changes, configurationPath, "clientMapRelativePath",
@@ -179,6 +181,133 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directoriesToCreate, document);
+	}
+
+	private static void appendLegacyLandscapeRetirement(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		Path target, WorldBuilderTargetCapability capability,
+		WorldBuilderAdaptiveConfiguration configuration,
+		Map<String,Object> selectedReference, String expectedLineage,
+		String transactionId, List<Action> actions, boolean requirePresent)
+		throws IOException, WorldBuilderContractException {
+		Path choicePath = WorldBuilderPortablePath.resolveContained(
+			project.projectRoot, "source/migration/choice.json", OPERATION);
+		if (!Files.exists(choicePath, LinkOption.NOFOLLOW_LINKS)) return;
+		WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+			"source/migration/choice.json", "immutable map-migration choice");
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, choicePath);
+		Map<String,Object> choice;
+		try {
+			choice = WorldBuilderJsonDocuments.readObject(choicePath);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"source/migration/choice.json",
+				"Immutable map-migration choice JSON is malformed.",
+				"Restore the complete project from a trusted backup.");
+		}
+		WorldBuilderAdaptiveExporter.requireFingerprint(
+			choice, "migrationChoiceFingerprintSha256");
+		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return;
+		if (!expectedLineage.equals(WorldBuilderAdaptiveExporter.string(
+			choice, "selectedTargetDiscoveryFingerprintSha256"))) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"source/migration/choice.json",
+				"Legacy retirement choice is not bound to this project's selected target lineage.",
+				"Restore the complete migrated project from a trusted backup.");
+		}
+
+		Map<String,Object> choiceConfiguration = WorldBuilderAdaptiveExporter.object(
+			choice.get("selectedConfiguration"), "selectedConfiguration");
+		String role = WorldBuilderAdaptiveExporter.string(selectedReference, "role");
+		String selectedSourcePath = WorldBuilderAdaptiveExporter.string(
+			selectedReference, "relativePath");
+		String expectedSourcePath = "source/original/" + configuration.relativePath;
+		if (!role.equals(configuration.configurationId)
+			|| !role.equals(WorldBuilderAdaptiveExporter.string(
+				choiceConfiguration, "role"))
+			|| !expectedSourcePath.equals(selectedSourcePath)
+			|| !configuration.relativePath.equals(WorldBuilderAdaptiveExporter.string(
+				choiceConfiguration, "relativePath"))
+			|| !configuration.sha256.equals(WorldBuilderAdaptiveExporter.string(
+				selectedReference, "sha256"))
+			|| !configuration.sha256.equals(WorldBuilderAdaptiveExporter.string(
+				choiceConfiguration, "sha256"))) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"source/migration/choice.json",
+				"Legacy retirement choice and selected layered configuration disagree.",
+				"Restore the exact migrated project; do not retire target files manually.");
+		}
+		if (!"layered".equals(configuration.representation)
+			|| capability.configurationRoles.size() != 1
+			|| !role.equals(capability.configurationRoles.get(0))
+			|| capability.installConfigurationRoles.size() != 1
+			|| !role.equals(capability.installConfigurationRoles.get(0))) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+				WorldBuilderTargetCapability.RELATIVE_PATH,
+				"Target capability does not prove one exact layered activation authority for legacy retirement.",
+				"Keep Custom_Landscape in place until the target advertises one matching install role.");
+		}
+
+		Map<String,Object> terrain = WorldBuilderAdaptiveExporter.object(
+			choice.get("legacyTerrain"), "legacyTerrain");
+		List<Map<String,Object>> records = new ArrayList<Map<String,Object>>();
+		records.add(WorldBuilderAdaptiveExporter.object(terrain.get("client"),
+			"legacyTerrain.client"));
+		records.add(WorldBuilderAdaptiveExporter.object(terrain.get("server"),
+			"legacyTerrain.server"));
+		Collections.sort(records, new Comparator<Map<String,Object>>() {
+			@Override public int compare(Map<String,Object> left,
+				Map<String,Object> right) {
+				try {
+					return WorldBuilderAdaptiveExporter.string(left, "relativePath")
+						.compareTo(WorldBuilderAdaptiveExporter.string(right, "relativePath"));
+				} catch (WorldBuilderContractException impossible) {
+					throw new IllegalStateException(impossible);
+				}
+			}
+		});
+		for (Map<String,Object> record : records) {
+			String relative = WorldBuilderAdaptiveExporter.string(record, "relativePath");
+			if (configurationReferences(configuration, relative)) {
+				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, relative,
+					"Selected layered configuration still references the legacy landscape file.",
+					"Correct the target configuration before requesting retirement.");
+			}
+			long size = WorldBuilderAdaptiveExporter.integer(record, "size");
+			String sha256 = WorldBuilderAdaptiveExporter.string(record, "sha256");
+			if (requirePresent) {
+				Path live = safeExistingFile(target, relative, "legacy landscape retirement input");
+				if (Files.size(live) != size
+					|| !sha256.equals(WorldBuilderHashes.sha256(live))) {
+					throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, relative,
+						"Legacy landscape bytes changed after the migration choice was recorded.",
+						"Create a new migrated project from the current target; no force retirement exists.");
+				}
+			}
+			actions.add(new Action("retire-legacy-landscape-" + pad(actions.size()),
+				relative, FileState.present(size, sha256), FileState.absent(), "",
+				"backups/" + transactionId + "/before/" + relative, true, null));
+		}
+	}
+
+	private static boolean configurationReferences(
+		WorldBuilderAdaptiveConfiguration configuration, String relative) {
+		if (relative.equals(configuration.serverMapRelativePath)
+			|| relative.equals(configuration.clientMapRelativePath)
+			|| relative.equals(configuration.serverRuntimeRelativePath)
+			|| relative.equals(configuration.clientRuntimeRelativePath)
+			|| relative.equals(configuration.serverDefinitionCatalogRelativePath)
+			|| relative.equals(configuration.clientDefinitionCatalogRelativePath)) return true;
+		for (WorldBuilderAdaptiveConfiguration.AssetPair asset : configuration.assets) {
+			if (relative.equals(asset.serverRelativePath)
+				|| relative.equals(asset.clientRelativePath)) return true;
+		}
+		for (WorldBuilderAdaptiveConfiguration.PlacementSource placement :
+			configuration.placements) {
+			if (relative.equals(placement.relativePath)) return true;
+		}
+		return false;
 	}
 
 	private static void preflightCompiledInstallRoots(Path target)
@@ -310,6 +439,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 			TRANSACTION_CONTENT_CONFIG,
 			"backups/" + transactionId + "/before/" + configurationPath, true,
 			configurationBytes));
+		appendLegacyLandscapeRetirement(project, target, capability, configuration,
+			selectedReference, WorldBuilderAdaptiveExporter.string(
+				projectTarget, "targetFingerprintSha256"),
+			transactionId, actions, false);
 
 		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
 		addConfigurationChange(changes, configurationPath, "clientMapRelativePath",
@@ -396,6 +529,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, String changedConfiguration)
 		throws IOException, WorldBuilderContractException {
+		Set<String> retirementPaths = legacyRetirementPaths(project);
 		for (String key : new String[] {"originalFiles", "definitionRuntimeFiles"}) {
 			for (Object raw : WorldBuilderAdaptiveExporter.array(
 				project.snapshot.get(key), key)) {
@@ -403,12 +537,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 				String sourcePath = WorldBuilderAdaptiveExporter.string(
 					record, "relativePath");
 				String prefix = "source/original/";
-				if (!sourcePath.startsWith(prefix)) throw problem(
-					WorldBuilderErrorCodes.SOURCE_CORRUPT, sourcePath,
-					"Target-derived immutable evidence escaped source/original.",
-					"Restore the complete project from a trusted backup.");
+				if (!sourcePath.startsWith(prefix)) continue;
 				String relative = sourcePath.substring(prefix.length());
 				if (relative.equals(changedConfiguration)) continue;
+				if (retirementPaths.contains(relative)) continue;
 				boolean present = WorldBuilderAdaptiveExporter.bool(record, "present");
 				Path live = safeDestination(target, relative);
 				if (!present) {
@@ -428,6 +560,37 @@ final class WorldBuilderAdaptiveMutationProfile {
 				}
 			}
 		}
+	}
+
+	private static Set<String> legacyRetirementPaths(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		throws IOException, WorldBuilderContractException {
+		Set<String> result = new HashSet<String>();
+		Path choicePath = WorldBuilderPortablePath.resolveContained(
+			project.projectRoot, "source/migration/choice.json", OPERATION);
+		if (!Files.exists(choicePath, LinkOption.NOFOLLOW_LINKS)) return result;
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, choicePath);
+		Map<String,Object> choice;
+		try {
+			choice = WorldBuilderJsonDocuments.readObject(choicePath);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+				"source/migration/choice.json",
+				"Immutable map-migration choice JSON is malformed.",
+				"Restore the complete project from a trusted backup.");
+		}
+		WorldBuilderAdaptiveExporter.requireFingerprint(
+			choice, "migrationChoiceFingerprintSha256");
+		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return result;
+		Map<String,Object> terrain = WorldBuilderAdaptiveExporter.object(
+			choice.get("legacyTerrain"), "legacyTerrain");
+		for (String side : new String[] {"client", "server"}) {
+			Map<String,Object> record = WorldBuilderAdaptiveExporter.object(
+				terrain.get(side), "legacyTerrain." + side);
+			result.add(WorldBuilderAdaptiveExporter.string(record, "relativePath"));
+		}
+		return result;
 	}
 
 	private static List<String> readCreatedDirectories(Path project,
@@ -668,25 +831,33 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		for (Action original : installed.actions) {
 			if (!original.activation) continue;
-			Path originalConfiguration = safeExistingFile(
-				WorldBuilderAdaptiveExporter.requireDirectory(
-					installed.project.projectRoot, "source/original",
-					"immutable original evidence"),
-				original.destinationRelativePath, "immutable original configuration");
-			restoredConfiguration = Files.readAllBytes(originalConfiguration);
-			if (restoredConfiguration.length != original.before.size
-				|| !original.before.sha256.equals(
-					WorldBuilderHashes.sha256(restoredConfiguration))) throw problem(
-				WorldBuilderErrorCodes.SOURCE_CORRUPT,
-				original.destinationRelativePath,
-				"Immutable original configuration does not match the import before state.",
-				"Restore the complete project from a trusted backup.");
-			selectedInstalledHash = original.after.sha256;
+			byte[] restored = null;
+			if (original.before.present) {
+				Path beforeBackup = WorldBuilderAdaptiveExporter.requireFile(
+					installed.project.projectRoot, original.backupRelativePath,
+					"installed transaction before-state backup");
+				restored = Files.readAllBytes(beforeBackup);
+				if (restored.length != original.before.size
+					|| !original.before.sha256.equals(
+						WorldBuilderHashes.sha256(restored))) throw problem(
+					WorldBuilderErrorCodes.SOURCE_CORRUPT,
+					original.backupRelativePath,
+					"Installed transaction backup does not match the import before state.",
+					"Restore the complete project transaction backup.");
+			}
+			if (isConfigurationActivation(original)) {
+				restoredConfiguration = restored;
+				selectedInstalledHash = original.after.sha256;
+			}
 			actions.add(new Action("undo-" + original.role,
 				original.destinationRelativePath, original.after, original.before,
-				TRANSACTION_CONTENT_CONFIG,
-				prefix + original.destinationRelativePath, true,
-				restoredConfiguration));
+				original.before.present
+					? isConfigurationActivation(original) ? TRANSACTION_CONTENT_CONFIG
+						: "package/undo/" + pad(actions.size()) + ".bin"
+					: "",
+				original.after.present
+					? prefix + original.destinationRelativePath : "", true,
+				restored));
 		}
 		if (restoredConfiguration == null || selectedInstalledHash.isEmpty()) {
 			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "mutation-plan",
@@ -732,7 +903,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				unknown.add(original.destinationRelativePath);
 				continue;
 			}
-			if (original.activation) {
+			if (isConfigurationActivation(original)) {
 				selectedHash = atAfter ? original.after.sha256 : original.before.sha256;
 			}
 			if (atBefore) continue;
@@ -751,7 +922,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 						"Retain the project and restore its exact backup before recovery.");
 				}
 				content = Files.readAllBytes(backup);
-				contentPath = original.activation ? TRANSACTION_CONTENT_CONFIG
+				contentPath = isConfigurationActivation(original)
+					? TRANSACTION_CONTENT_CONFIG
 					: "package/recovery/" + pad(actions.size()) + ".bin";
 			}
 			Action recovery = new Action("recovery-" + pad(actions.size()),
@@ -760,7 +932,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 					? prefix + original.destinationRelativePath : "",
 				original.activation, content);
 			actions.add(recovery);
-			if (original.activation) {
+			if (isConfigurationActivation(original)) {
 				activationIncluded = true;
 				activationBytes = content;
 			}
@@ -797,6 +969,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 			failed.serverPackageRelativePath, failed.clientPackageRelativePath,
 			activationBytes == null ? failed.configurationBytes : activationBytes,
 			actions, changes, Collections.<String>emptyList(), generated);
+	}
+
+	private static boolean isConfigurationActivation(Action action) {
+		return action.activation && action.role.endsWith("activation-configuration");
 	}
 
 	static void requireDurablePlanMatches(Plan plan)
@@ -1237,6 +1413,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 
 		String humanSummary() {
+			int retiredLegacyFiles = 0;
+			for (Action action : actions) {
+				if (action.role.startsWith("retire-legacy-landscape-")
+					&& action.before.present && !action.after.present) {
+					retiredLegacyFiles++;
+				}
+			}
 			StringBuilder value = new StringBuilder(4096);
 			value.append("Import preview (no target files changed)\n")
 				.append("Transaction: ").append(document.get("transactionId")).append('\n')
@@ -1247,7 +1430,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append("Client package: ").append(clientPackageRelativePath).append('\n')
 				.append("Activation configuration: ")
 				.append(configuration.relativePath).append('\n')
-				.append("Affected files: ").append(actions.size()).append('\n')
+				.append("Affected files: ").append(actions.size()).append('\n');
+			if (retiredLegacyFiles > 0) {
+				value.append("Legacy Custom_Landscape retirement: ")
+					.append(retiredLegacyFiles)
+					.append(" exact files (backed up; Undo restores them)\n");
+			}
+			value
 				.append("Backup: projects/").append(project.projectId).append("/backups/")
 				.append(document.get("transactionId")).append('\n')
 				.append("Receipt: projects/").append(project.projectId).append("/receipts/")

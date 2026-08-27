@@ -463,7 +463,8 @@ validate_application_paths() {
 		conversion-plan-v1.schema.json conversion-report-v1.schema.json \
 		content-reconciliation-v1.schema.json \
 		discovery-reconciliation-v1.schema.json \
-		discovery-report-v2.schema.json export-manifest-v1.schema.json \
+		discovery-report-v2.schema.json map-migration-choice-v1.schema.json \
+		export-manifest-v1.schema.json \
 		export-manifest-v2.schema.json import-receipt-v1.schema.json \
 		import-receipt-v3.schema.json project-manifest-v1.schema.json \
 		project-manifest-v2.schema.json project-registry-v1.schema.json \

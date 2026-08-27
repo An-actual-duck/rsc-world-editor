@@ -59,7 +59,7 @@ final class WorldBuilderPackedConversionSource {
 
 	static WorldBuilderPackedConversionSource open(Path requestedSourceRoot, Path reportPath)
 		throws IOException, WorldBuilderContractException {
-		return openInternal(requestedSourceRoot, reportPath, null);
+		return openInternal(requestedSourceRoot, reportPath, null, null);
 	}
 
 	/**
@@ -71,11 +71,21 @@ final class WorldBuilderPackedConversionSource {
 	static WorldBuilderPackedConversionSource openForProject(
 		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage)
 		throws IOException, WorldBuilderContractException {
-		return openInternal(requestedSourceRoot, reportPath, requestedProjectStage);
+		return openInternal(requestedSourceRoot, reportPath, requestedProjectStage,
+			"source/original");
+	}
+
+	/** Exact secondary source namespace for a layered-target migration project. */
+	static WorldBuilderPackedConversionSource openForMigrationProject(
+		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage)
+		throws IOException, WorldBuilderContractException {
+		return openInternal(requestedSourceRoot, reportPath, requestedProjectStage,
+			"source/migration/input");
 	}
 
 	private static WorldBuilderPackedConversionSource openInternal(
-		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage)
+		Path requestedSourceRoot, Path reportPath, Path requestedProjectStage,
+		String requiredProjectSource)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> report = readReport(reportPath);
 		WorldBuilderAdaptiveContracts.validateParsed(
@@ -109,12 +119,12 @@ final class WorldBuilderPackedConversionSource {
 		Path canonicalProjectStage = requestedProjectStage == null ? null
 			: realDirectory(requestedProjectStage, "project-stage");
 		if (canonicalProjectStage != null) {
-			Path requiredSource = canonicalProjectStage.resolve("source/original").normalize();
+			Path requiredSource = canonicalProjectStage.resolve(requiredProjectSource).normalize();
 			if (!canonicalSource.equals(requiredSource)
 				|| Files.isSymbolicLink(requestedProjectStage)
 				|| !Files.isDirectory(canonicalProjectStage, LinkOption.NOFOLLOW_LINKS)) {
 				throw blocked("Project conversion source is not the exact unpublished "
-					+ "source/original staging directory.",
+					+ requiredProjectSource + " staging directory.",
 					"Create one contained project stage and copy only the discovery inventory.");
 			}
 		}
