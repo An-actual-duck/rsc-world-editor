@@ -1,6 +1,6 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy/Paste owner-validated; graphical portable Import/Export implemented and pending owner validation; Cut UI pending**
+Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: interactive Copy and supervised library/preview/apply Paste bridges implemented
@@ -28,6 +28,10 @@ The native chooser is foregrounded and runs independently of the client update
 loop, so leaving it open does not freeze rendering or cause an idle disconnect.
 The authenticated runtime publishes Import/Export requests through a dedicated
 sharing command rather than the Paste transaction.
+Owner validation confirmed the complete cross-project workflow in a fresh
+project: the foreground chooser remained non-blocking, Import refreshed the
+library, and the imported snapshot previewed and pasted live at its selected
+destination without restarting the isolated Builder.
 Compatibility issues remain visible and block Paste without discarding an
 otherwise valid imported bundle. Interactive Cut remains pending.
 

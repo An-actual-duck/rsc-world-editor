@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-26, after owner validation of 4,096-tile atomic lines and the OpenGL-visible anchor pin/target |
+| Last reconciled | 2026-08-26, after owner validation of graphical cross-project Region Import/Paste |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Fluid tools, predictable interaction, scenery movement, and interactive reusable regions |
@@ -688,8 +688,8 @@ The selection must define whether boundary segments lying on its edge belong
 inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
-Readiness: **interactive Region Copy/Paste owner-validated; live Paste activation
-pending owner validation**. The
+Readiness: **interactive Region Copy/Paste and live Paste activation
+owner-validated**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
@@ -700,8 +700,8 @@ Paste now browses the verified project-local library, assigns marker 1 to a
 clicked destination, displays the translated ghost and collision pins, requires
 hash-bound apply plus a second overwrite click when occupied, and activates the
 exact atomically published package without restarting the isolated Builder.
-Interactive Cut and graphical
-import/export remain pending.
+Interactive Cut remains pending. Graphical portable Import/Export is implemented
+and owner-validated.
 
 The first interactive vertical slice is intentionally **Copy before Cut and
 Paste**. It adds a Selection tool, ordered numbered world markers, prospective
@@ -741,8 +741,7 @@ The first version should preserve orientation and level offsets. Rotation,
 mirroring, selective terrain/placement paste, clipping, and merge strategies
 can follow after exact untranslated paste is reliable.
 
-Readiness: **Editor foundation and interactive Paste implemented; owner validation
-pending**.
+Readiness: **Editor foundation and interactive Paste owner-validated**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
 The supervisor-mediated transaction, collision preview, client ghost rendering,
@@ -774,8 +773,8 @@ change the target automatically. Compatibility and collision checks run before
 the user can preview a paste. Unknown schema versions, dependencies, files, or
 presets fail closed.
 
-Readiness: **Editor foundation and graphical Import/Export implemented; owner
-validation pending**. Deterministic two-entry `.wbr` bundles, strict
+Readiness: **Editor foundation and graphical Import/Export owner-validated**.
+Deterministic two-entry `.wbr` bundles, strict
 inventory/path validation, native desktop file selection, project-local import,
 automatic library refresh, independent non-overwriting export, portable logical
 dependencies, and incompatible-custom-content reports are implemented. Import
@@ -840,8 +839,8 @@ material-sharing model that custom materials later have to replace.
 | True RGB | Foundational design required | New package, protocol, renderer and compatibility capability |
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Copy owner-validated; interactive Paste implemented pending validation | Cut, richer placement ghosts, import/export UI, and durable undo UX |
-| Exportable snapshots | Editor foundation implemented | Custom material/sprite payload capability |
+| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated | Cut, richer placement ghosts, rotation/mirroring, and durable undo UX |
+| Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |
 | Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 
 ## Decisions to settle before implementation planning
