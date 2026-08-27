@@ -658,6 +658,7 @@ public final class AdaptiveProjectSupervisorHarness {
         String classes = args[1];
         boolean finalizationMode = args.length > 2 && "finalization".equals(args[2]);
         boolean regionCopyMode = args.length > 2 && "region-copy".equals(args[2]);
+        boolean regionCutMode = args.length > 2 && "region-cut".equals(args[2]);
         boolean regionPasteMode = args.length > 2 && "region-paste".equals(args[2]);
         boolean regionBundleMode = args.length > 2 && "region-bundle".equals(args[2]);
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
@@ -774,11 +775,13 @@ public final class AdaptiveProjectSupervisorHarness {
             ? commandWithMode(classes, "FakeClient", project, port, "mutate")
             : regionCopyMode
                 ? commandWithMode(classes, "FakeClient", project, port, "region-copy")
-                : regionPasteMode
-                    ? commandWithMode(classes, "FakeClient", project, port, "region-paste")
-                    : regionBundleMode
-                        ? commandWithMode(classes, "FakeClient", project, port, "region-bundle")
-                        : command(classes, "FakeClient", project, port);
+                : regionCutMode
+                    ? commandWithMode(classes, "FakeClient", project, port, "region-cut")
+                    : regionPasteMode
+                        ? commandWithMode(classes, "FakeClient", project, port, "region-paste")
+                        : regionBundleMode
+                            ? commandWithMode(classes, "FakeClient", project, port, "region-bundle")
+                            : command(classes, "FakeClient", project, port);
         if (args.length > 2 && "unsafe".equals(args[2])) {
             boolean refused = false;
             try {
@@ -856,7 +859,7 @@ public final class AdaptiveProjectSupervisorHarness {
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
         boolean regionPasteUndoCompleted = Files.isRegularFile(project.resolve(
             "run/world-builder/fake-region-paste-undo-live"));
-        if (finalizationMode || regionCopyMode || regionPasteMode) {
+        if (finalizationMode || regionCopyMode || regionCutMode || regionPasteMode) {
             require(regionPasteUndoCompleted
                     ? workingFingerprintBefore.equals(finalized.working.fingerprintSha256)
                     : !workingFingerprintBefore.equals(finalized.working.fingerprintSha256),
@@ -874,6 +877,20 @@ public final class AdaptiveProjectSupervisorHarness {
             require(Files.isRegularFile(project.resolve(
                 "run/world-builder/fake-region-copy-accepted")),
                 "interactive region Copy response");
+        }
+        if (regionCutMode) {
+            require(Files.isRegularFile(project.resolve(
+                "run/world-builder/fake-region-cut-live")),
+                "interactive region Cut live activation");
+            List<String> refreshedServer =
+                WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
+            String refreshedManifest = propertyValue(refreshedServer,
+                "openrsc.layeredNativeTerrainManifestSha256");
+            require(!productionManifestBefore.equals(refreshedManifest),
+                "Region Cut must change the production manifest binding");
+            require(WorldBuilderHashes.sha256(project.resolve(
+                "working/layered-world/package/manifest.json")).equals(refreshedManifest),
+                "Region Cut publication must bind the next cold launch");
         }
         if (regionPasteMode) {
             require(Files.isRegularFile(project.resolve(
@@ -969,7 +986,8 @@ public final class AdaptiveProjectSupervisorHarness {
             Files.write(client.resolve("clientSettings.conf"),
                 "generated=true\n".getBytes(StandardCharsets.UTF_8));
             if (args.length > 2 && ("mutate".equals(args[2])
-                    || "region-copy".equals(args[2]))) {
+                    || "region-copy".equals(args[2])
+                    || "region-cut".equals(args[2]))) {
                 Path packageRoot = project.resolve("working/layered-world/package");
                 Path manifestPath = packageRoot.resolve("manifest.json");
                 Map<String,Object> packageManifest = WorldBuilderJsonDocuments.readObject(
@@ -991,6 +1009,7 @@ public final class AdaptiveProjectSupervisorHarness {
                 request.put("schemaVersion", Long.valueOf(1L));
                 request.put("manifestType", "world-builder-region-copy-request");
                 request.put("requestId", "0123456789abcdef0123456789abcdef");
+                request.put("operation", "copy");
                 request.put("name", "Interactive fixture");
                 request.put("worldSpace", "global");
                 List<Object> markers = new ArrayList<Object>();
@@ -1004,6 +1023,9 @@ public final class AdaptiveProjectSupervisorHarness {
                 }
                 request.put("markers", markers);
                 request.put("levels", Arrays.<Object>asList(Long.valueOf(0L)));
+                request.put("snapshotId", "");
+                request.put("expectedPlan", "");
+                request.put("confirmation", "");
                 Files.write(control.resolve("region-copy.request.json"),
                     WorldBuilderJsonDocuments.pretty(request).getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
@@ -1027,6 +1049,66 @@ public final class AdaptiveProjectSupervisorHarness {
                 Files.delete(response);
                 Files.write(control.resolve("fake-region-copy-accepted"),
                     "accepted\n".getBytes(StandardCharsets.US_ASCII));
+            }
+            if (args.length > 2 && "region-cut".equals(args[2])) {
+                Path control = project.resolve("run/world-builder");
+                Map<String,Object> preview = new LinkedHashMap<String,Object>();
+                preview.put("schemaVersion", Long.valueOf(1L));
+                preview.put("manifestType", "world-builder-region-copy-request");
+                preview.put("requestId", "77777777777777777777777777777777");
+                preview.put("operation", "cut-preview");
+                preview.put("name", "Interactive cut fixture");
+                preview.put("worldSpace", "global");
+                List<Object> markers = new ArrayList<Object>();
+                int[][] coordinates = {{119,647},{121,647},{121,649},{119,649}};
+                for (int index = 0; index < coordinates.length; index++) {
+                    Map<String,Object> marker = new LinkedHashMap<String,Object>();
+                    marker.put("marker", Long.valueOf(index + 1L));
+                    marker.put("x", Long.valueOf(coordinates[index][0]));
+                    marker.put("y", Long.valueOf(coordinates[index][1]));
+                    markers.add(marker);
+                }
+                preview.put("markers", markers);
+                preview.put("levels", Arrays.<Object>asList(Long.valueOf(0L)));
+                preview.put("snapshotId", "");
+                preview.put("expectedPlan", "");
+                preview.put("confirmation", "");
+                Map<String,Object> previewAnswer = submitRegionSelection(control, preview);
+                require("accepted".equals(previewAnswer.get("status")),
+                    "interactive Cut preview response");
+                @SuppressWarnings("unchecked") Map<String,Object> previewResult =
+                    (Map<String,Object>)previewAnswer.get("result");
+                @SuppressWarnings("unchecked") Map<String,Object> plan =
+                    (Map<String,Object>)previewResult.get("operationPlan");
+                require(!((Boolean)plan.get("blocked")).booleanValue(),
+                    "interactive Cut preview blocked");
+                String snapshotId = (String)previewResult.get("snapshotId");
+                String planHash = (String)plan.get("planFingerprintSha256");
+                Map<String,Object> apply = new LinkedHashMap<String,Object>();
+                apply.put("schemaVersion", Long.valueOf(1L));
+                apply.put("manifestType", "world-builder-region-copy-request");
+                apply.put("requestId", "88888888888888888888888888888888");
+                apply.put("operation", "cut-apply");
+                apply.put("name", "");
+                apply.put("worldSpace", "");
+                apply.put("markers", new ArrayList<Object>());
+                apply.put("levels", new ArrayList<Object>());
+                apply.put("snapshotId", snapshotId);
+                apply.put("expectedPlan", planHash);
+                apply.put("confirmation", "CUT " + planHash);
+                Map<String,Object> applyAnswer = submitRegionSelection(control, apply);
+                require("accepted".equals(applyAnswer.get("status")),
+                    "interactive Cut apply response");
+                @SuppressWarnings("unchecked") Map<String,Object> applyResult =
+                    (Map<String,Object>)applyAnswer.get("result");
+                require("cut".equals(applyResult.get("operation")),
+                    "interactive Cut apply operation");
+                require(((String)applyResult.get("packageManifestSha256"))
+                        .matches("[0-9a-f]{64}"),
+                    "interactive Cut live manifest identity");
+                Files.delete(control.resolve("region-copy.response.json"));
+                Files.write(control.resolve("fake-region-cut-live"),
+                    "activated\n".getBytes(StandardCharsets.US_ASCII));
             }
             if (args.length > 2 && "region-paste".equals(args[2])) {
                 Path control = project.resolve("run/world-builder");
@@ -1122,6 +1204,23 @@ public final class AdaptiveProjectSupervisorHarness {
             Files.write(project.resolve("run/world-builder/fake-client-stopped"),
                 "stopped\n".getBytes(StandardCharsets.US_ASCII));
         }
+
+		private static Map<String,Object> submitRegionSelection(Path control,
+			Map<String,Object> request) throws Exception {
+			Path requestPath = control.resolve("region-copy.request.json");
+			Path response = control.resolve("region-copy.response.json");
+			Files.write(requestPath, WorldBuilderJsonDocuments.pretty(request)
+				.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+				StandardOpenOption.WRITE);
+			long deadline = System.currentTimeMillis() + 5000L;
+			while (!Files.isRegularFile(response)
+				&& System.currentTimeMillis() < deadline) Thread.sleep(25L);
+			require(Files.isRegularFile(response), "interactive Region Copy/Cut timeout");
+			Map<String,Object> answer = WorldBuilderJsonDocuments.readObject(
+				Files.readAllBytes(response), "interactive Region Copy/Cut response");
+			if (!"cut-apply".equals(request.get("operation"))) Files.delete(response);
+			return answer;
+		}
 
         private static Map<String,Object> pasteRequest(String requestId,
             String operation, String snapshotId, int level, int x, int y,
@@ -2562,6 +2661,48 @@ public final class FakeAdaptiveClient {
             )
             control = project / "run/world-builder"
             self.assertTrue((control / "fake-region-copy-accepted").is_file())
+            for name in (
+                ".region-copy.request.pending.json",
+                "region-copy.request.json",
+                "region-copy.response.json",
+                ".region-copy.response.tmp",
+                ".region-copy.response.runtime.tmp",
+            ):
+                self.assertFalse((control / name).exists(), name)
+
+    def test_supervised_interactive_region_cut_snapshots_then_publishes_live(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-cut-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "standalone-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Interactive Region Cut", 43843,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            before = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+
+            supervised = self.run_supervision(project, "region-cut")
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            after = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+            self.assertNotEqual(before, after)
+            self.assertEqual(
+                1, len(list((project / "snapshot-library/v1").glob("*.wbr")))
+            )
+            control = project / "run/world-builder"
+            self.assertTrue((control / "fake-region-cut-live").is_file())
             for name in (
                 ".region-copy.request.pending.json",
                 "region-copy.request.json",

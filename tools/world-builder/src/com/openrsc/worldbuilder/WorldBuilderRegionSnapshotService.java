@@ -142,26 +142,48 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-cut-preview")) {
-			recoverRegionTransaction(root);
-			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
-			Capture capture = capture(verified, readSelection(selectionPath), name);
-			LibraryRecord library = publishToLibrary(root, capture.snapshot);
-			PreparedMutation prepared = prepareCut(verified, capture.snapshot);
-			try {
-				Map<String,Object> result = baseResult("cut-preview",
-					capture.snapshot.id, library);
-				result.put("operationPlan", prepared.plan);
-				return WorldBuilderJsonDocuments.pretty(result);
-			} finally {
-				prepared.discard();
-			}
+			return cutPreviewUnderProjectLock(
+				root, readSelection(selectionPath), name);
+		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String cutPreviewUnderProjectLock(Path project,
+		WorldBuilderRegionContracts.Selection selection, String name)
+		throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
+		Capture capture = capture(verified, selection, name);
+		LibraryRecord library = publishToLibrary(root, capture.snapshot);
+		PreparedMutation prepared = prepareCut(verified, capture.snapshot);
+		try {
+			Map<String,Object> result = baseResult("cut-preview",
+				capture.snapshot.id, library);
+			result.put("name", name);
+			result.put("tileCount", Long.valueOf(capture.snapshot.tileCount));
+			result.put("placementCount", Long.valueOf(capture.snapshot.placementCount));
+			result.put("footprintBoundaryReports",
+				capture.snapshot.root.get("footprintBoundaryReports"));
+			result.put("operationPlan", prepared.plan);
+			return WorldBuilderJsonDocuments.pretty(result);
+		} finally {
+			prepared.discard();
 		}
 	}
 
 	String applyCut(Path project, String snapshotId, String expectedPlan,
 		String confirmation) throws IOException, WorldBuilderContractException {
 		return apply(project, snapshotId, null, "cut", expectedPlan, confirmation);
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String applyCutUnderProjectLock(Path project, String snapshotId,
+		String expectedPlan, String confirmation)
+		throws IOException, WorldBuilderContractException {
+		return applyUnderProjectLock(project.toAbsolutePath().normalize(), snapshotId,
+			null, "cut", expectedPlan, confirmation);
 	}
 
 	String importBundle(Path project, Path requestedBundle)

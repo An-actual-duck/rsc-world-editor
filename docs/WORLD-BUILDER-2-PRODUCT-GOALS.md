@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, adding legacy landscape migration, GUI target transactions, and project history |
+| Last reconciled | 2026-08-27, adding interactive snapshot-first Region Cut after the migration/history work |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Streamlined legacy-map migration, complete export, GUI target transactions, and project history |
@@ -102,12 +102,12 @@ controller/session as the camera anchor. Removing the session entirely would
 unnecessarily replace working authentication, project binding, scene residency,
 streaming, validation, and save contracts.
 
-The Editor repository also contains a complete non-interactive region snapshot
-foundation. Ordered polygon capture, copy, cut, paste, import, export,
-collision plans, recovery, and all four placement families are tested. The
-packaged client has no region-selection toolbar mode, numbered markers, ghost
-preview, or snapshot-library workflow yet. Its visible **Copy inspected** action
-copies inspected field values and must not be mistaken for region Copy.
+The Editor repository contains the complete region snapshot engine, and the
+packaged client now exposes its primary interactive workflow. Ordered polygon
+capture, Copy, snapshot-first Cut, Paste, Import, Export, collision plans,
+recovery, live activation, and all four placement families are tested. The
+visible **Copy inspected** action still copies inspected field values and must
+not be mistaken for Region Copy.
 
 ## Current product focus — interaction before tool count
 
@@ -697,23 +697,26 @@ inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
 Readiness: **interactive Region Copy/Paste and live Paste activation
-owner-validated**. The
+owner-validated; interactive snapshot-first Cut implemented pending owner
+validation**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
-The packaged **Region Copier** is one primary toolbar tool with **Copy** and
-**Paste** as subordinate second-column mode icons and no duplicate mode tabs in
-their consolidated pop-outs. The Copy flyout uses `Start -> Stop -> Reset`,
-marker Undo, explicit Copy, and Export; the Paste flyout uses the current clipboard, Import,
+The packaged **Region Copier** is one primary toolbar tool with **Copy**,
+**Cut**, and **Paste** as subordinate second-column mode icons and no duplicate
+mode tabs in their consolidated pop-outs. The Copy/Cut flyouts use
+`Start -> Stop -> Reset`, marker Undo, explicit Copy or Cut, and Export; the
+Paste flyout uses the current clipboard, Import,
 exact preview, `Paste -> Overwrite? -> Confirm` when occupied, and exact one-step
 Undo. Paste assigns marker 1 to a clicked destination, displays the translated
 ghost and collision pins, and activates the
 exact atomically published package without restarting the isolated Builder.
-Interactive Cut remains pending. Graphical portable Import/Export is implemented
-and owner-validated.
+Cut first secures the reusable snapshot and immutable operation plan without
+world mutation; **Confirm Cut** then publishes and activates that exact plan.
+Graphical portable Import/Export is implemented and owner-validated.
 
-The first interactive vertical slice is intentionally **Copy before Cut and
-Paste**. It adds a Selection tool, ordered numbered world markers, prospective
+The interactive vertical slice was intentionally delivered **Copy before Cut
+and Paste**. It added a Selection tool, ordered numbered world markers, prospective
 segment/enclosure preview, marker removal and full cancellation, an explicit
 Close action, and Copy into the existing project-local library. Copy must first
 publish any pending adaptive draft and then capture that exact authoritative
@@ -750,15 +753,17 @@ The first version should preserve orientation and level offsets. Rotation,
 mirroring, selective terrain/placement paste, clipping, and merge strategies
 can follow after exact untranslated paste is reliable.
 
-Readiness: **Editor foundation and interactive Paste owner-validated**.
+Readiness: **Editor foundation and interactive Paste owner-validated;
+interactive Cut implemented pending owner validation**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
 The supervisor-mediated transaction, collision preview, client ghost rendering,
 and exact post-publication live activation are implemented without duplicating
 the Editor mutation engine. A failed live activation preserves the published
 package and instructs the creator to close/reopen as a safe recovery path. Cut
-UI and general multi-operation undo/redo remain runtime work. Exact last-Paste
-Undo is implemented with post-Paste drift refusal. Before calling the feature
+uses the same recovery-safe publication and live activation path; general
+multi-operation undo/redo remains future runtime work. Exact last-Paste Undo is
+implemented with post-Paste drift refusal. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
@@ -870,7 +875,7 @@ material-sharing model that custom materials later have to replace.
 | Recoverable legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
 | Project backup history | Implemented with content-addressed revisions and interruption recovery | Owner GUI validation and long-running storage feedback |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; consolidated UI and exact one-step Paste Undo pending owner validation | Cut, richer placement ghosts, rotation/mirroring, and general undo/redo UX |
+| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; snapshot-first Cut, consolidated UI, and exact one-step Paste Undo pending owner validation | Richer placement ghosts, rotation/mirroring, and general undo/redo UX |
 | Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |
 | Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 
