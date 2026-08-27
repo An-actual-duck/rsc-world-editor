@@ -1,0 +1,360 @@
+# World Builder 2 Map Migration, GUI Transactions, and Project History
+
+## Document status
+
+| Field | Value |
+| --- | --- |
+| Status | Approved product direction; implementation pending |
+| Captured | 2026-08-27 |
+| Product | World Builder 2 only |
+| Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
+| Follow-up objective | Add understandable project-save history and verified restore |
+
+This document extends the implemented adaptive map workflow. It does not
+reinterpret frozen schemas, weaken exact conversion, or authorize destructive
+target cleanup. The existing transaction engine remains the authority for
+target preview, backup, import, recovery, and undo.
+
+## Product outcome
+
+A typical creator should be able to:
+
+1. click **Detect Server Map**;
+2. choose a map only when genuinely different valid configurations exist;
+3. answer a simple legacy-landscape migration question when applicable;
+4. create and edit one isolated layered project;
+5. export its complete layered map without using a terminal;
+6. install it through **Import Map Changes to Server** in the same desktop
+   application;
+7. recover or undo an interrupted/completed target import through that GUI;
+   and
+8. browse and restore earlier project revisions without understanding package
+   paths or map encodings.
+
+The ordinary launcher retains exactly three primary actions: **Create New
+Project**, **Detect Server Map**, and **Continue Working on Selected Project**.
+Migration, export, import, backup, and recovery belong to the selected project
+and do not add competing project-creation buttons.
+
+## Existing foundation
+
+The following are already implemented:
+
+- bounded server-root and configuration discovery;
+- explicit selection when more than one valid configuration is found;
+- read-only discovery of matching server/client `Custom_Landscape.orsc`;
+- exact packed-sector validation and deterministic packed-to-layered
+  conversion;
+- effective boundary, scenery, NPC, and ground-item composition;
+- immutable source evidence and conversion reports;
+- a complete mutable layered working package;
+- target-independent complete layered export;
+- target mutation preview, exact confirmation, offline checks, verified
+  backups, durable receipts, rollback, recovery, and exact last-import undo;
+- separate Linux and Windows scripts for Import, Undo, and Recovery; and
+- copy-on-write project save publication and startup recovery.
+
+The current gaps are discoverability and product semantics. The GUI does not
+present legacy retirement, complete project export, target import, undo,
+recovery, or project revision history as one understandable workflow.
+
+## Legacy custom-landscape migration
+
+### Meaning of “incorporate”
+
+`Custom_Landscape.orsc` is a complete legacy packed terrain archive. It is not
+assumed to be a sparse patch over an active layered package. Choosing to
+incorporate it means:
+
+1. select the exact matching server/client archive as the terrain authority;
+2. bind it to the chosen compatible server configuration;
+3. collect that configuration's active definitions and placement families;
+4. convert the complete effective packed world into one layered package;
+5. require exact terrain reverse parity and effective placement parity; and
+6. record the decision and every input hash in immutable project lineage.
+
+World Builder must not blindly overlay two complete terrain maps, infer which
+tiles are newer, or merge an unrelated active layered package with a packed
+archive. If two independent authorities cannot be reconciled exactly through a
+declared conversion profile, the user must choose one or cancel.
+
+### Streamlined prompt
+
+After **Detect Server Map** and any required configuration selection, discovery
+checks the selected source for a matching legacy landscape. When migration is
+applicable, the ordinary prompt is:
+
+> Custom_Landscape file detected. Would you like to incorporate it?
+
+with **Yes** and **No** actions.
+
+- **Yes** creates the project from the verified packed terrain and selected
+  configuration's effective content, then opens the resulting layered world.
+- **No** preserves the already selected map authority unchanged.
+- Closing or cancelling the prompt creates nothing and changes nothing.
+
+The concise prompt is end-user language. Expandable details state that the
+archive becomes the terrain authority for this migration, list its safe
+relative paths and hashes, identify the chosen configuration, and explain that
+the server remains unchanged during project creation.
+
+The prompt must not appear merely because a stale backup, build output,
+download, or unrelated archive shares the file name. Both archive identity and
+the selected adapter/configuration relationship must be proven.
+
+### Migration lineage
+
+A migrated project needs versioned immutable evidence containing at least:
+
+- a migration schema and profile ID;
+- the selected configuration role, safe relative path, and SHA-256;
+- server and client legacy archive paths, sizes, and SHA-256 values;
+- confirmation that both archives were byte-identical at discovery;
+- definition, placement, asset, and content-bundle fingerprints;
+- conversion plan/report and output package fingerprints;
+- exact terrain reverse-parity and effective-composition results;
+- whether retirement was requested by the user; and
+- the compiled target mutation profile permitted to interpret that request.
+
+The project manifest may expose a simple derived state such as
+`legacyLandscapeMigrated`, but target mutation relies on the complete versioned
+evidence rather than one boolean.
+
+## Complete map export in the GUI
+
+The desktop application exposes **Export Complete Map Package…** for a selected
+closed project. It uses the existing adaptive exporter and therefore:
+
+- locks and revalidates the project;
+- refuses pending or unsafe runtime state;
+- copies the complete working layered package;
+- includes conversion and validation lineage;
+- publishes a new immutable export without overwriting an older export;
+- never resolves or changes the target server; and
+- reports the destination and package/export fingerprints.
+
+The user may choose a destination or reveal the generated export. The artifact
+contains the validated `package/` plus its manifest and validation report. A
+future single-file transport wrapper may be added, but it must not replace or
+weaken the canonical complete package.
+
+This action is distinct from region `.wbr` export. Region export shares a
+selection; complete map export publishes the entire selected project's world.
+
+## Import, undo, and recovery in the GUI
+
+### Import Map Changes to Server
+
+The existing adaptive transaction engine is exposed inside the desktop
+application rather than reimplemented in Swing. The selected project must be
+closed before import. The GUI:
+
+1. exports or selects the exact current complete project export;
+2. rediscovers the attached target and rejects drift;
+3. acquires every required offline signal;
+4. displays a readable summary with expandable exact plan details;
+5. identifies package installation, configuration activation, backups, and any
+   proposed legacy retirement separately;
+6. requests final confirmation only after displaying that plan;
+7. applies the exact in-memory plan through the existing transaction engine;
+8. shows the verified receipt and installed client/map identity; and
+9. offers the appropriate Undo or Recovery next action.
+
+Friendly labels must retain the same transaction UUID, plan fingerprint, write
+ordering, verification, and no-force guarantees as the CLI. The GUI never
+manufactures a second, weaker import path.
+
+### Recoverable legacy retirement
+
+For a project with verified migration lineage, the import plan may retire the
+legacy server/client `Custom_Landscape.orsc` copies only when the compiled
+adapter and target capability prove all of the following:
+
+- the exact files are the migrated source identities;
+- the new layered package is valid at both bounded destinations;
+- the activated configuration selects the layered loader as sole authority;
+- no selected server/client configuration still consumes the legacy files;
+- all affected files fit the existing backup, receipt, rollback, and undo
+  model; and
+- the target is offline under the normal lease.
+
+Retirement is never an unrecorded deletion. Exact original bytes are copied to
+verified project-owned transaction backups before mutation. Package content is
+installed and verified before activation; activation changes occur in the
+adapter's safe order; retirement is verified and receipt-bound. Failure
+restores the complete before-state. Undo restores both archives and their prior
+configuration exactly.
+
+When capability evidence is incomplete, import keeps the legacy archives and
+explains why. File presence alone does not duplicate terrain once the layered
+loader is sole authority, so safety takes precedence over cosmetic cleanup.
+
+### Undo and recovery
+
+The GUI exposes **Undo Last Server Import…** for one successful unreverted
+transaction and **Recover Interrupted Server Import…** when a pending receipt
+blocks normal work. Both project the existing exact transaction engine.
+Changed-after, missing-backup, target-lineage, online-target, and receipt
+failures remain blockers. There is no force button.
+
+The standalone scripts remain available for headless recovery. GUI integration
+is an additional safe interface, not removal of the recovery escape hatch.
+
+## Project backups and world-save history
+
+### Three meanings of backup
+
+| Concept | Purpose | Existing state |
+| --- | --- | --- |
+| Save publication recovery | Restore the working package after an interrupted or failed save | Implemented internally |
+| Server transaction backup | Restore target files/configuration during rollback or exact Undo | Implemented and script-accessible |
+| Project revision history | Let a creator return to an earlier authored world | Not yet implemented |
+
+Calling all three “backup” in casual UI is acceptable only when each screen
+states which world is affected. Loading a project revision never mutates a
+server. Undoing an import never silently changes the current project.
+
+### Revision creation
+
+The first project-history increment creates a revision after a successful
+closed editing session when the working package fingerprint changed. It also
+creates or verifies a pre-restore revision before loading older state.
+
+Each immutable revision records:
+
+- project UUID and display name;
+- creation time and reason (`editing-session`, `before-restore`, or explicit
+  user backup);
+- source, conversion, definition/content, and runtime identities;
+- complete working package fingerprint and closed inventory;
+- parent revision when applicable;
+- optional user description; and
+- tool/schema version.
+
+Revisions live under the UUID project, survive application updates, and omit
+target credentials, logs, PIDs, databases, unrelated receipts, and absolute
+user paths.
+
+Implementation should prefer content-addressed file reuse so unchanged package
+files are not copied repeatedly. Correctness cannot depend on hard links,
+reflinks, or platform-specific deduplication. Initially, World Builder does not
+silently prune revisions. The UI reports count and disk usage; a separately
+reviewed retention policy may follow.
+
+### Backup browser
+
+The selected-project GUI provides **Project Backups…** with:
+
+- a newest-first revision list;
+- date/time, reason, optional description, and abbreviated package identity;
+- the current revision clearly marked;
+- package file count and disk usage;
+- **Load Backup…**;
+- **Export Backup…**; and
+- **Create Backup Now…**.
+
+Deletion and automatic pruning are deferred until their recovery and retention
+behavior is designed.
+
+### Load Backup
+
+Loading a backup requires the private editor to be closed. The operation:
+
+1. locks and verifies the project and selected revision;
+2. shows current and selected identities plus a bounded difference summary;
+3. requires confirmation;
+4. records a verified pre-restore revision of the current working package;
+5. stages the selected complete package as a sibling;
+6. validates definitions, assets, package schema, inventory, and project
+   lineage;
+7. atomically publishes the restored working package and updates its
+   fingerprint; and
+8. reopens/verifies the project before reporting success.
+
+Any failure preserves or restores the exact current package. A loaded backup
+creates a new history head; it does not rewrite or delete historical revisions.
+The target remains untouched until a later explicit Import.
+
+## Implementation sequence
+
+### Increment 1 — migration choice and lineage
+
+- Detect an applicable legacy archive after exact configuration selection.
+- Add the Yes/No migration prompt and expandable evidence.
+- Preserve cancellation and target read-only behavior.
+- Record versioned migration/retirement intent in project lineage.
+- Prove exact packed conversion and complete layered export using fixtures and
+  the owner's currently available split-map validation case.
+
+### Increment 2 — complete export and target transactions in the GUI
+
+- Add selected-project **Export Complete Map Package…**.
+- Add **Import Map Changes to Server…** through the existing engine.
+- Add readable and expandable transaction previews.
+- Add GUI Undo and Recovery while retaining the scripts.
+- Add capability-gated, recoverable legacy retirement to the mutation plan.
+- Exercise Linux GUI behavior and Java-level Windows-equivalent contracts;
+  owner visual review uses no screenshots.
+
+### Increment 3 — project revision history
+
+- Define the immutable revision schema and content-addressed storage.
+- Record changed successful editing sessions and explicit backups.
+- Add the project backup browser and disk-usage reporting.
+- Add verified Load Backup and Export Backup.
+- Add interruption, corruption, update-preservation, and rollback coverage.
+
+Each increment remains a reviewable exact commit and passes its
+risk-appropriate test gate before the next begins.
+
+## Acceptance criteria
+
+- **MH-01:** The primary launcher still presents exactly three ordinary project
+  actions.
+- **MH-02:** A matching legacy archive produces one clear Yes/No prompt after
+  required map selection; cancellation creates nothing.
+- **MH-03:** Yes converts legacy terrain plus effective placements/content into
+  one complete layered project with exact parity; No preserves the selected
+  map authority.
+- **MH-04:** No source or target byte changes during discovery, conversion,
+  editing, save, backup creation, backup load, or complete export.
+- **MH-05:** Complete export is available from the GUI and independently
+  validates the full package and lineage.
+- **MH-06:** GUI Import uses the existing exact transaction plan and cannot
+  bypass offline, confirmation, backup, receipt, verification, rollback, or
+  no-force rules.
+- **MH-07:** Legacy retirement occurs only for exact migration identities under
+  a compatible mutation profile and remains fully undoable.
+- **MH-08:** GUI Undo and Recovery produce the same plans and results as their
+  script/CLI counterparts.
+- **MH-09:** Project history distinguishes creative revisions from server
+  transaction backups and internal crash recovery.
+- **MH-10:** Load Backup creates a pre-restore revision, validates before
+  publication, never rewrites history, and never accesses the target.
+- **MH-11:** Application updates preserve every project revision, export,
+  transaction backup, and receipt.
+- **MH-12:** Temporary fixtures cover packed migration after the owner's real
+  split-map case is unavailable; no test mutates a real server or user
+  workspace.
+
+## Explicit non-goals
+
+- Arbitrary two-map overlay or timestamp-based per-tile merging.
+- Guessing that a same-named archive belongs to the selected server map.
+- Executing target JARs, scripts, plugins, or configuration-supplied commands.
+- Deleting legacy terrain without exact verified backup and undo authority.
+- Loading a project backup directly into a server.
+- Silently pruning creator history.
+- Treating region snapshots as complete map backups.
+- Hard-coding a specific private server, external live-state directory, or
+  creator map identity into the neutral Editor.
+
+## Readiness
+
+| Area | Readiness | Missing work |
+| --- | --- | --- |
+| Legacy packed detection/conversion | Available foundation | Streamlined post-selection migration choice and lineage |
+| Complete layered export | Available foundation | Desktop GUI action and destination/reveal experience |
+| Target import/undo/recovery | Available foundation | Desktop GUI projection and readable plans |
+| Legacy retirement | Design-ready | Versioned lineage plus mutation-profile and transaction extensions |
+| Project revision history | Design-ready | Schema, storage, browser, restore transaction, and tests |

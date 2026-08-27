@@ -101,6 +101,14 @@ preserved and refused. Standalone origin is checked before target resolution
 for import, undo, and recovery. The historical workspace transaction continues
 to use its existing fixed-layout contracts.
 
+The planned desktop lifecycle extension retains this exact transaction engine
+while adding GUI Import, Undo, and Recovery; complete project export; exact
+legacy-landscape migration lineage and recoverable retirement; and a separate
+immutable project revision history with verified restore. These user-facing
+surfaces and their separation from transaction backups are specified in
+[World Builder 2 Map Migration, GUI Transactions, and Project
+History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md).
+
 The compiled `process-scan` offline check is fail-closed. It currently requires
 a readable Linux `/proc` process view; a missing, unreadable, or unavailable
 view refuses mutation rather than recording clean evidence. A still-live
