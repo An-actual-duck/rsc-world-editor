@@ -154,8 +154,14 @@ final class WorldBuilderLauncherModel {
 	LegacyMigrationPreview inspectLegacyMigration(
 		DiscoveryPreview selected, String requestedConfiguration)
 		throws IOException, WorldBuilderContractException {
-		if (selected == null || !selected.canCreateServerProject()
-			|| !"layered".equals(selected.representation)) return null;
+		if (selected == null || !selected.canCreateServerProject()) return null;
+		if ("packed".equals(selected.representation)) {
+			if (!WorldBuilderPackedMigrationChoice.applies(selected.report)) return null;
+			WorldBuilderPackedMigrationChoice.create(selected.report, true);
+			return new LegacyMigrationPreview(selected.report,
+				Collections.<ConfigurationChoice>emptyList(), true);
+		}
+		if (!"layered".equals(selected.representation)) return null;
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(selected.source);
 		boolean evidence = false;
 		for (String root : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
@@ -167,13 +173,13 @@ final class WorldBuilderLauncherModel {
 		if (!evidence) return null;
 		List<ConfigurationChoice> choices = legacyConfigurationChoices(target);
 		if (requestedConfiguration == null && choices.size() > 1) {
-			return new LegacyMigrationPreview(null, choices);
+			return new LegacyMigrationPreview(null, choices, false);
 		}
 		WorldBuilderAdaptiveDiscoveryReport legacy =
 			new WorldBuilderLegacyLandscapeDiscovery().discover(
 				selected.source, requestedConfiguration);
 		WorldBuilderMapMigrationChoice.create(selected.report, legacy, true);
-		return new LegacyMigrationPreview(legacy, choices);
+		return new LegacyMigrationPreview(legacy, choices, false);
 	}
 
 	private static List<ConfigurationChoice> legacyConfigurationChoices(
@@ -278,6 +284,20 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException {
 		if (migration == null || migration.report == null) throw new IOException(
 			"Legacy landscape incorporation was requested without a validated candidate.");
+		if (migration.primaryPacked) {
+			Path report = Files.createTempFile(
+				installation, ".desktop-packed-discovery-", ".json");
+			try {
+				Files.write(report,
+					selected.report.toJson().getBytes(StandardCharsets.UTF_8),
+					StandardOpenOption.TRUNCATE_EXISTING);
+				return new WorldBuilderAdaptiveProjectLifecycle().createPackedMigrated(
+					installation, runtime, selected.source, report, displayName, port,
+					"CREATE", itemVisualMappings, true);
+			} finally {
+				Files.deleteIfExists(report);
+			}
+		}
 		Path selectedReport = Files.createTempFile(
 			installation, ".desktop-selected-discovery-", ".json");
 		Path legacyReport = Files.createTempFile(
@@ -688,11 +708,13 @@ final class WorldBuilderLauncherModel {
 	static final class LegacyMigrationPreview {
 		final WorldBuilderAdaptiveDiscoveryReport report;
 		final List<ConfigurationChoice> configurationChoices;
+		final boolean primaryPacked;
 
 		LegacyMigrationPreview(WorldBuilderAdaptiveDiscoveryReport report,
-			List<ConfigurationChoice> configurationChoices) {
+			List<ConfigurationChoice> configurationChoices, boolean primaryPacked) {
 			this.report = report;
 			this.configurationChoices = configurationChoices;
+			this.primaryPacked = primaryPacked;
 		}
 
 		boolean needsConfigurationChoice() {

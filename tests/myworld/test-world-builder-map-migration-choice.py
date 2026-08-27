@@ -20,6 +20,7 @@ SOURCE_ROOT = ROOT / "tools" / "world-builder" / "src"
 CONTRACT_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-contracts.py"
 DISCOVERY_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-discovery.py"
 LIFECYCLE_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-project-lifecycle.py"
+PACKED_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-packed-conversion.py"
 ZERO_HASH = "0" * 64
 
 HARNESS = r"""
@@ -177,6 +178,7 @@ def load_fixtures(name: str, path: Path):
 FIXTURES = load_fixtures("adaptive_contract_fixtures", CONTRACT_FIXTURES)
 DISCOVERY = load_fixtures("adaptive_discovery_fixtures", DISCOVERY_FIXTURES)
 LIFECYCLE = load_fixtures("adaptive_lifecycle_fixtures", LIFECYCLE_FIXTURES)
+PACKED = load_fixtures("packed_conversion_fixtures", PACKED_FIXTURES)
 
 
 def bind_report(report: dict) -> None:
@@ -508,6 +510,74 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)["retirementRequested"])
 
+    def test_primary_packed_choice_retires_and_undo_restores_exact_archives(self) -> None:
+        base = self.root / "primary-packed-retirement"
+        base.mkdir()
+        packed_fixture = PACKED.PackedConversionTest(methodName="runTest")
+        target = packed_fixture.fixture(base)
+        server_source = target / "server/maps/active.orsc"
+        client_source = target / "client/maps/active.orsc"
+        server_legacy = target / "server/conf/server/data/Custom_Landscape.orsc"
+        client_legacy = target / "Client_Base/Cache/video/Custom_Landscape.orsc"
+        server_legacy.parent.mkdir(parents=True, exist_ok=True)
+        client_legacy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(server_source, server_legacy)
+        shutil.move(client_source, client_legacy)
+        configuration_path = target / "server/world-builder-configs/primary.json"
+        configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+        configuration["serverMapRelativePath"] = (
+            "server/conf/server/data/Custom_Landscape.orsc"
+        )
+        configuration["clientMapRelativePath"] = (
+            "Client_Base/Cache/video/Custom_Landscape.orsc"
+        )
+        configuration_path.write_text(
+            json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
+        )
+
+        installation = base / "World Builder 2"
+        installation.mkdir()
+        runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(base)
+        marker = self.root / "primary-packed-retirement-project.txt"
+        target_before = LIFECYCLE.tree_bytes(target)
+        created = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.ScriptedMigrationLauncherHarness",
+                str(installation), str(runtime), str(target), "43904", str(marker),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        project = Path(marker.read_text(encoding="utf-8"))
+        project_id = json.loads((project / "project.json").read_text(
+            encoding="utf-8"
+        ))["projectId"]
+        target_after_creation = LIFECYCLE.tree_bytes(target)
+        self.assertEqual(target_before, target_after_creation)
+
+        plan_path = self.root / "primary-packed-retirement-plan.json"
+        transaction = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
+                str(installation), str(runtime), str(target), project_id,
+                "43904", str(plan_path),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(transaction.returncode, 0, transaction.stderr)
+        self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
+        plan = json.loads(plan_path.read_text(encoding="utf-8"))
+        self.assertEqual(2, len([
+            action for action in plan["actions"]
+            if action["role"].startswith("retire-legacy-landscape-")
+        ]))
+
     def test_reports_must_name_same_target(self) -> None:
         selected, legacy = reports()
         legacy["targetRootDisplay"] = "/display/another-server"
@@ -627,6 +697,45 @@ class MapMigrationChoiceTest(unittest.TestCase):
             bootstrap_project
             / "source/original/server/world-builder-fallback/definitions.json"
         ).read_text(encoding="utf-8"))
+
+        # A primary packed Custom_Landscape is itself an explicit migration
+        # choice: Yes keeps the same exact conversion input while binding later
+        # retirement intent. The target remains read-only during creation.
+        direct_installation = self.root / "Direct Packed World Builder 2"
+        direct_installation.mkdir()
+        direct_runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(
+            direct_installation
+        )
+        direct_marker = self.root / "direct-packed-project.txt"
+        direct_before = DISCOVERY.AdaptiveDiscoveryTest.snapshot(target)
+        direct = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.ScriptedMigrationLauncherHarness",
+                str(direct_installation), str(direct_runtime), str(target),
+                "43900", str(direct_marker),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(direct.returncode, 0, direct.stderr)
+        self.assertEqual(direct_before, DISCOVERY.AdaptiveDiscoveryTest.snapshot(target))
+        direct_project = Path(direct_marker.read_text(encoding="utf-8"))
+        direct_choice = json.loads((
+            direct_project / "source/migration/choice.json"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(
+            "world-builder-packed-map-migration-choice",
+            direct_choice["manifestType"],
+        )
+        self.assertTrue(direct_choice["retirementRequested"])
+        self.assertEqual(
+            direct_choice["selectedTargetDiscoveryFingerprintSha256"],
+            json.loads(legacy_report_path.read_text(encoding="utf-8"))[
+                "discoveryFingerprintSha256"
+            ],
+        )
         self.add_layered_authority(target, generated_catalog)
 
         selected_report_path = self.root / "selected-layered.json"
