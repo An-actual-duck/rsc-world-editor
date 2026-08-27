@@ -33,6 +33,9 @@ final class WorldBuilderAdaptiveContracts {
 		MAP_MIGRATION_CHOICE("map-migration-choice", 1,
 			"world-builder-map-migration-choice",
 			"map-migration-choice-v1.schema.json"),
+		PACKED_MAP_MIGRATION_CHOICE("packed-map-migration-choice", 1,
+			"world-builder-packed-map-migration-choice",
+			"packed-map-migration-choice-v1.schema.json"),
 		PROJECT_REVISION("project-revision", 1,
 			"world-builder-project-revision", "project-revision-v1.schema.json"),
 		PROJECT_MANIFEST("project-manifest", 2,
@@ -151,6 +154,8 @@ final class WorldBuilderAdaptiveContracts {
 			case TARGET_CAPABILITY: validateCapability(root); return;
 			case DISCOVERY_REPORT: validateDiscovery(root); return;
 			case MAP_MIGRATION_CHOICE: validateMapMigrationChoice(root); return;
+			case PACKED_MAP_MIGRATION_CHOICE:
+				validatePackedMapMigrationChoice(root); return;
 			case PROJECT_REVISION: validateProjectRevision(root); return;
 			case PROJECT_MANIFEST: validateProject(root); return;
 			case PROJECT_REGISTRY: validateRegistry(root); return;
@@ -236,6 +241,34 @@ final class WorldBuilderAdaptiveContracts {
 		if (!selected.present || !legacy.present) {
 			invalid(op, "Map migration configurations must both be present.");
 		}
+		validateLegacyTerrain(root, op);
+		bool(root, "retirementRequested", op);
+		hash(root, "migrationChoiceFingerprintSha256", op);
+	}
+
+	private static void validatePackedMapMigrationChoice(Map<String,Object> root)
+		throws WorldBuilderContractException {
+		String op = "validate-packed-map-migration-choice";
+		exact(root, op, "schemaVersion", "manifestType", "toolVersion", "decision",
+			"selectedTargetDiscoveryFingerprintSha256", "selectedConfiguration",
+			"legacyTerrain", "retirementRequested",
+			"migrationChoiceFingerprintSha256");
+		identifier(root, "toolVersion", op);
+		if (!"incorporate-primary-legacy-landscape".equals(
+			string(root, "decision", op))) {
+			invalid(op, "Packed map migration choice has an unknown decision.");
+		}
+		hash(root, "selectedTargetDiscoveryFingerprintSha256", op);
+		StateReference selected = stateReference(root.get("selectedConfiguration"),
+			op, "selectedConfiguration", true);
+		if (!selected.present) invalid(op, "Packed migration configuration must be present.");
+		validateLegacyTerrain(root, op);
+		bool(root, "retirementRequested", op);
+		hash(root, "migrationChoiceFingerprintSha256", op);
+	}
+
+	private static void validateLegacyTerrain(Map<String,Object> root, String op)
+		throws WorldBuilderContractException {
 		Map<String,Object> terrain = object(root.get("legacyTerrain"), op,
 			"legacyTerrain");
 		exact(terrain, op, "server", "client", "byteIdentical");
@@ -265,8 +298,6 @@ final class WorldBuilderAdaptiveContracts {
 			|| !server.relativePath.endsWith("/Custom_Landscape.orsc")) {
 			invalid(op, "Legacy terrain references are outside the compiled client/server landscape roots.");
 		}
-		bool(root, "retirementRequested", op);
-		hash(root, "migrationChoiceFingerprintSha256", op);
 	}
 
 	private static void validateCapability(Map<String,Object> root)

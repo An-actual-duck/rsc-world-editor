@@ -66,8 +66,9 @@ current GUI reports the immutable generated export path.
 ### Meaning of “incorporate”
 
 `Custom_Landscape.orsc` is a complete legacy packed terrain archive. It is not
-assumed to be a sparse patch over an active layered package. Choosing to
-incorporate it means:
+assumed to be a sparse patch over an active layered package. Discovery may find
+it either alongside a compatible layered target or as the selected primary
+packed map. Choosing to incorporate it in either arrangement means:
 
 1. select the exact matching server/client archive as the terrain authority;
 2. bind it to the chosen compatible server configuration;
@@ -84,7 +85,9 @@ declared conversion profile, the user must choose one or cancel.
 ### Streamlined prompt
 
 After **Detect Server Map** and any required configuration selection, discovery
-checks the selected source for a matching legacy landscape. When migration is
+checks the selected source for a matching legacy landscape. This includes a
+`Custom_Landscape.orsc` archive that is itself the selected packed map; that
+case must not silently skip the retirement choice. When migration is
 applicable, the ordinary prompt is:
 
 > Custom_Landscape file detected. Would you like to incorporate it?
@@ -92,8 +95,10 @@ applicable, the ordinary prompt is:
 with **Yes** and **No** actions.
 
 - **Yes** creates the project from the verified packed terrain and selected
-  configuration's effective content, then opens the resulting layered world.
-- **No** preserves the already selected map authority unchanged.
+  configuration's effective content, opens the resulting layered world, and
+  records capability-gated retirement intent for a later explicit import.
+- **No** still permits ordinary project creation from the selected map
+  authority, but records no retirement intent.
 - Closing or cancelling the prompt creates nothing and changes nothing.
 
 The concise prompt is end-user language. Expandable details state that the
@@ -123,21 +128,28 @@ The project manifest may expose a simple derived state such as
 `legacyLandscapeMigrated`, but target mutation relies on the complete versioned
 evidence rather than one boolean.
 
-The first contract is `world-builder-map-migration-choice` schema version 1.
-It binds two distinct immutable discovery fingerprints: the normally selected
-target authority and a separately validated packed-conversion candidate. It
-also binds both selected configurations, the exact byte-identical server/client
-legacy terrain records, the affirmative incorporation decision, retirement
-intent, and its own fingerprint.
+The two-authority contract is `world-builder-map-migration-choice` schema
+version 1. It binds two distinct immutable discovery fingerprints: the normally
+selected target authority and a separately validated packed-conversion
+candidate. It also binds both selected configurations, the exact byte-identical
+server/client legacy terrain records, the affirmative incorporation decision,
+retirement intent, and its own fingerprint.
 
-The packed candidate does not replace or masquerade as the selected target
-report. Project creation must re-run and match both discoveries at its drift
-boundaries, then copy their union without allowing generated packed-fallback
-descriptor/configuration evidence to collide with the selected target's real
-descriptor/configuration evidence. Generated conversion authority therefore
-needs its own contained namespace or staging root. The immutable selected
-target evidence remains available for later attachment and import; the packed
-evidence supplies conversion input only.
+The primary-packed contract is `world-builder-packed-map-migration-choice`
+schema version 1. It binds the selected packed discovery fingerprint and
+configuration directly, both exact byte-identical server/client legacy terrain
+records, the affirmative incorporation decision, retirement intent, and its
+own fingerprint. It does not invent a second map authority merely to reuse the
+two-authority flow.
+
+In the two-authority flow, the packed candidate does not replace or masquerade
+as the selected target report. Project creation must re-run and match both
+discoveries at its drift boundaries, then copy their union without allowing
+generated packed-fallback descriptor/configuration evidence to collide with the
+selected target's real descriptor/configuration evidence. Generated conversion
+authority therefore needs its own contained namespace or staging root. The
+immutable selected target evidence remains available for later attachment and
+import; the packed evidence supplies conversion input only.
 
 ## Complete map export in the GUI
 

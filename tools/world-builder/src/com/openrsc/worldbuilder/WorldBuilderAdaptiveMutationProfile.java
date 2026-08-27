@@ -195,8 +195,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 		if (!Files.exists(choicePath, LinkOption.NOFOLLOW_LINKS)) return;
 		WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
 			"source/migration/choice.json", "immutable map-migration choice");
-		WorldBuilderAdaptiveContracts.read(
-			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, choicePath);
 		Map<String,Object> choice;
 		try {
 			choice = WorldBuilderJsonDocuments.readObject(choicePath);
@@ -206,6 +204,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Immutable map-migration choice JSON is malformed.",
 				"Restore the complete project from a trusted backup.");
 		}
+		WorldBuilderAdaptiveContracts.Kind choiceKind = migrationChoiceKind(choice);
+		WorldBuilderAdaptiveContracts.validateParsed(choiceKind, choice);
+		boolean primaryPacked = choiceKind
+			== WorldBuilderAdaptiveContracts.Kind.PACKED_MAP_MIGRATION_CHOICE;
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			choice, "migrationChoiceFingerprintSha256");
 		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return;
@@ -235,17 +237,22 @@ final class WorldBuilderAdaptiveMutationProfile {
 				choiceConfiguration, "sha256"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
 				"source/migration/choice.json",
-				"Legacy retirement choice and selected layered configuration disagree.",
+				"Legacy retirement choice and selected configuration disagree.",
 				"Restore the exact migrated project; do not retire target files manually.");
 		}
-		if (!"layered".equals(configuration.representation)
+		boolean validAuthority = primaryPacked
+			? "packed".equals(configuration.representation)
+				&& PACKED_PROFILE.equals(capability.mutationProfileId)
+				&& WorldBuilderPackedLayoutAdapter.ID.equals(capability.adapterId)
+			: "layered".equals(configuration.representation);
+		if (!validAuthority
 			|| capability.configurationRoles.size() != 1
 			|| !role.equals(capability.configurationRoles.get(0))
 			|| capability.installConfigurationRoles.size() != 1
 			|| !role.equals(capability.installConfigurationRoles.get(0))) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 				WorldBuilderTargetCapability.RELATIVE_PATH,
-				"Target capability does not prove one exact layered activation authority for legacy retirement.",
+				"Target capability does not prove one exact activation authority for legacy retirement.",
 				"Keep Custom_Landscape in place until the target advertises one matching install role.");
 		}
 
@@ -269,7 +276,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		});
 		for (Map<String,Object> record : records) {
 			String relative = WorldBuilderAdaptiveExporter.string(record, "relativePath");
-			if (configurationReferences(configuration, relative)) {
+			if (!primaryPacked && configurationReferences(configuration, relative)) {
 				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, relative,
 					"Selected layered configuration still references the legacy landscape file.",
 					"Correct the target configuration before requesting retirement.");
@@ -569,8 +576,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Path choicePath = WorldBuilderPortablePath.resolveContained(
 			project.projectRoot, "source/migration/choice.json", OPERATION);
 		if (!Files.exists(choicePath, LinkOption.NOFOLLOW_LINKS)) return result;
-		WorldBuilderAdaptiveContracts.read(
-			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, choicePath);
 		Map<String,Object> choice;
 		try {
 			choice = WorldBuilderJsonDocuments.readObject(choicePath);
@@ -580,6 +585,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Immutable map-migration choice JSON is malformed.",
 				"Restore the complete project from a trusted backup.");
 		}
+		WorldBuilderAdaptiveContracts.validateParsed(migrationChoiceKind(choice), choice);
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			choice, "migrationChoiceFingerprintSha256");
 		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return result;
@@ -591,6 +597,21 @@ final class WorldBuilderAdaptiveMutationProfile {
 			result.add(WorldBuilderAdaptiveExporter.string(record, "relativePath"));
 		}
 		return result;
+	}
+
+	private static WorldBuilderAdaptiveContracts.Kind migrationChoiceKind(
+		Map<String,Object> choice) throws WorldBuilderContractException {
+		Object raw = choice.get("manifestType");
+		if ("world-builder-map-migration-choice".equals(raw)) {
+			return WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE;
+		}
+		if ("world-builder-packed-map-migration-choice".equals(raw)) {
+			return WorldBuilderAdaptiveContracts.Kind.PACKED_MAP_MIGRATION_CHOICE;
+		}
+		throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+			"source/migration/choice.json",
+			"Immutable map-migration choice has an unknown contract identity.",
+			"Restore the complete project from a trusted backup.");
 	}
 
 	private static List<String> readCreatedDirectories(Path project,

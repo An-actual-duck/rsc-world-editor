@@ -903,8 +903,7 @@ final class WorldBuilderDesktopLauncher {
 		private void inspectLegacyMigrationThenShow(
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final boolean advanced, final String legacyConfiguration) {
-			if (!preview.canCreateServerProject()
-				|| !"layered".equals(preview.representation)) {
+			if (!preview.canCreateServerProject()) {
 				showSourcePreview(preview, advanced, null);
 				return;
 			}
@@ -1002,8 +1001,12 @@ final class WorldBuilderDesktopLauncher {
 				Object[] options = {"Yes", "No"};
 				int answer = JOptionPane.showOptionDialog(frame,
 					"Custom_Landscape file detected. Would you like to incorporate?\n\n"
-						+ "Yes combines those legacy terrain changes with the selected server "
-						+ "content inside a new isolated project. The server and legacy file "
+						+ (detectedMigration.primaryPacked
+							? "Yes converts this selected legacy map into the isolated layered project "
+								+ "and records guarded retirement intent for a later compatible import. "
+							: "Yes combines those legacy terrain changes with the selected server "
+								+ "content inside a new isolated project. ")
+						+ "The server and legacy file "
 						+ "remain unchanged. After editing, an explicit Import Map Changes "
 						+ "transaction will preview and back up any later retirement.",
 					"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,

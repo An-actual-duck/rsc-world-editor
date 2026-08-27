@@ -94,6 +94,13 @@ these results:
   with a compatibility report and no project or target change.
 
 Review the GUI summary and confirm before the first project is published.
+When matching server/client Custom_Landscape.orsc files are the selected packed
+map or coexist with a compatible layered target, the launcher asks whether to
+incorporate them. Yes converts exact verified packed terrain and records guarded
+retirement intent for a later compatible import; project creation does not
+change the server. No creates from the selected authority without retirement
+intent.
+
 Project creation writes beneath:
 
   World Builder 2/projects/<project-uuid>/

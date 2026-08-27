@@ -95,7 +95,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		throws IOException, WorldBuilderContractException {
 		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
 			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
-			confirmation, itemVisualMappings, developmentTerrainSeed, null);
+			confirmation, itemVisualMappings, developmentTerrainSeed, null, null);
 	}
 
 	ProjectResult createMigrated(Path requestedInstallRoot, Path requestedRuntimeRoot,
@@ -111,14 +111,30 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
 			requestedTargetRoot, selectedTargetReportPath, requestedDisplayName, port,
 			confirmation, itemVisualMappings, false,
-			new MigrationOrigin(legacy, choice));
+			new MigrationOrigin(legacy, choice), null);
+	}
+
+	ProjectResult createPackedMigrated(Path requestedInstallRoot,
+		Path requestedRuntimeRoot, Path requestedTargetRoot, Path discoveryReportPath,
+		String requestedDisplayName, int port, String confirmation,
+		Path itemVisualMappings, boolean retirementRequested)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> report = readContractMap(discoveryReportPath,
+			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
+		requireDiscoveryFingerprint(report);
+		WorldBuilderPackedMigrationChoice choice =
+			WorldBuilderPackedMigrationChoice.create(report, retirementRequested);
+		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
+			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
+			confirmation, itemVisualMappings, false, null, choice);
 	}
 
 	private ProjectResult createInternal(Path requestedInstallRoot,
 		Path requestedRuntimeRoot, Path requestedTargetRoot,
 		Path discoveryReportPath, String requestedDisplayName, int port,
 		String confirmation, Path itemVisualMappings,
-		boolean developmentTerrainSeed, MigrationOrigin migration)
+		boolean developmentTerrainSeed, MigrationOrigin migration,
+		WorldBuilderPackedMigrationChoice packedMigration)
 		throws IOException, WorldBuilderContractException {
 		if (!"CREATE".equals(confirmation)) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation",
@@ -152,6 +168,11 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		String origin = "standalone".equals(status) ? "standalone-empty"
 			: "packed".equals(representation) ? "target-packed"
 				: "layered".equals(representation) ? "target-layered" : "";
+		if (migration != null && packedMigration != null) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				"source/migration", "A project cannot bind two migration choices.",
+				"Select one exact migration path and retry.");
+		}
 		if (migration != null) {
 			if (!"compatible".equals(status) || !"layered".equals(representation)
 				|| !"compatible".equals(string(migration.legacyReport, "status"))
@@ -162,6 +183,13 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Run both read-only discovery passes again and review the incorporation choice.");
 			}
 			origin = "target-packed";
+		}
+		if (packedMigration != null
+			&& (!"compatible".equals(status) || !"packed".equals(representation))) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				"source/migration",
+				"Primary packed migration requires one compatible packed Custom_Landscape target.",
+				"Run read-only discovery again and review the incorporation choice.");
 		}
 		if (origin.isEmpty()) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, DISCOVERY_FILE,
@@ -199,7 +227,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			try {
 				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
 					discoveryReportPath, displayName, origin, port, itemVisualMappings,
-					developmentTerrainSeed, migration);
+					developmentTerrainSeed, migration, packedMigration);
 			} finally {
 				lock.release();
 			}
@@ -211,7 +239,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
 		int port, Path itemVisualMappings, boolean developmentTerrainSeed,
-		MigrationOrigin migration)
+		MigrationOrigin migration, WorldBuilderPackedMigrationChoice packedMigration)
 		throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
 		if (existing.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS) {
@@ -255,6 +283,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			} else {
 				prepared = prepareTargetOrigin(stage, target, report, stagedReport,
 					origin, sourceRuntime, itemVisualMappings);
+				if (packedMigration != null) {
+					Path migrationRoot = stage.resolve("source/migration");
+					ensureRealDirectory(migrationRoot);
+					Path choicePath = migrationRoot.resolve("choice.json");
+					writeNew(choicePath, packedMigration.toJson()
+						.getBytes(StandardCharsets.UTF_8));
+					WorldBuilderAdaptiveContracts.read(
+						WorldBuilderAdaptiveContracts.Kind.PACKED_MAP_MIGRATION_CHOICE,
+						choicePath);
+					prepared = PreparedOrigin.withMigration(stage, prepared, migrationRoot);
+				}
 			}
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);

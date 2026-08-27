@@ -1011,6 +1011,15 @@ def map_migration_choice() -> dict:
     }
 
 
+def packed_map_migration_choice() -> dict:
+    value = map_migration_choice()
+    value["manifestType"] = "world-builder-packed-map-migration-choice"
+    value["decision"] = "incorporate-primary-legacy-landscape"
+    del value["legacyPackedDiscoveryFingerprintSha256"]
+    del value["legacyConfiguration"]
+    return value
+
+
 def project_revision() -> dict:
     return {
         "schemaVersion": 1,
@@ -1097,6 +1106,7 @@ VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
     "map-migration-choice": map_migration_choice,
+    "packed-map-migration-choice": packed_map_migration_choice,
     "project-revision": project_revision,
     "project-manifest": packed_project,
     "project-registry": project_registry,
@@ -1116,6 +1126,9 @@ SCHEMA_CONTRACTS = {
     "discovery-report-v2.schema.json": (2, "world-builder-discovery-report"),
     "map-migration-choice-v1.schema.json": (
         1, "world-builder-map-migration-choice"
+    ),
+    "packed-map-migration-choice-v1.schema.json": (
+        1, "world-builder-packed-map-migration-choice"
     ),
     "project-revision-v1.schema.json": (1, "world-builder-project-revision"),
     "project-manifest-v2.schema.json": (2, "world-builder-project"),

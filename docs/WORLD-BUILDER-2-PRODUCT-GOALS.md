@@ -61,6 +61,8 @@ World Builder 2 already provides a substantial base for these goals:
   `Ctrl+Z`/`Ctrl+Y`;
 - project-local save, close, reopen, export, transactional import, recovery,
   and exact undo;
+- explicit `Custom_Landscape.orsc` incorporation and guarded retirement
+  lineage for both layered-plus-packed and primary-packed discovery paths;
 - a reversible Build presentation mode with a terrain grid and simplified
   renderer settings; and
 - a detailed, unimplemented custom wall/floor material design.
