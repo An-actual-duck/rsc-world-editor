@@ -6728,6 +6728,10 @@ public final class FakeAdaptiveClient {
         self.assertIn("Export Detected Server Diagnostics", launcher_source)
         self.assertIn("Reset Detected Server Provider Cache", launcher_source)
         self.assertIn("Choose Server Map", launcher_source)
+        self.assertIn("Use Most Recently Modified", launcher_source)
+        self.assertIn("Choose from Detected…", launcher_source)
+        self.assertIn("fixed imported snapshot", launcher_source)
+        self.assertIn("Map configuration:", launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)
