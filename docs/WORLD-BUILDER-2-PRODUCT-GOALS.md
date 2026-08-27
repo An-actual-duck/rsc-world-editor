@@ -6,10 +6,10 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, adding interactive snapshot-first Region Cut after the migration/history work |
+| Last reconciled | 2026-08-27, after owner-validating Region Cut and implementing session terrain Undo/Redo |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Current focus | Streamlined legacy-map migration, complete export, GUI target transactions, and project history |
+| Current focus | Fluid authoring tools and a shared, authoritative operation-history foundation |
 | Longer themes | Fluid tools, creator content, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
@@ -55,6 +55,8 @@ World Builder 2 already provides a substantial base for these goals:
 - absolute and relative elevation editing across the unsigned 16-bit
   `0..65535` range;
 - contextual toolbar actions for terrain, scenery, NPCs, and ground items;
+- bounded session terrain Undo/Redo for a click, one complete Ctrl-drag gesture,
+  one Line, or one Rectangle, with toolbar controls and `Ctrl+Z`/`Ctrl+Y`;
 - project-local save, close, reopen, export, transactional import, recovery,
   and exact undo;
 - a reversible Build presentation mode with a terrain grid and simplified
@@ -129,7 +131,10 @@ The intended order for the active product focus is:
 6. add an atomic scenery Move gesture with a destination ghost and collision
    validation; and
 7. expose and visually validate the existing region snapshot foundation through
-   an in-game selection, Copy/Cut/Paste, library, import, and export workflow.
+   an in-game selection, Copy/Cut/Paste, library, import, and export workflow;
+   and
+8. establish one bounded authoritative Undo/Redo history for complete terrain
+   operations, then extend that same primitive to placements.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
 materials, and declarative object actions remain important, but they must not
@@ -697,8 +702,8 @@ inside, and it must report placements whose multi-tile footprint crosses the
 selection boundary.
 
 Readiness: **interactive Region Copy/Paste and live Paste activation
-owner-validated; interactive snapshot-first Cut implemented pending owner
-validation**. The
+owner-validated; interactive snapshot-first Cut and the consolidated Region
+Copier layout owner-validated**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
@@ -754,16 +759,17 @@ mirroring, selective terrain/placement paste, clipping, and merge strategies
 can follow after exact untranslated paste is reliable.
 
 Readiness: **Editor foundation and interactive Paste owner-validated;
-interactive Cut implemented pending owner validation**.
+interactive Cut owner-validated**.
 Versioned snapshot/operation schemas, copy-on-write cut/paste, collision plans,
 exact overwrite confirmation, and placement-footprint rules are implemented.
 The supervisor-mediated transaction, collision preview, client ghost rendering,
 and exact post-publication live activation are implemented without duplicating
 the Editor mutation engine. A failed live activation preserves the published
 package and instructs the creator to close/reopen as a safe recovery path. Cut
-uses the same recovery-safe publication and live activation path; general
-multi-operation undo/redo remains future runtime work. Exact last-Paste Undo is
-implemented with post-Paste drift refusal. Before calling the feature
+uses the same recovery-safe publication and live activation path. Exact
+last-Paste Undo is implemented with post-Paste drift refusal. The separate
+session terrain history is now implemented, but region transactions have not
+yet been unified into that general operation stack. Before calling the feature
 creator-ready, the exposed workflow must be tested end to end for irregular
 ordered polygons, canonical-void Cut, collision-confirmed Paste, all four
 placement families, wide elevations, close/reopen recovery, and `.wbr`
@@ -861,8 +867,9 @@ material-sharing model that custom materials later have to replace.
 | Fluid paint trails | Partially ready; drag recovery and low-latency control owner-validated | Optional immediate preview, pipelining, reconciliation, and incremental rebuild |
 | Centered 5-by-5 and 7-by-7 brushes | Implemented and owner-validated | Unavailable-tile preview indication |
 | Relative raise/lower within `0..65535` | Runtime and persistence implemented | Polished Editor UI |
-| Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, operation-level undo |
-| Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail and operation-level undo |
+| Line tools | 4,096-tile atomic implementation complete and owner-validated | Automatic wall orientation/joins, unavailable-tile preview, and owner validation of session Undo/Redo |
+| Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail and owner validation of session Undo/Redo |
+| Session terrain Undo/Redo | Implemented for clicks, complete drags, Lines, and Rectangles; pending owner validation | Extend the shared history primitive to placements, then reconcile region transactions |
 | Scenery drag-move | Same-level atomic implementation complete and owner-validated | Cross-level, multi-object, duplicate, and rotate-during-move workflows |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
@@ -875,7 +882,7 @@ material-sharing model that custom materials later have to replace.
 | Recoverable legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
 | Project backup history | Implemented with content-addressed revisions and interruption recovery | Owner GUI validation and long-running storage feedback |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
-| Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; snapshot-first Cut, consolidated UI, and exact one-step Paste Undo pending owner validation | Richer placement ghosts, rotation/mirroring, and general undo/redo UX |
+| Region copy/cut/paste | Interactive Copy/Paste/Cut, live activation, and consolidated UI owner-validated; exact one-step Paste Undo implemented pending owner validation | Richer placement ghosts, rotation/mirroring, and integration with general operation history |
 | Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |
 | Declarative scenery Action mode | Foundational design required; long-term | Safe presets, definition identity, runtime behavior and server adapters |
 

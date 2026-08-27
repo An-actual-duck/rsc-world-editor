@@ -1,6 +1,6 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; interactive snapshot-first Cut, consolidated toolbar UI, and exact one-step Paste Undo implemented pending owner validation**
+Status: **interactive Region Copy/Paste/Cut, consolidated toolbar UI, and graphical portable Import/Export owner-validated; exact one-step Paste Undo implemented pending owner validation**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: one Region Copier tool with subordinate Copy/Cut/Paste modes and supervised Copy, Cut preview/apply, Paste preview/apply, sharing, live activation, and exact last-Paste Undo bridges implemented
@@ -360,7 +360,9 @@ remaining region-snapshot workflow is:
    destination anchor, and collision pins;
 3. richer graphical library management beyond the current clipboard and native
    `.wbr` Import/Export actions;
-4. general multi-operation undo/redo beyond the exact one-step Paste Undo; and
+4. integration with the new session operation-history primitive, which
+   currently covers terrain clicks, complete drags, Lines, and Rectangles but
+   not region transactions; and
 5. custom material/sprite/definition capability negotiation and safe logical-ID
    remapping before any such dependency may resolve.
 
@@ -385,5 +387,6 @@ canonical cut voiding, exact paste restoration, and source/target preservation.
 The exact last-Paste receipt, successful restore, repeated-Undo refusal,
 post-Paste drift refusal, supervised Cut preview/apply, immutable snapshot and
 plan binding, live Cut activation, and restored working/manifest identities are
-automated. Owner visual validation of the Cut controls and consolidated runtime
-layout remains pending.
+automated. Owner validation confirmed the consolidated Cut controls, exact
+canonical-void result across elevated terrain, placement removal, clipboard
+capture, and complete terrain/placement Paste restoration.
