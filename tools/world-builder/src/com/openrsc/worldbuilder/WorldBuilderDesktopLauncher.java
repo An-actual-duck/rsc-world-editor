@@ -20,6 +20,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
@@ -50,12 +53,20 @@ import javax.swing.UIManager;
 
 /** Persistent, dependency-free Swing shell for project creation and launch. */
 final class WorldBuilderDesktopLauncher {
+	private static final DateTimeFormatter DISPLAY_TIME =
+		DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss z")
+			.withZone(ZoneId.systemDefault());
 	private final Ui scriptedUi;
 	private final ProjectRunner scriptedRunner;
 
 	WorldBuilderDesktopLauncher(Ui ui, ProjectRunner runner) {
 		this.scriptedUi = ui;
 		this.scriptedRunner = runner;
+	}
+
+	static String displayTime(long millis) {
+		return millis < 0L ? "unknown"
+			: DISPLAY_TIME.format(Instant.ofEpochMilli(millis));
 	}
 
 	static int run(String[] args) {
@@ -457,9 +468,19 @@ final class WorldBuilderDesktopLauncher {
 				+ "\nWorld type: " + originLabel(entry.origin)
 				+ "\nStatus: " + entry.state
 				+ "\nCurrent project: " + (entry.active ? "Yes" : "No")
+				+ (entry.sourceDisplay.isEmpty() ? ""
+					: "\nImported from: " + entry.sourceDisplay)
+				+ (entry.configurationPath.isEmpty() ? ""
+					: "\nMap configuration: " + entry.configurationPath)
+				+ (entry.configurationSha256.matches("[0-9a-f]{64}")
+					? "\nConfiguration hash: "
+						+ entry.configurationSha256.substring(0, 12) : "")
 				+ "\n\nOpening validates the complete project before starting its private "
 				+ "client and server. Editing remains isolated here until you explicitly "
-				+ "run the separate Import Map Changes action.");
+				+ "run the separate Import Map Changes action.\n\n"
+				+ "This project is a fixed imported snapshot; it is never silently mixed "
+				+ "with newer server files. If the server map has changed, use Detect "
+				+ "Server Map to create a fresh isolated project.");
 			details.setCaretPosition(0);
 		}
 
@@ -541,14 +562,29 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public void accept(WorldBuilderLauncherModel.DiscoveryPreview preview) {
 						if (preview.needsConfigurationChoice()) {
-							WorldBuilderLauncherModel.ConfigurationChoice selected =
+							WorldBuilderLauncherModel.ConfigurationChoice newest =
+								WorldBuilderLauncherModel.ConfigurationChoice
+									.mostRecentlyModified(preview.configurationChoices);
+							Object[] actions = {"Use Most Recently Modified",
+								"Choose from Detected…", "Cancel"};
+							int action = JOptionPane.showOptionDialog(frame,
+								"More than one server map configuration was found.\n\n"
+									+ "Most recently modified:\n" + newest
+									+ "\n\nModification time is a convenience hint; the exact "
+									+ "selected configuration and its enabled overlays will "
+									+ "be copied into a new isolated project.",
+								"Choose Server Map", JOptionPane.DEFAULT_OPTION,
+								JOptionPane.QUESTION_MESSAGE, null, actions, actions[0]);
+							WorldBuilderLauncherModel.ConfigurationChoice selected = null;
+							if (action == 0) selected = newest;
+							if (action == 1) selected =
 								(WorldBuilderLauncherModel.ConfigurationChoice)
 								JOptionPane.showInputDialog(frame,
-									"More than one server map configuration was found.\n"
-										+ "Choose the map to copy into the isolated project:",
-									"Choose Server Map", JOptionPane.QUESTION_MESSAGE,
-									null, preview.configurationChoices.toArray(),
-									preview.configurationChoices.get(0));
+									"Choose the exact server map configuration to copy.\n"
+										+ "Each entry shows path, modification time, and hash:",
+									"Choose from Detected Maps",
+									JOptionPane.QUESTION_MESSAGE, null,
+									preview.configurationChoices.toArray(), newest);
 							if (selected != null) {
 								inspectSource(source, selected.role, advanced);
 							}

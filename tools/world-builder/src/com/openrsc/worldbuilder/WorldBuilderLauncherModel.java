@@ -66,10 +66,12 @@ final class WorldBuilderLauncherModel {
 			@SuppressWarnings("unchecked") Map<String,Object> record =
 				(Map<String,Object>)raw;
 			String id = text(record.get("projectId"));
+			Path projectRoot = installation.resolve("projects").resolve(id).normalize();
+			ProjectProvenance provenance = projectProvenance(projectRoot);
 			result.add(new ProjectEntry(id, text(record.get("displayName")),
 				text(record.get("origin")), text(record.get("state")),
-				installation.resolve("projects").resolve(id).normalize(),
-				id.equals(active)));
+				projectRoot, id.equals(active), provenance.sourceDisplay,
+				provenance.configurationPath, provenance.configurationSha256));
 		}
 		Collections.sort(result, new Comparator<ProjectEntry>() {
 			@Override public int compare(ProjectEntry left, ProjectEntry right) {
@@ -79,6 +81,21 @@ final class WorldBuilderLauncherModel {
 			}
 		});
 		return result;
+	}
+
+	private static ProjectProvenance projectProvenance(Path projectRoot)
+		throws IOException, WorldBuilderDiscoveryException {
+		Path path = projectRoot.resolve(WorldBuilderAdaptiveProjectLifecycle.PROJECT_FILE);
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) {
+			throw new IOException("Registered project manifest is missing or unsafe: "
+				+ projectRoot.getFileName());
+		}
+		Map<String,Object> manifest = WorldBuilderJsonDocuments.readObject(path);
+		Map<String,Object> target = object(manifest.get("target"));
+		return new ProjectProvenance(text(target.get("locatorDisplay")),
+			text(target.get("selectedConfigurationRelativePath")),
+			text(target.get("selectedConfigurationSha256")));
 	}
 
 	DiscoveryPreview inspectDefaultTarget()
@@ -109,7 +126,7 @@ final class WorldBuilderLauncherModel {
 		}
 		return new DiscoveryPreview(source, report, report.status,
 			text(document.get("representation")), report.summary(),
-			configurationChoices(document), issueCode(document));
+			configurationChoices(document, source), issueCode(document));
 	}
 
 	DiscoveryPreview inspectEmptyWorld()
@@ -126,7 +143,7 @@ final class WorldBuilderLauncherModel {
 	}
 
 	private static List<ConfigurationChoice> configurationChoices(
-		Map<String,Object> document) {
+		Map<String,Object> document, Path source) throws IOException {
 		Object raw = document.get("configurationCandidates");
 		if (!(raw instanceof List)) return Collections.emptyList();
 		List<ConfigurationChoice> result = new ArrayList<ConfigurationChoice>();
@@ -136,8 +153,18 @@ final class WorldBuilderLauncherModel {
 				(Map<String,Object>)entry;
 			String role = text(candidate.get("role"));
 			String path = text(candidate.get("relativePath"));
+			String sha256 = text(candidate.get("sha256"));
 			if (!role.isEmpty() && !path.isEmpty()) {
-				result.add(new ConfigurationChoice(role, path));
+				Path resolved = source.resolve(path).normalize();
+				if (!resolved.startsWith(source)
+					|| !Files.isRegularFile(resolved, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(resolved)) {
+					throw new IOException("Detected map configuration became unsafe: "
+						+ path);
+				}
+				result.add(new ConfigurationChoice(role, path, sha256,
+					Files.getLastModifiedTime(
+						resolved, LinkOption.NOFOLLOW_LINKS).toMillis()));
 			}
 		}
 		Collections.sort(result);
@@ -265,6 +292,13 @@ final class WorldBuilderLauncherModel {
 		return value instanceof String ? (String)value : "";
 	}
 
+	private static Map<String,Object> object(Object value) {
+		if (!(value instanceof Map)) return Collections.emptyMap();
+		@SuppressWarnings("unchecked") Map<String,Object> result =
+			(Map<String,Object>)value;
+		return result;
+	}
+
 	private static String emptyToNull(String value) {
 		return value == null || value.trim().isEmpty() ? null : value.trim();
 	}
@@ -276,19 +310,39 @@ final class WorldBuilderLauncherModel {
 		final String state;
 		final Path projectRoot;
 		final boolean active;
+		final String sourceDisplay;
+		final String configurationPath;
+		final String configurationSha256;
 
 		ProjectEntry(String projectId, String displayName, String origin,
-			String state, Path projectRoot, boolean active) {
+			String state, Path projectRoot, boolean active, String sourceDisplay,
+			String configurationPath, String configurationSha256) {
 			this.projectId = projectId;
 			this.displayName = displayName;
 			this.origin = origin;
 			this.state = state;
 			this.projectRoot = projectRoot;
 			this.active = active;
+			this.sourceDisplay = sourceDisplay;
+			this.configurationPath = configurationPath;
+			this.configurationSha256 = configurationSha256;
 		}
 
 		@Override public String toString() {
 			return (active ? "▶ " : "   ") + displayName;
+		}
+	}
+
+	private static final class ProjectProvenance {
+		final String sourceDisplay;
+		final String configurationPath;
+		final String configurationSha256;
+
+		ProjectProvenance(String sourceDisplay, String configurationPath,
+			String configurationSha256) {
+			this.sourceDisplay = sourceDisplay;
+			this.configurationPath = configurationPath;
+			this.configurationSha256 = configurationSha256;
 		}
 	}
 
@@ -327,10 +381,28 @@ final class WorldBuilderLauncherModel {
 	static final class ConfigurationChoice implements Comparable<ConfigurationChoice> {
 		final String role;
 		final String relativePath;
+		final String sha256;
+		final long modifiedMillis;
 
-		ConfigurationChoice(String role, String relativePath) {
+		ConfigurationChoice(String role, String relativePath, String sha256,
+			long modifiedMillis) {
 			this.role = role;
 			this.relativePath = relativePath;
+			this.sha256 = sha256;
+			this.modifiedMillis = modifiedMillis;
+		}
+
+		static ConfigurationChoice mostRecentlyModified(
+			List<ConfigurationChoice> choices) {
+			ConfigurationChoice result = null;
+			for (ConfigurationChoice choice : choices) {
+				if (result == null || choice.modifiedMillis > result.modifiedMillis
+					|| choice.modifiedMillis == result.modifiedMillis
+						&& choice.relativePath.compareTo(result.relativePath) < 0) {
+					result = choice;
+				}
+			}
+			return result;
 		}
 
 		@Override public int compareTo(ConfigurationChoice other) {
@@ -338,6 +410,12 @@ final class WorldBuilderLauncherModel {
 			return byPath != 0 ? byPath : role.compareTo(other.role);
 		}
 
-		@Override public String toString() { return relativePath; }
+		@Override public String toString() {
+			String hash = sha256.matches("[0-9a-f]{64}")
+				? sha256.substring(0, 12) : "unavailable";
+			return relativePath + "  —  modified "
+				+ WorldBuilderDesktopLauncher.displayTime(modifiedMillis)
+				+ "  —  " + hash;
+		}
 	}
 }
