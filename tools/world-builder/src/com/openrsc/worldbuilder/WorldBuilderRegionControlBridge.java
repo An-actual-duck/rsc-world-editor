@@ -39,8 +39,9 @@ final class WorldBuilderRegionControlBridge {
 	private static final long MAX_REQUEST_BYTES = 256L * 1024L;
 	private static final Pattern REQUEST_ID = Pattern.compile("[0-9a-f]{32}");
 	private static final Set<String> REQUEST_KEYS = new HashSet<String>(Arrays.asList(
-		"schemaVersion", "manifestType", "requestId", "name", "worldSpace",
-		"markers", "levels"));
+		"schemaVersion", "manifestType", "requestId", "operation", "name",
+		"worldSpace", "markers", "levels", "snapshotId", "expectedPlan",
+		"confirmation"));
 	private static final Set<String> MARKER_KEYS = new HashSet<String>(Arrays.asList(
 		"marker", "x", "y"));
 	private static final Set<String> PASTE_REQUEST_KEYS = new HashSet<String>(Arrays.asList(
@@ -109,6 +110,7 @@ final class WorldBuilderRegionControlBridge {
 		if (!Files.exists(request, LinkOption.NOFOLLOW_LINKS)) return;
 		if (Files.exists(response, LinkOption.NOFOLLOW_LINKS)) return;
 		String requestId = "00000000000000000000000000000000";
+		String operation = "unknown";
 		Map<String,Object> responseRoot = new LinkedHashMap<String,Object>();
 		try {
 			Map<String,Object> root = readRequest();
@@ -116,15 +118,52 @@ final class WorldBuilderRegionControlBridge {
 			if (!REQUEST_ID.matcher(requestId).matches()) {
 				throw new IllegalArgumentException("Region Copy request ID is invalid.");
 			}
-			String name = requireText(root, "name", 1, 128);
-			WorldBuilderRegionContracts.Selection selection = selection(root);
+			operation = requireText(root, "operation", 4, 11);
 			WorldBuilderProcessSupervisor.relocateLegacyDatabaseLogs(project);
-			new WorldBuilderAdaptiveProjectLifecycle()
-				.saveAfterSupervisedRun(project);
-			String resultText = new WorldBuilderRegionSnapshotService()
-				.copyUnderProjectLock(project, selection, name);
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			String resultText;
+			if ("copy".equals(operation) || "cut-preview".equals(operation)) {
+				String name = requireText(root, "name", 1, 128);
+				if (!requireText(root, "snapshotId", 0, 0).isEmpty()
+					|| !requireText(root, "expectedPlan", 0, 0).isEmpty()
+					|| !requireText(root, "confirmation", 0, 0).isEmpty()) {
+					throw new IllegalArgumentException(
+						"Region selection request fields are invalid.");
+				}
+				WorldBuilderRegionContracts.Selection selection = selection(root);
+				new WorldBuilderAdaptiveProjectLifecycle()
+					.saveAfterSupervisedRun(project);
+				resultText = "copy".equals(operation)
+					? service.copyUnderProjectLock(project, selection, name)
+					: service.cutPreviewUnderProjectLock(project, selection, name);
+			} else if ("cut-apply".equals(operation)) {
+				if (!requireText(root, "name", 0, 0).isEmpty()
+					|| !requireText(root, "worldSpace", 0, 0).isEmpty()
+					|| !requireList(root, "markers", 0, 0).isEmpty()
+					|| !requireList(root, "levels", 0, 0).isEmpty()) {
+					throw new IllegalArgumentException(
+						"Region Cut apply selection fields are invalid.");
+				}
+				String snapshotId = requireText(root, "snapshotId", 64, 64);
+				String expectedPlan = requireText(root, "expectedPlan", 64, 64);
+				String confirmation = requireText(root, "confirmation", 68, 68);
+				if (!WorldBuilderBoundedInventory.isHash(snapshotId)
+					|| !WorldBuilderBoundedInventory.isHash(expectedPlan)
+					|| !confirmation.equals("CUT " + expectedPlan)) {
+					throw new IllegalArgumentException(
+						"Region Cut apply identity is invalid.");
+				}
+				new WorldBuilderAdaptiveProjectLifecycle()
+					.saveAfterSupervisedRun(project);
+				resultText = service.applyCutUnderProjectLock(project, snapshotId,
+					expectedPlan, confirmation);
+			} else {
+				throw new IllegalArgumentException(
+					"Region selection operation is unsupported.");
+			}
 			Map<String,Object> result = WorldBuilderJsonDocuments.readObject(
-				resultText.getBytes(StandardCharsets.UTF_8), "region Copy result");
+				resultText.getBytes(StandardCharsets.UTF_8), "region selection result");
 			responseRoot.put("status", "accepted");
 			responseRoot.put("result", result);
 		} catch (WorldBuilderContractException refusal) {
@@ -142,6 +181,7 @@ final class WorldBuilderRegionControlBridge {
 		responseRoot.put("schemaVersion", Long.valueOf(1L));
 		responseRoot.put("manifestType", "world-builder-region-copy-response");
 		responseRoot.put("requestId", requestId);
+		responseRoot.put("operation", operation);
 		Files.deleteIfExists(request);
 		WorldBuilderAdaptiveDurability.forceDirectory(control);
 		publishResponse(responseRoot);

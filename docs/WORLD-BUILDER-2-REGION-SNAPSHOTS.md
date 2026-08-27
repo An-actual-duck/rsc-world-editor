@@ -1,17 +1,17 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; consolidated toolbar UI and exact one-step Paste Undo implemented pending owner validation; Cut UI pending**
+Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; interactive snapshot-first Cut, consolidated toolbar UI, and exact one-step Paste Undo implemented pending owner validation**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: one Region Copier tool with subordinate Copy/Paste modes and supervised Copy, preview, apply, sharing, and exact last-Paste Undo bridges implemented
+Runtime provider: one Region Copier tool with subordinate Copy/Cut/Paste modes and supervised Copy, Cut preview/apply, Paste preview/apply, sharing, live activation, and exact last-Paste Undo bridges implemented
 
 Current packaged UI status as of 2026-08-26: one primary **Region Copier**
-toolbar tool exposes **Copy** and **Paste** as its two subordinate second-column
-modes. Choosing either mode opens its corresponding flyout; neither flyout
-contains duplicate Copy/Paste mode tabs. The Copy flyout provides ordered
+toolbar tool exposes **Copy**, **Cut**, and **Paste** as subordinate second-column
+modes. Choosing a mode opens its corresponding flyout; none of those flyouts
+contains duplicate Copy/Cut/Paste mode tabs. The Copy and Cut flyouts provide ordered
 numbered markers, prospective segment preview, enclosed-tile preview, a single
-`Start -> Stop -> Reset` selection control, marker Undo, explicit Copy, and
-Export. Copy places the closed selection
+`Start -> Stop -> Reset` selection control, marker Undo, an explicit Copy or
+Cut action, and Export. Copy places the closed selection
 on the session clipboard and in the project-local content-addressed library;
 Reset clears markers without discarding that clipboard. Paste uses the current
 copied or imported snapshot, anchors marker 1 to a clicked destination, and
@@ -38,7 +38,13 @@ project: the foreground chooser remained non-blocking, Import refreshed the
 library, and the imported snapshot previewed and pasted live at its selected
 destination without restarting the isolated Builder.
 Compatibility issues remain visible and block Paste without discarding an
-otherwise valid imported bundle. Interactive Cut remains pending.
+otherwise valid imported bundle. Cut reuses the ordered selection and first
+creates the reusable clipboard snapshot plus an exact hash-bound plan without
+changing the world. Only the subsequent **Confirm Cut** action publishes that
+plan, replaces selected terrain with canonical void, removes owned placements,
+and activates the exact package in the running isolated Builder. A refusal or
+interruption before confirmation leaves the world unchanged and retains the
+snapshot for reuse or recovery.
 Paste also exposes one-step Undo. The Editor retains the exact pre-Paste package
 and a hash-bound receipt, saves pending runtime edits before Undo, and restores
 only when the live package and project fingerprint still equal the recorded
@@ -61,9 +67,9 @@ executable authority where prose and malformed external input disagree.
 ## Product boundary
 
 The Editor owns the portable snapshot engine, an owner-validated interactive
-Copy workflow, and the exact interactive Paste transaction for isolated adaptive
-projects. Portable import/export is exposed in the runtime UI through the
-Editor-owned supervisor and snapshot engine; Cut is not yet exposed. Every
+Copy/Paste workflow, and the exact interactive Cut and Paste transactions for
+isolated adaptive projects. Portable import/export and Cut are exposed in the
+runtime UI through the Editor-owned supervisor and snapshot engine. Every
 operation is project-local;
 no command in this feature resolves or writes the target server.
 
@@ -343,20 +349,19 @@ does not duplicate package mutation inside the runtime.
 
 ## Runtime work remaining
 
-The runtime provider now implements ordered Copy, exact Paste preview and
-confirmation, portable sharing, atomic publication, exact live-package
-activation, and one-step last-Paste Undo.
+The runtime provider now implements ordered Copy, snapshot-first Cut preview and
+confirmation, exact Paste preview and confirmation, portable sharing, atomic
+publication, exact live-package activation, and one-step last-Paste Undo.
 The
 remaining region-snapshot workflow is:
 
-1. interactive Cut using the same ordered selection and atomic transaction;
-2. marker insertion and movement beyond current append/undo/reopen controls;
-3. richer placement-family ghost models beyond the exact footprint outline,
+1. marker insertion and movement beyond current append/undo/reopen controls;
+2. richer placement-family ghost models beyond the exact footprint outline,
    destination anchor, and collision pins;
-4. richer graphical library management beyond the current clipboard and native
+3. richer graphical library management beyond the current clipboard and native
    `.wbr` Import/Export actions;
-5. general multi-operation undo/redo beyond the exact one-step Paste Undo; and
-6. custom material/sprite/definition capability negotiation and safe logical-ID
+4. general multi-operation undo/redo beyond the exact one-step Paste Undo; and
+5. custom material/sprite/definition capability negotiation and safe logical-ID
    remapping before any such dependency may resolve.
 
 Runtime work MUST preserve loopback authentication, package/catalog binding,
@@ -378,6 +383,7 @@ before/after cleanup and journal-write/delete recovery,
 every publication recovery milestone, same-project four-family Copy/Paste,
 canonical cut voiding, exact paste restoration, and source/target preservation.
 The exact last-Paste receipt, successful restore, repeated-Undo refusal,
-post-Paste drift refusal, supervisor bridge, and restored working/manifest
-identities are automated. Owner visual validation of the consolidated runtime
-controls remains pending.
+post-Paste drift refusal, supervised Cut preview/apply, immutable snapshot and
+plan binding, live Cut activation, and restored working/manifest identities are
+automated. Owner visual validation of the Cut controls and consolidated runtime
+layout remains pending.
