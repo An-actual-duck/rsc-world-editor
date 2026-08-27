@@ -155,6 +155,25 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static WorldBuilderAdapterInspection inspectLegacyFallback(
 		WorldBuilderReadOnlyTarget target, String requestedConfigurationRole)
 		throws WorldBuilderContractException {
+		return inspectLegacyFallback(target, requestedConfigurationRole, false);
+	}
+
+	/**
+	 * Secondary read-only inspection used only after a normal target has already
+	 * been selected.  Existing descriptor/project-local evidence belongs to the
+	 * normal target authority and is deliberately excluded from this packed
+	 * candidate inventory rather than treated as a fallback-path collision.
+	 */
+	static WorldBuilderAdapterInspection inspectLegacyLandscapeCandidate(
+		WorldBuilderReadOnlyTarget target, String requestedConfigurationRole)
+		throws WorldBuilderContractException {
+		return inspectLegacyFallback(target, requestedConfigurationRole, true);
+	}
+
+	private static WorldBuilderAdapterInspection inspectLegacyFallback(
+		WorldBuilderReadOnlyTarget target, String requestedConfigurationRole,
+		boolean secondaryCandidate)
+		throws WorldBuilderContractException {
 		WorldBuilderPackedSourceLayout sourceLayout =
 			WorldBuilderPackedSourceLayout.select(target, requestedConfigurationRole);
 		String configurationPath = sourceLayout.configurationPath;
@@ -229,15 +248,17 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		files.add(target.optionalState("placement.ground-item-overlay",
 			targetGroundItems));
 		files.add(legacyConfig);
-		for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
-			WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(
-				"fallback-project-local-reserved", relative);
-			if (reserved.present) {
-				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, relative,
-					"Built-in fallback project-local evidence path already exists in the target.",
-					"Remove the conflicting partial descriptor evidence or add one complete truthful descriptor.");
+		if (!secondaryCandidate) {
+			for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
+				WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(
+					"fallback-project-local-reserved", relative);
+				if (reserved.present) {
+					throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, relative,
+						"Built-in fallback project-local evidence path already exists in the target.",
+						"Remove the conflicting partial descriptor evidence or add one complete truthful descriptor.");
+				}
+				files.add(reserved);
 			}
-			files.add(reserved);
 		}
 		Collections.sort(files);
 		List<Object> records = new ArrayList<Object>(files.size());
@@ -255,7 +276,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			new ArrayList<WorldBuilderAdapterInspection.Check>();
 		checks.add(new WorldBuilderAdapterInspection.Check(
 			"adapter-capability", "passed",
-			"The exact bounded reviewed packed fallback layout is present.",
+			secondaryCandidate
+				? "The exact bounded legacy landscape candidate is present beside the selected target."
+				: "The exact bounded reviewed packed fallback layout is present.",
 			WorldBuilderPackedFallbackEvidence.CAPABILITY_ID
 				+ " inferred by compiled adapter " + ID + "."));
 		checks.add(new WorldBuilderAdapterInspection.Check(

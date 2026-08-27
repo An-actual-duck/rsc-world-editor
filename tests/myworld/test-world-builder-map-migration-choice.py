@@ -16,6 +16,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = ROOT / "tools" / "world-builder" / "src"
 CONTRACT_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-contracts.py"
+DISCOVERY_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-discovery.py"
 ZERO_HASH = "0" * 64
 
 HARNESS = r"""
@@ -40,16 +41,40 @@ public final class MapMigrationChoiceHarness {
 }
 """
 
+DISCOVERY_HARNESS = r"""
+package com.openrsc.worldbuilder;
 
-def load_contract_fixtures():
-    spec = importlib.util.spec_from_file_location("adaptive_contract_fixtures", CONTRACT_FIXTURES)
+import java.nio.file.Paths;
+
+public final class LegacyLandscapeDiscoveryHarness {
+    public static void main(String[] arguments) throws Exception {
+        try {
+            WorldBuilderAdaptiveDiscoveryReport report =
+                new WorldBuilderLegacyLandscapeDiscovery().discover(
+                    Paths.get(arguments[0]),
+                    arguments.length > 1 ? arguments[1] : null);
+            System.out.print(report.toJson());
+        } catch (WorldBuilderContractException refusal) {
+            System.err.println(refusal.code() + "|" + refusal.operation() + "|"
+                + refusal.mutationOccurred() + "|" + refusal.nextStep() + "|"
+                + refusal.getMessage());
+            System.exit(3);
+        }
+    }
+}
+"""
+
+
+def load_fixtures(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-FIXTURES = load_contract_fixtures()
+FIXTURES = load_fixtures("adaptive_contract_fixtures", CONTRACT_FIXTURES)
+DISCOVERY = load_fixtures("adaptive_discovery_fixtures", DISCOVERY_FIXTURES)
 
 
 def bind_report(report: dict) -> None:
@@ -99,8 +124,22 @@ class MapMigrationChoiceTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
         )
+        discovery_harness = (
+            cls.classes / "harness/com/openrsc/worldbuilder/LegacyLandscapeDiscoveryHarness.java"
+        )
+        discovery_harness.parent.mkdir(parents=True)
+        discovery_harness.write_text(DISCOVERY_HARNESS, encoding="utf-8")
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(discovery_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+        )
         harness = cls.classes / "harness/com/openrsc/worldbuilder/MapMigrationChoiceHarness.java"
-        harness.parent.mkdir(parents=True)
+        harness.parent.mkdir(parents=True, exist_ok=True)
         harness.write_text(HARNESS, encoding="utf-8")
         subprocess.run(
             [
@@ -143,6 +182,26 @@ class MapMigrationChoiceTest(unittest.TestCase):
             capture_output=True,
         )
         return result, selected_before, legacy_before
+
+    def legacy_target(self) -> Path:
+        fixture = DISCOVERY.AdaptiveDiscoveryTest(
+            methodName="test_narrow_legacy_fallback_probe_remains_read_only"
+        )
+        return fixture.legacy_fixture(str(self.root / "fixture"))
+
+    def run_legacy_discovery(
+        self, target: Path, *extra: str
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.LegacyLandscapeDiscoveryHarness",
+                str(target), *extra,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
 
     def test_deterministic_portable_choice_binds_both_reports(self) -> None:
         selected, legacy = reports()
@@ -220,6 +279,43 @@ class MapMigrationChoiceTest(unittest.TestCase):
         result, _, _ = self.run_choice(selected, legacy)
         self.assertEqual(result.returncode, 3)
         self.assertIn("outside the compiled client/server landscape roots", result.stderr)
+
+    def test_secondary_discovery_ignores_normal_target_reserved_evidence(self) -> None:
+        target = self.legacy_target()
+        descriptor = target / "server/world-builder-capabilities.json"
+        configuration = target / "server/world-builder-configs/primary.json"
+        descriptor.parent.mkdir(parents=True, exist_ok=True)
+        configuration.parent.mkdir(parents=True, exist_ok=True)
+        descriptor.write_text("{}\n", encoding="utf-8")
+        configuration.write_text("{}\n", encoding="utf-8")
+        before = DISCOVERY.AdaptiveDiscoveryTest.snapshot(target)
+
+        first = self.run_legacy_discovery(target)
+        second = self.run_legacy_discovery(target)
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(first.stdout, second.stdout)
+        self.assertEqual(before, DISCOVERY.AdaptiveDiscoveryTest.snapshot(target))
+        report = json.loads(first.stdout)
+        self.assertEqual(report["representation"], "packed")
+        self.assertFalse(report["descriptor"]["present"])
+        self.assertEqual(
+            report["capability"]["capabilityId"],
+            "spoiled-milk-packed-fallback-v1",
+        )
+        paths = {entry["relativePath"] for entry in report["files"]}
+        self.assertNotIn("server/world-builder-capabilities.json", paths)
+        self.assertNotIn("server/world-builder-configs/primary.json", paths)
+        self.assertIn(
+            "server/conf/server/data/Custom_Landscape.orsc", paths
+        )
+
+    def test_secondary_discovery_requires_both_legacy_archives(self) -> None:
+        target = self.legacy_target()
+        (target / "Client_Base/Cache/video/Custom_Landscape.orsc").unlink()
+        result = self.run_legacy_discovery(target)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("Custom_Landscape", result.stderr)
+        self.assertIn("|false|", result.stderr)
 
 
 if __name__ == "__main__":

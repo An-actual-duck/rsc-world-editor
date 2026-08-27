@@ -32,6 +32,22 @@ final class WorldBuilderMapMigrationChoice {
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> selected = readReport(selectedTargetReportPath);
 		Map<String,Object> legacy = readReport(legacyPackedReportPath);
+		return create(selected, legacy, retirementRequested);
+	}
+
+	static WorldBuilderMapMigrationChoice create(
+		WorldBuilderAdaptiveDiscoveryReport selectedTargetReport,
+		WorldBuilderAdaptiveDiscoveryReport legacyPackedReport,
+		boolean retirementRequested)
+		throws WorldBuilderContractException {
+		return create(parseReport(selectedTargetReport, "selected target"),
+			parseReport(legacyPackedReport, "legacy landscape"), retirementRequested);
+	}
+
+	private static WorldBuilderMapMigrationChoice create(
+		Map<String,Object> selected, Map<String,Object> legacy,
+		boolean retirementRequested)
+		throws WorldBuilderContractException {
 
 		requireCompatibleRepresentation(selected, "layered", "selected target");
 		requireCompatibleRepresentation(legacy, "packed", "legacy landscape");
@@ -66,6 +82,27 @@ final class WorldBuilderMapMigrationChoice {
 		WorldBuilderAdaptiveContracts.validateParsed(
 			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, value);
 		return new WorldBuilderMapMigrationChoice(value);
+	}
+
+	private static Map<String,Object> parseReport(
+		WorldBuilderAdaptiveDiscoveryReport report, String label)
+		throws WorldBuilderContractException {
+		if (report == null) {
+			throw problem("The " + label + " discovery report was not supplied.",
+				"Run both read-only discovery passes before recording the choice.");
+		}
+		try {
+			Map<String,Object> value = WorldBuilderJsonDocuments.readObject(
+				report.toJson().getBytes(StandardCharsets.UTF_8), label + " discovery report");
+			WorldBuilderAdaptiveContracts.validateParsed(
+				WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT, value);
+			return value;
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw new WorldBuilderContractException(WorldBuilderErrorCodes.MALFORMED_JSON,
+				OPERATION, "", false,
+				"Generated " + label + " discovery JSON is malformed.",
+				"Run both read-only discovery passes again.", malformed);
+		}
 	}
 
 	String toJson() {
