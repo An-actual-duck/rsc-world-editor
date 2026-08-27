@@ -8,15 +8,18 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = ROOT / "tools" / "world-builder" / "src"
 CONTRACT_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-contracts.py"
 DISCOVERY_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-discovery.py"
+LIFECYCLE_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-project-lifecycle.py"
 ZERO_HASH = "0" * 64
 
 HARNESS = r"""
@@ -75,6 +78,7 @@ def load_fixtures(name: str, path: Path):
 
 FIXTURES = load_fixtures("adaptive_contract_fixtures", CONTRACT_FIXTURES)
 DISCOVERY = load_fixtures("adaptive_discovery_fixtures", DISCOVERY_FIXTURES)
+LIFECYCLE = load_fixtures("adaptive_lifecycle_fixtures", LIFECYCLE_FIXTURES)
 
 
 def bind_report(report: dict) -> None:
@@ -124,6 +128,9 @@ class MapMigrationChoiceTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
         )
+        allowlist_resource = cls.classes / LIFECYCLE.RUNTIME_ALLOWLIST_RESOURCE
+        allowlist_resource.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(LIFECYCLE.RUNTIME_ALLOWLIST, allowlist_resource)
         discovery_harness = (
             cls.classes / "harness/com/openrsc/worldbuilder/LegacyLandscapeDiscoveryHarness.java"
         )
@@ -202,6 +209,148 @@ class MapMigrationChoiceTest(unittest.TestCase):
             text=True,
             capture_output=True,
         )
+
+    def run_cli(self, *arguments: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.WorldBuilderCli",
+                *map(str, arguments),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def add_layered_authority(self, target: Path, catalog: dict) -> None:
+        server_catalog = target / "server/evidence/definitions.json"
+        client_catalog = target / "client/evidence/definitions.json"
+        server_catalog.parent.mkdir(parents=True, exist_ok=True)
+        client_catalog.parent.mkdir(parents=True, exist_ok=True)
+        server_catalog.write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
+        shutil.copy2(server_catalog, client_catalog)
+        catalog_hash = hashlib.sha256(server_catalog.read_bytes()).hexdigest()
+
+        server_asset = target / "server/evidence/render-assets.bin"
+        client_asset = target / "client/evidence/render-assets.bin"
+        server_asset.parent.mkdir(parents=True, exist_ok=True)
+        client_asset.parent.mkdir(parents=True, exist_ok=True)
+        server_asset.write_bytes(b"migration fixture render assets\n")
+        shutil.copy2(server_asset, client_asset)
+
+        fixture = DISCOVERY.AdaptiveDiscoveryTest(
+            methodName="test_descriptor_layered_map_is_generic_complete_and_read_only"
+        )
+        server_package = target / "server/maps/active"
+        fixture.write_package(server_package, terrain_seed=91, scenery_id=1)
+        placements_path = server_package / "placements/creator/lp0.json"
+        placements = json.loads(placements_path.read_text(encoding="utf-8"))
+        placements["boundaries"][0]["boundaryId"] = 1
+        placements["groundItems"][0]["itemId"] = 7
+        placements["npcs"][0]["npcId"] = 1
+        placements_path.write_text(json.dumps(placements, indent=2) + "\n", encoding="utf-8")
+        manifest_path = server_package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["placementSets"][0]["sha256"] = hashlib.sha256(
+            placements_path.read_bytes()
+        ).hexdigest()
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        client_package = target / "client/maps/active"
+        client_package.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(server_package, client_package)
+
+        authoring = {
+            "editExistingLevels": True,
+            "createLevels": True,
+            "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        }
+        for side, build in (("server", "migration-server-v1"), ("client", "migration-client-v1")):
+            runtime = {
+                "schemaVersion": 1,
+                "manifestType": "world-builder-runtime-evidence",
+                "side": side,
+                "buildId": build,
+                "loaderId": "layered-loader-v2",
+                "protocolId": "migration-protocol-v1",
+                "definitionCatalogId": catalog["catalogId"],
+                "definitionCatalogSha256": catalog_hash,
+                "mapFormatId": "signed-layered-v1",
+                "packageSchemaId": "layered-world-package-v1",
+                "encodingVersions": [1, 3],
+                "authoring": authoring,
+            }
+            runtime_path = target / f"{side}/evidence/runtime.json"
+            runtime_path.parent.mkdir(parents=True, exist_ok=True)
+            runtime_path.write_text(json.dumps(runtime, indent=2) + "\n", encoding="utf-8")
+
+        configuration = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-map-configuration",
+            "configurationId": "primary",
+            "active": True,
+            "representation": "layered",
+            "serverMapRelativePath": "server/maps/active",
+            "clientMapRelativePath": "client/maps/active",
+            "serverRuntimeRelativePath": "server/evidence/runtime.json",
+            "clientRuntimeRelativePath": "client/evidence/runtime.json",
+            "serverDefinitionCatalogRelativePath": "server/evidence/definitions.json",
+            "clientDefinitionCatalogRelativePath": "client/evidence/definitions.json",
+            "assets": [{
+                "role": "library",
+                "serverRelativePath": "server/evidence/render-assets.bin",
+                "clientRelativePath": "client/evidence/render-assets.bin",
+            }],
+            "placements": [],
+        }
+        configuration_path = target / "server/world-builder-configs/primary.json"
+        configuration_path.parent.mkdir(parents=True, exist_ok=True)
+        configuration_path.write_text(
+            json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
+        )
+        descriptor = {
+            "schemaVersion": 1,
+            "manifestType": "world-builder-target-capability",
+            "adapterId": "generic-layered-v1",
+            "capabilityId": "migration-layered-target-v1",
+            "server": {"buildId": "migration-server-v1", "loaderId": "layered-loader-v2"},
+            "client": {
+                "buildId": "migration-client-v1",
+                "protocolId": "migration-protocol-v1",
+                "loaderId": "layered-loader-v2",
+            },
+            "definitions": {
+                "catalogId": catalog["catalogId"],
+                "catalogSha256": catalog_hash,
+            },
+            "map": {
+                "formatId": "signed-layered-v1",
+                "packageSchemaId": "layered-world-package-v1",
+                "encodingVersions": [1, 3],
+            },
+            "discovery": {
+                "configurationRoles": ["primary"],
+                "sourceRepresentations": ["layered"],
+                "sourceRoles": [
+                    "client-asset.library", "client-definition-catalog",
+                    "client-map-manifest", "client-map-placement-set",
+                    "client-map-terrain", "client-runtime",
+                    "server-asset.library", "server-definition-catalog",
+                    "server-map-manifest", "server-map-placement-set",
+                    "server-map-terrain", "server-runtime",
+                ],
+            },
+            "authoring": authoring,
+            "install": {
+                "enabled": True,
+                "serverRoles": ["layered-package"],
+                "clientRoles": ["layered-package"],
+                "configurationRoles": ["primary"],
+                "mutationProfileId": "generic-layered-install-v1",
+                "offlineEvidence": ["pid-file", "port-bind"],
+            },
+        }
+        descriptor_path = target / "server/world-builder-capabilities.json"
+        descriptor_path.write_text(json.dumps(descriptor, indent=2) + "\n", encoding="utf-8")
 
     def test_deterministic_portable_choice_binds_both_reports(self) -> None:
         selected, legacy = reports()
@@ -316,6 +465,116 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn("Custom_Landscape", result.stderr)
         self.assertIn("|false|", result.stderr)
+
+    def test_migrated_project_uses_isolated_legacy_input_and_layered_attachment(self) -> None:
+        target = self.legacy_target()
+        server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+        with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+        shutil.copy2(
+            server_terrain,
+            target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+        )
+        bootstrap = self.root / "bootstrap"
+        bootstrap.mkdir()
+        bootstrap_runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(bootstrap)
+        legacy_report_path = self.root / "legacy-before-layered.json"
+        legacy_discovery = self.run_cli(
+            "discover-adaptive", "--target-root", target
+        )
+        self.assertEqual(legacy_discovery.returncode, 0, legacy_discovery.stderr)
+        legacy_report_path.write_text(legacy_discovery.stdout, encoding="utf-8")
+        bootstrap_create = self.run_cli(
+            "create-project",
+            "--installation-root", bootstrap,
+            "--runtime-root", bootstrap_runtime,
+            "--target-root", target,
+            "--discovery-report", legacy_report_path,
+            "--display-name", "Catalog bootstrap",
+            "--port", 43901,
+            "--confirm", "CREATE",
+        )
+        self.assertEqual(bootstrap_create.returncode, 0, bootstrap_create.stderr)
+        bootstrap_project = Path(json.loads(bootstrap_create.stdout)["projectRoot"])
+        generated_catalog = json.loads((
+            bootstrap_project
+            / "source/original/server/world-builder-fallback/definitions.json"
+        ).read_text(encoding="utf-8"))
+        self.add_layered_authority(target, generated_catalog)
+
+        selected_report_path = self.root / "selected-layered.json"
+        selected_discovery = self.run_cli(
+            "discover-adaptive", "--target-root", target
+        )
+        self.assertEqual(selected_discovery.returncode, 0, selected_discovery.stderr)
+        selected = json.loads(selected_discovery.stdout)
+        self.assertEqual(selected["representation"], "layered")
+        selected_report_path.write_text(selected_discovery.stdout, encoding="utf-8")
+
+        secondary_report_path = self.root / "legacy-secondary.json"
+        secondary_discovery = self.run_cli(
+            "discover-legacy-landscape", "--target-root", target
+        )
+        self.assertEqual(secondary_discovery.returncode, 0, secondary_discovery.stderr)
+        secondary = json.loads(secondary_discovery.stdout)
+        self.assertEqual(secondary["representation"], "packed")
+        secondary_report_path.write_text(secondary_discovery.stdout, encoding="utf-8")
+
+        installation = self.root / "World Builder 2"
+        installation.mkdir()
+        runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(installation)
+        before = DISCOVERY.AdaptiveDiscoveryTest.snapshot(target)
+        created = self.run_cli(
+            "create-migrated-project",
+            "--installation-root", installation,
+            "--runtime-root", runtime,
+            "--target-root", target,
+            "--discovery-report", selected_report_path,
+            "--legacy-discovery-report", secondary_report_path,
+            "--display-name", "Migrated terrain",
+            "--port", 43902,
+            "--retire-legacy-landscape",
+            "--confirm", "CREATE",
+        )
+        self.assertEqual(created.returncode, 0, created.stderr)
+        self.assertEqual(before, DISCOVERY.AdaptiveDiscoveryTest.snapshot(target))
+        project = Path(json.loads(created.stdout)["projectRoot"])
+        manifest = json.loads((project / "project.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["origin"], "target-packed")
+        self.assertEqual(manifest["state"], "ready-attached")
+        self.assertEqual(manifest["target"]["adapterId"], "generic-layered-v1")
+        self.assertTrue(manifest["operations"]["import"])
+        choice = json.loads((
+            project / "source/migration/choice.json"
+        ).read_text(encoding="utf-8"))
+        self.assertTrue(choice["retirementRequested"])
+        self.assertNotIn(str(target), json.dumps(choice))
+        stored_secondary = json.loads((
+            project / "source/migration/discovery-report.json"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(stored_secondary["targetRootDisplay"], "")
+        self.assertTrue((project /
+            "source/migration/input/server/world-builder-capabilities.json").is_file())
+        self.assertTrue((project /
+            "source/original/server/world-builder-capabilities.json").is_file())
+        self.assertNotEqual(
+            (project / "source/migration/input/server/world-builder-capabilities.json").read_bytes(),
+            (project / "source/original/server/world-builder-capabilities.json").read_bytes(),
+        )
+        snapshot = json.loads((
+            project / "source/snapshot-manifest.json"
+        ).read_text(encoding="utf-8"))
+        migration_paths = {
+            record["relativePath"] for record in snapshot["originalFiles"]
+            if record["relativePath"].startswith("source/migration/")
+        }
+        self.assertIn("source/migration/choice.json", migration_paths)
+        self.assertIn("source/migration/discovery-report.json", migration_paths)
+        reopened = self.run_cli(
+            "open-project", "--installation-root", installation,
+            "--target-root", target, "--validate-only",
+        )
+        self.assertEqual(reopened.returncode, 0, reopened.stderr)
 
 
 if __name__ == "__main__":

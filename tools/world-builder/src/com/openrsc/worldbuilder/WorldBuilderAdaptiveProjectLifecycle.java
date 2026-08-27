@@ -93,6 +93,33 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		int port, String confirmation, Path itemVisualMappings,
 		boolean developmentTerrainSeed)
 		throws IOException, WorldBuilderContractException {
+		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
+			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
+			confirmation, itemVisualMappings, developmentTerrainSeed, null);
+	}
+
+	ProjectResult createMigrated(Path requestedInstallRoot, Path requestedRuntimeRoot,
+		Path requestedTargetRoot, Path selectedTargetReportPath,
+		Path legacyPackedReportPath, String requestedDisplayName, int port,
+		String confirmation, Path itemVisualMappings, boolean retirementRequested)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> legacy = readContractMap(legacyPackedReportPath,
+			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
+		requireDiscoveryFingerprint(legacy);
+		WorldBuilderMapMigrationChoice choice = WorldBuilderMapMigrationChoice.create(
+			selectedTargetReportPath, legacyPackedReportPath, retirementRequested);
+		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
+			requestedTargetRoot, selectedTargetReportPath, requestedDisplayName, port,
+			confirmation, itemVisualMappings, false,
+			new MigrationOrigin(legacy, choice));
+	}
+
+	private ProjectResult createInternal(Path requestedInstallRoot,
+		Path requestedRuntimeRoot, Path requestedTargetRoot,
+		Path discoveryReportPath, String requestedDisplayName, int port,
+		String confirmation, Path itemVisualMappings,
+		boolean developmentTerrainSeed, MigrationOrigin migration)
+		throws IOException, WorldBuilderContractException {
 		if (!"CREATE".equals(confirmation)) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation",
 				"Adaptive project creation requires exact CREATE confirmation.",
@@ -125,6 +152,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		String origin = "standalone".equals(status) ? "standalone-empty"
 			: "packed".equals(representation) ? "target-packed"
 				: "layered".equals(representation) ? "target-layered" : "";
+		if (migration != null) {
+			if (!"compatible".equals(status) || !"layered".equals(representation)
+				|| !"compatible".equals(string(migration.legacyReport, "status"))
+				|| !"packed".equals(string(migration.legacyReport, "representation"))) {
+				throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+					"source/migration",
+					"Map migration requires one compatible layered target and one compatible packed legacy candidate.",
+					"Run both read-only discovery passes again and review the incorporation choice.");
+			}
+			origin = "target-packed";
+		}
 		if (origin.isEmpty()) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, DISCOVERY_FILE,
 				"Discovery did not select packed, layered, or standalone input.",
@@ -145,6 +183,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Supply the exact root used by discover-adaptive.");
 		}
 		requireFreshDiscovery(report, target);
+		if (migration != null) requireFreshMigration(migration, target);
 
 		Path projects = install.resolve(PROJECTS_DIRECTORY).normalize();
 		requireContained(install, projects, PROJECTS_DIRECTORY);
@@ -160,7 +199,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			try {
 				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
 					discoveryReportPath, displayName, origin, port, itemVisualMappings,
-					developmentTerrainSeed);
+					developmentTerrainSeed, migration);
 			} finally {
 				lock.release();
 			}
@@ -171,7 +210,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
 		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
-		int port, Path itemVisualMappings, boolean developmentTerrainSeed)
+		int port, Path itemVisualMappings, boolean developmentTerrainSeed,
+		MigrationOrigin migration)
 		throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
 		if (existing.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS) {
@@ -209,6 +249,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 						: WorldBuilderEmptyWorldGenerator.generate(
 							stage, runtimeSha256, sourceRuntime);
 				prepared = PreparedOrigin.empty(empty);
+			} else if (migration != null) {
+				prepared = prepareMigratedTargetOrigin(stage, target, report,
+					migration, sourceRuntime, itemVisualMappings);
 			} else {
 				prepared = prepareTargetOrigin(stage, target, report, stagedReport,
 					origin, sourceRuntime, itemVisualMappings);
@@ -216,6 +259,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);
 			requireFreshDiscovery(report, target);
+			if (migration != null) requireFreshMigration(migration, target);
 
 			copyTreeExact(stage.resolve(BASELINE_DIRECTORY),
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
@@ -275,6 +319,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Discard the unpublished stage and retry.");
 			}
 			requireFreshDiscovery(report, target);
+			if (migration != null) requireFreshMigration(migration, target);
 			observe("before-project-publish", stage);
 			moveAtomicNew(stage, project);
 			projectPublished = true;
@@ -436,6 +481,139 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		return PreparedOrigin.target(stage, evidence, capability, configuration,
 			baselineFingerprint, conversionFingerprint);
+	}
+
+	private PreparedOrigin prepareMigratedTargetOrigin(Path stage, Path target,
+		Map<String,Object> selectedReport, MigrationOrigin migration,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
+		Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
+		List<Evidence> selectedEvidence = evidence(selectedReport);
+		Path selectedOriginal = stage.resolve("source/original");
+		copyEvidence(target, selectedOriginal, selectedEvidence);
+		requireFreshDiscovery(selectedReport, target);
+		requireFreshMigration(migration, target);
+
+		WorldBuilderReadOnlyTarget selectedCopy =
+			WorldBuilderReadOnlyTarget.open(selectedOriginal);
+		WorldBuilderTargetCapability selectedCapability =
+			WorldBuilderTargetCapability.read(selectedCopy);
+		WorldBuilderAdaptiveConfiguration selectedConfiguration =
+			WorldBuilderAdaptiveConfiguration.select(selectedCopy, selectedCapability,
+				selectedRole(selectedReport)).selected;
+		if (!"layered".equals(selectedConfiguration.representation)
+			|| !selectedCapability.installEnabled) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+				"source/original",
+				"Selected migration target is not an install-capable layered authority.",
+				"Choose the active compatible layered target before incorporating legacy terrain.");
+		}
+		WorldBuilderCompatibilityEvidence selectedCommon =
+			WorldBuilderCompatibilityEvidence.inspect(selectedCopy,
+				selectedCapability, selectedConfiguration);
+
+		Path migrationRoot = stage.resolve("source/migration");
+		Path migrationInput = migrationRoot.resolve("input");
+		ensureRealDirectory(migrationRoot);
+		Path legacyReportPath = migrationRoot.resolve("discovery-report.json");
+		writeNew(legacyReportPath, WorldBuilderJsonDocuments.pretty(migration.legacyReport)
+			.getBytes(StandardCharsets.UTF_8));
+		writePortableDiscoveryReport(legacyReportPath, migration.legacyReport);
+		Path choicePath = migrationRoot.resolve("choice.json");
+		writeNew(choicePath, migration.choice.toJson().getBytes(StandardCharsets.UTF_8));
+		WorldBuilderAdaptiveContracts.read(
+			WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE, choicePath);
+
+		List<Evidence> legacyEvidence = evidence(migration.legacyReport);
+		copyEvidence(target, migrationInput, legacyEvidence);
+		WorldBuilderPackedFallbackEvidence.Result generated =
+			WorldBuilderPackedFallbackEvidence.materialize(
+				stage, migrationInput, migration.legacyReport, sourceRuntime,
+				itemVisualMappings);
+		legacyEvidence = withGeneratedFallbackEvidence(
+			legacyEvidence, generated.generated);
+		requireExactOriginalTree(migrationInput, legacyEvidence);
+		if (!selectedCapability.definitionCatalogSha256.equals(
+			generated.capability.definitionCatalogSha256)) {
+			throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+				"source/migration/input",
+				"Legacy conversion definitions differ from the selected layered target authority.",
+				"Refresh target content evidence before incorporating Custom_Landscape.");
+		}
+
+		Path generatedReport = migrationRoot.resolve("conversion-discovery-report.json");
+		writeNew(generatedReport,
+			WorldBuilderJsonDocuments.pretty(generated.conversionReport)
+				.getBytes(StandardCharsets.UTF_8));
+		Path conversionOutput = stage.resolve(".conversion-output");
+		ensureRealDirectory(stage.resolve("diagnostics"));
+		WorldBuilderPackedConverter.Result converted;
+		try {
+			converted = new WorldBuilderPackedConverter().convertForMigrationProject(
+				migrationInput, generatedReport, conversionOutput, stage);
+		} finally {
+			Files.deleteIfExists(generatedReport);
+		}
+		Path conversionDirectory = stage.resolve("source/conversion");
+		ensureRealDirectory(conversionDirectory);
+		moveAtomicNew(conversionOutput.resolve("conversion-plan.json"),
+			conversionDirectory.resolve("plan.json"));
+		moveAtomicNew(conversionOutput.resolve("conversion-report.json"),
+			conversionDirectory.resolve("report.json"));
+		moveAtomicNew(conversionOutput.resolve(
+			WorldBuilderDiscoveryReconciliation.FILE_NAME),
+			stage.resolve(WorldBuilderDiscoveryReconciliation.PROJECT_RELATIVE_PATH));
+		ensureRealDirectory(stage.resolve("source/layered-baseline"));
+		moveAtomicNew(conversionOutput.resolve("package"),
+			stage.resolve(BASELINE_DIRECTORY));
+		Files.delete(conversionOutput);
+
+		WorldBuilderGenericLayeredPackage baseline =
+			WorldBuilderGenericLayeredPackage.inspect(
+				WorldBuilderReadOnlyTarget.open(stage), BASELINE_DIRECTORY,
+				"baseline", selectedCommon.definitions);
+		if (!converted.outputFingerprintSha256.equals(baseline.fingerprintSha256)) {
+			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+				BASELINE_DIRECTORY,
+				"Migrated baseline changed after exact packed conversion.",
+				"Discard the unpublished project and repeat incorporation from stable evidence.");
+		}
+		PreparedOrigin prepared = PreparedOrigin.target(stage, selectedEvidence,
+			selectedCapability, selectedConfiguration, baseline.fingerprintSha256,
+			converted.outputFingerprintSha256);
+		return PreparedOrigin.withMigration(stage, prepared, migrationRoot);
+	}
+
+	private static void copyEvidence(Path target, Path destinationRoot,
+		List<Evidence> evidence)
+		throws IOException, WorldBuilderContractException {
+		ensureRealDirectory(destinationRoot);
+		WorldBuilderReadOnlyTarget live = WorldBuilderReadOnlyTarget.open(target);
+		for (Evidence item : evidence) {
+			if (!item.present) {
+				if (live.exists(item.targetRelativePath)) {
+					throw problem(WorldBuilderErrorCodes.TARGET_DRIFT,
+						item.targetRelativePath,
+						"Required absence became present during project creation.",
+						"Stop target changes, rediscover, and create a new project.");
+				}
+				continue;
+			}
+			WorldBuilderReadOnlyTarget.FileState state = live.requiredState(
+				item.role, item.targetRelativePath);
+			if (item.size >= 0L && state.size != item.size
+				|| !state.sha256.equals(item.sha256)) {
+				throw problem(WorldBuilderErrorCodes.TARGET_DRIFT,
+					item.targetRelativePath,
+					"Target evidence changed before its immutable copy was verified.",
+					"Stop target changes, rediscover, and create a new project.");
+			}
+			Path destination = destinationRoot.resolve(item.targetRelativePath).normalize();
+			requireContained(destinationRoot, destination, item.targetRelativePath);
+			copyNewVerified(live.requiredFile(item.targetRelativePath), destination,
+				item.size, item.sha256);
+		}
+		requireExactOriginalTree(destinationRoot, evidence);
 	}
 
 	private static Map<String,Object> sourceSnapshot(Path stage, String projectId,
@@ -1755,6 +1933,20 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 	}
 
+	private static void requireFreshMigration(MigrationOrigin migration, Path target)
+		throws WorldBuilderContractException {
+		WorldBuilderAdaptiveDiscoveryReport fresh =
+			new WorldBuilderLegacyLandscapeDiscovery().discover(
+				target, selectedRole(migration.legacyReport));
+		if (!string(migration.legacyReport, "discoveryFingerprintSha256").equals(
+			fresh.fingerprintSha256())) {
+			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT,
+				"source/migration",
+				"Legacy landscape evidence no longer matches the approved incorporation choice.",
+				"Stop target changes, detect the server map again, and review the choice.");
+		}
+	}
+
 	private static String selectedRole(Map<String,Object> report)
 		throws WorldBuilderContractException {
 		return string(object(report.get("selectedConfiguration"),
@@ -2493,6 +2685,31 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				conversionFingerprint, profile, capability.installEnabled, "");
 		}
 
+		static PreparedOrigin withMigration(Path projectStage,
+			PreparedOrigin target, Path migrationRoot)
+			throws IOException, WorldBuilderContractException {
+			List<InventoryRecord> original =
+				new ArrayList<InventoryRecord>(target.originalEvidence);
+			for (String relative : scanRegularFiles(migrationRoot, projectStage)) {
+				String role = relative.endsWith("/choice.json")
+					? "map-migration-choice"
+					: relative.endsWith("/discovery-report.json")
+						? "legacy-discovery-report" : "legacy-migration-input";
+				original.add(recordFor(projectStage, role, relative));
+			}
+			Collections.sort(original);
+			return new PreparedOrigin(original, target.definitionEvidence,
+				target.adapterId, target.capabilityId,
+				target.selectedConfigurationRole,
+				target.selectedConfigurationTargetPath,
+				target.selectedConfigurationSourcePath,
+				target.selectedConfigurationSha256,
+				target.originDescriptorSourcePath,
+				target.definitionSha256, target.packageFingerprintSha256,
+				target.conversionFingerprintSha256, target.importProfileId,
+				target.installEnabled, target.standaloneGeneratorId);
+		}
+
 		static PreparedOrigin empty(WorldBuilderEmptyWorldGenerator.Result empty) {
 			List<InventoryRecord> original = Arrays.<InventoryRecord>asList(
 				new InventoryRecord("empty-origin",
@@ -2509,6 +2726,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				empty.descriptorPath,
 				empty.catalogSha256, empty.packageFingerprintSha256, "", "", false,
 				empty.generatorId);
+		}
+	}
+
+	private static final class MigrationOrigin {
+		final Map<String,Object> legacyReport;
+		final WorldBuilderMapMigrationChoice choice;
+
+		MigrationOrigin(Map<String,Object> legacyReport,
+			WorldBuilderMapMigrationChoice choice) {
+			this.legacyReport = legacyReport;
+			this.choice = choice;
 		}
 	}
 

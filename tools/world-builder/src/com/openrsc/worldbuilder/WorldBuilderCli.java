@@ -31,6 +31,9 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("discover-legacy-landscape".equals(args[0])) {
+			return discoverLegacyLandscape(args);
+		}
 		if ("discover-item-provider".equals(args[0])) {
 			return discoverItemProvider(args);
 		}
@@ -48,6 +51,9 @@ public final class WorldBuilderCli {
 		}
 		if ("create-project".equals(args[0])) {
 			return createProject(args);
+		}
+		if ("create-migrated-project".equals(args[0])) {
+			return createMigratedProject(args);
 		}
 		if ("list-projects".equals(args[0])) {
 			return listProjects(args);
@@ -390,6 +396,77 @@ public final class WorldBuilderCli {
 			return adaptiveRefusal(refusal);
 		} catch (Exception failure) {
 			System.err.println("ERROR: Adaptive project creation failed before completion: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int createMigratedProject(String[] args) {
+		Path installation = null;
+		Path runtime = null;
+		Path target = null;
+		Path selectedReport = null;
+		Path legacyReport = null;
+		Path itemVisualMappings = null;
+		String displayName = null;
+		String confirmation = null;
+		int port = 0;
+		boolean retirementRequested = false;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--installation-root".equals(argument) && index + 1 < args.length) {
+				installation = Paths.get(args[++index]);
+			} else if ("--runtime-root".equals(argument) && index + 1 < args.length) {
+				runtime = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length) {
+				target = Paths.get(args[++index]);
+			} else if ("--discovery-report".equals(argument)
+				&& index + 1 < args.length) {
+				selectedReport = Paths.get(args[++index]);
+			} else if ("--legacy-discovery-report".equals(argument)
+				&& index + 1 < args.length) {
+				legacyReport = Paths.get(args[++index]);
+			} else if ("--item-visual-mappings".equals(argument)
+				&& index + 1 < args.length) {
+				itemVisualMappings = Paths.get(args[++index]);
+			} else if ("--retire-legacy-landscape".equals(argument)
+				&& !retirementRequested) {
+				retirementRequested = true;
+			} else if ("--display-name".equals(argument) && index + 1 < args.length) {
+				displayName = args[++index];
+			} else if ("--port".equals(argument) && index + 1 < args.length) {
+				Integer parsed = parseIntOption("--port", args[++index]);
+				if (parsed == null) return 2;
+				port = parsed.intValue();
+			} else if ("--confirm".equals(argument) && index + 1 < args.length) {
+				confirmation = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (installation == null || runtime == null || target == null
+			|| selectedReport == null || legacyReport == null || displayName == null
+			|| port == 0 || confirmation == null) {
+			System.err.println("ERROR: create-migrated-project requires --installation-root, "
+				+ "--runtime-root, --target-root, --discovery-report, "
+				+ "--legacy-discovery-report, --display-name, --port, and --confirm CREATE.");
+			usage();
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
+				new WorldBuilderAdaptiveProjectLifecycle().createMigrated(
+					installation, runtime, target, selectedReport, legacyReport,
+					displayName, port, confirmation, itemVisualMappings,
+					retirementRequested);
+			System.out.print(created.toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Migrated project creation failed before completion: "
 				+ failure.getMessage());
 			return 4;
 		}
@@ -1374,6 +1451,41 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int discoverLegacyLandscape(String[] args) {
+		Path root = null;
+		String configurationRole = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--target-root".equals(argument) && index + 1 < args.length) {
+				root = Paths.get(args[++index]);
+			} else if ("--configuration-role".equals(argument)
+				&& index + 1 < args.length) {
+				configurationRole = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown or incomplete argument: " + argument);
+				usage();
+				return 2;
+			}
+		}
+		if (root == null) {
+			System.err.println("ERROR: discover-legacy-landscape requires --target-root.");
+			return 2;
+		}
+		try {
+			WorldBuilderAdaptiveDiscoveryReport report =
+				new WorldBuilderLegacyLandscapeDiscovery().discover(
+					root, configurationRole);
+			System.out.print(report.toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Legacy landscape discovery failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
 	private static int createLevel(String[] args) {
 		Path workspace = null;
 		Integer level = null;
@@ -1808,6 +1920,8 @@ public final class WorldBuilderCli {
 	private static void usage() {
 		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
+			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"
 			+ " --source-root <server-or-provider-parent>"
 			+ "\n  WorldBuilderCli import-item-provider --installation-root <World Builder 2>"
@@ -1827,6 +1941,12 @@ public final class WorldBuilderCli {
 			+ " --discovery-report <report.json> --display-name <name> --port <port>"
 			+ " [--item-visual-mappings <mapping.json>]"
 			+ " [--development-terrain-seed] --confirm CREATE"
+			+ "\n  WorldBuilderCli create-migrated-project"
+			+ " --installation-root <World Builder 2> --runtime-root <builder-runtime>"
+			+ " --target-root <server-root> --discovery-report <selected-layered.json>"
+			+ " --legacy-discovery-report <legacy-packed.json> --display-name <name>"
+			+ " --port <port> [--item-visual-mappings <mapping.json>]"
+			+ " [--retire-legacy-landscape] --confirm CREATE"
 			+ "\n  WorldBuilderCli list-projects --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli select-project --installation-root <World Builder 2>"
 			+ " --project-id <uuid>"
