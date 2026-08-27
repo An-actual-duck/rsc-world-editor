@@ -672,6 +672,64 @@ class MapMigrationChoiceTest(unittest.TestCase):
         ).read_text(encoding="utf-8"))
         self.assertTrue(scripted_choice["retirementRequested"])
 
+        # The explicit migration decision becomes target mutation authority only
+        # through the normal previewed import transaction. Both legacy files are
+        # backed up, retired after layered activation, and restored by exact undo.
+        target_bytes_before_import = LIFECYCLE.tree_bytes(target)
+        exported = self.run_cli("export-adaptive", "--project", project)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        export_root = Path(json.loads(exported.stdout)["exportDirectory"])
+        preview = self.run_cli(
+            "import-adaptive", "--project", project, "--export", export_root,
+            "--target-root", target,
+        )
+        self.assertEqual(preview.returncode, 0, preview.stderr)
+        self.assertIn(
+            "Legacy Custom_Landscape retirement: 2 exact files", preview.stderr
+        )
+        plan = json.loads(preview.stdout)
+        retirements = [
+            action for action in plan["actions"]
+            if action["role"].startswith("retire-legacy-landscape-")
+        ]
+        self.assertEqual(len(retirements), 2)
+        self.assertTrue(all(action["before"]["present"] for action in retirements))
+        self.assertTrue(
+            all(not action["after"]["present"] for action in retirements)
+        )
+        applied = self.run_cli(
+            "import-adaptive", "--project", project, "--export", export_root,
+            "--target-root", target, "--confirm", "IMPORT",
+            "--transaction-id", plan["transactionId"],
+            "--plan-sha256", plan["planFingerprintSha256"],
+        )
+        self.assertEqual(applied.returncode, 0, applied.stderr)
+        self.assertFalse(server_terrain.exists())
+        self.assertFalse((
+            target / "Client_Base/Cache/video/Custom_Landscape.orsc"
+        ).exists())
+        for action in retirements:
+            backup = project / action["backupRelativePath"]
+            self.assertTrue(backup.is_file())
+            self.assertEqual(
+                hashlib.sha256(backup.read_bytes()).hexdigest(),
+                action["before"]["sha256"],
+            )
+
+        undo_preview = self.run_cli(
+            "undo-adaptive", "--project", project, "--target-root", target
+        )
+        self.assertEqual(undo_preview.returncode, 0, undo_preview.stderr)
+        undo_plan = json.loads(undo_preview.stdout)
+        undone = self.run_cli(
+            "undo-adaptive", "--project", project, "--target-root", target,
+            "--confirm", "UNDO",
+            "--transaction-id", undo_plan["transactionId"],
+            "--plan-sha256", undo_plan["planFingerprintSha256"],
+        )
+        self.assertEqual(undone.returncode, 0, undone.stderr)
+        self.assertEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -266,6 +266,18 @@ final class WorldBuilderAdaptiveImporter {
 			for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
 				if (!action.activation) continue;
 				verifyState(target, action.destinationRelativePath, action.before);
+				if (!action.after.present) {
+					Path destination = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+						target, action.destinationRelativePath,
+						"legacy landscape retirement input");
+					observe("before-retirement", destination);
+					verifyState(target, action.destinationRelativePath, action.before);
+					Files.delete(destination);
+					WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
+					targetMutation = true;
+					observe("retirement-published", destination);
+					continue;
+				}
 				Path destination = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
 					target, action.destinationRelativePath,
 					"activation configuration");

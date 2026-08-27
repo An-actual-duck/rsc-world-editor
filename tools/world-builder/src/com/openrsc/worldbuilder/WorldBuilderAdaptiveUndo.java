@@ -507,6 +507,7 @@ final class WorldBuilderAdaptiveUndo {
 		Files.createDirectories(content.getParent());
 		writeBytes(content, plan.configurationBytes);
 		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
+			if (!action.before.present) continue;
 			Path source = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
 				plan.targetRoot, action.destinationRelativePath, "undo before state");
 			Path destination = WorldBuilderPortablePath.resolveContained(
@@ -555,6 +556,13 @@ final class WorldBuilderAdaptiveUndo {
 			verifyState(undo.targetRoot, action.destinationRelativePath, action.after);
 			Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
 				undo.targetRoot, action.destinationRelativePath);
+			if (!action.before.present) {
+				observeContract("undo-rollback-before-" + pad(index), destination, true);
+				verifyState(undo.targetRoot, action.destinationRelativePath, action.after);
+				Files.delete(destination);
+				WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());
+				continue;
+			}
 			ensureParents(undo.targetRoot, destination.getParent());
 			Path backup = WorldBuilderPortablePath.resolveContained(
 				undo.project.projectRoot, action.backupRelativePath, OPERATION);
