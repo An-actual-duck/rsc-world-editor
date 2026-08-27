@@ -800,8 +800,8 @@ The current product objective proceeds in three reviewable increments:
 2. **Implemented, pending owner validation:** complete project export and the
    existing target Import, Undo, and Recovery transaction engine in the desktop
    GUI, including capability-gated and fully reversible legacy retirement; and
-3. **Next:** add immutable project revision history, a selected-project backup browser,
-   and verified Load Backup.
+3. **Implemented, pending owner validation:** immutable project revision
+   history, a selected-project backup browser, and verified Load Backup.
 
 This sequence temporarily takes priority over the broader tool roadmap below.
 It does not reduce the importance or readiness of the already implemented
@@ -868,7 +868,7 @@ material-sharing model that custom materials later have to replace.
 | Complete map export in GUI | Selected-project action implemented | Optional destination/reveal UX polish |
 | GUI server Import/Undo/Recovery | Implemented over the exact transaction engines | Owner visual validation and release testing |
 | Recoverable legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
-| Project backup history | Design-ready | Revision schema/storage, browser, pre-restore snapshot, verified restore |
+| Project backup history | Implemented with content-addressed revisions and interruption recovery | Owner GUI validation and long-running storage feedback |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Interactive Copy/Paste and live activation owner-validated; consolidated UI and exact one-step Paste Undo pending owner validation | Cut, richer placement ghosts, rotation/mirroring, and general undo/redo UX |
 | Exportable snapshots | Graphical cross-project Import/Export owner-validated | Custom material/sprite payload capability |

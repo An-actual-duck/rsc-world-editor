@@ -329,6 +329,9 @@ final class WorldBuilderDesktopLauncher {
 			file.add(menu("Export Selected Project Complete Map Package…", new Runnable() {
 				@Override public void run() { exportSelectedProject(); }
 			}));
+			file.add(menu("Project Backups…", new Runnable() {
+				@Override public void run() { openProjectBackups(); }
+			}));
 			file.add(menu("Import Selected Project Map Changes to Server…", new Runnable() {
 				@Override public void run() { importSelectedProject(); }
 			}));
@@ -561,6 +564,146 @@ final class WorldBuilderDesktopLauncher {
 							"Complete Map Exported", JOptionPane.INFORMATION_MESSAGE);
 					}
 				});
+		}
+
+		private void openProjectBackups() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("manage project backups");
+			if (entry == null) return;
+			runTask("Verifying project backup history…",
+				new Task<WorldBuilderLauncherModel.RevisionListing>() {
+					@Override public WorldBuilderLauncherModel.RevisionListing run()
+						throws Exception { return model.projectRevisions(entry); }
+				}, new Success<WorldBuilderLauncherModel.RevisionListing>() {
+					@Override public void accept(
+						WorldBuilderLauncherModel.RevisionListing listing) {
+						showProjectBackups(entry, listing);
+					}
+				});
+		}
+
+		private void showProjectBackups(final WorldBuilderLauncherModel.ProjectEntry entry,
+			WorldBuilderLauncherModel.RevisionListing listing) {
+			DefaultListModel<WorldBuilderLauncherModel.ProjectRevisionEntry> values =
+				new DefaultListModel<WorldBuilderLauncherModel.ProjectRevisionEntry>();
+			for (WorldBuilderLauncherModel.ProjectRevisionEntry revision :
+				listing.revisions) values.addElement(revision);
+			final JList<WorldBuilderLauncherModel.ProjectRevisionEntry> revisions =
+				new JList<WorldBuilderLauncherModel.ProjectRevisionEntry>(values);
+			revisions.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+			if (!values.isEmpty()) revisions.setSelectedIndex(0);
+			JTextArea explanation = readOnlyText();
+			explanation.setRows(5);
+			explanation.setText(values.isEmpty()
+				? "No project backups exist yet. Create Backup Now records the complete "
+					+ "current world without accessing the server."
+				: "Newest backups are shown first. Loading one automatically creates a "
+					+ "backup of the current world before restoring it.\n\nStored unique data: "
+					+ formatBytes(listing.storedObjectBytes) + " across "
+					+ values.size() + " revision" + (values.size() == 1 ? "" : "s") + ".");
+			JPanel panel = new JPanel(new BorderLayout(6, 6));
+			panel.add(explanation, BorderLayout.NORTH);
+			JScrollPane scroll = new JScrollPane(revisions);
+			scroll.setPreferredSize(new Dimension(760, 260));
+			panel.add(scroll, BorderLayout.CENTER);
+			Object[] options = {"Load Backup…", "Create Backup Now…",
+				"Export Backup…", "Close"};
+			int selected = JOptionPane.showOptionDialog(frame, panel,
+				"Project Backups — " + entry.displayName, JOptionPane.DEFAULT_OPTION,
+				JOptionPane.PLAIN_MESSAGE, null, options, options[3]);
+			WorldBuilderLauncherModel.ProjectRevisionEntry revision =
+				revisions.getSelectedValue();
+			if (selected == 0) {
+				if (revision == null) {
+					showError("There is no backup to load yet.", null);
+					return;
+				}
+				loadProjectBackup(entry, revision);
+			} else if (selected == 1) {
+				createProjectBackup(entry);
+			} else if (selected == 2) {
+				if (revision == null) {
+					showError("There is no backup to export yet.", null);
+					return;
+				}
+				exportProjectBackup(entry, revision);
+			}
+		}
+
+		private void createProjectBackup(
+			final WorldBuilderLauncherModel.ProjectEntry entry) {
+			String description = JOptionPane.showInputDialog(frame,
+				"Optional description for this project backup:",
+				"Create Backup Now", JOptionPane.PLAIN_MESSAGE);
+			if (description == null) return;
+			final String detail = description.trim();
+			runTask("Creating an immutable project backup…",
+				new Task<WorldBuilderLauncherModel.ProjectRevisionEntry>() {
+					@Override public WorldBuilderLauncherModel.ProjectRevisionEntry run()
+						throws Exception {
+						return model.createProjectBackup(entry, detail);
+					}
+				}, new Success<WorldBuilderLauncherModel.ProjectRevisionEntry>() {
+					@Override public void accept(
+						WorldBuilderLauncherModel.ProjectRevisionEntry revision) {
+						JOptionPane.showMessageDialog(frame,
+							"Project backup created.\n\nRevision: " + revision.revisionId
+								+ "\nNo server files were accessed or changed.",
+							"Project Backup Created", JOptionPane.INFORMATION_MESSAGE);
+						refreshProjects(entry.projectId);
+					}
+				});
+		}
+
+		private void loadProjectBackup(
+			final WorldBuilderLauncherModel.ProjectEntry entry,
+			final WorldBuilderLauncherModel.ProjectRevisionEntry revision) {
+			String detail = "Load this project backup?\n\nCreated: " + revision.createdAt
+				+ "\nReason: " + revision.reason.replace('-', ' ')
+				+ (revision.description.isEmpty() ? ""
+					: "\nDescription: " + revision.description)
+				+ "\nFiles: " + revision.fileCount
+				+ "\nLogical size: " + formatBytes(revision.totalBytes)
+				+ "\n\nThe current project world is backed up first. The server is untouched.";
+		if (JOptionPane.showConfirmDialog(frame, detail, "Load Project Backup",
+			JOptionPane.OK_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE)
+			!= JOptionPane.OK_OPTION) return;
+			runTask("Creating a safeguard and loading the selected project backup…",
+				new Task<String>() {
+					@Override public String run() throws Exception {
+						return model.restoreProjectBackup(entry, revision.revisionId);
+					}
+				}, transactionSuccess(entry.projectId, "Project Backup Loaded"));
+		}
+
+		private void exportProjectBackup(
+			final WorldBuilderLauncherModel.ProjectEntry entry,
+			final WorldBuilderLauncherModel.ProjectRevisionEntry revision) {
+			runTask("Exporting the selected immutable project backup…",
+				new Task<Path>() {
+					@Override public Path run() throws Exception {
+						return model.exportProjectBackup(entry, revision.revisionId);
+					}
+				}, new Success<Path>() {
+					@Override public void accept(Path exported) {
+						JOptionPane.showMessageDialog(frame,
+							"Project backup exported to:\n\n" + exported,
+							"Project Backup Exported", JOptionPane.INFORMATION_MESSAGE);
+					}
+				});
+		}
+
+		private static String formatBytes(long bytes) {
+			if (bytes < 1024L) return bytes + " B";
+			double value = bytes;
+			String[] units = {"B", "KiB", "MiB", "GiB"};
+			int unit = 0;
+			while (value >= 1024.0 && unit < units.length - 1) {
+				value /= 1024.0;
+				unit++;
+			}
+			return String.format(java.util.Locale.ROOT, "%.1f %s",
+				Double.valueOf(value), units[unit]);
 		}
 
 		private void undoSelectedProjectImport() {

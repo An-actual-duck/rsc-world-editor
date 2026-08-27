@@ -1011,6 +1011,27 @@ def map_migration_choice() -> dict:
     }
 
 
+def project_revision() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-project-revision",
+        "revisionId": "123e4567-e89b-42d3-a456-426614174101",
+        "projectId": "123e4567-e89b-42d3-a456-426614174000",
+        "createdAt": "2026-08-27T12:00:00Z",
+        "reason": "explicit-backup",
+        "description": "Before rebuilding the western wall",
+        "parentRevisionId": "",
+        "sourceSha256": HASH_A,
+        "definitionsSha256": HASH_B,
+        "runtimeSha256": HASH_C,
+        "workingPackageFingerprintSha256": HASH_D,
+        "fileCount": 1,
+        "totalBytes": 4096,
+        "files": [file_record("file-000000", "manifest.json", HASH_E, 4096)],
+        "revisionFingerprintSha256": HASH_F,
+    }
+
+
 def npc_animation_registry() -> dict:
     return {
         "schemaVersion": 1,
@@ -1076,6 +1097,7 @@ VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
     "map-migration-choice": map_migration_choice,
+    "project-revision": project_revision,
     "project-manifest": packed_project,
     "project-registry": project_registry,
     "active-project": active_project,
@@ -1095,6 +1117,7 @@ SCHEMA_CONTRACTS = {
     "map-migration-choice-v1.schema.json": (
         1, "world-builder-map-migration-choice"
     ),
+    "project-revision-v1.schema.json": (1, "world-builder-project-revision"),
     "project-manifest-v2.schema.json": (2, "world-builder-project"),
     "project-registry-v1.schema.json": (1, "world-builder-project-registry"),
     "active-project-v1.schema.json": (1, "world-builder-active-project"),
