@@ -166,14 +166,23 @@ final class WorldBuilderDesktopLauncher {
 				scriptedUi.showError("Unsupported source", preview.summary);
 				return 3;
 			}
+			WorldBuilderLauncherModel.LegacyMigrationPreview migration =
+				action == Action.NEW_EMPTY ? null : model.inspectLegacyMigration(preview);
+			if (migration != null && migration.needsConfigurationChoice()) {
+				throw new IOException("More than one legacy map configuration was found; "
+					+ "choose the exact Custom_Landscape map in the desktop launcher.");
+			}
+			boolean incorporateLegacy = migration != null
+				&& scriptedUi.confirmLegacyLandscapeIncorporation();
 			String displayName = scriptedUi.requestDisplayName(suggested);
 			if (displayName == null || displayName.trim().isEmpty()) return 0;
 			if (!scriptedUi.confirmCreation(
 				action == Action.NEW_EMPTY ? "Create New Project"
 					: "Create Isolated Project from Server Map",
 				preview.summary)) return 0;
-			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
-				model.create(preview, displayName.trim());
+			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created = incorporateLegacy
+				? model.createMigrated(preview, migration, displayName.trim(), null)
+				: model.create(preview, displayName.trim());
 			return scriptedRunner.run(created.projectRoot);
 		} catch (Exception failure) {
 			try {
@@ -236,6 +245,7 @@ final class WorldBuilderDesktopLauncher {
 		Path chooseSource(Path initial);
 		String requestDisplayName(String suggested);
 		boolean confirmCreation(String title, String summary);
+		default boolean confirmLegacyLandscapeIncorporation() { return false; }
 		void showError(String title, String message);
 	}
 
@@ -590,7 +600,61 @@ final class WorldBuilderDesktopLauncher {
 							}
 							return;
 						}
-						showSourcePreview(preview, advanced);
+						inspectLegacyMigrationThenShow(preview, advanced);
+					}
+				});
+		}
+
+		private void inspectLegacyMigrationThenShow(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final boolean advanced) {
+			inspectLegacyMigrationThenShow(preview, advanced, null);
+		}
+
+		private void inspectLegacyMigrationThenShow(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final boolean advanced, final String legacyConfiguration) {
+			if (!preview.canCreateServerProject()
+				|| !"layered".equals(preview.representation)) {
+				showSourcePreview(preview, advanced, null);
+				return;
+			}
+			runTask("Checking for legacy map changes…",
+				new Task<WorldBuilderLauncherModel.LegacyMigrationPreview>() {
+					@Override public WorldBuilderLauncherModel.LegacyMigrationPreview run()
+						throws Exception { return legacyConfiguration == null
+							? model.inspectLegacyMigration(preview)
+							: model.inspectLegacyMigration(preview, legacyConfiguration); }
+				}, new Success<WorldBuilderLauncherModel.LegacyMigrationPreview>() {
+					@Override public void accept(
+						WorldBuilderLauncherModel.LegacyMigrationPreview migration) {
+						if (migration != null && migration.needsConfigurationChoice()) {
+							WorldBuilderLauncherModel.ConfigurationChoice newest =
+								WorldBuilderLauncherModel.ConfigurationChoice
+									.mostRecentlyModified(migration.configurationChoices);
+							Object[] actions = {"Use Most Recently Modified",
+								"Choose from Detected…", "Cancel"};
+							int action = JOptionPane.showOptionDialog(frame,
+								"Custom_Landscape is associated with more than one supported "
+									+ "server map configuration.\n\nMost recently modified:\n"
+									+ newest + "\n\nChoose which exact configuration supplies "
+									+ "the legacy terrain and enabled placement overlays.",
+								"Choose Custom_Landscape Map", JOptionPane.DEFAULT_OPTION,
+								JOptionPane.QUESTION_MESSAGE, null, actions, actions[0]);
+							WorldBuilderLauncherModel.ConfigurationChoice selected = null;
+							if (action == 0) selected = newest;
+							if (action == 1) selected =
+								(WorldBuilderLauncherModel.ConfigurationChoice)
+									JOptionPane.showInputDialog(frame,
+										"Choose the exact legacy map configuration:",
+										"Choose from Detected Legacy Maps",
+										JOptionPane.QUESTION_MESSAGE, null,
+										migration.configurationChoices.toArray(), newest);
+							if (selected != null) inspectLegacyMigrationThenShow(
+								preview, advanced, selected.role);
+							return;
+						}
+						showSourcePreview(preview, advanced, migration);
 					}
 				});
 		}
@@ -642,7 +706,24 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview,
-			boolean advanced) {
+			boolean advanced,
+			WorldBuilderLauncherModel.LegacyMigrationPreview detectedMigration) {
+			final WorldBuilderLauncherModel.LegacyMigrationPreview migration;
+			if (detectedMigration != null) {
+				Object[] options = {"Yes", "No"};
+				int answer = JOptionPane.showOptionDialog(frame,
+					"Custom_Landscape file detected. Would you like to incorporate?\n\n"
+						+ "Yes combines those legacy terrain changes with the selected server "
+						+ "content inside a new isolated project. The server and legacy file "
+						+ "remain unchanged. After editing, an explicit Import Map Changes "
+						+ "transaction will preview and back up any later retirement.",
+					"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
+					JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+				if (answer < 0) return;
+				migration = answer == 0 ? detectedMigration : null;
+			} else {
+				migration = null;
+			}
 			WorldBuilderPortableProvider.Discovery providerDiscovery;
 			try {
 				providerDiscovery = model.inspectPortableProvider(preview);
@@ -661,6 +742,8 @@ final class WorldBuilderDesktopLauncher {
 				+ "\n\nCustom content: " + customContentSummary(providerDiscovery)
 				+ "\n\nThe map and required content are copied into an isolated project. "
 				+ "The server remains unchanged and no target JAR is executed."
+				+ (migration == null ? ""
+					: "\n\nCustom_Landscape: Incorporate into the isolated project.")
 				+ (advanced && providerDiscovery != null
 					? "\n\nAdvanced discovery details:\n" + providerDiscovery.describe() : ""));
 			report.setCaretPosition(0);
@@ -746,7 +829,8 @@ final class WorldBuilderDesktopLauncher {
 					+ "package or use Advanced provider import before continuing.", null);
 				return;
 			}
-			createPreviewedProject(preview, displayName, automaticMapping, guided[0]);
+			createPreviewedProject(preview, displayName, automaticMapping, guided[0],
+				migration);
 		}
 
 		private static String customContentSummary(
@@ -884,6 +968,15 @@ final class WorldBuilderDesktopLauncher {
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final String displayName, final Path itemVisualMappings,
 			final WorldBuilderPortableProvider.GuidedSelection guidedProvider) {
+			createPreviewedProject(preview, displayName, itemVisualMappings,
+				guidedProvider, null);
+		}
+
+		private void createPreviewedProject(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final String displayName, final Path itemVisualMappings,
+			final WorldBuilderPortableProvider.GuidedSelection guidedProvider,
+			final WorldBuilderLauncherModel.LegacyMigrationPreview migration) {
 			runTask("Creating isolated project…",
 				new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run()
@@ -893,7 +986,9 @@ final class WorldBuilderDesktopLauncher {
 							mapping = model.importPortableProvider(
 								preview, guidedProvider).itemVisuals;
 						}
-						return model.create(preview, displayName, mapping);
+						return migration == null
+							? model.create(preview, displayName, mapping)
+							: model.createMigrated(preview, migration, displayName, mapping);
 					}
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(

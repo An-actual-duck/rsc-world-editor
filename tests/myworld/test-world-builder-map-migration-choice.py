@@ -67,6 +67,58 @@ public final class LegacyLandscapeDiscoveryHarness {
 }
 """
 
+SCRIPTED_LAUNCHER_HARNESS = r"""
+package com.openrsc.worldbuilder;
+
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.List;
+
+public final class ScriptedMigrationLauncherHarness {
+    public static void main(String[] arguments) throws Exception {
+        final Path marker = Paths.get(arguments[4]);
+        WorldBuilderDesktopLauncher.Ui ui = new WorldBuilderDesktopLauncher.Ui() {
+            @Override public WorldBuilderDesktopLauncher.Action chooseAction(
+                List<WorldBuilderDesktopLauncher.ProjectChoice> projects,
+                String summary, boolean supported) {
+                if (!supported) throw new AssertionError(summary);
+                return WorldBuilderDesktopLauncher.Action.DETECTED_SERVER;
+            }
+            @Override public WorldBuilderDesktopLauncher.ProjectChoice chooseProject(
+                List<WorldBuilderDesktopLauncher.ProjectChoice> projects) { return null; }
+            @Override public Path chooseSource(Path initial) { return null; }
+            @Override public String requestDisplayName(String suggested) {
+                return "Scripted migrated project";
+            }
+            @Override public boolean confirmCreation(String title, String summary) {
+                return true;
+            }
+            @Override public boolean confirmLegacyLandscapeIncorporation() {
+                return true;
+            }
+            @Override public void showError(String title, String message) {
+                throw new AssertionError(title + ": " + message);
+            }
+        };
+        WorldBuilderDesktopLauncher.ProjectRunner runner =
+            new WorldBuilderDesktopLauncher.ProjectRunner() {
+                @Override public int run(Path project) throws Exception {
+                    Files.write(marker, project.toRealPath().toString()
+                        .getBytes(StandardCharsets.UTF_8));
+                    return 0;
+                }
+            };
+        int result = new WorldBuilderDesktopLauncher(ui, runner).run(
+            new WorldBuilderDesktopLauncher.Options(
+                Paths.get(arguments[0]), Paths.get(arguments[1]),
+                Paths.get(arguments[2]), null, Integer.parseInt(arguments[3])));
+        System.exit(result);
+    }
+}
+"""
+
 
 def load_fixtures(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -128,13 +180,27 @@ class MapMigrationChoiceTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
         )
+        launcher_harness = (
+            cls.classes / "harness/com/openrsc/worldbuilder/ScriptedMigrationLauncherHarness.java"
+        )
+        launcher_harness.parent.mkdir(parents=True, exist_ok=True)
+        launcher_harness.write_text(SCRIPTED_LAUNCHER_HARNESS, encoding="utf-8")
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(launcher_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+        )
         allowlist_resource = cls.classes / LIFECYCLE.RUNTIME_ALLOWLIST_RESOURCE
         allowlist_resource.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(LIFECYCLE.RUNTIME_ALLOWLIST, allowlist_resource)
         discovery_harness = (
             cls.classes / "harness/com/openrsc/worldbuilder/LegacyLandscapeDiscoveryHarness.java"
         )
-        discovery_harness.parent.mkdir(parents=True)
+        discovery_harness.parent.mkdir(parents=True, exist_ok=True)
         discovery_harness.write_text(DISCOVERY_HARNESS, encoding="utf-8")
         subprocess.run(
             [
@@ -575,6 +641,36 @@ class MapMigrationChoiceTest(unittest.TestCase):
             "--target-root", target, "--validate-only",
         )
         self.assertEqual(reopened.returncode, 0, reopened.stderr)
+
+        scripted_installation = self.root / "Scripted World Builder 2"
+        scripted_installation.mkdir()
+        scripted_runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(
+            scripted_installation
+        )
+        marker = self.root / "scripted-project.txt"
+        scripted = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.ScriptedMigrationLauncherHarness",
+                str(scripted_installation), str(scripted_runtime), str(target),
+                "43903", str(marker),
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(scripted.returncode, 0, scripted.stderr)
+        self.assertEqual(before, DISCOVERY.AdaptiveDiscoveryTest.snapshot(target))
+        scripted_project = Path(marker.read_text(encoding="utf-8"))
+        scripted_manifest = json.loads((
+            scripted_project / "project.json"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(scripted_manifest["origin"], "target-packed")
+        self.assertEqual(scripted_manifest["state"], "ready-attached")
+        scripted_choice = json.loads((
+            scripted_project / "source/migration/choice.json"
+        ).read_text(encoding="utf-8"))
+        self.assertTrue(scripted_choice["retirementRequested"])
 
 
 if __name__ == "__main__":

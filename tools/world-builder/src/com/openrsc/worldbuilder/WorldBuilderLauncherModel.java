@@ -142,6 +142,51 @@ final class WorldBuilderLauncherModel {
 			Collections.<ConfigurationChoice>emptyList(), "");
 	}
 
+	LegacyMigrationPreview inspectLegacyMigration(DiscoveryPreview selected)
+		throws IOException, WorldBuilderContractException {
+		return inspectLegacyMigration(selected, null);
+	}
+
+	LegacyMigrationPreview inspectLegacyMigration(
+		DiscoveryPreview selected, String requestedConfiguration)
+		throws IOException, WorldBuilderContractException {
+		if (selected == null || !selected.canCreateServerProject()
+			|| !"layered".equals(selected.representation)) return null;
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(selected.source);
+		boolean evidence = false;
+		for (String root : WorldBuilderPackedSourceLayout.VIDEO_ROOTS) {
+			evidence |= target.exists(root + "/Custom_Landscape.orsc");
+		}
+		for (String root : WorldBuilderPackedSourceLayout.DATA_ROOTS) {
+			evidence |= target.exists(root + "/Custom_Landscape.orsc");
+		}
+		if (!evidence) return null;
+		List<ConfigurationChoice> choices = legacyConfigurationChoices(target);
+		if (requestedConfiguration == null && choices.size() > 1) {
+			return new LegacyMigrationPreview(null, choices);
+		}
+		WorldBuilderAdaptiveDiscoveryReport legacy =
+			new WorldBuilderLegacyLandscapeDiscovery().discover(
+				selected.source, requestedConfiguration);
+		WorldBuilderMapMigrationChoice.create(selected.report, legacy, true);
+		return new LegacyMigrationPreview(legacy, choices);
+	}
+
+	private static List<ConfigurationChoice> legacyConfigurationChoices(
+		WorldBuilderReadOnlyTarget target)
+		throws IOException, WorldBuilderContractException {
+		List<ConfigurationChoice> result = new ArrayList<ConfigurationChoice>();
+		for (WorldBuilderAdapterInspection.ConfigurationCandidate candidate
+			: WorldBuilderPackedSourceLayout.configurationCandidates(target)) {
+			Path path = target.requiredFile(candidate.relativePath);
+			result.add(new ConfigurationChoice(candidate.role, candidate.relativePath,
+				candidate.sha256, Files.getLastModifiedTime(
+					path, LinkOption.NOFOLLOW_LINKS).toMillis()));
+		}
+		Collections.sort(result);
+		return Collections.unmodifiableList(result);
+	}
+
 	private static List<ConfigurationChoice> configurationChoices(
 		Map<String,Object> document, Path source) throws IOException {
 		Object raw = document.get("configurationCandidates");
@@ -221,6 +266,32 @@ final class WorldBuilderLauncherModel {
 		DiscoveryPreview preview, String displayName)
 		throws IOException, WorldBuilderContractException {
 		return create(preview, displayName, null);
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult createMigrated(
+		DiscoveryPreview selected, LegacyMigrationPreview migration,
+		String displayName, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
+		if (migration == null || migration.report == null) throw new IOException(
+			"Legacy landscape incorporation was requested without a validated candidate.");
+		Path selectedReport = Files.createTempFile(
+			installation, ".desktop-selected-discovery-", ".json");
+		Path legacyReport = Files.createTempFile(
+			installation, ".desktop-legacy-discovery-", ".json");
+		try {
+			Files.write(selectedReport,
+				selected.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			Files.write(legacyReport,
+				migration.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			return new WorldBuilderAdaptiveProjectLifecycle().createMigrated(
+				installation, runtime, selected.source, selectedReport, legacyReport,
+				displayName, port, "CREATE", itemVisualMappings, true);
+		} finally {
+			Files.deleteIfExists(selectedReport);
+			Files.deleteIfExists(legacyReport);
+		}
 	}
 
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
@@ -375,6 +446,21 @@ final class WorldBuilderLauncherModel {
 			return "blocked".equals(status)
 				&& WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION.equals(issueCode)
 				&& configurationChoices.size() > 1;
+		}
+	}
+
+	static final class LegacyMigrationPreview {
+		final WorldBuilderAdaptiveDiscoveryReport report;
+		final List<ConfigurationChoice> configurationChoices;
+
+		LegacyMigrationPreview(WorldBuilderAdaptiveDiscoveryReport report,
+			List<ConfigurationChoice> configurationChoices) {
+			this.report = report;
+			this.configurationChoices = configurationChoices;
+		}
+
+		boolean needsConfigurationChoice() {
+			return report == null && configurationChoices.size() > 1;
 		}
 	}
 
