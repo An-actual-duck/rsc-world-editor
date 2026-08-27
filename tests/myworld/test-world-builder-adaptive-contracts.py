@@ -26,6 +26,8 @@ HASH_A = "a" * 64
 HASH_B = "b" * 64
 HASH_C = "c" * 64
 HASH_D = "d" * 64
+HASH_E = "e" * 64
+HASH_F = "f" * 64
 PROJECT_ID = "11111111-1111-4111-8111-111111111111"
 TRANSACTION_ID = "22222222-2222-4222-8222-222222222222"
 UNDO_ID = "33333333-3333-4333-8333-333333333333"
@@ -979,6 +981,36 @@ def project_content_bundle_v2() -> dict:
     return value
 
 
+def map_migration_choice() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-map-migration-choice",
+        "toolVersion": "2.0.0-alpha.2",
+        "decision": "incorporate-legacy-landscape",
+        "selectedTargetDiscoveryFingerprintSha256": HASH_A,
+        "legacyPackedDiscoveryFingerprintSha256": HASH_B,
+        "selectedConfiguration": state_reference(
+            "server/world-builder-configs/primary.json", HASH_C, "primary"
+        ),
+        "legacyConfiguration": state_reference(
+            "server/myworld.conf", HASH_D, "packed-map-1"
+        ),
+        "legacyTerrain": {
+            "server": file_record(
+                "server-terrain", "server/conf/server/data/Custom_Landscape.orsc",
+                HASH_E, 4096,
+            ),
+            "client": file_record(
+                "client-terrain", "Client_Base/Cache/video/Custom_Landscape.orsc",
+                HASH_E, 4096,
+            ),
+            "byteIdentical": True,
+        },
+        "retirementRequested": True,
+        "migrationChoiceFingerprintSha256": HASH_F,
+    }
+
+
 def npc_animation_registry() -> dict:
     return {
         "schemaVersion": 1,
@@ -1043,6 +1075,7 @@ def provider_cache_diagnostic() -> dict:
 VALID_CONTRACTS = {
     "target-capability": capability,
     "discovery-report": packed_discovery,
+    "map-migration-choice": map_migration_choice,
     "project-manifest": packed_project,
     "project-registry": project_registry,
     "active-project": active_project,
@@ -1059,6 +1092,9 @@ VALID_CONTRACTS = {
 SCHEMA_CONTRACTS = {
     "target-capability-v1.schema.json": (1, "world-builder-target-capability"),
     "discovery-report-v2.schema.json": (2, "world-builder-discovery-report"),
+    "map-migration-choice-v1.schema.json": (
+        1, "world-builder-map-migration-choice"
+    ),
     "project-manifest-v2.schema.json": (2, "world-builder-project"),
     "project-registry-v1.schema.json": (1, "world-builder-project-registry"),
     "active-project-v1.schema.json": (1, "world-builder-active-project"),
@@ -1176,6 +1212,31 @@ class AdaptiveContractTests(unittest.TestCase):
         self.assert_valid("project-manifest", standalone_project())
         self.assert_valid("source-snapshot", source_snapshot(standalone=True))
         self.assert_valid("adaptive-export", export_manifest(standalone=True))
+
+    def test_map_migration_choice_binds_distinct_reports_and_exact_terrain(self):
+        same_reports = map_migration_choice()
+        same_reports["legacyPackedDiscoveryFingerprintSha256"] = HASH_A
+        self.assert_refused(
+            "map-migration-choice", same_reports, "CONTRACT_VALUE_INVALID"
+        )
+
+        changed_client = map_migration_choice()
+        changed_client["legacyTerrain"]["client"]["sha256"] = HASH_D
+        self.assert_refused(
+            "map-migration-choice", changed_client, "CONTRACT_VALUE_INVALID"
+        )
+
+        absent_server = map_migration_choice()
+        absent_server["legacyTerrain"]["server"] = {
+            "role": "server-terrain",
+            "relativePath": "server/conf/server/data/Custom_Landscape.orsc",
+            "present": False,
+            "size": 0,
+            "sha256": "",
+        }
+        self.assert_refused(
+            "map-migration-choice", absent_server, "CONTRACT_VALUE_INVALID"
+        )
 
     def test_synthetic_layout_fixtures_are_read_only(self):
         with tempfile.TemporaryDirectory(prefix="world-builder-layout-contracts-") as temp:

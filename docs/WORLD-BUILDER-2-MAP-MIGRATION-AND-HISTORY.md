@@ -120,6 +120,22 @@ The project manifest may expose a simple derived state such as
 `legacyLandscapeMigrated`, but target mutation relies on the complete versioned
 evidence rather than one boolean.
 
+The first contract is `world-builder-map-migration-choice` schema version 1.
+It binds two distinct immutable discovery fingerprints: the normally selected
+target authority and a separately validated packed-conversion candidate. It
+also binds both selected configurations, the exact byte-identical server/client
+legacy terrain records, the affirmative incorporation decision, retirement
+intent, and its own fingerprint.
+
+The packed candidate does not replace or masquerade as the selected target
+report. Project creation must re-run and match both discoveries at its drift
+boundaries, then copy their union without allowing generated packed-fallback
+descriptor/configuration evidence to collide with the selected target's real
+descriptor/configuration evidence. Generated conversion authority therefore
+needs its own contained namespace or staging root. The immutable selected
+target evidence remains available for later attachment and import; the packed
+evidence supplies conversion input only.
+
 ## Complete map export in the GUI
 
 The desktop application exposes **Export Complete Map Package…** for a selected

@@ -30,6 +30,9 @@ final class WorldBuilderAdaptiveContracts {
 			"world-builder-target-capability", "target-capability-v1.schema.json"),
 		DISCOVERY_REPORT("discovery-report", 2,
 			"world-builder-discovery-report", "discovery-report-v2.schema.json"),
+		MAP_MIGRATION_CHOICE("map-migration-choice", 1,
+			"world-builder-map-migration-choice",
+			"map-migration-choice-v1.schema.json"),
 		PROJECT_MANIFEST("project-manifest", 2,
 			"world-builder-project", "project-manifest-v2.schema.json"),
 		PROJECT_REGISTRY("project-registry", 1,
@@ -145,6 +148,7 @@ final class WorldBuilderAdaptiveContracts {
 		switch (kind) {
 			case TARGET_CAPABILITY: validateCapability(root); return;
 			case DISCOVERY_REPORT: validateDiscovery(root); return;
+			case MAP_MIGRATION_CHOICE: validateMapMigrationChoice(root); return;
 			case PROJECT_MANIFEST: validateProject(root); return;
 			case PROJECT_REGISTRY: validateRegistry(root); return;
 			case ACTIVE_PROJECT: validateActiveProject(root); return;
@@ -160,6 +164,65 @@ final class WorldBuilderAdaptiveContracts {
 			case ADAPTIVE_RECEIPT: validateReceipt(root); return;
 			default: throw new AssertionError(kind);
 		}
+	}
+
+	private static void validateMapMigrationChoice(Map<String,Object> root)
+		throws WorldBuilderContractException {
+		String op = "validate-map-migration-choice";
+		exact(root, op, "schemaVersion", "manifestType", "toolVersion", "decision",
+			"selectedTargetDiscoveryFingerprintSha256",
+			"legacyPackedDiscoveryFingerprintSha256", "selectedConfiguration",
+			"legacyConfiguration", "legacyTerrain", "retirementRequested",
+			"migrationChoiceFingerprintSha256");
+		identifier(root, "toolVersion", op);
+		if (!"incorporate-legacy-landscape".equals(string(root, "decision", op))) {
+			invalid(op, "Map migration choice does not select legacy-landscape incorporation.");
+		}
+		String selectedDiscovery = hash(root,
+			"selectedTargetDiscoveryFingerprintSha256", op);
+		String packedDiscovery = hash(root,
+			"legacyPackedDiscoveryFingerprintSha256", op);
+		if (selectedDiscovery.equals(packedDiscovery)) {
+			invalid(op, "Map migration must bind distinct selected-target and packed discovery reports.");
+		}
+		StateReference selected = stateReference(root.get("selectedConfiguration"),
+			op, "selectedConfiguration", true);
+		StateReference legacy = stateReference(root.get("legacyConfiguration"),
+			op, "legacyConfiguration", true);
+		if (!selected.present || !legacy.present) {
+			invalid(op, "Map migration configurations must both be present.");
+		}
+		Map<String,Object> terrain = object(root.get("legacyTerrain"), op,
+			"legacyTerrain");
+		exact(terrain, op, "server", "client", "byteIdentical");
+		if (!bool(terrain, "byteIdentical", op)) {
+			invalid(op, "Legacy server and client terrain must be declared byte-identical.");
+		}
+		List<Object> terrainRecords = new ArrayList<Object>();
+		terrainRecords.add(terrain.get("client"));
+		terrainRecords.add(terrain.get("server"));
+		List<WorldBuilderBoundedInventory.Record> records =
+			WorldBuilderBoundedInventory.read(terrainRecords, op, 2, false);
+		WorldBuilderBoundedInventory.Record client = null;
+		WorldBuilderBoundedInventory.Record server = null;
+		for (WorldBuilderBoundedInventory.Record record : records) {
+			if ("client-terrain".equals(record.role)) client = record;
+			if ("server-terrain".equals(record.role)) server = record;
+		}
+		if (client == null || server == null || !client.present || !server.present
+			|| client.size != server.size || !client.sha256.equals(server.sha256)) {
+			invalid(op, "Legacy terrain inventory must contain matching present server/client bytes.");
+		}
+		if (!client.relativePath.endsWith("/Custom_Landscape.orsc")
+			|| !(client.relativePath.startsWith("Client_Base/")
+				|| client.relativePath.startsWith("client/")
+				|| client.relativePath.startsWith("Cache/"))
+			|| !server.relativePath.startsWith("server/")
+			|| !server.relativePath.endsWith("/Custom_Landscape.orsc")) {
+			invalid(op, "Legacy terrain references are outside the compiled client/server landscape roots.");
+		}
+		bool(root, "retirementRequested", op);
+		hash(root, "migrationChoiceFingerprintSha256", op);
 	}
 
 	private static void validateCapability(Map<String,Object> root)
