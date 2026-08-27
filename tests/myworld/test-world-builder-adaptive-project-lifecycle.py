@@ -659,6 +659,7 @@ public final class AdaptiveProjectSupervisorHarness {
         boolean finalizationMode = args.length > 2 && "finalization".equals(args[2]);
         boolean regionCopyMode = args.length > 2 && "region-copy".equals(args[2]);
         boolean regionPasteMode = args.length > 2 && "region-paste".equals(args[2]);
+        boolean regionBundleMode = args.length > 2 && "region-bundle".equals(args[2]);
         int port = WorldBuilderAdaptiveProjectLifecycle.readRuntimePort(project);
         WorldBuilderProcessSupervisor supervisor = new WorldBuilderProcessSupervisor();
         String manifest = new String(Files.readAllBytes(project.resolve("project.json")),
@@ -775,7 +776,9 @@ public final class AdaptiveProjectSupervisorHarness {
                 ? commandWithMode(classes, "FakeClient", project, port, "region-copy")
                 : regionPasteMode
                     ? commandWithMode(classes, "FakeClient", project, port, "region-paste")
-                    : command(classes, "FakeClient", project, port);
+                    : regionBundleMode
+                        ? commandWithMode(classes, "FakeClient", project, port, "region-bundle")
+                        : command(classes, "FakeClient", project, port);
         if (args.length > 2 && "unsafe".equals(args[2])) {
             boolean refused = false;
             try {
@@ -1060,6 +1063,37 @@ public final class AdaptiveProjectSupervisorHarness {
                     Files.write(control.resolve("fake-region-paste-live"),
                         "activated\n".getBytes(StandardCharsets.US_ASCII));
             }
+            if (args.length > 2 && "region-bundle".equals(args[2])) {
+                Path control = project.resolve("run/world-builder");
+                List<String> paths = Files.readAllLines(
+                    control.resolve("fake-region-bundle-paths.txt"),
+                    StandardCharsets.UTF_8);
+                require(paths.size() == 2, "interactive Region bundle fixture paths");
+                Path source = Paths.get(paths.get(0));
+                Path output = Paths.get(paths.get(1));
+                Map<String,Object> importAnswer = submitBundle(control, bundleRequest(
+                    "44444444444444444444444444444444", "import", "",
+                    source.toString(), ""));
+                @SuppressWarnings("unchecked") Map<String,Object> imported =
+                    (Map<String,Object>)importAnswer.get("result");
+                require(Boolean.FALSE.equals(imported.get("worldModified")),
+                    "interactive Region Import modified the world");
+                @SuppressWarnings("unchecked") Map<String,Object> compatibility =
+                    (Map<String,Object>)imported.get("compatibilityReport");
+                require(Boolean.TRUE.equals(compatibility.get("compatible")),
+                    "interactive Region Import compatibility");
+                String snapshotId = (String)imported.get("snapshotId");
+                Map<String,Object> exportAnswer = submitBundle(control, bundleRequest(
+                    "55555555555555555555555555555555", "export", snapshotId,
+                    "", output.toString()));
+                @SuppressWarnings("unchecked") Map<String,Object> exported =
+                    (Map<String,Object>)exportAnswer.get("result");
+                require(output.toString().equals(exported.get("outputPath")),
+                    "interactive Region Export path");
+                require(Files.isRegularFile(output), "interactive Region Export file");
+                Files.write(control.resolve("fake-region-bundle-shared"),
+                    "shared\n".getBytes(StandardCharsets.US_ASCII));
+            }
             Thread.sleep(250L);
             Files.write(project.resolve("run/world-builder/fake-client-stopped"),
                 "stopped\n".getBytes(StandardCharsets.US_ASCII));
@@ -1098,6 +1132,39 @@ public final class AdaptiveProjectSupervisorHarness {
                 Files.readAllBytes(response), "interactive region Paste response");
             require("accepted".equals(answer.get("status")),
                 "interactive region Paste was refused: " + answer);
+            Files.delete(response);
+            return answer;
+        }
+
+        private static Map<String,Object> bundleRequest(String requestId,
+            String operation, String snapshotId, String bundlePath, String outputPath) {
+            Map<String,Object> request = new LinkedHashMap<String,Object>();
+            request.put("schemaVersion", Long.valueOf(1L));
+            request.put("manifestType", "world-builder-region-bundle-request");
+            request.put("requestId", requestId);
+            request.put("operation", operation);
+            request.put("snapshotId", snapshotId);
+            request.put("bundlePath", bundlePath);
+            request.put("outputPath", outputPath);
+            return request;
+        }
+
+        private static Map<String,Object> submitBundle(Path control,
+            Map<String,Object> request) throws Exception {
+            Path requestPath = control.resolve("region-bundle.request.json");
+            Path response = control.resolve("region-bundle.response.json");
+            Files.write(requestPath, WorldBuilderJsonDocuments.pretty(request)
+                .getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+                StandardOpenOption.WRITE);
+            long deadline = System.currentTimeMillis() + 10000L;
+            while (!Files.isRegularFile(response) && System.currentTimeMillis() < deadline) {
+                Thread.sleep(25L);
+            }
+            require(Files.isRegularFile(response), "interactive Region bundle timeout");
+            Map<String,Object> answer = WorldBuilderJsonDocuments.readObject(
+                Files.readAllBytes(response), "interactive Region bundle response");
+            require("accepted".equals(answer.get("status")),
+                "interactive Region bundle was refused: " + answer);
             Files.delete(response);
             return answer;
         }
@@ -2530,6 +2597,73 @@ public final class FakeAdaptiveClient {
                 "region-paste.response.json",
                 ".region-paste.response.tmp",
                 ".region-paste.response.runtime.tmp",
+            ):
+                self.assertFalse((control / name).exists(), name)
+
+    def test_supervised_region_bundle_import_export_is_portable_and_non_mutating(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-interactive-region-bundle-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "standalone-report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Interactive Region Sharing", 43843,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection, [(119, 648), (121, 648), (121, 649), (119, 649)], [0]
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Portable bridge fixture",
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            shared_input = base / "shared-input.wbr"
+            exported = self.run_cli(
+                "region-export", "--project", project, "--snapshot", snapshot_id,
+                "--output", shared_input,
+            )
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            shared_output = base / "shared-output.wbr"
+            control = project / "run/world-builder"
+            control.mkdir(parents=True, exist_ok=True)
+            (control / "fake-region-bundle-paths.txt").write_text(
+                f"{shared_input}\n{shared_output}\n", encoding="utf-8"
+            )
+            working_before = tree_bytes(project / "working/layered-world/package")
+            manifest_before = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )["fingerprints"]["workingSha256"]
+
+            supervised = self.run_supervision(project, "region-bundle")
+            self.assertEqual(
+                0, supervised.returncode, supervised.stdout + supervised.stderr
+            )
+            self.assertEqual(shared_input.read_bytes(), shared_output.read_bytes())
+            self.assertEqual(
+                working_before, tree_bytes(project / "working/layered-world/package")
+            )
+            self.assertEqual(
+                manifest_before,
+                json.loads((project / "project.json").read_text(encoding="utf-8"))[
+                    "fingerprints"
+                ]["workingSha256"],
+            )
+            self.assertTrue((control / "fake-region-bundle-shared").is_file())
+            for name in (
+                ".region-bundle.request.pending.json",
+                "region-bundle.request.json",
+                "region-bundle.response.json",
+                ".region-bundle.response.tmp",
+                ".region-bundle.response.runtime.tmp",
             ):
                 self.assertFalse((control / name).exists(), name)
 

@@ -6,6 +6,7 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -23,11 +24,16 @@ final class WorldBuilderRegionControlBridge {
 	static final String RESPONSE_FILE = "region-copy.response.json";
 	static final String PASTE_REQUEST_FILE = "region-paste.request.json";
 	static final String PASTE_RESPONSE_FILE = "region-paste.response.json";
+	static final String BUNDLE_REQUEST_FILE = "region-bundle.request.json";
+	static final String BUNDLE_RESPONSE_FILE = "region-bundle.response.json";
 	private static final String REQUEST_PENDING = ".region-copy.request.pending.json";
 	private static final String PASTE_REQUEST_PENDING =
 		".region-paste.request.pending.json";
+	private static final String BUNDLE_REQUEST_PENDING =
+		".region-bundle.request.pending.json";
 	private static final String RESPONSE_STAGE = ".region-copy.response.tmp";
 	private static final String PASTE_RESPONSE_STAGE = ".region-paste.response.tmp";
+	private static final String BUNDLE_RESPONSE_STAGE = ".region-bundle.response.tmp";
 	private static final String RUNTIME_RESPONSE_STAGE =
 		".region-copy.response.runtime.tmp";
 	private static final long MAX_REQUEST_BYTES = 256L * 1024L;
@@ -40,6 +46,9 @@ final class WorldBuilderRegionControlBridge {
 	private static final Set<String> PASTE_REQUEST_KEYS = new HashSet<String>(Arrays.asList(
 		"schemaVersion", "manifestType", "requestId", "operation", "snapshotId",
 		"level", "x", "y", "expectedPlan", "confirmation"));
+	private static final Set<String> BUNDLE_REQUEST_KEYS = new HashSet<String>(Arrays.asList(
+		"schemaVersion", "manifestType", "requestId", "operation", "snapshotId",
+		"bundlePath", "outputPath"));
 
 	private final Path project;
 	private final Path control;
@@ -49,6 +58,9 @@ final class WorldBuilderRegionControlBridge {
 	private final Path pasteRequest;
 	private final Path pasteResponse;
 	private final Path pasteResponseStage;
+	private final Path bundleRequest;
+	private final Path bundleResponse;
+	private final Path bundleResponseStage;
 
 	WorldBuilderRegionControlBridge(Path project, Path control) throws IOException {
 		this.project = project.toAbsolutePath().normalize();
@@ -62,6 +74,9 @@ final class WorldBuilderRegionControlBridge {
 		this.pasteRequest = this.control.resolve(PASTE_REQUEST_FILE);
 		this.pasteResponse = this.control.resolve(PASTE_RESPONSE_FILE);
 		this.pasteResponseStage = this.control.resolve(PASTE_RESPONSE_STAGE);
+		this.bundleRequest = this.control.resolve(BUNDLE_REQUEST_FILE);
+		this.bundleResponse = this.control.resolve(BUNDLE_RESPONSE_FILE);
+		this.bundleResponseStage = this.control.resolve(BUNDLE_RESPONSE_STAGE);
 	}
 
 	void reset() throws IOException {
@@ -79,9 +94,17 @@ final class WorldBuilderRegionControlBridge {
 		deleteRegularIfPresent(pasteResponseStage, "staged region Paste response");
 		deleteRegularIfPresent(control.resolve(".region-paste.response.runtime.tmp"),
 			"staged runtime region Paste response");
+		deleteRegularIfPresent(control.resolve(BUNDLE_REQUEST_PENDING),
+			"pending region bundle request");
+		deleteRegularIfPresent(bundleRequest, "region bundle request");
+		deleteRegularIfPresent(bundleResponse, "region bundle response");
+		deleteRegularIfPresent(bundleResponseStage, "staged region bundle response");
+		deleteRegularIfPresent(control.resolve(".region-bundle.response.runtime.tmp"),
+			"staged runtime region bundle response");
 	}
 
 	void poll() throws IOException {
+		pollBundle();
 		pollPaste();
 		if (!Files.exists(request, LinkOption.NOFOLLOW_LINKS)) return;
 		if (Files.exists(response, LinkOption.NOFOLLOW_LINKS)) return;
@@ -122,6 +145,88 @@ final class WorldBuilderRegionControlBridge {
 		Files.deleteIfExists(request);
 		WorldBuilderAdaptiveDurability.forceDirectory(control);
 		publishResponse(responseRoot);
+	}
+
+	private void pollBundle() throws IOException {
+		if (!Files.exists(bundleRequest, LinkOption.NOFOLLOW_LINKS)) return;
+		if (Files.exists(bundleResponse, LinkOption.NOFOLLOW_LINKS)) return;
+		String requestId = "00000000000000000000000000000000";
+		String operation = "unknown";
+		Map<String,Object> responseRoot = new LinkedHashMap<String,Object>();
+		try {
+			Map<String,Object> root = readBundleRequest();
+			requestId = requireText(root, "requestId", 32, 32);
+			if (!REQUEST_ID.matcher(requestId).matches()) {
+				throw new IllegalArgumentException("Region bundle request ID is invalid.");
+			}
+			operation = requireText(root, "operation", 6, 6);
+			String snapshotId = requireText(root, "snapshotId", 0, 64);
+			String bundlePath = requireText(root, "bundlePath", 0, 4096);
+			String outputPath = requireText(root, "outputPath", 0, 4096);
+			WorldBuilderRegionSnapshotService service =
+				new WorldBuilderRegionSnapshotService();
+			String resultText;
+			WorldBuilderProcessSupervisor.relocateLegacyDatabaseLogs(project);
+			if ("import".equals(operation)) {
+				if (!snapshotId.isEmpty() || bundlePath.isEmpty() || !outputPath.isEmpty()) {
+					throw new IllegalArgumentException("Region Import request fields are invalid.");
+				}
+				resultText = service.importBundleUnderProjectLock(
+					project, Paths.get(bundlePath));
+			} else if ("export".equals(operation)) {
+				if (!WorldBuilderBoundedInventory.isHash(snapshotId)
+					|| !bundlePath.isEmpty() || outputPath.isEmpty()) {
+					throw new IllegalArgumentException("Region Export request fields are invalid.");
+				}
+				resultText = service.exportBundleUnderProjectLock(
+					project, snapshotId, Paths.get(outputPath));
+			} else {
+				throw new IllegalArgumentException("Region bundle operation is unsupported.");
+			}
+			Map<String,Object> result = WorldBuilderJsonDocuments.readObject(
+				resultText.getBytes(StandardCharsets.UTF_8), "region bundle result");
+			responseRoot.put("status", "accepted");
+			responseRoot.put("result", result);
+		} catch (WorldBuilderContractException refusal) {
+			responseRoot.put("status", "refused");
+			responseRoot.put("errorCode", refusal.code());
+			responseRoot.put("message", refusal.getMessage());
+			responseRoot.put("nextStep", refusal.nextStep());
+		} catch (Exception failure) {
+			responseRoot.put("status", "refused");
+			responseRoot.put("errorCode", WorldBuilderErrorCodes.MUTATION_FAILED);
+			responseRoot.put("message", boundedMessage(failure));
+			responseRoot.put("nextStep",
+				"Choose a safe portable .wbr file or new export destination, then retry.");
+		}
+		responseRoot.put("schemaVersion", Long.valueOf(1L));
+		responseRoot.put("manifestType", "world-builder-region-bundle-response");
+		responseRoot.put("requestId", requestId);
+		responseRoot.put("operation", operation);
+		Files.deleteIfExists(bundleRequest);
+		WorldBuilderAdaptiveDurability.forceDirectory(control);
+		publishResponse(responseRoot, bundleResponse, bundleResponseStage,
+			"Region bundle response");
+	}
+
+	private Map<String,Object> readBundleRequest()
+		throws IOException, WorldBuilderDiscoveryException {
+		if (!Files.isRegularFile(bundleRequest, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(bundleRequest)) {
+			throw new IOException("Region bundle request is not a safe regular file.");
+		}
+		long size = Files.size(bundleRequest);
+		if (size < 2L || size > MAX_REQUEST_BYTES) {
+			throw new IOException("Region bundle request size is invalid.");
+		}
+		Map<String,Object> root = WorldBuilderJsonDocuments.readObject(bundleRequest);
+		if (!root.keySet().equals(BUNDLE_REQUEST_KEYS)
+			|| !(root.get("schemaVersion") instanceof Long)
+			|| ((Long)root.get("schemaVersion")).longValue() != 1L
+			|| !"world-builder-region-bundle-request".equals(root.get("manifestType"))) {
+			throw new IllegalArgumentException("Region bundle request contract is invalid.");
+		}
+		return root;
 	}
 
 	private void pollPaste() throws IOException {

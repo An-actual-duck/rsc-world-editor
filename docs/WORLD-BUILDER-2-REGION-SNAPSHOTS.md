@@ -1,6 +1,6 @@
 # World Builder 2 Region Snapshots v1 and v2
 
-Status: **interactive Region Copy/Paste owner-validated; live Paste activation pending owner validation; Cut UI pending**
+Status: **interactive Region Copy/Paste owner-validated; graphical portable Import/Export implemented and pending owner validation; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
 Runtime provider: interactive Copy and supervised library/preview/apply Paste bridges implemented
@@ -19,8 +19,13 @@ running isolated Builder without restarting the client or server. If that
 bounded activation fails, the already-published working package remains
 authoritative and a normal close/reopen safely loads it. The client's older
 **Copy inspected** action still only copies one inspected value into current
-editing controls; it is unrelated to Region Copy. Interactive Cut and graphical
-import/export surfaces remain pending.
+editing controls; it is unrelated to Region Copy. Region Paste now also exposes
+**Import .wbr** and **Export selected** through native desktop file pickers.
+Import validates and adds one portable bundle to the project library without
+changing the world, then refreshes the selectable Paste list. Export writes the
+selected snapshot to one new, non-overwriting `.wbr` file outside the project.
+Compatibility issues remain visible and block Paste without discarding an
+otherwise valid imported bundle. Interactive Cut remains pending.
 
 The first discoverable increment uses the running Editor supervisor as the
 sole bridge to these contracts. The runtime gathers one ordered selection and
@@ -39,8 +44,9 @@ executable authority where prose and malformed external input disagree.
 
 The Editor owns the portable snapshot engine, an owner-validated interactive
 Copy workflow, and the exact interactive Paste transaction for isolated adaptive
-projects. Cut and portable import/export surfaces are not yet exposed in the
-runtime UI. Every operation is project-local;
+projects. Portable import/export is exposed in the runtime UI through the
+Editor-owned supervisor and snapshot engine; Cut is not yet exposed. Every
+operation is project-local;
 no command in this feature resolves or writes the target server.
 
 The frozen World Builder v1 workflow is unchanged. Region bundles belong only
@@ -312,7 +318,8 @@ remaining region-snapshot workflow is:
 2. marker insertion and movement beyond current append/undo/reopen controls;
 3. richer placement-family ghost models beyond the exact footprint outline,
    destination anchor, and collision pins;
-4. graphical `.wbr` import/export and library management;
+4. richer graphical library management beyond the current selectable list and
+   native `.wbr` Import/Export actions;
 5. durable user-facing undo/redo and recovery across save, close, interruption,
    and reopen; and
 6. custom material/sprite/definition capability negotiation and safe logical-ID

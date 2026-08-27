@@ -774,11 +774,13 @@ change the target automatically. Compatibility and collision checks run before
 the user can preview a paste. Unknown schema versions, dependencies, files, or
 presets fail closed.
 
-Readiness: **Editor foundation implemented**. Deterministic two-entry `.wbr`
-bundles, strict inventory/path validation, project-local import, independent
-export, portable logical dependencies, and incompatible-custom-content reports
-are implemented. Material/sprite payload bundling remains blocked until its
-separate capability exists.
+Readiness: **Editor foundation and graphical Import/Export implemented; owner
+validation pending**. Deterministic two-entry `.wbr` bundles, strict
+inventory/path validation, native desktop file selection, project-local import,
+automatic library refresh, independent non-overwriting export, portable logical
+dependencies, and incompatible-custom-content reports are implemented. Import
+and export do not mutate the working world. Material/sprite payload bundling
+remains blocked until its separate capability exists.
 
 ## Recommended dependency order
 

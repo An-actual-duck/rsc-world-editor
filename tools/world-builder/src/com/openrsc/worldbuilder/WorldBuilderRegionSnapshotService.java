@@ -165,17 +165,24 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-import")) {
-			recoverRegionTransaction(root);
-			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
-				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
-			Bundle bundle = readBundle(requestedBundle);
-			LibraryRecord library = publishBundle(root, bundle);
-			Map<String,Object> compatibility = compatibility(verified, bundle.snapshot);
-			Map<String,Object> result = baseResult("import", bundle.snapshot.id, library);
-			result.put("compatibilityReport", compatibility);
-			result.put("worldModified", Boolean.FALSE);
-			return WorldBuilderJsonDocuments.pretty(result);
+			return importBundleUnderProjectLock(root, requestedBundle);
 		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String importBundleUnderProjectLock(Path project, Path requestedBundle)
+		throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
+		Bundle bundle = readBundle(requestedBundle);
+		LibraryRecord library = publishBundle(root, bundle);
+		Map<String,Object> compatibility = compatibility(verified, bundle.snapshot);
+		Map<String,Object> result = baseResult("import", bundle.snapshot.id, library);
+		result.put("compatibilityReport", compatibility);
+		result.put("worldModified", Boolean.FALSE);
+		return WorldBuilderJsonDocuments.pretty(result);
 	}
 
 	String exportBundle(Path project, String snapshotId, Path requestedOutput)
@@ -183,29 +190,36 @@ final class WorldBuilderRegionSnapshotService {
 		Path root = project.toAbsolutePath().normalize();
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(root, "region-export")) {
-			recoverRegionTransaction(root);
-			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
-			Bundle bundle = loadLibrary(root, snapshotId);
-			Path output = safeNewOutput(requestedOutput, root);
-			Path stage = output.resolveSibling("." + output.getFileName().toString()
-				+ ".staging-" + UUID.randomUUID().toString());
-			try {
-				Files.write(stage, bundle.bytes, StandardOpenOption.CREATE_NEW,
-					StandardOpenOption.WRITE);
-				WorldBuilderAdaptiveDurability.forceFile(stage);
-				WorldBuilderAdaptiveAtomicFiles.moveNew(stage, output,
-					"region-export", output.getFileName().toString());
-				WorldBuilderAdaptiveDurability.forceDirectory(output.getParent());
-			} finally {
-				Files.deleteIfExists(stage);
-			}
-			Map<String,Object> result = new LinkedHashMap<String,Object>();
-			result.put("operation", "export");
-			result.put("snapshotId", snapshotId);
-			result.put("outputPath", output.toString());
-			result.put("bundleSha256", WorldBuilderHashes.sha256(bundle.bytes));
-			return WorldBuilderJsonDocuments.pretty(result);
+			return exportBundleUnderProjectLock(root, snapshotId, requestedOutput);
 		}
+	}
+
+	/** Used only by the running Editor supervisor which already owns the project lock. */
+	String exportBundleUnderProjectLock(Path project, String snapshotId,
+		Path requestedOutput) throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		recoverRegionTransaction(root);
+		WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
+		Bundle bundle = loadLibrary(root, snapshotId);
+		Path output = safeNewOutput(requestedOutput, root);
+		Path stage = output.resolveSibling("." + output.getFileName().toString()
+			+ ".staging-" + UUID.randomUUID().toString());
+		try {
+			Files.write(stage, bundle.bytes, StandardOpenOption.CREATE_NEW,
+				StandardOpenOption.WRITE);
+			WorldBuilderAdaptiveDurability.forceFile(stage);
+			WorldBuilderAdaptiveAtomicFiles.moveNew(stage, output,
+				"region-export", output.getFileName().toString());
+			WorldBuilderAdaptiveDurability.forceDirectory(output.getParent());
+		} finally {
+			Files.deleteIfExists(stage);
+		}
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("operation", "export");
+		result.put("snapshotId", snapshotId);
+		result.put("outputPath", output.toString());
+		result.put("bundleSha256", WorldBuilderHashes.sha256(bundle.bytes));
+		return WorldBuilderJsonDocuments.pretty(result);
 	}
 
 	String pastePreview(Path project, String snapshotId, int level, int x, int y)
