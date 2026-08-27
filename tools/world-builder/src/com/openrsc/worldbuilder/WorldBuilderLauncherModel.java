@@ -67,11 +67,13 @@ final class WorldBuilderLauncherModel {
 				(Map<String,Object>)raw;
 			String id = text(record.get("projectId"));
 			Path projectRoot = installation.resolve("projects").resolve(id).normalize();
+			new WorldBuilderProjectRevisionService().recover(projectRoot);
 			ProjectProvenance provenance = projectProvenance(projectRoot);
 			result.add(new ProjectEntry(id, text(record.get("displayName")),
 				text(record.get("origin")), text(record.get("state")),
 				projectRoot, id.equals(active), provenance.sourceDisplay,
-				provenance.configurationPath, provenance.configurationSha256));
+				provenance.configurationPath, provenance.configurationSha256,
+				provenance.workingFingerprint));
 		}
 		Collections.sort(result, new Comparator<ProjectEntry>() {
 			@Override public int compare(ProjectEntry left, ProjectEntry right) {
@@ -93,9 +95,11 @@ final class WorldBuilderLauncherModel {
 		}
 		Map<String,Object> manifest = WorldBuilderJsonDocuments.readObject(path);
 		Map<String,Object> target = object(manifest.get("target"));
+		Map<String,Object> fingerprints = object(manifest.get("fingerprints"));
 		return new ProjectProvenance(text(target.get("locatorDisplay")),
 			text(target.get("selectedConfigurationRelativePath")),
-			text(target.get("selectedConfigurationSha256")));
+			text(target.get("selectedConfigurationSha256")),
+			text(fingerprints.get("workingSha256")));
 	}
 
 	DiscoveryPreview inspectDefaultTarget()
@@ -346,7 +350,64 @@ final class WorldBuilderLauncherModel {
 	int run(WorldBuilderAdaptiveProjectLifecycle.ProjectResult project)
 		throws IOException, WorldBuilderContractException,
 			WorldBuilderDiscoveryException, InterruptedException {
-		return new WorldBuilderProcessSupervisor().runAdaptiveProject(project.projectRoot);
+		int exit = new WorldBuilderProcessSupervisor().runAdaptiveProject(project.projectRoot);
+		if (exit == 0) {
+			new WorldBuilderProjectRevisionService().create(project.projectRoot,
+				"editing-session", "Saved editing session", true);
+		}
+		return exit;
+	}
+
+	RevisionListing projectRevisions(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project to view backups.");
+		List<WorldBuilderProjectRevisionService.Revision> revisions =
+			new WorldBuilderProjectRevisionService().list(entry.projectRoot);
+		List<ProjectRevisionEntry> result = new ArrayList<ProjectRevisionEntry>();
+		java.util.Set<String> objects = new java.util.HashSet<String>();
+		long stored = 0L;
+		for (WorldBuilderProjectRevisionService.Revision revision : revisions) {
+			result.add(revisionEntry(revision,
+				revision.workingFingerprint.equals(entry.workingFingerprint)));
+			for (WorldBuilderBoundedInventory.Record file : revision.files) {
+				if (objects.add(file.sha256)) stored = Math.addExact(stored, file.size);
+			}
+		}
+		return new RevisionListing(result, stored);
+	}
+
+	ProjectRevisionEntry createProjectBackup(ProjectEntry entry, String description)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project to back up.");
+		return revisionEntry(new WorldBuilderProjectRevisionService().create(
+			entry.projectRoot, "explicit-backup", description, false), true);
+	}
+
+	String restoreProjectBackup(ProjectEntry entry, String revisionId)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project to restore.");
+		WorldBuilderProjectRevisionService.RestoreResult restored =
+			new WorldBuilderProjectRevisionService().restore(
+				entry.projectRoot, revisionId);
+		if (!restored.changed) return "That backup is already the current project world.";
+		return "Project backup loaded successfully.\n\nLoaded revision: "
+			+ restored.restored.revisionId + "\nAutomatic pre-restore backup: "
+			+ restored.safeguard.revisionId
+			+ "\n\nNo server files were accessed or changed.";
+	}
+
+	Path exportProjectBackup(ProjectEntry entry, String revisionId)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select one project backup to export.");
+		return new WorldBuilderProjectRevisionService().export(
+			entry.projectRoot, revisionId);
+	}
+
+	private static ProjectRevisionEntry revisionEntry(
+		WorldBuilderProjectRevisionService.Revision revision, boolean current) {
+		return new ProjectRevisionEntry(revision.revisionId, revision.createdAt,
+			revision.reason, revision.description, revision.workingFingerprint,
+			revision.fileCount, revision.totalBytes, current);
 	}
 
 	PreparedImport prepareServerImport(ProjectEntry entry)
@@ -462,10 +523,12 @@ final class WorldBuilderLauncherModel {
 		final String sourceDisplay;
 		final String configurationPath;
 		final String configurationSha256;
+		final String workingFingerprint;
 
 		ProjectEntry(String projectId, String displayName, String origin,
 			String state, Path projectRoot, boolean active, String sourceDisplay,
-			String configurationPath, String configurationSha256) {
+			String configurationPath, String configurationSha256,
+			String workingFingerprint) {
 			this.projectId = projectId;
 			this.displayName = displayName;
 			this.origin = origin;
@@ -475,10 +538,52 @@ final class WorldBuilderLauncherModel {
 			this.sourceDisplay = sourceDisplay;
 			this.configurationPath = configurationPath;
 			this.configurationSha256 = configurationSha256;
+			this.workingFingerprint = workingFingerprint;
 		}
 
 		@Override public String toString() {
 			return (active ? "▶ " : "   ") + displayName;
+		}
+	}
+
+	static final class RevisionListing {
+		final List<ProjectRevisionEntry> revisions;
+		final long storedObjectBytes;
+
+		RevisionListing(List<ProjectRevisionEntry> revisions, long storedObjectBytes) {
+			this.revisions = Collections.unmodifiableList(
+				new ArrayList<ProjectRevisionEntry>(revisions));
+			this.storedObjectBytes = storedObjectBytes;
+		}
+	}
+
+	static final class ProjectRevisionEntry {
+		final String revisionId;
+		final String createdAt;
+		final String reason;
+		final String description;
+		final String workingFingerprint;
+		final long fileCount;
+		final long totalBytes;
+		final boolean current;
+
+		ProjectRevisionEntry(String revisionId, String createdAt, String reason,
+			String description, String workingFingerprint, long fileCount,
+			long totalBytes, boolean current) {
+			this.revisionId = revisionId;
+			this.createdAt = createdAt;
+			this.reason = reason;
+			this.description = description;
+			this.workingFingerprint = workingFingerprint;
+			this.fileCount = fileCount;
+			this.totalBytes = totalBytes;
+			this.current = current;
+		}
+
+		@Override public String toString() {
+			String label = reason.replace('-', ' ');
+			return (current ? "Current — " : "") + createdAt + " — " + label
+				+ (description.isEmpty() ? "" : " — " + description);
 		}
 	}
 
@@ -537,12 +642,14 @@ final class WorldBuilderLauncherModel {
 		final String sourceDisplay;
 		final String configurationPath;
 		final String configurationSha256;
+		final String workingFingerprint;
 
 		ProjectProvenance(String sourceDisplay, String configurationPath,
-			String configurationSha256) {
+			String configurationSha256, String workingFingerprint) {
 			this.sourceDisplay = sourceDisplay;
 			this.configurationPath = configurationPath;
 			this.configurationSha256 = configurationSha256;
+			this.workingFingerprint = workingFingerprint;
 		}
 	}
 

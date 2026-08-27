@@ -6,9 +6,11 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
+import uuid
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -153,6 +155,38 @@ class ProjectRevisionTest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         second_id, second_fingerprint = second.stdout.split("|")
         self.assertNotEqual(first_fingerprint, second_fingerprint)
+
+        # A crash after moving the live package but before publishing the
+        # selected revision deterministically restores the exact prior world.
+        transaction_id = str(uuid.uuid4())
+        layered = self.project / "working/layered-world"
+        live = layered / "package"
+        previous = layered / f".revision-previous-{transaction_id}"
+        stage = layered / f".revision-restore-{transaction_id}"
+        live.rename(previous)
+        shutil.copytree(previous, stage)
+        (layered / ".revision-restore-transaction.json").write_text(
+            json.dumps({
+                "schemaVersion": 1,
+                "manifestType": "world-builder-project-revision-restore",
+                "transactionId": transaction_id,
+                "revisionId": first_id,
+                "phase": "live-moved",
+            }, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        recovered = self.revision("list", self.project)
+        self.assertEqual(recovered.returncode, 0, recovered.stderr)
+        self.assertTrue(live.is_dir())
+        self.assertFalse(previous.exists())
+        self.assertFalse(stage.exists())
+        self.assertFalse((layered / ".revision-restore-transaction.json").exists())
+        recovered_manifest = json.loads(
+            (self.project / "project.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            recovered_manifest["fingerprints"]["workingSha256"], second_fingerprint
+        )
 
         listed = self.revision("list", self.project)
         self.assertEqual(listed.returncode, 0, listed.stderr)

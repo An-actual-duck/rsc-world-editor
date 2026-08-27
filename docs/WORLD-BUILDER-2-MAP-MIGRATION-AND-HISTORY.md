@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Migration and GUI transaction increments implemented; project history pending |
+| Status | All three increments implemented; owner GUI validation pending |
 | Captured | 2026-08-27 |
 | Product | World Builder 2 only |
 | Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
@@ -55,11 +55,10 @@ The following are already implemented:
 - copy-on-write project save publication and startup recovery.
 
 The migration choice, immutable lineage, complete-project export action, GUI
-Import/Undo/Recovery projection, and recoverable legacy retirement are now
-implemented. The remaining major gap in this objective is creator-facing
-project revision history. Destination selection/reveal for complete exports is
-also future launcher polish; the current GUI reports the immutable generated
-export path.
+Import/Undo/Recovery projection, recoverable legacy retirement, and
+creator-facing project revision history are implemented. Destination
+selection/reveal for complete exports remains future launcher polish; the
+current GUI reports the immutable generated export path.
 
 ## Legacy custom-landscape migration
 
@@ -227,7 +226,7 @@ is an additional safe interface, not removal of the recovery escape hatch.
 | --- | --- | --- |
 | Save publication recovery | Restore the working package after an interrupted or failed save | Implemented internally |
 | Server transaction backup | Restore target files/configuration during rollback or exact Undo | Implemented and script-accessible |
-| Project revision history | Let a creator return to an earlier authored world | Not yet implemented |
+| Project revision history | Let a creator return to an earlier authored world | Implemented in the selected-project GUI |
 
 Calling all three “backup” in casual UI is acceptable only when each screen
 states which world is affected. Loading a project revision never mutates a
@@ -315,7 +314,7 @@ The target remains untouched until a later explicit Import.
 - Exercise Linux GUI behavior and Java-level Windows-equivalent contracts;
   owner visual review uses no screenshots.
 
-### Increment 3 — project revision history
+### Increment 3 — project revision history (implemented)
 
 - Define the immutable revision schema and content-addressed storage.
 - Record changed successful editing sessions and explicit backups.
@@ -376,4 +375,4 @@ risk-appropriate test gate before the next begins.
 | Complete layered export | GUI action implemented | Optional destination/reveal experience |
 | Target import/undo/recovery | GUI projection implemented | Owner visual validation and release testing |
 | Legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
-| Project revision history | Design-ready | Schema, storage, browser, restore transaction, and tests |
+| Project revision history | Implemented with content-addressed storage and recovery | Owner GUI validation and additional long-running real-project use |

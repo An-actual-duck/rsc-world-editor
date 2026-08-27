@@ -26,6 +26,8 @@ final class WorldBuilderProjectRevisionService {
 	static final String ENTRIES = ROOT + "/entries";
 	static final String OBJECTS = ROOT + "/objects";
 	static final String EXPORTS = "revision-exports";
+	static final String RESTORE_JOURNAL =
+		"working/layered-world/.revision-restore-transaction.json";
 	private static final String OPERATION = "project-revision-history";
 	private static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
@@ -35,6 +37,7 @@ final class WorldBuilderProjectRevisionService {
 		Path project = requireProject(requestedProject);
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			recoverLocked(project);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			return createLocked(verified, reason, description, onlyWhenChanged);
@@ -46,6 +49,7 @@ final class WorldBuilderProjectRevisionService {
 		Path project = requireProject(requestedProject);
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			recoverLocked(project);
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			return listLocked(project, true);
 		}
@@ -56,6 +60,7 @@ final class WorldBuilderProjectRevisionService {
 		Path project = requireProject(requestedProject);
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			recoverLocked(project);
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			Revision revision = requireRevision(project, revisionId, true);
@@ -89,10 +94,14 @@ final class WorldBuilderProjectRevisionService {
 			boolean liveMoved = false;
 			boolean restoredPublished = false;
 			try {
+				writeRestoreJournal(project, nonce, revision.revisionId, "prepared", false);
 				moveNew(live, previous);
 				liveMoved = true;
+				writeRestoreJournal(project, nonce, revision.revisionId, "live-moved", true);
 				moveNew(stage, live);
 				restoredPublished = true;
+				writeRestoreJournal(project, nonce, revision.revisionId,
+					"restored-published", true);
 				WorldBuilderAdaptiveProjectLifecycle.ProjectResult saved =
 					new WorldBuilderAdaptiveProjectLifecycle()
 						.saveAfterRegionPublication(project);
@@ -101,7 +110,11 @@ final class WorldBuilderProjectRevisionService {
 					WorldBuilderErrorCodes.RECOVERY_REQUIRED, revisionId,
 					"Restored package published with an unexpected project identity.",
 					"Keep the project closed while the exact prior package is restored.");
+				writeRestoreJournal(project, nonce, revision.revisionId, "committed", true);
 				deleteTree(previous);
+				Files.delete(project.resolve(RESTORE_JOURNAL));
+				WorldBuilderAdaptiveDurability.forceDirectory(
+					project.resolve(RESTORE_JOURNAL).getParent());
 				return new RestoreResult(revision, safeguard, true);
 			} catch (Throwable failure) {
 				try {
@@ -114,6 +127,9 @@ final class WorldBuilderProjectRevisionService {
 							.saveAfterRegionPublication(project);
 					}
 					if (Files.exists(stage, LinkOption.NOFOLLOW_LINKS)) deleteTree(stage);
+					Files.deleteIfExists(project.resolve(RESTORE_JOURNAL));
+					WorldBuilderAdaptiveDurability.forceDirectory(
+						project.resolve(RESTORE_JOURNAL).getParent());
 				} catch (Exception rollbackFailure) {
 					throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, revisionId,
 						"Revision restore failed and automatic rollback could not prove the prior project state.",
@@ -134,6 +150,7 @@ final class WorldBuilderProjectRevisionService {
 		Path project = requireProject(requestedProject);
 		try (WorldBuilderAdaptiveProjectLock ignored =
 			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			recoverLocked(project);
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			Revision revision = requireRevision(project, revisionId, true);
 			Path exports = project.resolve(EXPORTS);
@@ -156,6 +173,119 @@ final class WorldBuilderProjectRevisionService {
 				throw new IOException("Revision export failed", failure);
 			}
 		}
+	}
+
+	void recover(Path requestedProject)
+		throws IOException, WorldBuilderContractException {
+		Path project = requireProject(requestedProject);
+		try (WorldBuilderAdaptiveProjectLock ignored =
+			WorldBuilderAdaptiveProjectLock.acquire(project, OPERATION)) {
+			recoverLocked(project);
+		}
+	}
+
+	private void recoverLocked(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path journal = project.resolve(RESTORE_JOURNAL);
+		if (!Files.exists(journal, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!Files.isRegularFile(journal, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(journal)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, RESTORE_JOURNAL,
+			"Project revision restore journal is unsafe.",
+			"Keep the project closed and restore the exact real journal file.");
+		Map<String,Object> value;
+		try {
+			value = WorldBuilderJsonDocuments.readObject(journal);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, RESTORE_JOURNAL,
+				"Project revision restore journal is malformed.",
+				"Keep the project closed and preserve its working package plus restore directories.");
+		}
+		if (value.size() != 5 || !Long.valueOf(1L).equals(value.get("schemaVersion"))
+			|| !"world-builder-project-revision-restore".equals(value.get("manifestType"))
+			|| !(value.get("transactionId") instanceof String)
+			|| !(value.get("revisionId") instanceof String)
+			|| !(value.get("phase") instanceof String)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, RESTORE_JOURNAL,
+			"Project revision restore journal has an invalid shape.",
+			"Keep the project closed and preserve all restore evidence.");
+		String transaction;
+		try {
+			transaction = UUID.fromString((String)value.get("transactionId")).toString();
+			UUID.fromString((String)value.get("revisionId"));
+		} catch (IllegalArgumentException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, RESTORE_JOURNAL,
+				"Project revision restore journal identities are invalid.",
+				"Keep the project closed and preserve all restore evidence.");
+		}
+		String phase = (String)value.get("phase");
+		if (!("prepared".equals(phase) || "live-moved".equals(phase)
+			|| "restored-published".equals(phase) || "committed".equals(phase))) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, RESTORE_JOURNAL,
+				"Project revision restore journal phase is invalid.",
+				"Keep the project closed and preserve all restore evidence.");
+		}
+		Path parent = project.resolve(
+			WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY).getParent();
+		Path live = parent.resolve("package");
+		Path stage = parent.resolve(".revision-restore-" + transaction);
+		Path previous = parent.resolve(".revision-previous-" + transaction);
+		if ("committed".equals(phase)) {
+			if (!Files.isDirectory(live, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(live)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY,
+				"Committed revision restore has no safe working package.",
+				"Preserve the revision transaction for manual owner recovery.");
+			if (Files.exists(previous, LinkOption.NOFOLLOW_LINKS)) deleteTree(previous);
+			if (Files.exists(stage, LinkOption.NOFOLLOW_LINKS)) deleteTree(stage);
+		} else if (Files.exists(previous, LinkOption.NOFOLLOW_LINKS)) {
+			if (Files.exists(live, LinkOption.NOFOLLOW_LINKS)) deleteTree(live);
+			moveNew(previous, live);
+			if (Files.exists(stage, LinkOption.NOFOLLOW_LINKS)) deleteTree(stage);
+			new WorldBuilderAdaptiveProjectLifecycle().saveAfterRegionPublication(project);
+		} else {
+			if (!Files.isDirectory(live, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(live)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY,
+				"Interrupted revision restore has neither prior nor live package.",
+				"Preserve all restore evidence for manual owner recovery.");
+			if (Files.exists(stage, LinkOption.NOFOLLOW_LINKS)) deleteTree(stage);
+		}
+		Files.delete(journal);
+		WorldBuilderAdaptiveDurability.forceDirectory(journal.getParent());
+	}
+
+	private static void writeRestoreJournal(Path project, String transaction,
+		String revisionId, String phase, boolean replacing) throws IOException {
+		Map<String,Object> value = new LinkedHashMap<String,Object>();
+		value.put("schemaVersion", Long.valueOf(1L));
+		value.put("manifestType", "world-builder-project-revision-restore");
+		value.put("transactionId", transaction);
+		value.put("revisionId", revisionId);
+		value.put("phase", phase);
+		Path journal = project.resolve(RESTORE_JOURNAL);
+		byte[] bytes = WorldBuilderJsonDocuments.pretty(value)
+			.getBytes(StandardCharsets.UTF_8);
+		if (!replacing) {
+			writeNew(journal, bytes);
+			WorldBuilderAdaptiveDurability.forceDirectory(journal.getParent());
+			return;
+		}
+		Path temporary = journal.getParent().resolve(
+			".revision-journal-" + transaction + ".tmp");
+		Files.write(temporary, bytes, StandardOpenOption.CREATE_NEW,
+			StandardOpenOption.WRITE);
+		WorldBuilderAdaptiveDurability.forceFile(temporary);
+		try {
+			Files.move(temporary, journal, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+		} catch (AtomicMoveNotSupportedException unsupported) {
+			Files.deleteIfExists(temporary);
+			throw new IOException("Revision journal requires atomic replacement", unsupported);
+		}
+		WorldBuilderAdaptiveDurability.forceDirectory(journal.getParent());
 	}
 
 	private Revision createLocked(
