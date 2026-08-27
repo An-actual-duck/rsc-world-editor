@@ -3,13 +3,15 @@
 Status: **interactive Region Copy/Paste and graphical portable Import/Export owner-validated; consolidated toolbar UI and exact one-step Paste Undo implemented pending owner validation; Cut UI pending**
 Scope: ordered selection, portable snapshots, project-local library, copy,
 cut, paste, compatibility, collision preview, and atomic Editor publication
-Runtime provider: separate Copy/Paste tools and supervised Copy, preview, apply, sharing, and exact last-Paste Undo bridges implemented
+Runtime provider: one Region Copier tool with subordinate Copy/Paste modes and supervised Copy, preview, apply, sharing, and exact last-Paste Undo bridges implemented
 
-Current packaged UI status as of 2026-08-26: **Region Copy** and **Region Paste**
-are separate primary toolbar tools instead of a combined mode with duplicate
-tab-like controls. Copy provides ordered numbered markers, prospective segment
-preview, enclosed-tile preview, a single `Start -> Stop -> Reset` selection
-control, marker Undo, explicit Copy, and Export. Copy places the closed selection
+Current packaged UI status as of 2026-08-26: one primary **Region Copier**
+toolbar tool exposes **Copy** and **Paste** as its two subordinate second-column
+modes. Choosing either mode opens its corresponding flyout; neither flyout
+contains duplicate Copy/Paste mode tabs. The Copy flyout provides ordered
+numbered markers, prospective segment preview, enclosed-tile preview, a single
+`Start -> Stop -> Reset` selection control, marker Undo, explicit Copy, and
+Export. Copy places the closed selection
 on the session clipboard and in the project-local content-addressed library;
 Reset clears markers without discarding that clipboard. Paste uses the current
 copied or imported snapshot, anchors marker 1 to a clicked destination, and

@@ -693,9 +693,10 @@ owner-validated**. The
 strict ordered-polygon contract, integer tile-center/edge ownership,
 content-addressed library, and placement-footprint reports are implemented in
 [World Builder 2 Region Snapshots v1](WORLD-BUILDER-2-REGION-SNAPSHOTS.md).
-The packaged **Region Copy** and **Region Paste** tools are now separate toolbar
-icons with consolidated pop-outs. Copy uses `Start -> Stop -> Reset`, marker
-Undo, explicit Copy, and Export; Paste uses the current clipboard, Import,
+The packaged **Region Copier** is one primary toolbar tool with **Copy** and
+**Paste** as subordinate second-column mode icons and no duplicate mode tabs in
+their consolidated pop-outs. The Copy flyout uses `Start -> Stop -> Reset`,
+marker Undo, explicit Copy, and Export; the Paste flyout uses the current clipboard, Import,
 exact preview, `Paste -> Overwrite? -> Confirm` when occupied, and exact one-step
 Undo. Paste assigns marker 1 to a clicked destination, displays the translated
 ghost and collision pins, and activates the
