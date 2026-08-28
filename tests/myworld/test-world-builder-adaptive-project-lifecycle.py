@@ -5086,6 +5086,12 @@ public final class FakeAdaptiveClient {
                     "worldSpace": manifest["worldSpaces"][0]["id"],
                 })
             manifest["levels"].sort(key=lambda value: value["level"])
+            # A deployed layered map may preserve valid unique level records
+            # in historical insertion order. Project creation normalizes only
+            # its isolated copy before strict composition.
+            manifest["levels"] = manifest["levels"][2:] + manifest["levels"][:2]
+            noncanonical_levels = [value["level"] for value in manifest["levels"]]
+            self.assertNotEqual(sorted(noncanonical_levels), noncanonical_levels)
             manifest["terrainSectors"].sort(
                 key=lambda value: (value["level"], value["sectorX"], value["sectorY"])
             )
@@ -5096,6 +5102,7 @@ public final class FakeAdaptiveClient {
             installation.mkdir()
             runtime = self.make_runtime(installation)
             target_before = tree_bytes(target)
+            layered_base_before = tree_bytes(layered_base)
             result = subprocess.run(
                 [
                     "java", "-cp", str(self.classes),
@@ -5109,6 +5116,7 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(layered_base_before, tree_bytes(layered_base))
             project = Path(json.loads(result.stdout)["projectRoot"])
             package = project / "working/layered-world/package"
             composed = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
@@ -5124,6 +5132,27 @@ public final class FakeAdaptiveClient {
             self.assertTrue(
                 (project / "source/migration/layered-base/package/manifest.json").is_file()
             )
+            original_base_manifest = json.loads((
+                project
+                / "source/migration/layered-base/original-package/manifest.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(
+                noncanonical_levels,
+                [value["level"] for value in original_base_manifest["levels"]],
+            )
+            normalized_base_manifest = json.loads((
+                project / "source/migration/layered-base/package/manifest.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(
+                sorted(noncanonical_levels),
+                [value["level"] for value in normalized_base_manifest["levels"]],
+            )
+            normalization = json.loads((
+                project
+                / "source/migration/layered-base/normalization-report.json"
+            ).read_text(encoding="utf-8"))
+            self.assertTrue(normalization["levelsReordered"])
+            self.assertEqual(sorted(noncanonical_levels), normalization["normalizedLevels"])
             self.assertTrue(
                 (project / "source/migration/legacy-converted/package/manifest.json").is_file()
             )
@@ -7094,6 +7123,8 @@ public final class FakeAdaptiveClient {
         self.assertIn("Custom_Landscape file detected. Would you like to incorporate it?",
                       launcher_source)
         self.assertIn("Choose Detected Layered Map", launcher_source)
+        self.assertIn("preferMostRecentlyModified ? bases.candidates.get(0)",
+                      launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)

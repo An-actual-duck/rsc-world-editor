@@ -97,6 +97,14 @@ replace the same coordinates; every other base sector, every wider signed
 level, and existing base placement set remains exact. Inputs that cannot
 satisfy this deterministic rule fail without changing either source.
 
+Some deployed layered packages preserve otherwise valid, unique signed level
+records in historical insertion order. For composition only, World Builder
+keeps one byte-exact copy under `layered-base/original-package`, makes a second
+isolated package copy, sorts that copy's level declarations by signed level,
+and records both manifest hashes plus the ordered levels in
+`layered-base/normalization-report.json`. Duplicate, malformed, or out-of-range
+levels still fail closed. The installed package is never normalized in place.
+
 ### Streamlined prompt
 
 After **Detect Server Map** and any required configuration selection, discovery
@@ -121,6 +129,12 @@ an ordinary user to navigate to a package directory. If no verified candidate
 exists, the editor explains that the layered map must be installed or launched
 normally; the user may explicitly use the legacy map alone or cancel without
 creating anything.
+
+Choosing **Use Most Recently Modified** at the server-map prompt carries that
+choice through subsequent legacy-configuration and installed-layered-package
+ambiguity. The newest verified candidate is used consistently; the user is not
+asked to make the same time-based choice again. Choosing **Choose from
+Detected…** retains explicit selection at each genuinely distinct authority.
 
 - **Yes** creates the project by composing verified legacy sectors over the
   already selected layered target, opens the resulting layered world, and

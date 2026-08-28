@@ -847,11 +847,16 @@ final class WorldBuilderDesktopLauncher {
 		}
 
 		private void inspectSource(final Path source, final boolean advanced) {
-			inspectSource(source, null, advanced);
+			inspectSource(source, null, advanced, false);
 		}
 
 		private void inspectSource(final Path source, final String configuration,
 			final boolean advanced) {
+			inspectSource(source, configuration, advanced, false);
+		}
+
+		private void inspectSource(final Path source, final String configuration,
+			final boolean advanced, final boolean preferMostRecentlyModified) {
 			runTask("Inspecting source read-only…",
 				new Task<WorldBuilderLauncherModel.DiscoveryPreview>() {
 					@Override public WorldBuilderLauncherModel.DiscoveryPreview run()
@@ -885,11 +890,12 @@ final class WorldBuilderDesktopLauncher {
 									JOptionPane.QUESTION_MESSAGE, null,
 									preview.configurationChoices.toArray(), newest);
 							if (selected != null) {
-								inspectSource(source, selected.role, advanced);
+								inspectSource(source, selected.role, advanced, action == 0);
 							}
 							return;
 						}
-						inspectLegacyMigrationThenShow(preview, advanced);
+						inspectLegacyMigrationThenShow(
+							preview, advanced, null, preferMostRecentlyModified);
 					}
 				});
 		}
@@ -897,14 +903,21 @@ final class WorldBuilderDesktopLauncher {
 		private void inspectLegacyMigrationThenShow(
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final boolean advanced) {
-			inspectLegacyMigrationThenShow(preview, advanced, null);
+			inspectLegacyMigrationThenShow(preview, advanced, null, false);
 		}
 
 		private void inspectLegacyMigrationThenShow(
 			final WorldBuilderLauncherModel.DiscoveryPreview preview,
 			final boolean advanced, final String legacyConfiguration) {
+			inspectLegacyMigrationThenShow(preview, advanced, legacyConfiguration, false);
+		}
+
+		private void inspectLegacyMigrationThenShow(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final boolean advanced, final String legacyConfiguration,
+			final boolean preferMostRecentlyModified) {
 			if (!preview.canCreateServerProject()) {
-				showSourcePreview(preview, advanced, null);
+				showSourcePreview(preview, advanced, null, preferMostRecentlyModified);
 				return;
 			}
 			runTask("Checking for legacy map changes…",
@@ -920,6 +933,11 @@ final class WorldBuilderDesktopLauncher {
 							WorldBuilderLauncherModel.ConfigurationChoice newest =
 								WorldBuilderLauncherModel.ConfigurationChoice
 									.mostRecentlyModified(migration.configurationChoices);
+							if (preferMostRecentlyModified) {
+								inspectLegacyMigrationThenShow(
+									preview, advanced, newest.role, true);
+								return;
+							}
 							Object[] actions = {"Use Most Recently Modified",
 								"Choose from Detected…", "Cancel"};
 							int action = JOptionPane.showOptionDialog(frame,
@@ -939,10 +957,11 @@ final class WorldBuilderDesktopLauncher {
 										JOptionPane.QUESTION_MESSAGE, null,
 										migration.configurationChoices.toArray(), newest);
 							if (selected != null) inspectLegacyMigrationThenShow(
-								preview, advanced, selected.role);
+								preview, advanced, selected.role, action == 0);
 							return;
 						}
-						showSourcePreview(preview, advanced, migration);
+						showSourcePreview(preview, advanced, migration,
+							preferMostRecentlyModified);
 					}
 				});
 		}
@@ -995,7 +1014,8 @@ final class WorldBuilderDesktopLauncher {
 
 		private void showSourcePreview(WorldBuilderLauncherModel.DiscoveryPreview preview,
 			boolean advanced,
-			WorldBuilderLauncherModel.LegacyMigrationPreview detectedMigration) {
+			WorldBuilderLauncherModel.LegacyMigrationPreview detectedMigration,
+			boolean preferMostRecentlyModified) {
 			final WorldBuilderLauncherModel.LegacyMigrationPreview migration;
 			final Path layeredBasePackage;
 			if (detectedMigration != null) {
@@ -1009,12 +1029,13 @@ final class WorldBuilderDesktopLauncher {
 					}
 					WorldBuilderLayeredBaseDiscovery.Candidate selectedBase = bases.automatic();
 					if (selectedBase == null && bases.candidates.size() > 1) {
-						selectedBase = (WorldBuilderLayeredBaseDiscovery.Candidate)
-							JOptionPane.showInputDialog(frame,
-								"More than one active layered map was recorded for this server.\n"
-									+ "Choose the map that the detected Custom_Landscape changes belong to:",
-								"Choose Detected Layered Map", JOptionPane.QUESTION_MESSAGE,
-								null, bases.candidates.toArray(), bases.candidates.get(0));
+						selectedBase = preferMostRecentlyModified ? bases.candidates.get(0)
+							: (WorldBuilderLayeredBaseDiscovery.Candidate)
+								JOptionPane.showInputDialog(frame,
+									"More than one active layered map was recorded for this server.\n"
+										+ "Choose the map that the detected Custom_Landscape changes belong to:",
+									"Choose Detected Layered Map", JOptionPane.QUESTION_MESSAGE,
+									null, bases.candidates.toArray(), bases.candidates.get(0));
 						if (selectedBase == null) return;
 					}
 					if (selectedBase == null) {

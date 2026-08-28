@@ -555,8 +555,12 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path legacyPackage = migrationRoot.resolve("legacy-converted/package");
 		ensureRealDirectory(legacyPackage.getParent());
 		moveAtomicNew(stage.resolve(BASELINE_DIRECTORY), legacyPackage);
+		Path originalBase = migrationRoot.resolve("layered-base/original-package");
+		copyTreeExact(layeredBasePackage, originalBase);
 		Path copiedBase = migrationRoot.resolve("layered-base/package");
-		copyTreeExact(layeredBasePackage, copiedBase);
+		copyTreeExact(originalBase, copiedBase);
+		normalizeLayeredBaseLevels(copiedBase,
+			migrationRoot.resolve("layered-base/normalization-report.json"));
 
 		WorldBuilderReadOnlyTarget staged = WorldBuilderReadOnlyTarget.open(stage);
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
@@ -571,6 +575,78 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			composed.toJson().getBytes(StandardCharsets.UTF_8));
 		return PreparedOrigin.withPackageFingerprint(
 			prepared, composed.outputFingerprintSha256);
+	}
+
+	private static void normalizeLayeredBaseLevels(Path packageRoot, Path reportPath)
+		throws IOException, WorldBuilderContractException {
+		Path manifestPath = packageRoot.resolve("manifest.json");
+		Map<String,Object> manifest;
+		try {
+			manifest = WorldBuilderJsonDocuments.readObject(manifestPath);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+				"source/migration/layered-base/original-package/manifest.json",
+				"The detected layered base manifest is malformed.",
+				"Repair or reinstall the active layered map package.", malformed);
+		}
+		Object rawLevels = manifest.get("levels");
+		if (!(rawLevels instanceof List) || ((List<?>)rawLevels).isEmpty()
+			|| ((List<?>)rawLevels).size() > 4096) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+				"source/migration/layered-base/original-package/manifest.json",
+				"Layered levels are missing or outside the supported bound.",
+				"Use one to 4,096 unique signed levels in the selected world space.");
+		}
+		List<Object> original = new ArrayList<Object>((List<?>)rawLevels);
+		final Map<Object,Integer> numbers = new java.util.IdentityHashMap<Object,Integer>();
+		Set<Integer> unique = new HashSet<Integer>();
+		for (Object raw : original) {
+			if (!(raw instanceof Map)) throw invalidLayeredLevel();
+			@SuppressWarnings("unchecked") Map<String,Object> level =
+				(Map<String,Object>)raw;
+			Object number = level.get("level");
+			if (!(number instanceof Number)) throw invalidLayeredLevel();
+			long value = ((Number)number).longValue();
+			if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE
+				|| !unique.add(Integer.valueOf((int)value))) throw invalidLayeredLevel();
+			numbers.put(raw, Integer.valueOf((int)value));
+		}
+		List<Object> normalized = new ArrayList<Object>(original);
+		Collections.sort(normalized, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				return Integer.compare(numbers.get(left).intValue(),
+					numbers.get(right).intValue());
+			}
+		});
+		String originalHash = WorldBuilderHashes.sha256(manifestPath);
+		boolean reordered = !original.equals(normalized);
+		if (reordered) {
+			manifest.put("levels", normalized);
+			Files.write(manifestPath,
+				WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+		}
+		String normalizedHash = WorldBuilderHashes.sha256(manifestPath);
+		Map<String,Object> report = new LinkedHashMap<String,Object>();
+		report.put("schemaVersion", Long.valueOf(1L));
+		report.put("manifestType", "world-builder-layered-base-normalization-report");
+		report.put("originalManifestSha256", originalHash);
+		report.put("normalizedManifestSha256", normalizedHash);
+		report.put("levelsReordered", Boolean.valueOf(reordered));
+		List<Object> levels = new ArrayList<Object>();
+		for (Object raw : normalized) {
+			levels.add(Long.valueOf(numbers.get(raw).longValue()));
+		}
+		report.put("normalizedLevels", levels);
+		writeNew(reportPath,
+			WorldBuilderJsonDocuments.pretty(report).getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static WorldBuilderContractException invalidLayeredLevel() {
+		return problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+			"source/migration/layered-base/original-package/manifest.json",
+			"Layered levels are invalid or duplicated.",
+			"Use unique signed levels in the selected world space.");
 	}
 
 	private static String preparedDefinitionCatalogPath(PreparedOrigin prepared)
@@ -2804,6 +2880,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					? "map-migration-choice"
 					: relative.endsWith("/composition-report.json")
 						? "layered-terrain-composition-report"
+					: relative.endsWith("/normalization-report.json")
+						? "layered-base-normalization-report"
 					: relative.endsWith("/discovery-report.json")
 						? "legacy-discovery-report" : "legacy-migration-input";
 				original.add(recordFor(projectStage, role, relative));
