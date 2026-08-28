@@ -113,13 +113,15 @@ final class WorldBuilderNpcDefinitionProvider {
 			}
 			required.add(id);
 		}
+		Set<Integer> providerPlacements = effectiveNpcIds.isEmpty()
+			? placements : new TreeSet<Integer>(effectiveNpcIds);
 		int maximum = required.isEmpty() ? -1 : Collections.max(required).intValue();
 		if (maximum < appendedCount) return Result.unchanged();
 		if (maximum > MAX_ID) throw problem("npc placements",
 			"Required NPC ID exceeds the runtime domain 0..65535.");
 
 		Provider provider = readProvider(selectedProviderManifest, copiedTarget,
-			appendedCount - 1, placements);
+			appendedCount - 1, providerPlacements);
 		Map<String,Object> template = object(baseRows.get(0), "NpcDefs.json#record=0");
 		List<Object> rewritten = new ArrayList<Object>(customRows);
 		List<Item> items = new ArrayList<Item>();
@@ -407,13 +409,6 @@ final class WorldBuilderNpcDefinitionProvider {
 		}
 		if (!expected.containsKey("MyWorldNpcLocs.json")) throw new TargetMismatch(
 			"Provider is missing required target binding MyWorldNpcLocs.json.");
-		Path placementSource = copiedTarget.resolve(
-			"server/conf/server/defs/locs/MyWorldNpcLocs.json");
-		if (!Files.isRegularFile(placementSource, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(placementSource)) {
-			throw new TargetMismatch(
-				"Provider target placement evidence is unavailable or unsafe.");
-		}
 
 		for (String key : Arrays.asList("customSpriteArchive", "authenticSpriteArchive")) {
 			Map<String,Object> asset = object(assets.get(key), key);

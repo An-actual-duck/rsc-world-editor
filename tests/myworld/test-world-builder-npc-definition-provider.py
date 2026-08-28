@@ -28,15 +28,23 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 
 public final class NpcDefinitionProviderHarness {
     public static void main(String[] args) throws Exception {
         Map<String,Object> catalog = new LinkedHashMap<String,Object>();
         catalog.put("npcs", Arrays.<Object>asList(Long.valueOf(0L), Long.valueOf(2L)));
+        Set<Integer> effectiveNpcIds = new TreeSet<Integer>();
+        if (args.length > 4 && !args[4].isEmpty()) {
+            for (String value : args[4].split(",")) {
+                effectiveNpcIds.add(Integer.valueOf(value));
+            }
+        }
         try {
             WorldBuilderNpcDefinitionProvider.Result result =
                 WorldBuilderNpcDefinitionProvider.consume(
-                    Paths.get(args[1]), Paths.get(args[0]), catalog);
+                    Paths.get(args[1]), Paths.get(args[0]), catalog, effectiveNpcIds);
             Files.write(Paths.get(args[2]), result.customDefinitions);
             WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
             Map<String,Object> registry = new LinkedHashMap<String,Object>();
@@ -175,6 +183,23 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         self.assertNotEqual(0, result.returncode)
         return result.stdout + result.stderr
+
+    def consume_effective(self, target: Path, selected: Path, stage: Path,
+                          npc_ids: list[int]) -> tuple[dict, dict]:
+        output = stage.parent / "custom.json"
+        stage.mkdir()
+        classpath = os.pathsep.join((str(self.classes), str(CLASSES)))
+        result = subprocess.run([
+            "java", "-cp", classpath,
+            "com.openrsc.worldbuilder.NpcDefinitionProviderHarness",
+            str(target), str(selected), str(output), str(stage),
+            ",".join(map(str, npc_ids)),
+        ], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        report = json.loads((stage /
+            "diagnostics/npc-definition-provider-warnings.json").read_text(
+                encoding="utf-8"))
+        return json.loads(output.read_text(encoding="utf-8")), report
 
     def bind_package(self, selected: Path) -> None:
         rows = []
@@ -586,6 +611,23 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             })
 
             custom, report = self.consume(target, selected, base / "stage")
+
+            self.assertEqual("Neutral producer NPC", custom["npcs"][1]["name"])
+            self.assertEqual([], report["warnings"])
+            self.assertEqual([{"npcId": 1, "status": "gap-placeholder"},
+                              {"npcId": 2, "status": "resolved"}],
+                             report["npcs"])
+
+    def test_rich_provider_uses_effective_descriptor_placements_without_legacy_file(self):
+        with tempfile.TemporaryDirectory(
+                prefix="npc-provider-effective-placement-authority-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            self.producer_package(target, selected)
+            (target / "server/conf/server/defs/locs/MyWorldNpcLocs.json").unlink()
+
+            custom, report = self.consume_effective(
+                target, selected, base / "stage", [2])
 
             self.assertEqual("Neutral producer NPC", custom["npcs"][1]["name"])
             self.assertEqual([], report["warnings"])
