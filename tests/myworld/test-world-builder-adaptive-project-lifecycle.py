@@ -5096,6 +5096,21 @@ public final class FakeAdaptiveClient {
                 key=lambda value: (value["level"], value["sectorX"], value["sectorY"])
             )
             manifest["placementSets"].sort(key=lambda value: value["level"])
+            manifest["terrainSectors"] = (
+                manifest["terrainSectors"][1:] + manifest["terrainSectors"][:1]
+            )
+            manifest["placementSets"] = (
+                manifest["placementSets"][1:] + manifest["placementSets"][:1]
+            )
+            noncanonical_terrain = [
+                (value["level"], value["sectorX"], value["sectorY"])
+                for value in manifest["terrainSectors"]
+            ]
+            noncanonical_placements = [
+                value["level"] for value in manifest["placementSets"]
+            ]
+            self.assertNotEqual(sorted(noncanonical_terrain), noncanonical_terrain)
+            self.assertNotEqual(sorted(noncanonical_placements), noncanonical_placements)
             write_json(manifest_path, manifest)
 
             installation = root / "Composed World Builder 2"
@@ -5140,6 +5155,17 @@ public final class FakeAdaptiveClient {
                 noncanonical_levels,
                 [value["level"] for value in original_base_manifest["levels"]],
             )
+            self.assertEqual(
+                noncanonical_terrain,
+                [
+                    (value["level"], value["sectorX"], value["sectorY"])
+                    for value in original_base_manifest["terrainSectors"]
+                ],
+            )
+            self.assertEqual(
+                noncanonical_placements,
+                [value["level"] for value in original_base_manifest["placementSets"]],
+            )
             normalized_base_manifest = json.loads((
                 project / "source/migration/layered-base/package/manifest.json"
             ).read_text(encoding="utf-8"))
@@ -5147,11 +5173,24 @@ public final class FakeAdaptiveClient {
                 sorted(noncanonical_levels),
                 [value["level"] for value in normalized_base_manifest["levels"]],
             )
+            self.assertEqual(
+                sorted(noncanonical_terrain),
+                [
+                    (value["level"], value["sectorX"], value["sectorY"])
+                    for value in normalized_base_manifest["terrainSectors"]
+                ],
+            )
+            self.assertEqual(
+                sorted(noncanonical_placements),
+                [value["level"] for value in normalized_base_manifest["placementSets"]],
+            )
             normalization = json.loads((
                 project
                 / "source/migration/layered-base/normalization-report.json"
             ).read_text(encoding="utf-8"))
             self.assertTrue(normalization["levelsReordered"])
+            self.assertTrue(normalization["terrainSectorsReordered"])
+            self.assertTrue(normalization["placementSetsReordered"])
             self.assertEqual(sorted(noncanonical_levels), normalization["normalizedLevels"])
             self.assertTrue(
                 (project / "source/migration/legacy-converted/package/manifest.json").is_file()

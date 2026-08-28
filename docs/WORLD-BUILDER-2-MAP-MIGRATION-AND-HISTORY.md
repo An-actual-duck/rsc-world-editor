@@ -100,10 +100,12 @@ satisfy this deterministic rule fail without changing either source.
 Some deployed layered packages preserve otherwise valid, unique signed level
 records in historical insertion order. For composition only, World Builder
 keeps one byte-exact copy under `layered-base/original-package`, makes a second
-isolated package copy, sorts that copy's level declarations by signed level,
-and records both manifest hashes plus the ordered levels in
+isolated package copy, sorts that copy's level, terrain-sector, and placement-set
+declarations by their canonical signed coordinates, and records both manifest
+hashes, the ordered levels, declaration counts, and each reordered flag in
 `layered-base/normalization-report.json`. Duplicate, malformed, or out-of-range
-levels still fail closed. The installed package is never normalized in place.
+declarations still fail closed. The installed package is never normalized in
+place.
 
 ### Streamlined prompt
 

@@ -559,7 +559,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		copyTreeExact(layeredBasePackage, originalBase);
 		Path copiedBase = migrationRoot.resolve("layered-base/package");
 		copyTreeExact(originalBase, copiedBase);
-		normalizeLayeredBaseLevels(copiedBase,
+		normalizeLayeredBaseManifest(copiedBase,
 			migrationRoot.resolve("layered-base/normalization-report.json"));
 
 		WorldBuilderReadOnlyTarget staged = WorldBuilderReadOnlyTarget.open(stage);
@@ -577,7 +577,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			prepared, composed.outputFingerprintSha256);
 	}
 
-	private static void normalizeLayeredBaseLevels(Path packageRoot, Path reportPath)
+	private static void normalizeLayeredBaseManifest(Path packageRoot, Path reportPath)
 		throws IOException, WorldBuilderContractException {
 		Path manifestPath = packageRoot.resolve("manifest.json");
 		Map<String,Object> manifest;
@@ -597,31 +597,96 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Layered levels are missing or outside the supported bound.",
 				"Use one to 4,096 unique signed levels in the selected world space.");
 		}
-		List<Object> original = new ArrayList<Object>((List<?>)rawLevels);
-		final Map<Object,Integer> numbers = new java.util.IdentityHashMap<Object,Integer>();
+		List<Object> originalLevels = new ArrayList<Object>((List<?>)rawLevels);
+		final Map<Object,Integer> levelNumbers =
+			new java.util.IdentityHashMap<Object,Integer>();
 		Set<Integer> unique = new HashSet<Integer>();
-		for (Object raw : original) {
+		for (Object raw : originalLevels) {
 			if (!(raw instanceof Map)) throw invalidLayeredLevel();
 			@SuppressWarnings("unchecked") Map<String,Object> level =
 				(Map<String,Object>)raw;
-			Object number = level.get("level");
-			if (!(number instanceof Number)) throw invalidLayeredLevel();
-			long value = ((Number)number).longValue();
-			if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE
-				|| !unique.add(Integer.valueOf((int)value))) throw invalidLayeredLevel();
-			numbers.put(raw, Integer.valueOf((int)value));
+			int value = signedManifestInteger(level, "level", invalidLayeredLevel());
+			if (!unique.add(Integer.valueOf(value))) throw invalidLayeredLevel();
+			levelNumbers.put(raw, Integer.valueOf(value));
 		}
-		List<Object> normalized = new ArrayList<Object>(original);
-		Collections.sort(normalized, new Comparator<Object>() {
+		List<Object> normalizedLevels = new ArrayList<Object>(originalLevels);
+		Collections.sort(normalizedLevels, new Comparator<Object>() {
 			@Override public int compare(Object left, Object right) {
-				return Integer.compare(numbers.get(left).intValue(),
-					numbers.get(right).intValue());
+				return Integer.compare(levelNumbers.get(left).intValue(),
+					levelNumbers.get(right).intValue());
 			}
 		});
+
+		Object rawTerrain = manifest.get("terrainSectors");
+		if (!(rawTerrain instanceof List) || ((List<?>)rawTerrain).isEmpty()
+			|| ((List<?>)rawTerrain).size() > 65536) throw invalidLayeredTerrain();
+		List<Object> originalTerrain = new ArrayList<Object>((List<?>)rawTerrain);
+		final Map<Object,int[]> terrainCoordinates =
+			new java.util.IdentityHashMap<Object,int[]>();
+		Set<String> terrainIdentities = new HashSet<String>();
+		for (Object raw : originalTerrain) {
+			if (!(raw instanceof Map)) throw invalidLayeredTerrain();
+			@SuppressWarnings("unchecked") Map<String,Object> terrain =
+				(Map<String,Object>)raw;
+			int level = signedManifestInteger(
+				terrain, "level", invalidLayeredTerrain());
+			int sectorX = signedManifestInteger(
+				terrain, "sectorX", invalidLayeredTerrain());
+			int sectorY = signedManifestInteger(
+				terrain, "sectorY", invalidLayeredTerrain());
+			String identity = level + ":" + sectorX + ":" + sectorY;
+			if (!terrainIdentities.add(identity)) throw invalidLayeredTerrain();
+			terrainCoordinates.put(raw, new int[] {level, sectorX, sectorY});
+		}
+		List<Object> normalizedTerrain = new ArrayList<Object>(originalTerrain);
+		Collections.sort(normalizedTerrain, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				int[] a = terrainCoordinates.get(left);
+				int[] b = terrainCoordinates.get(right);
+				int result = Integer.compare(a[0], b[0]);
+				if (result == 0) result = Integer.compare(a[1], b[1]);
+				if (result == 0) result = Integer.compare(a[2], b[2]);
+				return result;
+			}
+		});
+
+		Object rawPlacements = manifest.get("placementSets");
+		if (!(rawPlacements instanceof List)
+			|| ((List<?>)rawPlacements).size() != originalLevels.size()) {
+			throw invalidLayeredPlacementSet();
+		}
+		List<Object> originalPlacements =
+			new ArrayList<Object>((List<?>)rawPlacements);
+		final Map<Object,Integer> placementLevels =
+			new java.util.IdentityHashMap<Object,Integer>();
+		Set<Integer> uniquePlacementLevels = new HashSet<Integer>();
+		for (Object raw : originalPlacements) {
+			if (!(raw instanceof Map)) throw invalidLayeredPlacementSet();
+			@SuppressWarnings("unchecked") Map<String,Object> placement =
+				(Map<String,Object>)raw;
+			int level = signedManifestInteger(
+				placement, "level", invalidLayeredPlacementSet());
+			if (!uniquePlacementLevels.add(Integer.valueOf(level))) {
+				throw invalidLayeredPlacementSet();
+			}
+			placementLevels.put(raw, Integer.valueOf(level));
+		}
+		List<Object> normalizedPlacements = new ArrayList<Object>(originalPlacements);
+		Collections.sort(normalizedPlacements, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				return Integer.compare(placementLevels.get(left).intValue(),
+					placementLevels.get(right).intValue());
+			}
+		});
+
 		String originalHash = WorldBuilderHashes.sha256(manifestPath);
-		boolean reordered = !original.equals(normalized);
-		if (reordered) {
-			manifest.put("levels", normalized);
+		boolean levelsReordered = !originalLevels.equals(normalizedLevels);
+		boolean terrainReordered = !originalTerrain.equals(normalizedTerrain);
+		boolean placementsReordered = !originalPlacements.equals(normalizedPlacements);
+		if (levelsReordered || terrainReordered || placementsReordered) {
+			manifest.put("levels", normalizedLevels);
+			manifest.put("terrainSectors", normalizedTerrain);
+			manifest.put("placementSets", normalizedPlacements);
 			Files.write(manifestPath,
 				WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8),
 				StandardOpenOption.TRUNCATE_EXISTING);
@@ -632,14 +697,27 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		report.put("manifestType", "world-builder-layered-base-normalization-report");
 		report.put("originalManifestSha256", originalHash);
 		report.put("normalizedManifestSha256", normalizedHash);
-		report.put("levelsReordered", Boolean.valueOf(reordered));
+		report.put("levelsReordered", Boolean.valueOf(levelsReordered));
+		report.put("terrainSectorsReordered", Boolean.valueOf(terrainReordered));
+		report.put("placementSetsReordered", Boolean.valueOf(placementsReordered));
 		List<Object> levels = new ArrayList<Object>();
-		for (Object raw : normalized) {
-			levels.add(Long.valueOf(numbers.get(raw).longValue()));
+		for (Object raw : normalizedLevels) {
+			levels.add(Long.valueOf(levelNumbers.get(raw).longValue()));
 		}
 		report.put("normalizedLevels", levels);
+		report.put("terrainSectorCount", Long.valueOf(normalizedTerrain.size()));
+		report.put("placementSetCount", Long.valueOf(normalizedPlacements.size()));
 		writeNew(reportPath,
 			WorldBuilderJsonDocuments.pretty(report).getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static int signedManifestInteger(Map<String,Object> record, String key,
+		WorldBuilderContractException failure) throws WorldBuilderContractException {
+		Object raw = record.get(key);
+		if (!(raw instanceof Number)) throw failure;
+		long value = ((Number)raw).longValue();
+		if (value < Integer.MIN_VALUE || value > Integer.MAX_VALUE) throw failure;
+		return (int)value;
 	}
 
 	private static WorldBuilderContractException invalidLayeredLevel() {
@@ -647,6 +725,20 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			"source/migration/layered-base/original-package/manifest.json",
 			"Layered levels are invalid or duplicated.",
 			"Use unique signed levels in the selected world space.");
+	}
+
+	private static WorldBuilderContractException invalidLayeredTerrain() {
+		return problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+			"source/migration/layered-base/original-package/manifest.json",
+			"Layered terrain declarations are invalid or duplicated.",
+			"Use unique signed level/sector coordinates in the selected world space.");
+	}
+
+	private static WorldBuilderContractException invalidLayeredPlacementSet() {
+		return problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+			"source/migration/layered-base/original-package/manifest.json",
+			"Layered placement-set declarations are invalid or duplicated.",
+			"Declare exactly one placement set for every unique signed level.");
 	}
 
 	private static String preparedDefinitionCatalogPath(PreparedOrigin prepared)
