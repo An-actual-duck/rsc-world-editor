@@ -97,6 +97,17 @@ replace the same coordinates; every other base sector, every wider signed
 level, and existing base placement set remains exact. Inputs that cannot
 satisfy this deterministic rule fail without changing either source.
 
+One conservative exception prevents obsolete terrain-only duplicates after a
+packed level has been split onto wider signed levels. When the layered base
+explicitly contains void at a legacy tile or omits that old sector, the old
+level has no placement owner there, and that legacy tile is byte-exactly
+represented at the same coordinates on a base level outside the packed range
+(`-2` or below, or `+3` or above), composition retains the base void tile
+instead of recreating the old copy. Unique legacy tiles, occupied old-level
+sectors, non-void base tiles, and non-identical relocated terrain continue to
+use the normal exact overlay rule. The composition report records the exact
+suppressed-tile and affected-sector counts.
+
 Some deployed layered packages preserve otherwise valid, unique signed level
 records in historical insertion order. For composition only, World Builder
 keeps one byte-exact copy under `layered-base/original-package`, makes a second

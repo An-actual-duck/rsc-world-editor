@@ -5027,8 +5027,25 @@ public final class FakeAdaptiveClient {
             )
             manifest_path = layered_base / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-            terrain_template = manifest["terrainSectors"][0]
+            terrain_template = next(
+                value for value in manifest["terrainSectors"] if value["level"] == -1
+            )
             terrain_bytes = (layered_base / terrain_template["path"]).read_bytes()
+            self.assertEqual(48 * 48 * 11, len(terrain_bytes))
+            old_level_path = layered_base / terrain_template["path"]
+            old_level_path.unlink()
+            manifest["terrainSectors"].remove(terrain_template)
+            old_placement = next(
+                value for value in manifest["placementSets"] if value["level"] == -1
+            )
+            old_placement_path = layered_base / old_placement["path"]
+            old_placement_payload = json.loads(
+                old_placement_path.read_text(encoding="utf-8")
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                old_placement_payload[family] = []
+            write_json(old_placement_path, old_placement_payload)
+            old_placement["sha256"] = sha256(old_placement_path)
 
             expected_wide_payloads = {}
             for level in (-2, 10):
@@ -5049,9 +5066,12 @@ public final class FakeAdaptiveClient {
                     f"terrain/global/l{'m2' if level == -2 else 'p10'}/"
                     f"x{x_token}-y{y_token}.raw"
                 )
-                payload = bytearray(terrain_bytes)
-                # A harmless height difference makes exact preservation observable.
-                payload[0] = (payload[0] + (2 if level == -2 else 10)) % 255
+                payload = bytearray(CANONICAL_VOID_SECTOR)
+                first_tile = 0 if level == -2 else (48 * 48) // 2
+                last_tile = (48 * 48) // 2 if level == -2 else 48 * 48
+                for tile in range(first_tile, last_tile):
+                    start = tile * 11
+                    payload[start:start + 11] = terrain_bytes[start:start + 11]
                 terrain_file = layered_base / terrain_path
                 terrain_file.parent.mkdir(parents=True, exist_ok=True)
                 terrain_file.write_bytes(payload)
@@ -5221,6 +5241,15 @@ public final class FakeAdaptiveClient {
                     if value["level"] == level
                 )
                 self.assertEqual(expected, (package / record["path"]).read_bytes())
+            old_record = next(
+                value for value in composed["terrainSectors"]
+                if value["level"] == -1
+                and value["sectorX"] == terrain_template["sectorX"]
+                and value["sectorY"] == terrain_template["sectorY"]
+            )
+            self.assertEqual(
+                CANONICAL_VOID_SECTOR, (package / old_record["path"]).read_bytes()
+            )
             self.assertTrue(
                 (project / "source/migration/layered-base/package/manifest.json").is_file()
             )
@@ -5321,7 +5350,10 @@ public final class FakeAdaptiveClient {
                 composition["manifestType"],
             )
             self.assertEqual([-2, -1, 0, 10], composition["preservedBaseLevels"])
-            self.assertGreaterEqual(composition["replacedTerrainSectors"], 2)
+            self.assertGreaterEqual(composition["replacedTerrainSectors"], 1)
+            self.assertGreaterEqual(composition["addedTerrainSectors"], 1)
+            self.assertEqual(1, composition["relocatedTerrainSectorsMerged"])
+            self.assertEqual(48 * 48, composition["relocatedLegacyTilesSuppressed"])
 
     def test_packed_fallback_converts_active_runecrafting_scenery_only(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runecraft-scenery-") as temp:
