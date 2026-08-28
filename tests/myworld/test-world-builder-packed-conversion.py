@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Temporary-fixture coverage for exact deterministic Phase 2 packed conversion."""
 
+import gzip
 import hashlib
 import json
 import os
@@ -593,6 +594,55 @@ public final class PackedConversionFailureHarness {
             },
         }
         write_json(root / DESCRIPTOR, descriptor)
+        definitions = root / "server/conf/server/defs"
+        definitions.mkdir(parents=True, exist_ok=True)
+        (definitions / "TileDef.xml").write_text(
+            "<TileDef-array>"
+            + "".join("<TileDef><colour>0</colour></TileDef>" for _ in range(2))
+            + "</TileDef-array>\n",
+            encoding="utf-8",
+        )
+        (definitions / "DoorDef.xml").write_text(
+            "<DoorDef-array>"
+            + "".join("<DoorDef><name>wall</name></DoorDef>" for _ in range(12))
+            + "</DoorDef-array>\n",
+            encoding="utf-8",
+        )
+        (definitions / "GameObjectDef.xml").write_text(
+            "<GameObjectDef-array>"
+            + "".join(
+                "<GameObjectDef><name>fixture</name><width>1</width>"
+                "<height>1</height></GameObjectDef>" for _ in range(22)
+            )
+            + "</GameObjectDef-array>\n",
+            encoding="utf-8",
+        )
+        write_json(definitions / "NpcDefs.json", {
+            "npcs": [{"id": 30, "name": "fixture-30"},
+                     {"id": 31, "name": "fixture-31"}],
+        })
+        for name in ("NpcDefsCustom.json", "NpcDefsPatch18.json", "NpcDefsMyWorld.json"):
+            write_json(definitions / name, {"npcs": []})
+        write_json(definitions / "ItemDefs.json", {
+            "item": [{"id": 40}, {"id": 41}],
+        })
+        for name in ("ItemDefsCustom.json", "ItemDefsPatch18.json", "ItemDefsMyWorld.json"):
+            write_json(definitions / name, {"items": []})
+
+        video = root / "Client_Base/Cache/video"
+        video.mkdir(parents=True, exist_ok=True)
+        (video / "library.orsc").write_bytes(b"fixture library archive\n")
+        (video / "models.orsc").write_bytes(b"fixture model archive\n")
+        with zipfile.ZipFile(
+            video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED
+        ) as archive:
+            archive.writestr("sprites/fixture.bin", b"fixture authentic sprites")
+        (video / "Custom_Sprites.osar").write_bytes(
+            gzip.compress(b"fixture custom sprites", mtime=0)
+        )
+        menus = video / "spritepacks/Menus.osar"
+        menus.parent.mkdir(parents=True, exist_ok=True)
+        menus.write_bytes(gzip.compress(b"fixture spritepack", mtime=0))
         return root
 
     def discover_and_copy(self, target: Path, parent: Path) -> tuple[Path, Path, dict]:

@@ -68,6 +68,18 @@ final class WorldBuilderPackedSourceLayout {
 			CANONICAL_DATA_ROOT, CANONICAL_CONFIGURATION);
 	}
 
+	/** Select only the standard packed content roots, without guessing a map config. */
+	static WorldBuilderPackedSourceLayout selectContentRoots(
+		WorldBuilderReadOnlyTarget target) throws WorldBuilderContractException {
+		String video = selectRoot(target, VIDEO_ROOTS, CLIENT_FILES,
+			"client cache", CANONICAL_VIDEO_ROOT);
+		String definitions = selectDefinitionRoot(target);
+		String data = selectRoot(target, DATA_ROOTS,
+			Collections.singletonList("Custom_Landscape.orsc"),
+			"server terrain", CANONICAL_DATA_ROOT);
+		return create(video, definitions, data, CANONICAL_CONFIGURATION);
+	}
+
 	static WorldBuilderPackedSourceLayout select(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
 		return select(target, null);

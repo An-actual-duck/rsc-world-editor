@@ -111,8 +111,15 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
 		files.addAll(common.files);
 		files.addAll(map.files);
+		// Descriptor roles describe configured map/runtime authority. The compiled
+		// packed adapter also needs the immutable target-owned definition and visual
+		// closure used to build a portable project content bundle. Inventory that
+		// closure during discovery, never for the first time during conversion.
 		WorldBuilderGenericLayeredAdapter.validateInventoryAndRoles(
 			files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
+		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
+			target, WorldBuilderPackedSourceLayout.selectContentRoots(target)));
+		validateCompleteInventory(files);
 
 		List<WorldBuilderAdapterInspection.Check> checks =
 			new ArrayList<WorldBuilderAdapterInspection.Check>();
@@ -150,6 +157,46 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		return new WorldBuilderAdapterInspection(ID, capability.capabilityId,
 			WorldBuilderTargetCapability.RELATIVE_PATH, capability.evidenceSha256,
 			"packed", selection.candidates(), selection.selectedCandidate(), files, checks);
+	}
+
+	private static void mergeSupplementalEvidence(
+		List<WorldBuilderReadOnlyTarget.FileState> files,
+		List<WorldBuilderReadOnlyTarget.FileState> supplemental)
+		throws WorldBuilderContractException {
+		for (WorldBuilderReadOnlyTarget.FileState candidate : supplemental) {
+			// Optional provider metadata is an input only when it exists. Its absence
+			// must not become a required conversion record.
+			if (!candidate.present) continue;
+			boolean duplicate = false;
+			for (WorldBuilderReadOnlyTarget.FileState existing : files) {
+				if (!existing.relativePath.equals(candidate.relativePath)) continue;
+				if (existing.role.equals(candidate.role)
+					&& existing.present == candidate.present
+					&& existing.size == candidate.size
+					&& existing.sha256.equals(candidate.sha256)) {
+					duplicate = true;
+					break;
+				}
+				throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+					candidate.relativePath,
+					"Configured and project-content evidence assigns conflicting identities to one packed source path.",
+					"Use one role and exact file identity for each packed source path.");
+			}
+			if (!duplicate) files.add(candidate);
+		}
+	}
+
+	private static void validateCompleteInventory(
+		List<WorldBuilderReadOnlyTarget.FileState> files)
+		throws WorldBuilderContractException {
+		List<WorldBuilderReadOnlyTarget.FileState> sorted =
+			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files);
+		Collections.sort(sorted);
+		List<Object> records = new ArrayList<Object>(sorted.size());
+		for (WorldBuilderReadOnlyTarget.FileState file : sorted) {
+			records.add(file.toJson());
+		}
+		WorldBuilderBoundedInventory.read(records, "discover-target", 1, true);
 	}
 
 	private static WorldBuilderAdapterInspection inspectLegacyFallback(

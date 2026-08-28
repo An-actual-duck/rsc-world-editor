@@ -536,6 +536,10 @@ public final class AdaptiveDiscoveryDriftHarness {
             adapter_id = "spoiled-milk-packed-v1"
             mutation_profile = "spoiled-milk-layered-install-v1"
 
+            self.add_packed_content(
+                root, Path(base) / "descriptor-packed-content"
+            )
+
         configuration = {
             "schemaVersion": 1,
             "manifestType": "world-builder-map-configuration",
@@ -621,6 +625,25 @@ public final class AdaptiveDiscoveryDriftHarness {
         }
         write_json(root / DESCRIPTOR, descriptor)
         return root
+
+    def add_packed_content(self, root: Path, fixture_root: Path) -> None:
+        """Add portable raw content without importing legacy map authority."""
+        content = self.legacy_fixture(str(fixture_root))
+        shutil.copytree(
+            content / "server/conf/server/defs",
+            root / "server/conf/server/defs",
+            dirs_exist_ok=True,
+        )
+        shutil.copytree(
+            content / "Client_Base/Cache/video",
+            root / "Client_Base/Cache/video",
+            dirs_exist_ok=True,
+        )
+        shutil.copytree(
+            content / "server/conf/world-builder",
+            root / "server/conf/world-builder",
+            dirs_exist_ok=True,
+        )
 
     def legacy_fixture(self, base: str) -> Path:
         root = Path(base) / "legacy-target"
@@ -865,8 +888,19 @@ public final class AdaptiveDiscoveryDriftHarness {
                 "placement.npc-removal",
                 "placement.scenery-base",
                 "placement.scenery-removal",
+                "server-definition.tile",
+                "server-definition.scenery",
+                "content.definition.boundary",
+                "content.asset.model",
+                "content.asset.sprite.authentic",
+                "content.asset.sprite.custom",
+                "content.asset.spritepack",
             ):
                 self.assertIn(role, roles)
+            self.assertIn(
+                "server/conf/server/defs/GameObjectDef.xml",
+                {item["relativePath"] for item in report["files"]},
+            )
             placement = next(
                 check for check in report["checks"] if check["checkId"] == "placement-validation"
             )

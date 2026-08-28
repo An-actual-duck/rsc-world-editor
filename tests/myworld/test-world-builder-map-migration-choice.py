@@ -700,6 +700,10 @@ class MapMigrationChoiceTest(unittest.TestCase):
         base.mkdir()
         packed_fixture = PACKED.PackedConversionTest(methodName="runTest")
         target = packed_fixture.fixture(base)
+        discovery_fixture = DISCOVERY.AdaptiveDiscoveryTest(methodName="runTest")
+        discovery_fixture.add_packed_content(
+            target, base / "descriptor-packed-content"
+        )
         server_source = target / "server/maps/active.orsc"
         client_source = target / "client/maps/active.orsc"
         server_legacy = target / "server/conf/server/data/Custom_Landscape.orsc"
