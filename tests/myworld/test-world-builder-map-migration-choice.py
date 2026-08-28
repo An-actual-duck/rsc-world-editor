@@ -741,6 +741,22 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         self.assertEqual(created.returncode, 0, created.stderr)
         project = Path(marker.read_text(encoding="utf-8"))
+        source_content = project / "source/content-bundle"
+        working_content = project / "working/content-bundle"
+        content_manifest = json.loads(
+            (source_content / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertIn(846, content_manifest["definitionCatalog"]["npcs"])
+        self.assertEqual(
+            content_manifest["bundleFingerprintSha256"],
+            json.loads(
+                (working_content / "manifest.json").read_text(encoding="utf-8")
+            )["bundleFingerprintSha256"],
+        )
+        self.assertEqual(
+            LIFECYCLE.tree_bytes(source_content),
+            LIFECYCLE.tree_bytes(working_content),
+        )
         project_id = json.loads((project / "project.json").read_text(
             encoding="utf-8"
         ))["projectId"]
@@ -919,6 +935,22 @@ class MapMigrationChoiceTest(unittest.TestCase):
             direct_choice["manifestType"],
         )
         self.assertTrue(direct_choice["retirementRequested"])
+        direct_source_content = direct_project / "source/content-bundle"
+        direct_working_content = direct_project / "working/content-bundle"
+        direct_content_manifest = json.loads(
+            (direct_source_content / "manifest.json").read_text(encoding="utf-8")
+        )
+        self.assertIn(846, direct_content_manifest["definitionCatalog"]["npcs"])
+        self.assertEqual(
+            direct_content_manifest["bundleFingerprintSha256"],
+            json.loads(
+                (direct_working_content / "manifest.json").read_text(encoding="utf-8")
+            )["bundleFingerprintSha256"],
+        )
+        self.assertEqual(
+            LIFECYCLE.tree_bytes(direct_source_content),
+            LIFECYCLE.tree_bytes(direct_working_content),
+        )
         self.assertEqual(
             direct_choice["selectedTargetDiscoveryFingerprintSha256"],
             json.loads(legacy_report_path.read_text(encoding="utf-8"))[

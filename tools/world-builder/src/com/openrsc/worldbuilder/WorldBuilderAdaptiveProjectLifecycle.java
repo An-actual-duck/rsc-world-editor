@@ -471,7 +471,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderPackedFallbackEvidence.Result generated =
 				WorldBuilderPackedFallbackEvidence.materialize(
 					stage, original, report, sourceRuntime, itemVisualMappings);
-			evidence = withGeneratedFallbackEvidence(evidence, generated.generated);
+			evidence = withGeneratedEvidence(evidence, generated.generated);
 			requireExactOriginalTree(original, evidence);
 			copied = WorldBuilderReadOnlyTarget.open(original);
 			capability = generated.capability;
@@ -486,6 +486,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderAdaptiveConfiguration.Selection selection =
 				WorldBuilderAdaptiveConfiguration.select(copied, capability, selectedRole);
 			configuration = selection.selected;
+			if ("packed".equals(configuration.representation)) {
+				WorldBuilderProjectContentBundle.capture(
+					stage, original, sourceRuntime, itemVisualMappings);
+			}
 		}
 		WorldBuilderCompatibilityEvidence common =
 			WorldBuilderCompatibilityEvidence.inspect(copied, capability, configuration);
@@ -938,7 +942,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderPackedFallbackEvidence.materialize(
 				stage, migrationInput, migration.legacyReport, sourceRuntime,
 				itemVisualMappings);
-		legacyEvidence = withGeneratedFallbackEvidence(
+		legacyEvidence = withGeneratedEvidence(
 			legacyEvidence, generated.generated);
 		requireExactOriginalTree(migrationInput, legacyEvidence);
 		if (!selectedCapability.definitionCatalogSha256.equals(
@@ -2039,7 +2043,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		return false;
 	}
 
-	private static List<Evidence> withGeneratedFallbackEvidence(
+	private static List<Evidence> withGeneratedEvidence(
 		List<Evidence> discovered,
 		List<WorldBuilderReadOnlyTarget.FileState> generated)
 		throws WorldBuilderContractException {

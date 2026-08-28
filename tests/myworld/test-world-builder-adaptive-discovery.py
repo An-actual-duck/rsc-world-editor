@@ -644,6 +644,43 @@ public final class AdaptiveDiscoveryDriftHarness {
             root / "server/conf/world-builder",
             dirs_exist_ok=True,
         )
+        definitions = root / "server/conf/server/defs"
+        write_json(
+            definitions / "NpcDefsPatch18.json",
+            {"npcs": [
+                {"id": 30, "name": "descriptor-npc-30"},
+                {"id": 31, "name": "descriptor-npc-31"},
+                {"id": 100, "name": "patched-100"},
+            ]},
+        )
+        write_json(
+            definitions / "ItemDefs.json",
+            {"item": [{"id": 0}, {"id": 7}, {"id": 40}, {"id": 41}]},
+        )
+        visual_path = root / "server/conf/world-builder/item-visuals-v1.json"
+        visuals = json.loads(visual_path.read_text(encoding="utf-8"))
+        visuals["itemVisuals"] = [
+            {
+                "itemId": item_id,
+                "authenticSpriteId": None,
+                "customSpriteAssetRole": "asset.sprite.custom",
+                "customSpriteSubspace": "items",
+                "customSpriteEntry": str(item_id),
+                "pictureMask": mask,
+                "blueMask": 0,
+            }
+            for item_id, mask in ((40, 0x102030), (41, 0x405060))
+        ] + visuals["itemVisuals"]
+        write_json(visual_path, visuals)
+        (root / "Client_Base/Cache/video/Custom_Sprites.osar").write_bytes(
+            fixture_osar([
+                ("items", [
+                    ("0", fixture_sprite_entry(0x336699)),
+                    ("40", fixture_sprite_entry(0x102030)),
+                    ("41", fixture_sprite_entry(0x405060)),
+                ]),
+            ])
+        )
 
     def legacy_fixture(self, base: str) -> Path:
         root = Path(base) / "legacy-target"

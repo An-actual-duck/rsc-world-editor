@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import tempfile
 import unittest
@@ -618,11 +619,14 @@ public final class PackedConversionFailureHarness {
             encoding="utf-8",
         )
         write_json(definitions / "NpcDefs.json", {
+            "npcs": [{"id": 0, "name": "fixture-0"}],
+        })
+        write_json(definitions / "NpcDefsCustom.json", {"npcs": []})
+        write_json(definitions / "NpcDefsPatch18.json", {
             "npcs": [{"id": 30, "name": "fixture-30"},
                      {"id": 31, "name": "fixture-31"}],
         })
-        for name in ("NpcDefsCustom.json", "NpcDefsPatch18.json", "NpcDefsMyWorld.json"):
-            write_json(definitions / name, {"npcs": []})
+        write_json(definitions / "NpcDefsMyWorld.json", {"npcs": []})
         write_json(definitions / "ItemDefs.json", {
             "item": [{"id": 40}, {"id": 41}],
         })
@@ -636,13 +640,23 @@ public final class PackedConversionFailureHarness {
         with zipfile.ZipFile(
             video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED
         ) as archive:
-            archive.writestr("sprites/fixture.bin", b"fixture authentic sprites")
+            sprite = zipfile.ZipInfo("sprites/fixture.bin", (2024, 1, 2, 3, 4, 6))
+            sprite.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(sprite, b"fixture authentic sprites")
+        # Descriptor-backed project creation now captures and validates these
+        # raw archives rather than silently omitting them, so use the smallest
+        # structurally valid one-frame OSAR fixture.
+        sprite_entry = bytes((0, 1, 0)) + (0x336699).to_bytes(3, "big") + struct.pack(
+            ">HHBhhHHB", 1, 1, 0, 0, 0, 1, 1, 0,
+        )
+        custom_osar = b"\1items\0\0\1" + b"0\0" + sprite_entry
         (video / "Custom_Sprites.osar").write_bytes(
-            gzip.compress(b"fixture custom sprites", mtime=0)
+            gzip.compress(custom_osar, mtime=0)
         )
         menus = video / "spritepacks/Menus.osar"
         menus.parent.mkdir(parents=True, exist_ok=True)
-        menus.write_bytes(gzip.compress(b"fixture spritepack", mtime=0))
+        menu_osar = b"\1GUI\0\0\1" + b"0\0" + sprite_entry
+        menus.write_bytes(gzip.compress(menu_osar, mtime=0))
         return root
 
     def discover_and_copy(self, target: Path, parent: Path) -> tuple[Path, Path, dict]:
