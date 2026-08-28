@@ -45,6 +45,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	static final String BASELINE_DIRECTORY = "source/layered-baseline/package";
 	static final String WORKING_PACKAGE_DIRECTORY = "working/layered-world/package";
 	static final String WORKING_RUNTIME_FILE = "working/runtime/runtime.json";
+	private static final String SOURCE_SERVER_AUTHORING_DEFINITIONS =
+		"source/authoring-evidence/server-definitions.json";
+	private static final String SOURCE_CLIENT_AUTHORING_DEFINITIONS =
+		"source/authoring-evidence/client-definitions.json";
 	static final String RUNTIME_JAR = "launcher/world-builder-tools.jar";
 	static final String RUNTIME_VERSION = "world-builder-project-runtime-v1";
 	private static final String OPERATION = "adaptive-project-lifecycle";
@@ -3075,22 +3079,45 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			throws IOException, WorldBuilderContractException {
 			List<InventoryRecord> original = new ArrayList<InventoryRecord>();
 			List<InventoryRecord> definitions = new ArrayList<InventoryRecord>();
+			Path bundleRoot = projectStage.resolve(
+				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
+			WorldBuilderProjectContentBundle.Bundle content =
+				Files.exists(bundleRoot, LinkOption.NOFOLLOW_LINKS)
+					? WorldBuilderProjectContentBundle.read(bundleRoot) : null;
 			String descriptor = "";
 			for (Evidence item : evidence) {
+				String role = item.role;
+				if (content != null && "server-definition-catalog".equals(role)) {
+					role = "target-server-definition-catalog";
+				} else if (content != null && "client-definition-catalog".equals(role)) {
+					role = "target-client-definition-catalog";
+				}
 				InventoryRecord recorded = item;
 				if (item.present) {
 					Path copied = safeRegularFile(projectStage, item.relativePath,
 						"copied target evidence");
-					recorded = new InventoryRecord(item.role, item.relativePath, true,
+					recorded = new InventoryRecord(role, item.relativePath, true,
 						Files.size(copied), WorldBuilderHashes.sha256(copied));
+				} else if (!role.equals(item.role)) {
+					recorded = new InventoryRecord(role, item.relativePath, false, 0L, "");
 				}
 				(item.definitionRuntime ? definitions : original).add(recorded);
 				if ("target-capability".equals(item.role)) descriptor = item.relativePath;
 			}
-			Path bundleRoot = projectStage.resolve(
-				WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
-			if (Files.exists(bundleRoot, LinkOption.NOFOLLOW_LINKS)) {
-				WorldBuilderProjectContentBundle.read(bundleRoot);
+			String definitionHash = capability.definitionCatalogSha256;
+			if (content != null) {
+				byte[] authoringDefinitions = WorldBuilderJsonDocuments.pretty(
+					content.compatibilityCatalog()).getBytes(StandardCharsets.UTF_8);
+				writeNew(projectStage.resolve(SOURCE_SERVER_AUTHORING_DEFINITIONS),
+					authoringDefinitions);
+				writeNew(projectStage.resolve(SOURCE_CLIENT_AUTHORING_DEFINITIONS),
+					authoringDefinitions);
+				definitions.add(recordFor(projectStage, "server-definition-catalog",
+					SOURCE_SERVER_AUTHORING_DEFINITIONS));
+				definitions.add(recordFor(projectStage, "client-definition-catalog",
+					SOURCE_CLIENT_AUTHORING_DEFINITIONS));
+				definitionHash = WorldBuilderHashes.sha256(
+					projectStage.resolve(SOURCE_SERVER_AUTHORING_DEFINITIONS));
 				for (String relative : scanRegularFiles(bundleRoot, projectStage)) {
 					definitions.add(recordFor(projectStage,
 						relative.endsWith("/manifest.json")
@@ -3106,7 +3133,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				configuration.relativePath,
 				"source/original/" + configuration.relativePath,
 				configuration.sha256, descriptor,
-				capability.definitionCatalogSha256, packageFingerprint,
+				definitionHash, packageFingerprint,
 				conversionFingerprint, profile, capability.installEnabled, "");
 		}
 

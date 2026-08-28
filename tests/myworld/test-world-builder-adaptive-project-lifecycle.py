@@ -4979,6 +4979,38 @@ public final class FakeAdaptiveClient {
                 )
             )
             self.assertIn(35, content_manifest["definitionCatalog"]["npcs"])
+            expected_authoring_catalog = dict(content_manifest["definitionCatalog"])
+            expected_authoring_catalog.pop("catalogSha256")
+            for authoring_path in (
+                project / "source/authoring-evidence/server-definitions.json",
+                project / "source/authoring-evidence/client-definitions.json",
+                project / "working/runtime/server/evidence/adaptive-definitions.json",
+                project / "working/runtime/client/evidence/adaptive-definitions.json",
+            ):
+                self.assertEqual(
+                    expected_authoring_catalog,
+                    json.loads(authoring_path.read_text(encoding="utf-8")),
+                )
+            snapshot = json.loads(
+                (project / "source/snapshot-manifest.json").read_text(encoding="utf-8")
+            )
+            definition_roles = {
+                value["role"]: value
+                for value in snapshot["definitionRuntimeFiles"]
+            }
+            self.assertIn("target-server-definition-catalog", definition_roles)
+            self.assertIn("target-client-definition-catalog", definition_roles)
+            self.assertEqual(
+                sha256(project / "source/authoring-evidence/server-definitions.json"),
+                definition_roles["server-definition-catalog"]["sha256"],
+            )
+            project_manifest = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                definition_roles["server-definition-catalog"]["sha256"],
+                project_manifest["fingerprints"]["definitionsSha256"],
+            )
             self.assertTrue((project / "source/conversion/plan.json").is_file())
             self.assertTrue((project / "source/conversion/report.json").is_file())
             conversion = json.loads(
@@ -5841,6 +5873,18 @@ public final class FakeAdaptiveClient {
             self.assertIn(9000, source_bundle["definitionCatalog"]["groundItems"])
             self.assertIn(31, source_bundle["definitionCatalog"]["tiles"])
             self.assertIn(219, source_bundle["definitionCatalog"]["boundaries"])
+            expected_authoring_catalog = dict(source_bundle["definitionCatalog"])
+            expected_authoring_catalog.pop("catalogSha256")
+            for authoring_path in (
+                project / "source/authoring-evidence/server-definitions.json",
+                project / "source/authoring-evidence/client-definitions.json",
+                project / "working/runtime/server/evidence/adaptive-definitions.json",
+                project / "working/runtime/client/evidence/adaptive-definitions.json",
+            ):
+                self.assertEqual(
+                    expected_authoring_catalog,
+                    json.loads(authoring_path.read_text(encoding="utf-8")),
+                )
             self.assertEqual(
                 [9000, 9001, 9002],
                 [value["itemId"] for value in source_bundle["itemVisuals"]],
