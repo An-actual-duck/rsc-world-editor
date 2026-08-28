@@ -678,12 +678,18 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					placementLevels.get(right).intValue());
 			}
 		});
+		long[] placementPayloadReorderCount = new long[] {0L};
+		Map<String,Long> placementFamiliesReordered =
+			normalizeLayeredPlacementPayloads(
+				packageRoot, normalizedPlacements, placementPayloadReorderCount);
+		long placementPayloadsReordered = placementPayloadReorderCount[0];
 
 		String originalHash = WorldBuilderHashes.sha256(manifestPath);
 		boolean levelsReordered = !originalLevels.equals(normalizedLevels);
 		boolean terrainReordered = !originalTerrain.equals(normalizedTerrain);
 		boolean placementsReordered = !originalPlacements.equals(normalizedPlacements);
-		if (levelsReordered || terrainReordered || placementsReordered) {
+		if (levelsReordered || terrainReordered || placementsReordered
+			|| placementPayloadsReordered > 0L) {
 			manifest.put("levels", normalizedLevels);
 			manifest.put("terrainSectors", normalizedTerrain);
 			manifest.put("placementSets", normalizedPlacements);
@@ -700,6 +706,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		report.put("levelsReordered", Boolean.valueOf(levelsReordered));
 		report.put("terrainSectorsReordered", Boolean.valueOf(terrainReordered));
 		report.put("placementSetsReordered", Boolean.valueOf(placementsReordered));
+		report.put("placementPayloadFamiliesReordered", placementFamiliesReordered);
+		report.put("placementPayloadsReordered",
+			Long.valueOf(placementPayloadsReordered));
 		List<Object> levels = new ArrayList<Object>();
 		for (Object raw : normalizedLevels) {
 			levels.add(Long.valueOf(levelNumbers.get(raw).longValue()));
@@ -709,6 +718,101 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		report.put("placementSetCount", Long.valueOf(normalizedPlacements.size()));
 		writeNew(reportPath,
 			WorldBuilderJsonDocuments.pretty(report).getBytes(StandardCharsets.UTF_8));
+	}
+
+	private static Map<String,Long> normalizeLayeredPlacementPayloads(
+		Path packageRoot, List<Object> declarations, long[] payloadsReordered)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Long> reordered = new LinkedHashMap<String,Long>();
+		for (String family : Arrays.asList(
+			"boundaries", "groundItems", "npcs", "scenery")) {
+			reordered.put(family, Long.valueOf(0L));
+		}
+		for (Object rawDeclaration : declarations) {
+			@SuppressWarnings("unchecked") Map<String,Object> declaration =
+				(Map<String,Object>)rawDeclaration;
+			Object rawPath = declaration.get("path");
+			Object rawHash = declaration.get("sha256");
+			if (!(rawPath instanceof String) || !(rawHash instanceof String)) {
+				throw invalidLayeredPlacementSet();
+			}
+			String relative = (String)rawPath;
+			Path payloadPath = packageRoot.resolve(relative).normalize();
+			if (relative.isEmpty() || relative.startsWith("/")
+				|| relative.indexOf('\\') >= 0 || !payloadPath.startsWith(packageRoot)
+				|| !Files.isRegularFile(payloadPath, LinkOption.NOFOLLOW_LINKS)
+				|| !((String)rawHash).equals(WorldBuilderHashes.sha256(payloadPath))) {
+				throw invalidLayeredPlacementSet();
+			}
+			Map<String,Object> payload;
+			try {
+				payload = WorldBuilderJsonDocuments.readObject(payloadPath);
+			} catch (WorldBuilderDiscoveryException malformed) {
+				throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+					"source/migration/layered-base/original-package/" + relative,
+					"Layered placement payload JSON is malformed.",
+					"Correct the exact layered package data and retry discovery.", malformed);
+			}
+			boolean changed = false;
+			for (String family : reordered.keySet()) {
+				Object rawRecords = payload.get(family);
+				if (!(rawRecords instanceof List)
+					|| ((List<?>)rawRecords).size() > 65536) {
+					throw invalidLayeredPlacementPayload(relative);
+				}
+				List<Object> records = new ArrayList<Object>((List<?>)rawRecords);
+				final Map<Object,PlacementOrder> order =
+					new java.util.IdentityHashMap<Object,PlacementOrder>();
+				for (Object raw : records) {
+					order.put(raw, placementOrder(family, raw, relative));
+				}
+				List<Object> sorted = new ArrayList<Object>(records);
+				Collections.sort(sorted, new Comparator<Object>() {
+					@Override public int compare(Object left, Object right) {
+						return order.get(left).compareTo(order.get(right));
+					}
+				});
+				if (!records.equals(sorted)) {
+					payload.put(family, sorted);
+					reordered.put(family,
+						Long.valueOf(reordered.get(family).longValue() + 1L));
+					changed = true;
+				}
+			}
+			if (changed) {
+				Files.write(payloadPath,
+					WorldBuilderJsonDocuments.pretty(payload)
+						.getBytes(StandardCharsets.UTF_8),
+					StandardOpenOption.TRUNCATE_EXISTING);
+				declaration.put("sha256", WorldBuilderHashes.sha256(payloadPath));
+				payloadsReordered[0]++;
+			}
+		}
+		return reordered;
+	}
+
+	private static PlacementOrder placementOrder(String family, Object raw,
+		String relative) throws WorldBuilderContractException {
+		if (!(raw instanceof Map)) throw invalidLayeredPlacementPayload(relative);
+		@SuppressWarnings("unchecked") Map<String,Object> record =
+			(Map<String,Object>)raw;
+		String pointKey = "npcs".equals(family) ? "start" : "position";
+		Object rawPoint = record.get(pointKey);
+		if (!(rawPoint instanceof Map)) throw invalidLayeredPlacementPayload(relative);
+		@SuppressWarnings("unchecked") Map<String,Object> point =
+			(Map<String,Object>)rawPoint;
+		int x = signedManifestInteger(
+			point, "x", invalidLayeredPlacementPayload(relative));
+		int y = signedManifestInteger(
+			point, "y", invalidLayeredPlacementPayload(relative));
+		Object rawPlacement = record.get("placementId");
+		if (!(rawPlacement instanceof String)) {
+			throw invalidLayeredPlacementPayload(relative);
+		}
+		int direction = "boundaries".equals(family)
+			? signedManifestInteger(
+				record, "direction", invalidLayeredPlacementPayload(relative)) : -1;
+		return new PlacementOrder(x, y, direction, (String)rawPlacement);
 	}
 
 	private static int signedManifestInteger(Map<String,Object> record, String key,
@@ -739,6 +843,38 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			"source/migration/layered-base/original-package/manifest.json",
 			"Layered placement-set declarations are invalid or duplicated.",
 			"Declare exactly one placement set for every unique signed level.");
+	}
+
+	private static WorldBuilderContractException invalidLayeredPlacementPayload(
+		String relative) {
+		return problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+			"source/migration/layered-base/original-package/" + relative,
+			"Layered placement payload records are malformed or outside the supported bound.",
+			"Correct the exact layered package data and retry discovery.");
+	}
+
+	private static final class PlacementOrder implements Comparable<PlacementOrder> {
+		final int x;
+		final int y;
+		final int direction;
+		final String placementId;
+
+		PlacementOrder(int x, int y, int direction, String placementId) {
+			this.x = x;
+			this.y = y;
+			this.direction = direction;
+			this.placementId = placementId;
+		}
+
+		@Override public int compareTo(PlacementOrder other) {
+			int result = Integer.compare(x, other.x);
+			if (result == 0) result = Integer.compare(y, other.y);
+			if (result == 0 && direction >= 0 && other.direction >= 0) {
+				result = Integer.compare(direction, other.direction);
+			}
+			if (result == 0) result = placementId.compareTo(other.placementId);
+			return result;
+		}
 	}
 
 	private static String preparedDefinitionCatalogPath(PreparedOrigin prepared)

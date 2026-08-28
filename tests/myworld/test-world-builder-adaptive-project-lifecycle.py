@@ -5096,6 +5096,83 @@ public final class FakeAdaptiveClient {
                 key=lambda value: (value["level"], value["sectorX"], value["sectorY"])
             )
             manifest["placementSets"].sort(key=lambda value: value["level"])
+            level_zero_placements = next(
+                value for value in manifest["placementSets"] if value["level"] == 0
+            )
+            level_zero_path = layered_base / level_zero_placements["path"]
+            level_zero_payload = json.loads(level_zero_path.read_text(encoding="utf-8"))
+            npc_x = terrain_template["sectorX"] * 48
+            npc_y = terrain_template["sectorY"] * 48
+            level_zero_payload["boundaries"] = [
+                {
+                    "boundaryId": 1,
+                    "direction": 0,
+                    "placementId": "historical-boundary-z",
+                    "position": {"x": npc_x + 1, "y": npc_y},
+                },
+                {
+                    "boundaryId": 1,
+                    "direction": 0,
+                    "placementId": "historical-boundary-a",
+                    "position": {"x": npc_x, "y": npc_y},
+                },
+            ]
+            level_zero_payload["groundItems"] = [
+                {
+                    "amount": 1,
+                    "itemId": 0,
+                    "placementId": "historical-item-z",
+                    "position": {"x": npc_x + 1, "y": npc_y + 1},
+                    "respawnSeconds": 30,
+                },
+                {
+                    "amount": 1,
+                    "itemId": 0,
+                    "placementId": "historical-item-a",
+                    "position": {"x": npc_x, "y": npc_y + 1},
+                    "respawnSeconds": 30,
+                },
+            ]
+            level_zero_payload["npcs"] = [
+                {
+                    "npcId": 2,
+                    "placementId": "historical-npc-z",
+                    "roamBounds": {
+                        "maximum": {"x": npc_x, "y": npc_y},
+                        "minimum": {"x": npc_x, "y": npc_y},
+                    },
+                    "start": {"x": npc_x, "y": npc_y},
+                },
+                {
+                    "npcId": 2,
+                    "placementId": "historical-npc-a",
+                    "roamBounds": {
+                        "maximum": {"x": npc_x, "y": npc_y},
+                        "minimum": {"x": npc_x, "y": npc_y},
+                    },
+                    "start": {"x": npc_x, "y": npc_y},
+                },
+            ]
+            level_zero_payload["scenery"] = [
+                {
+                    "direction": 2,
+                    "placementId": "historical-scenery-z",
+                    "position": {"x": npc_x + 1, "y": npc_y + 2},
+                    "sceneryId": 3,
+                },
+                {
+                    "direction": 2,
+                    "placementId": "historical-scenery-a",
+                    "position": {"x": npc_x, "y": npc_y + 2},
+                    "sceneryId": 3,
+                },
+            ]
+            write_json(level_zero_path, level_zero_payload)
+            level_zero_placements["sha256"] = sha256(level_zero_path)
+            noncanonical_npcs = [
+                value["placementId"] for value in level_zero_payload["npcs"]
+            ]
+            self.assertNotEqual(sorted(noncanonical_npcs), noncanonical_npcs)
             manifest["terrainSectors"] = (
                 manifest["terrainSectors"][1:] + manifest["terrainSectors"][:1]
             )
@@ -5166,6 +5243,18 @@ public final class FakeAdaptiveClient {
                 noncanonical_placements,
                 [value["level"] for value in original_base_manifest["placementSets"]],
             )
+            original_zero_declaration = next(
+                value for value in original_base_manifest["placementSets"]
+                if value["level"] == 0
+            )
+            original_zero_payload = json.loads((
+                project / "source/migration/layered-base/original-package"
+                / original_zero_declaration["path"]
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(
+                noncanonical_npcs,
+                [value["placementId"] for value in original_zero_payload["npcs"]],
+            )
             normalized_base_manifest = json.loads((
                 project / "source/migration/layered-base/package/manifest.json"
             ).read_text(encoding="utf-8"))
@@ -5184,6 +5273,30 @@ public final class FakeAdaptiveClient {
                 sorted(noncanonical_placements),
                 [value["level"] for value in normalized_base_manifest["placementSets"]],
             )
+            normalized_zero_declaration = next(
+                value for value in normalized_base_manifest["placementSets"]
+                if value["level"] == 0
+            )
+            normalized_zero_path = (
+                project / "source/migration/layered-base/package"
+                / normalized_zero_declaration["path"]
+            )
+            normalized_zero_payload = json.loads(
+                normalized_zero_path.read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                sorted(noncanonical_npcs),
+                [value["placementId"] for value in normalized_zero_payload["npcs"]],
+            )
+            for family in ("boundaries", "groundItems", "scenery"):
+                positions = [
+                    (value["position"]["x"], value["position"]["y"])
+                    for value in normalized_zero_payload[family]
+                ]
+                self.assertEqual(sorted(positions), positions)
+            self.assertEqual(
+                sha256(normalized_zero_path), normalized_zero_declaration["sha256"]
+            )
             normalization = json.loads((
                 project
                 / "source/migration/layered-base/normalization-report.json"
@@ -5191,6 +5304,11 @@ public final class FakeAdaptiveClient {
             self.assertTrue(normalization["levelsReordered"])
             self.assertTrue(normalization["terrainSectorsReordered"])
             self.assertTrue(normalization["placementSetsReordered"])
+            self.assertEqual(1, normalization["placementPayloadsReordered"])
+            self.assertEqual(
+                {"boundaries": 1, "groundItems": 1, "npcs": 1, "scenery": 1},
+                normalization["placementPayloadFamiliesReordered"],
+            )
             self.assertEqual(sorted(noncanonical_levels), normalization["normalizedLevels"])
             self.assertTrue(
                 (project / "source/migration/legacy-converted/package/manifest.json").is_file()

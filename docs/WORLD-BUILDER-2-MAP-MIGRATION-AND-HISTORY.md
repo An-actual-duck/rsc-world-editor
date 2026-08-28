@@ -103,9 +103,12 @@ keeps one byte-exact copy under `layered-base/original-package`, makes a second
 isolated package copy, sorts that copy's level, terrain-sector, and placement-set
 declarations by their canonical signed coordinates, and records both manifest
 hashes, the ordered levels, declaration counts, and each reordered flag in
-`layered-base/normalization-report.json`. Duplicate, malformed, or out-of-range
-declarations still fail closed. The installed package is never normalized in
-place.
+`layered-base/normalization-report.json`. Placement records inside each copied
+level payload are likewise sorted by owner tile, boundary direction where
+applicable, and stable placement identity; changed payload hashes are updated
+only in the copied manifest. Duplicate, malformed, hash-mismatched, or
+out-of-range declarations still fail closed. The installed package is never
+normalized in place.
 
 ### Streamlined prompt
 
