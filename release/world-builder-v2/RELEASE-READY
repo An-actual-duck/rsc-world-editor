@@ -1,8 +1,0 @@
-{
-  "schemaVersion": 1,
-  "manifestType": "world-builder-v2-release-gate",
-  "releaseVersion": "v0.7.0-alpha.24",
-  "validatedEditorCommit": "ca7740da87c8cdda431e3a8549c3f54cecd6b73a",
-  "runtimeProviderCommit": "47af68b8d9be971bf0d65f53c4971a9ff03fe8c6",
-  "validationRecord": "docs/releases/world-builder-v2-v0.7.0-alpha.24-validation.md"
-}
