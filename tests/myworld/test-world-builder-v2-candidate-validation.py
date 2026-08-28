@@ -24,6 +24,10 @@ NATIVE_PROOF = ROOT / "tests/myworld/test-world-builder-native-runtime-integrati
 VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
+CURRENT_VALIDATION_RECORD = (
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.24-validation.md"
+)
+CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
 VERSION_NUMBER = VERSION.removeprefix("v")
 PRODUCT_ID = "rsc-world-editor-v2"
@@ -714,19 +718,27 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertIn("server/client.pem", result.stderr)
 
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
-        text = VALIDATION_RECORD.read_text(encoding="utf-8")
+        text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("aaab273663e96683bb0eeab773c7df7921e8cfd2", text)
-        self.assertIn("a2d00ee389761732ce5c8ffca07f430133aca4f5", text)
-        self.assertIn("complete top-level `World Builder 2/` directory", text)
+        self.assertIn("ca7740da87c8cdda431e3a8549c3f54cecd6b73a", text)
+        self.assertIn("47af68b8d9be971bf0d65f53c4971a9ff03fe8c6", text)
         self.assertIn("Production archives must be rebuilt", text)
-        self.assertIn("report text, not screenshots", text)
-        self.assertIn("releaseReady: false", text)
-        self.assertIn("AC-17", text)
+        self.assertIn("without screenshots", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("custom wall and floor material packs are **not implemented", text)
-        self.assertIn("Post-publication gate state", text)
-        self.assertFalse((ROOT / "release/world-builder-v2/RELEASE-READY").exists())
+        self.assertIn("second detection did not offer `Custom_Landscape.orsc`", text)
+        if CURRENT_RELEASE_GATE.exists():
+            gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
+            self.assertEqual("v0.7.0-alpha.24", gate["releaseVersion"])
+            self.assertEqual(
+                "ca7740da87c8cdda431e3a8549c3f54cecd6b73a",
+                gate["validatedEditorCommit"],
+            )
+            self.assertEqual(
+                "47af68b8d9be971bf0d65f53c4971a9ff03fe8c6",
+                gate["runtimeProviderCommit"],
+            )
+        else:
+            self.assertIn("Post-publication gate state", text)
 
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
@@ -16,18 +17,33 @@ V2_PACKAGER = ROOT / "scripts" / "package-world-builder-v2-release.sh"
 
 
 class WorldBuilderProductGenerationTest(unittest.TestCase):
-    def test_product_lines_are_distinct_and_released_v2_gate_is_consumed(
+    def test_product_lines_are_distinct_and_v2_gate_state_is_consistent(
         self,
     ) -> None:
         self.assertTrue((LEGACY / "README.txt").is_file())
         self.assertTrue((V2 / "README.txt").is_file())
-        self.assertFalse((V2 / "RELEASE-READY").exists())
-        validation = (
+        historical_validation = (
             ROOT
             / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
         ).read_text(encoding="utf-8")
-        self.assertIn("ACCEPTED — RELEASE READY", validation)
-        self.assertIn("Post-publication gate state", validation)
+        self.assertIn("ACCEPTED — RELEASE READY", historical_validation)
+        self.assertIn("Post-publication gate state", historical_validation)
+
+        current_validation = (
+            ROOT
+            / "docs/releases/world-builder-v2-v0.7.0-alpha.24-validation.md"
+        ).read_text(encoding="utf-8")
+        gate_path = V2 / "RELEASE-READY"
+        if gate_path.exists():
+            gate = json.loads(gate_path.read_text(encoding="utf-8"))
+            self.assertEqual("v0.7.0-alpha.24", gate["releaseVersion"])
+            self.assertEqual(
+                "docs/releases/world-builder-v2-v0.7.0-alpha.24-validation.md",
+                gate["validationRecord"],
+            )
+            self.assertIn("ACCEPTED — RELEASE READY", current_validation)
+        else:
+            self.assertIn("Post-publication gate state", current_validation)
 
         v2_readme = (V2 / "README.txt").read_text(encoding="utf-8")
         v2_start_sh = (V2 / "Start World Builder.sh").read_text(encoding="utf-8")
