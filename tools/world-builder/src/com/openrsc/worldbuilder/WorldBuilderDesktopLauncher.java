@@ -287,6 +287,8 @@ final class WorldBuilderDesktopLauncher {
 		private final JButton open = new JButton("Continue Working on Selected Project");
 		private final JButton empty = new JButton("Create New Project");
 		private final JButton installedSource = new JButton("Detect Server Map");
+		private final JButton importToServer = new JButton("Import Map to Server");
+		private final JButton restoreBackup = new JButton("Restore Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
 
@@ -411,6 +413,8 @@ final class WorldBuilderDesktopLauncher {
 			open.addActionListener(event -> openSelected());
 			empty.addActionListener(event -> createEmpty());
 			installedSource.addActionListener(event -> inspectInstalledSource());
+			importToServer.addActionListener(event -> importSelectedProject());
+			restoreBackup.addActionListener(event -> openProjectBackups());
 			for (JButton primary : new JButton[] {empty, installedSource, open}) {
 				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
 				primary.setPreferredSize(new Dimension(245, 44));
@@ -419,6 +423,12 @@ final class WorldBuilderDesktopLauncher {
 			installedSource.setToolTipText(
 				"Find and safely copy the map from the server beside World Builder.");
 			open.setToolTipText("Open the selected project and continue editing.");
+			importToServer.setToolTipText(
+				"Preview, back up, and safely install the selected project's map into its server.");
+			restoreBackup.setToolTipText(
+				"Load an earlier backup into the selected project without changing its server.");
+			importToServer.setEnabled(false);
+			restoreBackup.setEnabled(false);
 
 			JPanel actions = new JPanel(new GridBagLayout());
 			actions.setBorder(BorderFactory.createEmptyBorder(0, 20, 12, 20));
@@ -433,8 +443,26 @@ final class WorldBuilderDesktopLauncher {
 			action.gridx = 2;
 			actions.add(open, action);
 
+			JPanel selectedProjectActions = new JPanel(new GridBagLayout());
+			selectedProjectActions.setBorder(BorderFactory.createTitledBorder(
+				"Selected Project Actions"));
+			GridBagConstraints selectedAction = new GridBagConstraints();
+			selectedAction.insets = new Insets(4, 8, 6, 8);
+			selectedAction.fill = GridBagConstraints.HORIZONTAL;
+			selectedAction.weightx = 1;
+			selectedAction.gridx = 0;
+			selectedAction.gridy = 0;
+			selectedProjectActions.add(importToServer, selectedAction);
+			selectedAction.gridx = 1;
+			selectedProjectActions.add(restoreBackup, selectedAction);
+
+			JPanel actionRows = new JPanel();
+			actionRows.setLayout(new BoxLayout(actionRows, BoxLayout.Y_AXIS));
+			actionRows.add(actions);
+			actionRows.add(selectedProjectActions);
+
 			JPanel bottom = new JPanel(new BorderLayout());
-			bottom.add(actions, BorderLayout.CENTER);
+			bottom.add(actionRows, BorderLayout.CENTER);
 			status.setBorder(BorderFactory.createCompoundBorder(
 				BorderFactory.createMatteBorder(1, 0, 0, 0, new Color(210, 210, 210)),
 				BorderFactory.createEmptyBorder(8, 20, 9, 20)));
@@ -489,6 +517,8 @@ final class WorldBuilderDesktopLauncher {
 		private void showSelectedDetails() {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			open.setEnabled(!busy && entry != null);
+			importToServer.setEnabled(!busy && entry != null);
+			restoreBackup.setEnabled(!busy && entry != null);
 			if (entry == null) return;
 			frame.getRootPane().setDefaultButton(open);
 			details.setText("Project: " + entry.displayName
@@ -1465,7 +1495,10 @@ final class WorldBuilderDesktopLauncher {
 			projectList.setEnabled(!value);
 			empty.setEnabled(!value);
 			installedSource.setEnabled(!value);
-			open.setEnabled(!value && projectList.getSelectedValue() != null);
+			boolean selected = projectList.getSelectedValue() != null;
+			open.setEnabled(!value && selected);
+			importToServer.setEnabled(!value && selected);
+			restoreBackup.setEnabled(!value && selected);
 			status.setText(message);
 		}
 

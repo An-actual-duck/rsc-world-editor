@@ -250,7 +250,8 @@ selection; complete map export publishes the entire selected project's world.
 
 The existing adaptive transaction engine is exposed inside the desktop
 application rather than reimplemented in Swing. The selected project must be
-closed before import. The GUI:
+closed before import. **Import Map to Server** is a visible selected-project
+action on the main launcher as well as a File-menu recovery path. The GUI:
 
 1. exports or selects the exact current complete project export;
 2. rediscovers the attached target and rejects drift;
@@ -346,7 +347,8 @@ reviewed retention policy may follow.
 
 ### Backup browser
 
-The selected-project GUI provides **Project Backups…** with:
+The main launcher provides a visible **Restore Backup** selected-project action.
+It opens the same **Project Backups** browser available from the File menu, with:
 
 - a newest-first revision list;
 - date/time, reason, optional description, and abbreviated package identity;
@@ -458,6 +460,6 @@ risk-appropriate test gate before the next begins.
 | --- | --- | --- |
 | Legacy packed detection/conversion | Implemented | Owner validation on additional real-world targets |
 | Complete layered export | GUI action implemented | Optional destination/reveal experience |
-| Target import/undo/recovery | GUI projection implemented | Owner visual validation and release testing |
+| Target import/undo/recovery | Prominent GUI projection implemented | Owner visual validation and release testing |
 | Legacy retirement | Implemented and transaction-tested | Owner validation of automatic active-layer association on the real split-map workflow |
-| Project revision history | Implemented with content-addressed storage and recovery | Owner GUI validation and additional long-running real-project use |
+| Project revision history | Implemented with prominent Restore Backup access, content-addressed storage, and recovery | Owner GUI validation and additional long-running real-project use |
