@@ -492,7 +492,9 @@ Standalone projects may export normally, but import, undo, and recovery return
 `NO_TARGET` before a target path is resolved, accessed, locked, backed up, or
 receipted. A compiled `process-scan` offline requirement currently needs a
 readable Linux `/proc` view and fails closed when that process view is absent or
-unavailable.
+unavailable. A process merely having its working directory below the target is
+not treated as the server when readable command and process-name evidence prove
+that it is non-Java; Java and ambiguous target-root processes remain blocked.
 
 ## Historical interfaces
 

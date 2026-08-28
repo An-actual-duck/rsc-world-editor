@@ -454,6 +454,16 @@ public final class AdaptiveTransactionFailureHarness {
                         target, "4242", true, true,
                         ("/usr/bin/unrelated\0" + target.toString()).getBytes("UTF-8"),
                         true, "unrelated", false, null);
+                } else if ("target-cwd-non-java".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/bash\0--norc".getBytes("UTF-8"),
+                        true, "bash", true, target);
+                } else if ("target-cwd-java".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/java\0-cp\0core.jar".getBytes("UTF-8"),
+                        true, "java", true, target);
                 } else if ("kernel-thread".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
                         target, "4242", true, true, new byte[0],
@@ -1774,7 +1784,8 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(3, partial.returncode, partial.stderr)
             self.assertIn("could not be completely examined", partial.stderr)
             for observation in (
-                "java-command-only", "hidden-java-command-only", "target-command-only"
+                "java-command-only", "hidden-java-command-only", "target-command-only",
+                "target-cwd-java",
             ):
                 refused = self.run_failure(
                     "process-observation", observation, scratch, scratch
@@ -1782,7 +1793,8 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertEqual(3, refused.returncode, refused.stderr)
                 self.assertIn("OFFLINE_REQUIRED", refused.stderr)
             for observation in (
-                "exited", "readable-command", "command-only", "kernel-thread"
+                "exited", "readable-command", "command-only", "kernel-thread",
+                "target-cwd-non-java",
             ):
                 accepted = self.run_failure(
                     "process-observation", observation, scratch, scratch

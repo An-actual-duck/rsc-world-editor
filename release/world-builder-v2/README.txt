@@ -214,7 +214,8 @@ REQUIREMENTS AND LIMITS
   Linux /proc process view and fails closed if that view is unavailable. A
   live process whose command names the target is refused. A potentially
   relevant Java process requires both readable cmdline and cwd evidence;
-  conclusively non-Java system processes may hide cwd without blocking import.
+  conclusively non-Java processes may hide cwd or have a cwd below the target
+  without being misidentified as its Java server.
 - Import, Undo, and Recovery require a filesystem/Java provider capable of
   forcing transaction directory entries; unsupported providers fail before
   target mutation.

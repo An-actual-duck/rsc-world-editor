@@ -311,10 +311,16 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 		boolean processNameReadable, String processName, boolean cwdReadable, Path cwd)
 		throws WorldBuilderContractException {
 		if (!stillLive) return;
-		if (cwdReadable && cwd != null
-			&& (cwd.equals(target) || cwd.startsWith(target))) {
+		boolean targetCwd = cwdReadable && cwd != null
+			&& (cwd.equals(target) || cwd.startsWith(target));
+		boolean conclusivelyNonJava = commandReadable && commandBytes != null
+			&& commandBytes.length > 0 && processNameReadable
+			&& !couldBeAdaptiveJavaRuntime(commandBytes)
+			&& !couldBeAdaptiveJavaRuntime(processName);
+		if (targetCwd && !conclusivelyNonJava) {
 			throw problem(WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
-				"A server process appears to be running from this target root.",
+				"A Java or ambiguous process (PID " + processId
+					+ ") appears to be running from this target root.",
 				"Stop the target server completely and retry.");
 		}
 		if (commandReadable && commandBytes != null) {

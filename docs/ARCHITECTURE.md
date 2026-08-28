@@ -114,9 +114,11 @@ Linux `/proc` process view; a missing, unreadable, or unavailable view refuses
 mutation rather than recording clean evidence. A live process whose readable
 command names the target is refused. A potentially relevant Java process also
 requires a readable working-directory observation. A conclusively non-Java
-process may have an unreadable working directory without making every normal
-non-root Linux import fail on system services such as PID 1. Process exits and
-empty kernel-thread command lines are handled separately.
+process may have an unreadable working directory, or a working directory below
+the target, without making normal non-root Linux imports fail on system services
+or a harmless terminal. Java and ambiguous target-root processes remain
+blocked. Process exits and empty kernel-thread command lines are handled
+separately.
 
 Phase 6 deliberately permits only one outstanding successful import per
 project. To install a later saved/exported working state, run exact Undo for
