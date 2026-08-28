@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after correcting split-map migration to preserve wider signed layered levels |
+| Last reconciled | 2026-08-27, after extending exact split-map relocation to terrain and all static placement families |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Legacy `Custom_Landscape.orsc` incorporation, combined export, safe target import, retirement, and recovery validation |
@@ -65,7 +65,9 @@ World Builder 2 already provides a substantial base for these goals:
   lineage for both layered-plus-packed and primary-packed discovery paths,
   including deterministic composition over an automatically associated layered base so
   legacy planes cannot collapse or discard signed levels such as `-2` and
-  `+10`;
+  `+10`; exact uniquely relocated tiles also carry their boundary, ground-item,
+  NPC, and scenery companions to the same signed level while the layered base
+  remains authoritative;
 - a reversible Build presentation mode with a terrain grid and simplified
   renderer settings; and
 - a detailed, unimplemented custom wall/floor material design.
@@ -492,6 +494,24 @@ The longer-term editor should consider:
 These are a direction, not a promise that every tool belongs in one release.
 They should reuse a small number of well-tested selection, preview, operation,
 undo, and snapshot primitives instead of growing separate unsafe command paths.
+
+### Signed-layer interaction validation
+
+Live Interaction must treat a scenery action as level-qualified from selection
+through movement, plugin dispatch, collision changes, and any destination or
+failure state. A two-coordinate legacy destination is not sufficient evidence
+for every action: each transition must deliberately mean same signed level,
+classic packed destination, or an explicit signed destination. This is
+especially important for restricted doors, agility shortcuts, ladders, altar
+companions, and other objects whose behavior depends on location.
+
+The runtime already has signed-level spatial lookup and focused repairs for
+several restricted passages. The migration layer now keeps exactly relocated
+static companions with their terrain. A complete cross-family gameplay-action
+audit remains a separate validation increment: first confirm that the object is
+present on the correct signed level, then correct runtime dispatch or transition
+semantics only where the right object still behaves incorrectly. Arbitrary
+target plugins or executable server code are never imported to fill that gap.
 
 ### Long-term declarative Action mode
 

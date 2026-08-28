@@ -5009,6 +5009,48 @@ public final class FakeAdaptiveClient {
                 server_terrain,
                 target / "Client_Base/Cache/video/Custom_Landscape.orsc",
             )
+            config = target / "server/myworld.conf"
+            config.write_text(
+                config.read_text(encoding="utf-8")
+                + "location_data: 2\nwant_runecraft: true\n",
+                encoding="utf-8",
+            )
+            write_json(
+                target / "server/conf/server/defs/locs/SceneryLocsRunecraft.json",
+                {"sceneries": [
+                    {"id": 2, "pos": {"X": 5, "Y": 2837}, "direction": 0},
+                    {"id": 4, "pos": {"X": 6, "Y": 2837}, "direction": 0},
+                ]},
+            )
+            locations = target / "server/conf/server/defs/locs"
+            boundary_source = json.loads(
+                (locations / "BoundaryLocs.json").read_text(encoding="utf-8")
+            )
+            boundary_source["boundaries"].extend([
+                {"id": 1, "pos": {"X": 7, "Y": 2837}, "direction": 0},
+                {"id": 1, "pos": {"X": 8, "Y": 2837}, "direction": 0},
+            ])
+            write_json(locations / "BoundaryLocs.json", boundary_source)
+            item_source = json.loads(
+                (locations / "GroundItems.json").read_text(encoding="utf-8")
+            )
+            item_source["grounditems"].append({
+                "id": 7,
+                "pos": {"X": 9, "Y": 2837},
+                "amount": 1,
+                "respawn": 60,
+            })
+            write_json(locations / "GroundItems.json", item_source)
+            npc_source = json.loads(
+                (locations / "NpcLocs.json").read_text(encoding="utf-8")
+            )
+            npc_source["npclocs"].append({
+                "id": 1,
+                "start": {"X": 10, "Y": 2837},
+                "min": {"X": 10, "Y": 2837},
+                "max": {"X": 10, "Y": 2837},
+            })
+            write_json(locations / "NpcLocs.json", npc_source)
 
             bootstrap_installation = root / "Bootstrap World Builder 2"
             bootstrap_installation.mkdir()
@@ -5041,6 +5083,27 @@ public final class FakeAdaptiveClient {
             old_placement_path = layered_base / old_placement["path"]
             old_placement_payload = json.loads(
                 old_placement_path.read_text(encoding="utf-8")
+            )
+            legacy_relocated_scenery = {
+                value["sceneryId"]: value
+                for value in old_placement_payload["scenery"]
+                if value["sceneryId"] in (2, 4)
+                and value["position"] in ({"x": 5, "y": 5}, {"x": 6, "y": 5})
+            }
+            self.assertEqual({2, 4}, set(legacy_relocated_scenery))
+            legacy_relocated_boundaries = {
+                value["position"]["x"]: value
+                for value in old_placement_payload["boundaries"]
+                if value["position"] in ({"x": 7, "y": 5}, {"x": 8, "y": 5})
+            }
+            self.assertEqual({7, 8}, set(legacy_relocated_boundaries))
+            legacy_relocated_item = next(
+                value for value in old_placement_payload["groundItems"]
+                if value["position"] == {"x": 9, "y": 5}
+            )
+            legacy_relocated_npc = next(
+                value for value in old_placement_payload["npcs"]
+                if value["start"] == {"x": 10, "y": 5}
             )
             for family in ("boundaries", "groundItems", "npcs", "scenery"):
                 old_placement_payload[family] = []
@@ -5096,6 +5159,11 @@ public final class FakeAdaptiveClient {
                     "schemaVersion": 3,
                     "worldSpace": manifest["worldSpaces"][0]["id"],
                 }
+                if level == -2:
+                    placement_payload["boundaries"] = [
+                        legacy_relocated_boundaries[8]
+                    ]
+                    placement_payload["scenery"] = [legacy_relocated_scenery[4]]
                 write_json(layered_base / placement_path, placement_payload)
                 manifest["placementSets"].append({
                     "encoding": "layered-world-placements-v3",
@@ -5250,6 +5318,47 @@ public final class FakeAdaptiveClient {
             self.assertEqual(
                 CANONICAL_VOID_SECTOR, (package / old_record["path"]).read_bytes()
             )
+            composed_by_level = {}
+            for declaration in composed["placementSets"]:
+                composed_by_level[declaration["level"]] = json.loads(
+                    (package / declaration["path"]).read_text(encoding="utf-8")
+                )
+            self.assertEqual(
+                [(2, 5, 5), (4, 6, 5)],
+                [
+                    (value["sceneryId"], value["position"]["x"], value["position"]["y"])
+                    for value in composed_by_level[-2]["scenery"]
+                    if value["sceneryId"] in (2, 4)
+                ],
+            )
+            self.assertEqual(
+                [(1, 7, 5), (1, 8, 5)],
+                [
+                    (value["boundaryId"], value["position"]["x"], value["position"]["y"])
+                    for value in composed_by_level[-2]["boundaries"]
+                    if value["position"] in ({"x": 7, "y": 5}, {"x": 8, "y": 5})
+                ],
+            )
+            self.assertIn(
+                legacy_relocated_item, composed_by_level[-2]["groundItems"]
+            )
+            self.assertIn(legacy_relocated_npc, composed_by_level[-2]["npcs"])
+            self.assertFalse(
+                [
+                    value for value in composed_by_level[-1]["scenery"]
+                    if value["sceneryId"] in (2, 4)
+                    and value["position"] in ({"x": 5, "y": 5}, {"x": 6, "y": 5})
+                ]
+            )
+            for family, point_name, points in (
+                ("boundaries", "position", ({"x": 7, "y": 5}, {"x": 8, "y": 5})),
+                ("groundItems", "position", ({"x": 9, "y": 5},)),
+                ("npcs", "start", ({"x": 10, "y": 5},)),
+            ):
+                self.assertFalse([
+                    value for value in composed_by_level[-1][family]
+                    if value[point_name] in points
+                ])
             self.assertTrue(
                 (project / "source/migration/layered-base/package/manifest.json").is_file()
             )
@@ -5354,6 +5463,9 @@ public final class FakeAdaptiveClient {
             self.assertGreaterEqual(composition["addedTerrainSectors"], 1)
             self.assertEqual(1, composition["relocatedTerrainSectorsMerged"])
             self.assertEqual(48 * 48, composition["relocatedLegacyTilesSuppressed"])
+            self.assertEqual(4, composition["relocatedLegacyPlacements"])
+            self.assertEqual(2, composition["relocatedPlacementsAlreadyPresent"])
+            self.assertEqual(0, composition["relocatedPlacementConflicts"])
 
     def test_packed_fallback_converts_active_runecrafting_scenery_only(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runecraft-scenery-") as temp:

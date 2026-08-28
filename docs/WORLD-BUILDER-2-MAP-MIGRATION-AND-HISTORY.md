@@ -76,11 +76,20 @@ the selected primary packed map. Choosing to incorporate it means:
 3. collect that configuration's active definitions and placement families;
 4. convert every legacy sector exactly into signed layered form;
 5. when a complete layered base exists, preserve all of its signed levels and
-   placement sets while replacing only terrain sector coordinates explicitly
-   present in the legacy conversion;
+   placement sets while applying only exact legacy terrain evidence; if one
+   non-void legacy tile has exactly one byte-identical destination on a wider
+   signed level, suppress the stale old-layer tile and relocate boundary,
+   ground-item, NPC, and scenery records anchored to that tile;
 6. strictly validate the layered base, legacy conversion, and composed output;
    and
 7. record the decision and every input hash in immutable project lineage.
+
+The relocation rule is deliberately fail-closed. A placement already present
+with the same semantics is de-duplicated in favor of the layered base. An
+occupied target slot with different semantics is reported as a conflict and is
+not guessed. A legacy tile matching more than one possible signed destination
+does not establish relocation evidence, so neither terrain nor placements are
+moved from that ambiguous tile.
 
 World Builder does not infer which package is newer, scan product-specific
 state directories, or merge an unrelated package. It first resolves the

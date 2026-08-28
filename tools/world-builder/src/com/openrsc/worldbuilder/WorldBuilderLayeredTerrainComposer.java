@@ -90,6 +90,8 @@ final class WorldBuilderLayeredTerrainComposer {
 		int added = 0;
 		int relocatedSectorsMerged = 0;
 		long relocatedTilesSuppressed = 0L;
+		Map<String,Integer> relocatedTileLevels =
+			new LinkedHashMap<String,Integer>();
 		for (Object raw : legacyTerrain) {
 			Map<String,Object> record = object(raw, "legacy terrain declaration");
 			String key = terrainKey(record);
@@ -107,6 +109,17 @@ final class WorldBuilderLayeredTerrainComposer {
 				normalized.put("sha256", WorldBuilderHashes.sha256(merge.payload));
 				relocatedSectorsMerged++;
 				relocatedTilesSuppressed += merge.suppressedTiles;
+				for (Map.Entry<Integer,Integer> relocation
+					: merge.targetLevels.entrySet()) {
+					int tile = relocation.getKey().intValue();
+					int worldX = sectorX(record) * WorldBuilderRawLayeredTerrainCodec.SECTOR_SIZE
+						+ tile / WorldBuilderRawLayeredTerrainCodec.SECTOR_SIZE;
+					int worldY = sectorY(record) * WorldBuilderRawLayeredTerrainCodec.SECTOR_SIZE
+						+ tile % WorldBuilderRawLayeredTerrainCodec.SECTOR_SIZE;
+					relocatedTileLevels.put(
+						placementTileKey(number(record, "level"), worldX, worldY),
+						relocation.getValue());
+				}
 			}
 			terrain.put(key, normalized);
 		}
@@ -115,6 +128,20 @@ final class WorldBuilderLayeredTerrainComposer {
 			basePlacements, baseRelative);
 		TreeMap<Integer,Map<String,Object>> legacyPlacementRecords = byLevelWithSource(
 			legacyPlacements, legacyRelative);
+		Map<Integer,Map<String,Object>> basePlacementPayloads = placementPayloads(
+			target, baseRelative, placements);
+		Map<Integer,Map<String,Object>> legacyPlacementPayloads = placementPayloads(
+			target, legacyRelative, legacyPlacementRecords);
+		PlacementRelocationResult placementRelocations = relocateLegacyPlacements(
+			basePlacementPayloads, legacyPlacementPayloads, relocatedTileLevels);
+		for (Integer changedLevel : placementRelocations.changedBaseLevels) {
+			placements.get(changedLevel).put("__syntheticPlacementPayload",
+				basePlacementPayloads.get(changedLevel));
+		}
+		for (Integer changedLevel : placementRelocations.changedLegacyLevels) {
+			legacyPlacementRecords.get(changedLevel).put("__syntheticPlacementPayload",
+				legacyPlacementPayloads.get(changedLevel));
+		}
 		for (Map.Entry<Integer,Map<String,Object>> entry
 			: legacyPlacementRecords.entrySet()) {
 			if (!placements.containsKey(entry.getKey())) {
@@ -150,9 +177,18 @@ final class WorldBuilderLayeredTerrainComposer {
 			String sourceRoot = text(sourced.remove("__sourceRoot"));
 			String rewriteWorldSpace = text(
 				sourced.remove("__rewritePlacementWorldSpace"));
+			Object synthetic = sourced.remove("__syntheticPlacementPayload");
 			Map<String,Object> declaration = copy(sourced);
-			copyPayload(target, sourceRoot, declaration, outputRoot, outputPaths,
-				rewriteWorldSpace);
+			if (synthetic instanceof Map) {
+				@SuppressWarnings("unchecked") Map<String,Object> payload =
+					(Map<String,Object>)synthetic;
+				writeSyntheticPlacementPayload(
+					payload, declaration, outputRoot, outputPaths,
+					rewriteWorldSpace);
+			} else {
+				copyPayload(target, sourceRoot, declaration, outputRoot, outputPaths,
+					rewriteWorldSpace);
+			}
 			outputPlacements.add(declaration);
 		}
 
@@ -172,7 +208,9 @@ final class WorldBuilderLayeredTerrainComposer {
 		Collections.sort(preserved);
 		return new Result(base.fingerprintSha256, legacy.fingerprintSha256,
 			composed.fingerprintSha256, replaced, added, relocatedSectorsMerged,
-			relocatedTilesSuppressed, preserved);
+			relocatedTilesSuppressed, placementRelocations.relocated,
+			placementRelocations.alreadyPresent,
+			placementRelocations.conflicts, preserved);
 	}
 
 	private static RelocatedTerrainMerge suppressRelocatedLegacyTiles(
@@ -201,29 +239,40 @@ final class WorldBuilderLayeredTerrainComposer {
 		byte[] legacyPayload = v2Payload(terrainPayload(
 			target, legacyRelative, legacy), text(legacy.get("encoding")));
 		List<byte[]> candidatePayloads = new ArrayList<byte[]>();
+		List<Integer> candidateLevels = new ArrayList<Integer>();
 		for (Map<String,Object> candidate : relocationLevels) {
 			candidatePayloads.add(v2Payload(
 				terrainPayload(target, baseRelative, candidate),
 				text(candidate.get("encoding"))));
+			candidateLevels.add(Integer.valueOf(number(candidate, "level")));
 		}
 		byte[] output = legacyPayload.clone();
 		int suppressed = 0;
+		Map<Integer,Integer> targetLevels =
+			new LinkedHashMap<Integer,Integer>();
 		for (int tile = 0; tile < WorldBuilderRawLayeredTerrainCodec.TILE_COUNT; tile++) {
 			if (isVoidTile(basePayload, tile) && !isVoidTile(legacyPayload, tile)) {
-				for (byte[] candidate : candidatePayloads) {
-					if (sameTile(legacyPayload, candidate, tile)) {
-						int offset = tile * WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
-						System.arraycopy(basePayload, offset, output, offset,
-							WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES);
-						suppressed++;
+				int match = -1;
+				for (int index = 0; index < candidatePayloads.size(); index++) {
+					if (!sameTile(legacyPayload, candidatePayloads.get(index), tile)) continue;
+					if (match >= 0) {
+						match = -2;
 						break;
 					}
+					match = index;
+				}
+				if (match >= 0) {
+					int offset = tile * WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
+					System.arraycopy(basePayload, offset, output, offset,
+						WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES);
+					targetLevels.put(Integer.valueOf(tile), candidateLevels.get(match));
+					suppressed++;
 				}
 			}
 		}
 		return suppressed == 0
 			? RelocatedTerrainMerge.none()
-			: new RelocatedTerrainMerge(output, suppressed);
+			: new RelocatedTerrainMerge(output, suppressed, targetLevels);
 	}
 
 	private static byte[] terrainPayload(WorldBuilderReadOnlyTarget target,
@@ -302,6 +351,222 @@ final class WorldBuilderLayeredTerrainComposer {
 			}
 		}
 		return result;
+	}
+
+	private static Map<Integer,Map<String,Object>> placementPayloads(
+		WorldBuilderReadOnlyTarget target, String packageRelative,
+		TreeMap<Integer,Map<String,Object>> declarations)
+		throws WorldBuilderContractException {
+		Map<Integer,Map<String,Object>> result =
+			new LinkedHashMap<Integer,Map<String,Object>>();
+		for (Map.Entry<Integer,Map<String,Object>> entry : declarations.entrySet()) {
+			String path = text(entry.getValue().get("path"));
+			result.put(entry.getKey(),
+				target.readObject(packageRelative + "/" + path));
+		}
+		return result;
+	}
+
+	/**
+	 * Moves placements only when their old tile has one exact terrain relocation.
+	 * The complete layered base stays authoritative: matching placements are
+	 * de-duplicated and a conflicting occupied target slot is never guessed.
+	 */
+	private static PlacementRelocationResult relocateLegacyPlacements(
+		Map<Integer,Map<String,Object>> basePayloads,
+		Map<Integer,Map<String,Object>> legacyPayloads,
+		Map<String,Integer> relocatedTileLevels)
+		throws WorldBuilderContractException {
+		PlacementRelocationResult result = new PlacementRelocationResult();
+		for (Map.Entry<Integer,Map<String,Object>> source : legacyPayloads.entrySet()) {
+			int sourceLevel = source.getKey().intValue();
+			for (String family : Arrays.asList(
+				"boundaries", "groundItems", "npcs", "scenery")) {
+				List<Object> legacyRecords = mutableList(
+					source.getValue(), family, "legacy placement payload");
+				List<Object> retained = new ArrayList<Object>();
+				boolean changed = false;
+				for (Object raw : legacyRecords) {
+					Map<String,Object> placement = object(raw,
+						"legacy " + family + " placement");
+					Map<String,Object> point = placementPoint(family, placement);
+					int x = number(point, "x");
+					int y = number(point, "y");
+					Integer targetLevel = relocatedTileLevels.get(
+						placementTileKey(sourceLevel, x, y));
+					if (targetLevel == null) {
+						retained.add(raw);
+						continue;
+					}
+					Map<String,Object> targetPayload = basePayloads.get(targetLevel);
+					if (targetPayload == null) {
+						retained.add(raw);
+						result.conflicts++;
+						continue;
+					}
+					List<Object> targetRecords = mutableList(
+						targetPayload, family, "base placement payload");
+					Map<String,Object> occupied = placementAt(
+						family, targetRecords, placement, x, y);
+					if (occupied != null) {
+						if (samePlacement(family, occupied, placement)) {
+							result.alreadyPresent++;
+							changed = true;
+							continue;
+						}
+						retained.add(raw);
+						result.conflicts++;
+						continue;
+					}
+					Map<String,Object> moved = copy(placement);
+					String placementId = text(moved.get("placementId"));
+					if (placementIdUsed(targetPayload, placementId)) {
+						moved.put("placementId", "p-" + WorldBuilderHashes.sha256(
+							("relocated-" + family + "\u0000" + placementId + "\u0000"
+								+ sourceLevel + "\u0000" + targetLevel + "\u0000"
+								+ x + "\u0000" + y).getBytes(StandardCharsets.UTF_8)));
+					}
+					targetRecords.add(moved);
+					sortPlacements(targetRecords, family);
+					result.changedBaseLevels.add(targetLevel);
+					result.relocated++;
+					changed = true;
+				}
+				if (changed) {
+					source.getValue().put(family, retained);
+					result.changedLegacyLevels.add(source.getKey());
+				}
+			}
+		}
+		return result;
+	}
+
+	private static List<Object> mutableList(Map<String,Object> payload, String key,
+		String label) throws WorldBuilderContractException {
+		Object raw = payload.get(key);
+		if (!(raw instanceof List)) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, key,
+				"A " + label + " array is missing.",
+				"Use a strictly validated layered package.");
+		}
+		@SuppressWarnings("unchecked") List<Object> result = (List<Object>)raw;
+		return result;
+	}
+
+	private static Map<String,Object> placementPoint(String family,
+		Map<String,Object> record) throws WorldBuilderContractException {
+		return object(record.get("npcs".equals(family) ? "start" : "position"),
+			family + " placement position");
+	}
+
+	private static Map<String,Object> placementAt(String family,
+		List<Object> records, Map<String,Object> wanted, int x, int y)
+		throws WorldBuilderContractException {
+		for (Object raw : records) {
+			Map<String,Object> record = object(raw, "base " + family + " placement");
+			Map<String,Object> point = placementPoint(family, record);
+			if (number(point, "x") != x || number(point, "y") != y) continue;
+			if ("boundaries".equals(family)
+				&& number(record, "direction") != number(wanted, "direction")) continue;
+			if ("npcs".equals(family)
+				&& !samePlacement(family, record, wanted)) continue;
+			return record;
+		}
+		return null;
+	}
+
+	private static boolean samePlacement(String family, Map<String,Object> left,
+		Map<String,Object> right) throws WorldBuilderContractException {
+		if ("boundaries".equals(family)) {
+			return number(left, "boundaryId") == number(right, "boundaryId")
+				&& number(left, "direction") == number(right, "direction");
+		}
+		if ("groundItems".equals(family)) {
+			return number(left, "itemId") == number(right, "itemId")
+				&& number(left, "amount") == number(right, "amount")
+				&& number(left, "respawnSeconds") == number(right, "respawnSeconds");
+		}
+		if ("npcs".equals(family)) {
+			return number(left, "npcId") == number(right, "npcId")
+				&& WorldBuilderJsonDocuments.canonical(left.get("roamBounds"))
+					.equals(WorldBuilderJsonDocuments.canonical(right.get("roamBounds")));
+		}
+		return number(left, "sceneryId") == number(right, "sceneryId")
+			&& number(left, "direction") == number(right, "direction");
+	}
+
+	private static boolean placementIdUsed(Map<String,Object> payload, String id)
+		throws WorldBuilderContractException {
+		for (String family : Arrays.asList("boundaries", "groundItems", "npcs", "scenery")) {
+			for (Object raw : mutableList(payload, family, "placement payload")) {
+				if (id.equals(text(object(raw, family).get("placementId")))) return true;
+			}
+		}
+		return false;
+	}
+
+	private static void sortPlacements(List<Object> records, final String family)
+		throws WorldBuilderContractException {
+		final Map<Object,String> keys = new java.util.IdentityHashMap<Object,String>();
+		for (Object raw : records) {
+			Map<String,Object> record = object(raw, family);
+			Map<String,Object> point = object(
+				record.get("npcs".equals(family) ? "start" : "position"), family);
+			String key = ordered(number(point, "x")) + "\u0000"
+				+ ordered(number(point, "y")) + "\u0000";
+			if ("boundaries".equals(family)) {
+				key += ordered(number(record, "direction")) + "\u0000";
+			}
+			keys.put(raw, key + text(record.get("placementId")));
+		}
+		Collections.sort(records, new Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				return keys.get(left).compareTo(keys.get(right));
+			}
+		});
+	}
+
+	private static String ordered(int value) {
+		return String.format(java.util.Locale.ROOT, "%010d",
+			(long)value - Integer.MIN_VALUE);
+	}
+
+	private static String placementTileKey(int level, int x, int y) {
+		return level + ":" + x + ":" + y;
+	}
+
+	private static int sectorX(Map<String,Object> declaration)
+		throws WorldBuilderContractException {
+		return number(declaration, "sectorX");
+	}
+
+	private static int sectorY(Map<String,Object> declaration)
+		throws WorldBuilderContractException {
+		return number(declaration, "sectorY");
+	}
+
+	private static void writeSyntheticPlacementPayload(
+		Map<String,Object> payload, Map<String,Object> declaration,
+		Path outputRoot, Set<String> outputPaths, String rewriteWorldSpace)
+		throws IOException, WorldBuilderContractException {
+		if (!rewriteWorldSpace.isEmpty()) payload.put("worldSpace", rewriteWorldSpace);
+		String relative = text(declaration.get("path"));
+		if (relative.isEmpty() || relative.startsWith("/")
+			|| relative.indexOf('\\') >= 0 || !outputPaths.add(relative)) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, relative,
+				"A composed placement payload path is unsafe or duplicated.",
+				"Use complete canonical layered packages without path collisions.");
+		}
+		Path output = outputRoot.resolve(relative).normalize();
+		if (!output.startsWith(outputRoot)) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, relative,
+				"A composed placement payload escapes its package root.",
+				"Use complete canonical layered packages with contained paths.");
+		}
+		Files.createDirectories(output.getParent());
+		Files.write(output, WorldBuilderJsonDocuments.pretty(payload)
+			.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+		declaration.put("sha256", WorldBuilderHashes.sha256(output));
 	}
 
 	private static void writeSyntheticPayload(byte[] payload,
@@ -488,12 +753,17 @@ final class WorldBuilderLayeredTerrainComposer {
 		final int addedTerrainSectors;
 		final int relocatedTerrainSectorsMerged;
 		final long relocatedLegacyTilesSuppressed;
+		final long relocatedLegacyPlacements;
+		final long relocatedPlacementsAlreadyPresent;
+		final long relocatedPlacementConflicts;
 		final List<Integer> preservedBaseLevels;
 
 		Result(String baseFingerprintSha256, String legacyFingerprintSha256,
 			String outputFingerprintSha256, int replacedTerrainSectors,
 			int addedTerrainSectors, int relocatedTerrainSectorsMerged,
-			long relocatedLegacyTilesSuppressed, List<Integer> preservedBaseLevels) {
+			long relocatedLegacyTilesSuppressed, long relocatedLegacyPlacements,
+			long relocatedPlacementsAlreadyPresent, long relocatedPlacementConflicts,
+			List<Integer> preservedBaseLevels) {
 			this.baseFingerprintSha256 = baseFingerprintSha256;
 			this.legacyFingerprintSha256 = legacyFingerprintSha256;
 			this.outputFingerprintSha256 = outputFingerprintSha256;
@@ -501,6 +771,9 @@ final class WorldBuilderLayeredTerrainComposer {
 			this.addedTerrainSectors = addedTerrainSectors;
 			this.relocatedTerrainSectorsMerged = relocatedTerrainSectorsMerged;
 			this.relocatedLegacyTilesSuppressed = relocatedLegacyTilesSuppressed;
+			this.relocatedLegacyPlacements = relocatedLegacyPlacements;
+			this.relocatedPlacementsAlreadyPresent = relocatedPlacementsAlreadyPresent;
+			this.relocatedPlacementConflicts = relocatedPlacementConflicts;
 			this.preservedBaseLevels = Collections.unmodifiableList(
 				new ArrayList<Integer>(preservedBaseLevels));
 		}
@@ -518,6 +791,12 @@ final class WorldBuilderLayeredTerrainComposer {
 				Long.valueOf(relocatedTerrainSectorsMerged));
 			value.put("relocatedLegacyTilesSuppressed",
 				Long.valueOf(relocatedLegacyTilesSuppressed));
+			value.put("relocatedLegacyPlacements",
+				Long.valueOf(relocatedLegacyPlacements));
+			value.put("relocatedPlacementsAlreadyPresent",
+				Long.valueOf(relocatedPlacementsAlreadyPresent));
+			value.put("relocatedPlacementConflicts",
+				Long.valueOf(relocatedPlacementConflicts));
 			List<Object> levels = new ArrayList<Object>();
 			for (Integer level : preservedBaseLevels) {
 				levels.add(Long.valueOf(level.longValue()));
@@ -530,14 +809,26 @@ final class WorldBuilderLayeredTerrainComposer {
 	private static final class RelocatedTerrainMerge {
 		final byte[] payload;
 		final int suppressedTiles;
+		final Map<Integer,Integer> targetLevels;
 
-		RelocatedTerrainMerge(byte[] payload, int suppressedTiles) {
+		RelocatedTerrainMerge(byte[] payload, int suppressedTiles,
+			Map<Integer,Integer> targetLevels) {
 			this.payload = payload;
 			this.suppressedTiles = suppressedTiles;
+			this.targetLevels = targetLevels;
 		}
 
 		static RelocatedTerrainMerge none() {
-			return new RelocatedTerrainMerge(new byte[0], 0);
+			return new RelocatedTerrainMerge(new byte[0], 0,
+				Collections.<Integer,Integer>emptyMap());
 		}
+	}
+
+	private static final class PlacementRelocationResult {
+		long relocated;
+		long alreadyPresent;
+		long conflicts;
+		final Set<Integer> changedBaseLevels = new HashSet<Integer>();
+		final Set<Integer> changedLegacyLevels = new HashSet<Integer>();
 	}
 }
