@@ -109,12 +109,14 @@ surfaces and their separation from transaction backups are specified in
 [World Builder 2 Map Migration, GUI Transactions, and Project
 History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md).
 
-The compiled `process-scan` offline check is fail-closed. It currently requires
-a readable Linux `/proc` process view; a missing, unreadable, or unavailable
-view refuses mutation rather than recording clean evidence. A still-live
-userspace entry requires both readable command-line and working-directory
-observations; process exits and empty kernel-thread command lines are handled
-separately.
+The compiled `process-scan` offline check is fail-closed. It requires a readable
+Linux `/proc` process view; a missing, unreadable, or unavailable view refuses
+mutation rather than recording clean evidence. A live process whose readable
+command names the target is refused. A potentially relevant Java process also
+requires a readable working-directory observation. A conclusively non-Java
+process may have an unreadable working directory without making every normal
+non-root Linux import fail on system services such as PID 1. Process exits and
+empty kernel-thread command lines are handled separately.
 
 Phase 6 deliberately permits only one outstanding successful import per
 project. To install a later saved/exported working state, run exact Undo for

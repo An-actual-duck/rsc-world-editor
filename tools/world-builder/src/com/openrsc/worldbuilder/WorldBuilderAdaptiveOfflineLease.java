@@ -278,9 +278,24 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 				} catch (SecurityException ignored) {
 					// The command observation may still be sufficient for this live entry.
 				}
+				String processName = "";
+				boolean processNameReadable = false;
+				try {
+					Path namePath = process.resolve("comm");
+					byte[] nameBytes = Files.readAllBytes(namePath);
+					if (nameBytes.length == 0 || nameBytes.length > 256) {
+						throw new IOException("process name unavailable or oversized");
+					}
+					processName = new String(nameBytes, StandardCharsets.UTF_8).trim();
+					processNameReadable = !processName.isEmpty();
+				} catch (IOException ignored) {
+					// Command and cwd evidence still retain their fail-closed behavior.
+				} catch (SecurityException ignored) {
+					// Command and cwd evidence still retain their fail-closed behavior.
+				}
 				requireProcessObservationSafe(target, processId,
 					processStillLive(process), commandReadable, command,
-					cwdReadable, cwd);
+					processNameReadable, processName, cwdReadable, cwd);
 			}
 		} catch (WorldBuilderContractException active) {
 			throw active;
@@ -293,7 +308,7 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 
 	static void requireProcessObservationSafe(Path target, String processId,
 		boolean stillLive, boolean commandReadable, byte[] commandBytes,
-		boolean cwdReadable, Path cwd)
+		boolean processNameReadable, String processName, boolean cwdReadable, Path cwd)
 		throws WorldBuilderContractException {
 		if (!stillLive) return;
 		if (cwdReadable && cwd != null
@@ -310,12 +325,40 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 				WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
 				"A server process appears to be running from this target root.",
 				"Stop the target server completely and retry.");
+			if (!cwdReadable && processNameReadable
+				&& !couldBeAdaptiveJavaRuntime(commandBytes)
+				&& !couldBeAdaptiveJavaRuntime(processName)) {
+				return;
+			}
 		}
 		if (!commandReadable || !cwdReadable) throw problem(
 			WorldBuilderErrorCodes.OFFLINE_REQUIRED, "process-scan",
 			"Live process " + processId
 				+ " could not be completely examined through both cmdline and cwd.",
 			"Run with a readable local /proc view or stop the unreadable process, then retry.");
+	}
+
+	private static boolean couldBeAdaptiveJavaRuntime(byte[] commandBytes) {
+		String[] arguments = new String(commandBytes, StandardCharsets.UTF_8)
+			.split("\u0000", -1);
+		for (String argument : arguments) {
+			int separator = Math.max(argument.lastIndexOf('/'), argument.lastIndexOf('\\'));
+			String executable = argument.substring(separator + 1);
+			if ("java".equalsIgnoreCase(executable)
+				|| "java.exe".equalsIgnoreCase(executable)
+				|| "javaw".equalsIgnoreCase(executable)
+				|| "javaw.exe".equalsIgnoreCase(executable)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static boolean couldBeAdaptiveJavaRuntime(String processName) {
+		return "java".equalsIgnoreCase(processName)
+			|| "java.exe".equalsIgnoreCase(processName)
+			|| "javaw".equalsIgnoreCase(processName)
+			|| "javaw.exe".equalsIgnoreCase(processName);
 	}
 
 	private static boolean processStillLive(Path process) {

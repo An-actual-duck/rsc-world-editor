@@ -423,22 +423,41 @@ public final class AdaptiveTransactionFailureHarness {
             } else if ("process-observation".equals(operation)) {
                 if ("partial-unreadable".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
-                        target, "4242", true, false, null, false, null);
+                        target, "4242", true, false, null,
+                        false, "", false, null);
                 } else if ("exited".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
-                        target, "4242", false, false, null, false, null);
+                        target, "4242", false, false, null,
+                        false, "", false, null);
                 } else if ("readable-command".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
                         target, "4242", true, true,
                         "/usr/bin/unrelated\0--flag".getBytes("UTF-8"),
-                        true, Paths.get("/"));
+                        true, "unrelated", true, Paths.get("/"));
                 } else if ("command-only".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
                         target, "4242", true, true,
-                        "/usr/bin/unrelated\0--flag".getBytes("UTF-8"), false, null);
+                        "/sbin/init\0splash".getBytes("UTF-8"),
+                        true, "systemd", false, null);
+                } else if ("java-command-only".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/java\0-server\0-cp\0core.jar".getBytes("UTF-8"),
+                        true, "java", false, null);
+                } else if ("hidden-java-command-only".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        "/usr/bin/runtime\0-server\0-cp\0core.jar".getBytes("UTF-8"),
+                        true, "java", false, null);
+                } else if ("target-command-only".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        ("/usr/bin/unrelated\0" + target.toString()).getBytes("UTF-8"),
+                        true, "unrelated", false, null);
                 } else if ("kernel-thread".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
-                        target, "4242", true, true, new byte[0], false, null);
+                        target, "4242", true, true, new byte[0],
+                        true, "kthreadd", false, null);
                 } else {
                     throw new IllegalArgumentException(failures);
                 }
@@ -1754,11 +1773,17 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(3, partial.returncode, partial.stderr)
             self.assertIn("could not be completely examined", partial.stderr)
-            command_only = self.run_failure(
-                "process-observation", "command-only", scratch, scratch
-            )
-            self.assertEqual(3, command_only.returncode, command_only.stderr)
-            for observation in ("exited", "readable-command", "kernel-thread"):
+            for observation in (
+                "java-command-only", "hidden-java-command-only", "target-command-only"
+            ):
+                refused = self.run_failure(
+                    "process-observation", observation, scratch, scratch
+                )
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertIn("OFFLINE_REQUIRED", refused.stderr)
+            for observation in (
+                "exited", "readable-command", "command-only", "kernel-thread"
+            ):
                 accepted = self.run_failure(
                     "process-observation", observation, scratch, scratch
                 )

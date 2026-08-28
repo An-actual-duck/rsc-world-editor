@@ -212,7 +212,9 @@ REQUIREMENTS AND LIMITS
   exact repository-owned adapter. Similar-looking unknown forks are not guessed.
 - A compiled process-scan offline requirement currently requires a readable
   Linux /proc process view and fails closed if that view is unavailable. A
-  still-live userspace process requires both readable cmdline and cwd evidence.
+  live process whose command names the target is refused. A potentially
+  relevant Java process requires both readable cmdline and cwd evidence;
+  conclusively non-Java system processes may hide cwd without blocking import.
 - Import, Undo, and Recovery require a filesystem/Java provider capable of
   forcing transaction directory entries; unsupported providers fail before
   target mutation.
