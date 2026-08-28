@@ -86,6 +86,13 @@ final class WorldBuilderNpcDefinitionProvider {
 	static Result consume(Path selectedProviderManifest, Path copiedTarget,
 		Map<String,Object> targetCatalog)
 		throws IOException, WorldBuilderContractException {
+		return consume(selectedProviderManifest, copiedTarget, targetCatalog,
+			Collections.<Integer>emptySet());
+	}
+
+	static Result consume(Path selectedProviderManifest, Path copiedTarget,
+		Map<String,Object> targetCatalog, Set<Integer> effectiveNpcIds)
+		throws IOException, WorldBuilderContractException {
 		Map<String,Object> base = definitionDocument(copiedTarget,
 			"server/conf/server/defs/NpcDefs.json", "npcs");
 		Map<String,Object> custom = definitionDocument(copiedTarget,
@@ -99,6 +106,13 @@ final class WorldBuilderNpcDefinitionProvider {
 		Set<Integer> required = catalogIds(targetCatalog);
 		Set<Integer> placements = placementIds(copiedTarget);
 		required.addAll(placements);
+		for (Integer id : effectiveNpcIds) {
+			if (id == null || id.intValue() < 0 || id.intValue() > MAX_ID) {
+				throw problem("effective NPC placements",
+					"Effective NPC placement ID exceeds the runtime domain 0..65535.");
+			}
+			required.add(id);
+		}
 		int maximum = required.isEmpty() ? -1 : Collections.max(required).intValue();
 		if (maximum < appendedCount) return Result.unchanged();
 		if (maximum > MAX_ID) throw problem("npc placements",

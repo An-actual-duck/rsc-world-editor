@@ -4973,6 +4973,12 @@ public final class FakeAdaptiveClient {
             self.assertEqual("target-packed", summary["origin"])
             self.assertEqual(target_before, tree_bytes(target))
             project = Path(summary["projectRoot"])
+            content_manifest = json.loads(
+                (project / "source/content-bundle/manifest.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIn(35, content_manifest["definitionCatalog"]["npcs"])
             self.assertTrue((project / "source/conversion/plan.json").is_file())
             self.assertTrue((project / "source/conversion/report.json").is_file())
             conversion = json.loads(

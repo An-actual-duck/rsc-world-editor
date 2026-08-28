@@ -395,7 +395,7 @@ public final class PackedConversionFailureHarness {
             {"ground_item_removals": [{"id": 41, "pos": legacy_point(7, 7)}]},
         )
         npc_retained = {
-            "id": 30,
+            "id": 35,
             "start": legacy_point(3, 947),
             "min": legacy_point(2, 946),
             "max": legacy_point(4, 948),
@@ -423,7 +423,7 @@ public final class PackedConversionFailureHarness {
             {
                 "npclocs": [
                     {
-                        "id": 30,
+                        "id": 35,
                         "start": legacy_point(3, 947),
                         "min": legacy_point(1, 945),
                         "max": legacy_point(5, 949),
@@ -479,7 +479,7 @@ public final class PackedConversionFailureHarness {
             "tiles": [0, 1],
             "boundaries": [10, 11],
             "scenery": [20, 21],
-            "npcs": [30, 31],
+            "npcs": [30, 31, 35],
             "groundItems": [40, 41],
         }
         server_catalog = root / "server/evidence/definitions.json"

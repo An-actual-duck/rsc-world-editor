@@ -158,6 +158,14 @@ final class WorldBuilderProjectContentBundle {
 	static Bundle capture(Path projectStage, Path copiedTarget,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path explicitMappings)
 		throws IOException, WorldBuilderContractException {
+		return capture(projectStage, copiedTarget, runtime, explicitMappings,
+			Collections.<Integer>emptySet());
+	}
+
+	static Bundle capture(Path projectStage, Path copiedTarget,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path explicitMappings,
+		Set<Integer> effectiveNpcIds)
+		throws IOException, WorldBuilderContractException {
 		Path sourceRoot = projectStage.resolve(SOURCE_DIRECTORY).normalize();
 		if (!sourceRoot.startsWith(projectStage.toAbsolutePath().normalize())
 			|| Files.exists(sourceRoot, LinkOption.NOFOLLOW_LINKS)) {
@@ -170,7 +178,7 @@ final class WorldBuilderProjectContentBundle {
 			"target-adopted-content-v2");
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
 			WorldBuilderNpcDefinitionProvider.consume(
-				explicitMappings, copiedTarget, targetCatalog);
+				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
 			WorldBuilderSceneryModelProvider.normalize(copiedTarget, runtime);
 		Map<String,Object> packagedCatalog =

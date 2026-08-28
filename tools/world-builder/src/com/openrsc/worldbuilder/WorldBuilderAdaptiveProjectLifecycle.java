@@ -466,6 +466,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderReadOnlyTarget copied = WorldBuilderReadOnlyTarget.open(original);
 		WorldBuilderTargetCapability capability;
 		WorldBuilderAdaptiveConfiguration configuration;
+		boolean captureDescriptorPackedContent = false;
+		Set<Integer> effectivePackedNpcIds = new HashSet<Integer>();
 		Path conversionReport = stagedReport;
 		if (isPackedFallbackReport(report)) {
 			WorldBuilderPackedFallbackEvidence.Result generated =
@@ -486,10 +488,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderAdaptiveConfiguration.Selection selection =
 				WorldBuilderAdaptiveConfiguration.select(copied, capability, selectedRole);
 			configuration = selection.selected;
-			if ("packed".equals(configuration.representation)) {
-				WorldBuilderProjectContentBundle.capture(
-					stage, original, sourceRuntime, itemVisualMappings);
-			}
+			captureDescriptorPackedContent =
+				"packed".equals(configuration.representation);
 		}
 		WorldBuilderCompatibilityEvidence common =
 			WorldBuilderCompatibilityEvidence.inspect(copied, capability, configuration);
@@ -546,8 +546,16 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Contained conversion baseline changed after Phase 2 validation.",
 					"Discard the unpublished stage and repeat exact conversion.");
 			}
+			if (captureDescriptorPackedContent) {
+				effectivePackedNpcIds.addAll(
+					layered.requiredDefinitionIds().get("npc"));
+			}
 			baselineFingerprint = layered.fingerprintSha256;
 			conversionFingerprint = converted.outputFingerprintSha256;
+		}
+		if (captureDescriptorPackedContent) {
+			WorldBuilderProjectContentBundle.capture(stage, original, sourceRuntime,
+				itemVisualMappings, effectivePackedNpcIds);
 		}
 		return PreparedOrigin.target(stage, evidence, capability, configuration,
 			baselineFingerprint, conversionFingerprint);
