@@ -454,6 +454,11 @@ public final class AdaptiveTransactionFailureHarness {
                         target, "4242", true, true,
                         ("/usr/bin/unrelated\0" + target.toString()).getBytes("UTF-8"),
                         true, "unrelated", false, null);
+                } else if ("target-java-command".equals(failures)) {
+                    WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
+                        target, "4242", true, true,
+                        ("/usr/bin/java\0-Dtarget=" + target.toString()).getBytes("UTF-8"),
+                        true, "java", true, Paths.get("/"));
                 } else if ("target-cwd-non-java".equals(failures)) {
                     WorldBuilderAdaptiveOfflineLease.requireProcessObservationSafe(
                         target, "4242", true, true,
@@ -1784,7 +1789,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(3, partial.returncode, partial.stderr)
             self.assertIn("could not be completely examined", partial.stderr)
             for observation in (
-                "java-command-only", "hidden-java-command-only", "target-command-only",
+                "java-command-only", "hidden-java-command-only", "target-java-command",
                 "target-cwd-java",
             ):
                 refused = self.run_failure(
@@ -1794,7 +1799,7 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertIn("OFFLINE_REQUIRED", refused.stderr)
             for observation in (
                 "exited", "readable-command", "command-only", "kernel-thread",
-                "target-cwd-non-java",
+                "target-command-only", "target-cwd-non-java",
             ):
                 accepted = self.run_failure(
                     "process-observation", observation, scratch, scratch

@@ -327,9 +327,10 @@ final class WorldBuilderAdaptiveOfflineLease implements Closeable {
 			if (commandBytes.length == 0) return; // Live kernel thread or exiting zombie.
 			String command = new String(commandBytes, StandardCharsets.UTF_8)
 				.replace('\0', ' ');
-			if (command.contains(target.toString())) throw problem(
+			if (command.contains(target.toString()) && !conclusivelyNonJava) throw problem(
 				WorldBuilderErrorCodes.OFFLINE_REQUIRED, "target-root",
-				"A server process appears to be running from this target root.",
+				"A Java or ambiguous process (PID " + processId
+					+ ") names this target root.",
 				"Stop the target server completely and retry.");
 			if (!cwdReadable && processNameReadable
 				&& !couldBeAdaptiveJavaRuntime(commandBytes)

@@ -1261,13 +1261,13 @@ directories reserve a new destination identity before an atomic same-directory
 move. The reviewed native Windows provider uses its same-volume no-replace move.
 Unsupported filesystem providers fail closed.
 `process-scan` requires a readable Linux `/proc` view and refuses unsupported or
-unavailable process views without recording verified-clean evidence. A live
-process whose command names the target is refused, and a potentially relevant
-Java process requires both command and cwd observations. A readable,
-conclusively non-Java command does not become ambiguous merely because a
-foreign system process hides its cwd or a terminal remains below the target
-root. Java or ambiguous processes observed below the target remain blocked.
-Process exits and empty kernel-thread command lines are distinguished.
+unavailable process views without recording verified-clean evidence. A Java or
+ambiguous process whose command names the target is refused, and a potentially
+relevant Java process requires both command and cwd observations. A readable,
+conclusively non-Java command does not become ambiguous merely because it names
+the target, a foreign system process hides its cwd, or a terminal remains below
+the target root. Java or ambiguous processes observed below the target remain
+blocked. Process exits and empty kernel-thread command lines are distinguished.
 
 Plan, created-directory authority, activation content, copied backups, staged
 target files, receipts, and their containing directory entries are forced in

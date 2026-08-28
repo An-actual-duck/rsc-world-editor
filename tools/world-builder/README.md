@@ -494,7 +494,9 @@ receipted. A compiled `process-scan` offline requirement currently needs a
 readable Linux `/proc` view and fails closed when that process view is absent or
 unavailable. A process merely having its working directory below the target is
 not treated as the server when readable command and process-name evidence prove
-that it is non-Java; Java and ambiguous target-root processes remain blocked.
+that it is non-Java. The same classification applies when a harmless launcher
+or terminal command names the target; Java and ambiguous target-root processes
+remain blocked.
 
 ## Historical interfaces
 
