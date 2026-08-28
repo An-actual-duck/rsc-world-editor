@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | All three increments implemented; owner GUI validation pending |
+| Status | Split-map signed-layer preservation correction implemented; verification and owner GUI validation pending |
 | Captured | 2026-08-27 |
 | Product | World Builder 2 only |
 | Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
@@ -65,46 +65,61 @@ current GUI reports the immutable generated export path.
 
 ### Meaning of “incorporate”
 
-`Custom_Landscape.orsc` is a complete legacy packed terrain archive. It is not
-assumed to be a sparse patch over an active layered package. Discovery may find
-it either alongside a compatible layered target or as the selected primary
-packed map. Choosing to incorporate it in either arrangement means:
+`Custom_Landscape.orsc` is a bounded legacy sector archive, not a complete
+signed-layered world authority. Its four packed planes map only to signed
+levels `0`, `1`, `2`, and `-1`; it cannot represent wider levels such as `-2`
+or `+10`. Discovery may find it alongside a compatible layered target or as
+the selected primary packed map. Choosing to incorporate it means:
 
-1. select the exact matching server/client archive as the terrain authority;
+1. select the exact matching server/client archive as legacy sector evidence;
 2. bind it to the chosen compatible server configuration;
 3. collect that configuration's active definitions and placement families;
-4. convert the complete effective packed world into one layered package;
-5. require exact terrain reverse parity and effective placement parity; and
-6. record the decision and every input hash in immutable project lineage.
+4. convert every legacy sector exactly into signed layered form;
+5. when a complete layered base exists, preserve all of its signed levels and
+   placement sets while replacing only terrain sector coordinates explicitly
+   present in the legacy conversion;
+6. strictly validate the layered base, legacy conversion, and composed output;
+   and
+7. record the decision and every input hash in immutable project lineage.
 
-World Builder must not blindly overlay two complete terrain maps, infer which
-tiles are newer, or merge an unrelated active layered package with a packed
-archive. If two independent authorities cannot be reconciled exactly through a
-declared conversion profile, the user must choose one or cancel.
+World Builder does not infer which package is newer, scan product-specific
+state directories, or merge an unrelated package. The creator explicitly
+chooses the complete layered base. Legacy-present sectors replace the same
+coordinates; every other base sector, every wider signed level, and existing
+base placement set remains exact. Inputs that cannot satisfy this deterministic
+rule fail without changing either source.
 
 ### Streamlined prompt
 
 After **Detect Server Map** and any required configuration selection, discovery
 checks the selected source for a matching legacy landscape. This includes a
 `Custom_Landscape.orsc` archive that is itself the selected packed map; that
-case must not silently skip the retirement choice. When migration is
-applicable, the ordinary prompt is:
+case must not silently skip the retirement choice. Beside an already selected
+layered authority, the ordinary prompt is:
 
 > Custom_Landscape file detected. Would you like to incorporate it?
 
-with **Yes** and **No** actions.
+with **Yes** and **No** actions. When the detected primary map is itself the
+legacy archive, the prompt instead explains the four-plane limit and offers:
 
-- **Yes** creates the project from the verified packed terrain and selected
-  configuration's effective content, opens the resulting layered world, and
+- **Select Layered Base…** — choose the exact package folder containing
+  `manifest.json`, preserve its complete signed-layered world, and apply the
+  converted legacy sectors over it;
+- **Use Legacy Map Only** — explicitly create from the legacy four-plane map
+  when no newer layered package exists; or
+- **Cancel** — create nothing.
+
+- **Yes** creates the project by composing verified legacy sectors over the
+  already selected layered target, opens the resulting layered world, and
   records capability-gated retirement intent for a later explicit import.
 - **No** still permits ordinary project creation from the selected map
   authority, but records no retirement intent.
 - Closing or cancelling the prompt creates nothing and changes nothing.
 
-The concise prompt is end-user language. Expandable details state that the
-archive becomes the terrain authority for this migration, list its safe
-relative paths and hashes, identify the chosen configuration, and explain that
-the server remains unchanged during project creation.
+The concise prompt is end-user language. Expandable details list the chosen
+base package, legacy paths and hashes, selected configuration, exact
+composition rule, and the fact that the server remains unchanged during
+project creation.
 
 The prompt must not appear merely because a stale backup, build output,
 download, or unrelated archive shares the file name. Both archive identity and
@@ -120,6 +135,10 @@ A migrated project needs versioned immutable evidence containing at least:
 - confirmation that both archives were byte-identical at discovery;
 - definition, placement, asset, and content-bundle fingerprints;
 - conversion plan/report and output package fingerprints;
+- the exact selected layered-base inventory and fingerprint when composition
+  was requested;
+- the exact converted-legacy inventory and fingerprint;
+- preserved signed levels and replaced/added terrain-sector counts;
 - exact terrain reverse-parity and effective-composition results;
 - whether retirement was requested by the user; and
 - the compiled target mutation profile permitted to interpret that request.
@@ -139,8 +158,9 @@ The primary-packed contract is `world-builder-packed-map-migration-choice`
 schema version 1. It binds the selected packed discovery fingerprint and
 configuration directly, both exact byte-identical server/client legacy terrain
 records, the affirmative incorporation decision, retirement intent, and its
-own fingerprint. It does not invent a second map authority merely to reuse the
-two-authority flow.
+own fingerprint. An optional creator-selected layered base is separately
+validated, copied into immutable migration evidence, and bound through the
+composition report; it is not fabricated as a second target discovery report.
 
 In the two-authority flow, the packed candidate does not replace or masquerade
 as the selected target report. Project creation must re-run and match both

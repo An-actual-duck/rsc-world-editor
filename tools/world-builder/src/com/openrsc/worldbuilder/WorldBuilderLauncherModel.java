@@ -282,6 +282,13 @@ final class WorldBuilderLauncherModel {
 		DiscoveryPreview selected, LegacyMigrationPreview migration,
 		String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		return createMigrated(selected, migration, displayName, itemVisualMappings, null);
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult createMigrated(
+		DiscoveryPreview selected, LegacyMigrationPreview migration,
+		String displayName, Path itemVisualMappings, Path layeredBasePackage)
+		throws IOException, WorldBuilderContractException {
 		if (migration == null || migration.report == null) throw new IOException(
 			"Legacy landscape incorporation was requested without a validated candidate.");
 		if (migration.primaryPacked) {
@@ -293,11 +300,13 @@ final class WorldBuilderLauncherModel {
 					StandardOpenOption.TRUNCATE_EXISTING);
 				return new WorldBuilderAdaptiveProjectLifecycle().createPackedMigrated(
 					installation, runtime, selected.source, report, displayName, port,
-					"CREATE", itemVisualMappings, true);
+					"CREATE", itemVisualMappings, true, layeredBasePackage);
 			} finally {
 				Files.deleteIfExists(report);
 			}
 		}
+		if (layeredBasePackage != null) throw new IOException(
+			"A separately selected layered base applies only to a primary packed map.");
 		Path selectedReport = Files.createTempFile(
 			installation, ".desktop-selected-discovery-", ".json");
 		Path legacyReport = Files.createTempFile(

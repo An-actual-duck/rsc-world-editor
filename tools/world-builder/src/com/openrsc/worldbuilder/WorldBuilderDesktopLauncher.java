@@ -997,24 +997,42 @@ final class WorldBuilderDesktopLauncher {
 			boolean advanced,
 			WorldBuilderLauncherModel.LegacyMigrationPreview detectedMigration) {
 			final WorldBuilderLauncherModel.LegacyMigrationPreview migration;
+			final Path layeredBasePackage;
 			if (detectedMigration != null) {
-				Object[] options = {"Yes", "No"};
-				int answer = JOptionPane.showOptionDialog(frame,
-					"Custom_Landscape file detected. Would you like to incorporate?\n\n"
-						+ (detectedMigration.primaryPacked
-							? "Yes converts this selected legacy map into the isolated layered project "
-								+ "and records guarded retirement intent for a later compatible import. "
-							: "Yes combines those legacy terrain changes with the selected server "
-								+ "content inside a new isolated project. ")
-						+ "The server and legacy file "
-						+ "remain unchanged. After editing, an explicit Import Map Changes "
-						+ "transaction will preview and back up any later retirement.",
-					"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
-					JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-				if (answer < 0) return;
-				migration = answer == 0 ? detectedMigration : null;
+				if (detectedMigration.primaryPacked) {
+					Object[] options = {"Select Layered Base…", "Use Legacy Map Only", "Cancel"};
+					int answer = JOptionPane.showOptionDialog(frame,
+						"Custom_Landscape is a four-plane legacy archive. It cannot contain "
+							+ "modern signed layers such as -2 or +10.\n\n"
+							+ "Select Layered Base preserves every modern layer and applies the "
+							+ "legacy terrain sectors over it. Use Legacy Map Only only when no "
+							+ "newer layered package exists.\n\nThe source remains unchanged.",
+						"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
+						JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+					if (answer < 0 || answer == 2) return;
+					if (answer == 0) {
+						Path selectedBase = chooseLayeredBasePackage(preview.source);
+						if (selectedBase == null) return;
+						layeredBasePackage = selectedBase;
+					} else layeredBasePackage = null;
+					migration = detectedMigration;
+				} else {
+					Object[] options = {"Yes", "No"};
+					int answer = JOptionPane.showOptionDialog(frame,
+						"Custom_Landscape file detected. Would you like to incorporate?\n\n"
+							+ "Yes applies those legacy terrain sectors over the selected layered "
+							+ "server map inside a new isolated project. The server and legacy "
+							+ "file remain unchanged. After editing, an explicit Import Map Changes "
+							+ "transaction will preview and back up any later retirement.",
+						"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
+						JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+					if (answer < 0) return;
+					migration = answer == 0 ? detectedMigration : null;
+					layeredBasePackage = null;
+				}
 			} else {
 				migration = null;
+				layeredBasePackage = null;
 			}
 			WorldBuilderPortableProvider.Discovery providerDiscovery;
 			try {
@@ -1035,7 +1053,9 @@ final class WorldBuilderDesktopLauncher {
 				+ "\n\nThe map and required content are copied into an isolated project. "
 				+ "The server remains unchanged and no target JAR is executed."
 				+ (migration == null ? ""
-					: "\n\nCustom_Landscape: Incorporate into the isolated project.")
+					: "\n\nCustom_Landscape: Incorporate into the isolated project."
+						+ (layeredBasePackage == null ? ""
+							: "\nLayered base: " + layeredBasePackage))
 				+ (advanced && providerDiscovery != null
 					? "\n\nAdvanced discovery details:\n" + providerDiscovery.describe() : ""));
 			report.setCaretPosition(0);
@@ -1122,7 +1142,23 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			createPreviewedProject(preview, displayName, automaticMapping, guided[0],
-				migration);
+				migration, layeredBasePackage);
+		}
+
+		private Path chooseLayeredBasePackage(Path source) {
+			JFileChooser chooser = new JFileChooser(source.toFile());
+			chooser.setDialogTitle("Choose the complete layered package folder");
+			chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+			chooser.setAcceptAllFileFilterUsed(false);
+			if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) return null;
+			Path selected = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
+			if (!Files.isRegularFile(selected.resolve("manifest.json"),
+				LinkOption.NOFOLLOW_LINKS)) {
+				showError("Choose the exact layered package folder containing manifest.json.",
+					null);
+				return null;
+			}
+			return selected;
 		}
 
 		private static String customContentSummary(
@@ -1269,6 +1305,16 @@ final class WorldBuilderDesktopLauncher {
 			final String displayName, final Path itemVisualMappings,
 			final WorldBuilderPortableProvider.GuidedSelection guidedProvider,
 			final WorldBuilderLauncherModel.LegacyMigrationPreview migration) {
+			createPreviewedProject(preview, displayName, itemVisualMappings,
+				guidedProvider, migration, null);
+		}
+
+		private void createPreviewedProject(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final String displayName, final Path itemVisualMappings,
+			final WorldBuilderPortableProvider.GuidedSelection guidedProvider,
+			final WorldBuilderLauncherModel.LegacyMigrationPreview migration,
+			final Path layeredBasePackage) {
 			runTask("Creating isolated project…",
 				new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run()
@@ -1280,7 +1326,8 @@ final class WorldBuilderDesktopLauncher {
 						}
 						return migration == null
 							? model.create(preview, displayName, mapping)
-							: model.createMigrated(preview, migration, displayName, mapping);
+							: model.createMigrated(preview, migration, displayName, mapping,
+								layeredBasePackage);
 					}
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(

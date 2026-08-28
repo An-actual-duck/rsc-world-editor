@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after prioritizing the implemented legacy-landscape migration workflow for owner validation |
+| Last reconciled | 2026-08-27, after correcting split-map migration to preserve wider signed layered levels |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
 | Current focus | Legacy `Custom_Landscape.orsc` incorporation, combined export, safe target import, retirement, and recovery validation |
@@ -62,7 +62,10 @@ World Builder 2 already provides a substantial base for these goals:
 - project-local save, close, reopen, export, transactional import, recovery,
   and exact undo;
 - explicit `Custom_Landscape.orsc` incorporation and guarded retirement
-  lineage for both layered-plus-packed and primary-packed discovery paths;
+  lineage for both layered-plus-packed and primary-packed discovery paths,
+  including deterministic composition over a creator-selected layered base so
+  legacy planes cannot collapse or discard signed levels such as `-2` and
+  `+10`;
 - a reversible Build presentation mode with a terrain grid and simplified
   renderer settings; and
 - a detailed, unimplemented custom wall/floor material design.

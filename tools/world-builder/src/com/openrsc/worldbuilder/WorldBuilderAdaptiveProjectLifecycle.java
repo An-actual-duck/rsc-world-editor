@@ -95,7 +95,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		throws IOException, WorldBuilderContractException {
 		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
 			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
-			confirmation, itemVisualMappings, developmentTerrainSeed, null, null);
+			confirmation, itemVisualMappings, developmentTerrainSeed, null, null, null);
 	}
 
 	ProjectResult createMigrated(Path requestedInstallRoot, Path requestedRuntimeRoot,
@@ -111,13 +111,24 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
 			requestedTargetRoot, selectedTargetReportPath, requestedDisplayName, port,
 			confirmation, itemVisualMappings, false,
-			new MigrationOrigin(legacy, choice), null);
+			new MigrationOrigin(legacy, choice), null, null);
 	}
 
 	ProjectResult createPackedMigrated(Path requestedInstallRoot,
 		Path requestedRuntimeRoot, Path requestedTargetRoot, Path discoveryReportPath,
 		String requestedDisplayName, int port, String confirmation,
 		Path itemVisualMappings, boolean retirementRequested)
+		throws IOException, WorldBuilderContractException {
+		return createPackedMigrated(requestedInstallRoot, requestedRuntimeRoot,
+			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
+			confirmation, itemVisualMappings, retirementRequested, null);
+	}
+
+	ProjectResult createPackedMigrated(Path requestedInstallRoot,
+		Path requestedRuntimeRoot, Path requestedTargetRoot, Path discoveryReportPath,
+		String requestedDisplayName, int port, String confirmation,
+		Path itemVisualMappings, boolean retirementRequested,
+		Path requestedLayeredBasePackage)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> report = readContractMap(discoveryReportPath,
 			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
@@ -126,7 +137,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderPackedMigrationChoice.create(report, retirementRequested);
 		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
 			requestedTargetRoot, discoveryReportPath, requestedDisplayName, port,
-			confirmation, itemVisualMappings, false, null, choice);
+			confirmation, itemVisualMappings, false, null, choice,
+			requestedLayeredBasePackage);
 	}
 
 	private ProjectResult createInternal(Path requestedInstallRoot,
@@ -134,7 +146,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path discoveryReportPath, String requestedDisplayName, int port,
 		String confirmation, Path itemVisualMappings,
 		boolean developmentTerrainSeed, MigrationOrigin migration,
-		WorldBuilderPackedMigrationChoice packedMigration)
+		WorldBuilderPackedMigrationChoice packedMigration,
+		Path requestedLayeredBasePackage)
 		throws IOException, WorldBuilderContractException {
 		if (!"CREATE".equals(confirmation)) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation",
@@ -205,6 +218,14 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		String displayName = requireDisplayName(requestedDisplayName);
 		Path target = requestedTargetRoot == null ? null
 			: realDirectory(requestedTargetRoot, "target root");
+		Path layeredBasePackage = requestedLayeredBasePackage == null ? null
+			: realDirectory(requestedLayeredBasePackage, "layered base package");
+		if (layeredBasePackage != null && packedMigration == null) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+				"source/migration/layered-base",
+				"A separately selected layered base is valid only for a primary packed migration.",
+				"Use the layered-base chooser while incorporating a detected packed map.");
+		}
 		if (!"standalone-empty".equals(origin) && target == null) {
 			throw problem(WorldBuilderErrorCodes.NO_TARGET, "target-root",
 				"A compatible discovery report requires its target root.",
@@ -227,7 +248,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			try {
 				return createLocked(install, sourceRuntime, runtimeSha256, target, report,
 					discoveryReportPath, displayName, origin, port, itemVisualMappings,
-					developmentTerrainSeed, migration, packedMigration);
+					developmentTerrainSeed, migration, packedMigration,
+					layeredBasePackage);
 			} finally {
 				lock.release();
 			}
@@ -239,7 +261,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		String runtimeSha256, Path target,
 		Map<String,Object> report, Path reportPath, String displayName, String origin,
 		int port, Path itemVisualMappings, boolean developmentTerrainSeed,
-		MigrationOrigin migration, WorldBuilderPackedMigrationChoice packedMigration)
+		MigrationOrigin migration, WorldBuilderPackedMigrationChoice packedMigration,
+		Path layeredBasePackage)
 		throws IOException, WorldBuilderContractException {
 		RegistryState existing = loadRegistry(install, true);
 		if (existing.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS) {
@@ -292,6 +315,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					WorldBuilderAdaptiveContracts.read(
 						WorldBuilderAdaptiveContracts.Kind.PACKED_MAP_MIGRATION_CHOICE,
 						choicePath);
+					if (layeredBasePackage != null) {
+						prepared = composePrimaryPackedMigration(stage,
+							layeredBasePackage, prepared, migrationRoot);
+					}
 					prepared = PreparedOrigin.withMigration(stage, prepared, migrationRoot);
 				}
 			}
@@ -522,6 +549,44 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			baselineFingerprint, conversionFingerprint);
 	}
 
+	private PreparedOrigin composePrimaryPackedMigration(Path stage,
+		Path layeredBasePackage, PreparedOrigin prepared, Path migrationRoot)
+		throws IOException, WorldBuilderContractException {
+		Path legacyPackage = migrationRoot.resolve("legacy-converted/package");
+		ensureRealDirectory(legacyPackage.getParent());
+		moveAtomicNew(stage.resolve(BASELINE_DIRECTORY), legacyPackage);
+		Path copiedBase = migrationRoot.resolve("layered-base/package");
+		copyTreeExact(layeredBasePackage, copiedBase);
+
+		WorldBuilderReadOnlyTarget staged = WorldBuilderReadOnlyTarget.open(stage);
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(
+				staged, preparedDefinitionCatalogPath(prepared));
+		WorldBuilderLayeredTerrainComposer.Result composed =
+			new WorldBuilderLayeredTerrainComposer().compose(stage,
+				"source/migration/layered-base/package",
+				"source/migration/legacy-converted/package",
+				BASELINE_DIRECTORY, definitions);
+		writeNew(migrationRoot.resolve("composition-report.json"),
+			composed.toJson().getBytes(StandardCharsets.UTF_8));
+		return PreparedOrigin.withPackageFingerprint(
+			prepared, composed.outputFingerprintSha256);
+	}
+
+	private static String preparedDefinitionCatalogPath(PreparedOrigin prepared)
+		throws WorldBuilderContractException {
+		for (InventoryRecord record : prepared.definitionEvidence) {
+			if (record.present && ("server-definition-catalog".equals(record.role)
+				|| "default-definition-catalog".equals(record.role))) {
+				return record.relativePath;
+			}
+		}
+		throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+			"source/migration/layered-base",
+			"The packed migration has no verified definition catalog for layered composition.",
+			"Refresh the detected server content and retry project creation.");
+	}
+
 	private PreparedOrigin prepareMigratedTargetOrigin(Path stage, Path target,
 		Map<String,Object> selectedReport, MigrationOrigin migration,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
@@ -602,23 +667,28 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		moveAtomicNew(conversionOutput.resolve(
 			WorldBuilderDiscoveryReconciliation.FILE_NAME),
 			stage.resolve(WorldBuilderDiscoveryReconciliation.PROJECT_RELATIVE_PATH));
-		ensureRealDirectory(stage.resolve("source/layered-baseline"));
+		Path convertedPackage = migrationRoot.resolve("legacy-converted/package");
+		ensureRealDirectory(convertedPackage.getParent());
 		moveAtomicNew(conversionOutput.resolve("package"),
-			stage.resolve(BASELINE_DIRECTORY));
+			convertedPackage);
 		Files.delete(conversionOutput);
 
-		WorldBuilderGenericLayeredPackage baseline =
-			WorldBuilderGenericLayeredPackage.inspect(
-				WorldBuilderReadOnlyTarget.open(stage), BASELINE_DIRECTORY,
-				"baseline", selectedCommon.definitions);
-		if (!converted.outputFingerprintSha256.equals(baseline.fingerprintSha256)) {
+		WorldBuilderLayeredTerrainComposer.Result composed =
+			new WorldBuilderLayeredTerrainComposer().compose(stage,
+				"source/original/" + selectedConfiguration.serverMapRelativePath,
+				"source/migration/legacy-converted/package",
+				BASELINE_DIRECTORY, selectedCommon.definitions);
+		writeNew(migrationRoot.resolve("composition-report.json"),
+			composed.toJson().getBytes(StandardCharsets.UTF_8));
+		if (!converted.outputFingerprintSha256.equals(
+			composed.legacyFingerprintSha256)) {
 			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
-				BASELINE_DIRECTORY,
-				"Migrated baseline changed after exact packed conversion.",
+				"source/migration/legacy-converted/package",
+				"Legacy conversion changed before layered composition.",
 				"Discard the unpublished project and repeat incorporation from stable evidence.");
 		}
 		PreparedOrigin prepared = PreparedOrigin.target(stage, selectedEvidence,
-			selectedCapability, selectedConfiguration, baseline.fingerprintSha256,
+			selectedCapability, selectedConfiguration, composed.outputFingerprintSha256,
 			converted.outputFingerprintSha256);
 		return PreparedOrigin.withMigration(stage, prepared, migrationRoot);
 	}
@@ -2732,6 +2802,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			for (String relative : scanRegularFiles(migrationRoot, projectStage)) {
 				String role = relative.endsWith("/choice.json")
 					? "map-migration-choice"
+					: relative.endsWith("/composition-report.json")
+						? "layered-terrain-composition-report"
 					: relative.endsWith("/discovery-report.json")
 						? "legacy-discovery-report" : "legacy-migration-input";
 				original.add(recordFor(projectStage, role, relative));
@@ -2747,6 +2819,20 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				target.definitionSha256, target.packageFingerprintSha256,
 				target.conversionFingerprintSha256, target.importProfileId,
 				target.installEnabled, target.standaloneGeneratorId);
+		}
+
+		static PreparedOrigin withPackageFingerprint(
+			PreparedOrigin target, String packageFingerprint) {
+			return new PreparedOrigin(target.originalEvidence,
+				target.definitionEvidence, target.adapterId, target.capabilityId,
+				target.selectedConfigurationRole,
+				target.selectedConfigurationTargetPath,
+				target.selectedConfigurationSourcePath,
+				target.selectedConfigurationSha256,
+				target.originDescriptorSourcePath, target.definitionSha256,
+				packageFingerprint, target.conversionFingerprintSha256,
+				target.importProfileId, target.installEnabled,
+				target.standaloneGeneratorId);
 		}
 
 		static PreparedOrigin empty(WorldBuilderEmptyWorldGenerator.Result empty) {

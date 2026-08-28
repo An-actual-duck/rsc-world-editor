@@ -392,6 +392,46 @@ public final class AdaptiveProjectFailureHarness {
             capture_output=True,
             text=True,
         )
+        packed_base_harness = (
+            Path(cls.compile_temp.name)
+            / "harness/com/openrsc/worldbuilder/PackedLayeredBaseHarness.java"
+        )
+        packed_base_harness.write_text(
+            """
+package com.openrsc.worldbuilder;
+
+import java.nio.file.Paths;
+
+public final class PackedLayeredBaseHarness {
+    public static void main(String[] args) throws Exception {
+        try {
+            WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
+                new WorldBuilderAdaptiveProjectLifecycle().createPackedMigrated(
+                    Paths.get(args[0]), Paths.get(args[1]), Paths.get(args[2]),
+                    Paths.get(args[3]), args[4], Integer.parseInt(args[5]),
+                    "CREATE", null, true, Paths.get(args[6]));
+            System.out.print(created.toJson());
+        } catch (WorldBuilderContractException refusal) {
+            System.err.println(refusal.code() + ": " + refusal.getMessage());
+            System.exit(3);
+        }
+    }
+}
+""".strip()
+            + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8",
+                "-cp", str(cls.classes), "-d", str(cls.classes),
+                str(packed_base_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         promotion_harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/WidePromotionCrashHarness.java"
@@ -4956,6 +4996,146 @@ public final class FakeAdaptiveClient {
             )
             self.assertEqual(0, opened.returncode, opened.stderr)
             self.assertEqual(discovery["representation"], "packed")
+
+    def test_primary_packed_migration_preserves_wide_layered_base_levels(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-split-map-base-") as temp:
+            root = Path(temp)
+            target = self.fixtures.legacy_fixture(str(root))
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+                archive.writestr("h3x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            bootstrap_installation = root / "Bootstrap World Builder 2"
+            bootstrap_installation.mkdir()
+            bootstrap_runtime = self.make_runtime(bootstrap_installation)
+            report = root / "packed-report.json"
+            self.discover(target, report)
+            bootstrap, bootstrap_summary = self.create_project(
+                bootstrap_installation, bootstrap_runtime, target, report,
+                "Bootstrap packed conversion", 43840,
+            )
+            self.assertEqual(0, bootstrap.returncode, bootstrap.stderr)
+            bootstrap_project = Path(bootstrap_summary["projectRoot"])
+            layered_base = root / "selected-layered-base"
+            shutil.copytree(
+                bootstrap_project / "source/layered-baseline/package", layered_base
+            )
+            manifest_path = layered_base / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            terrain_template = manifest["terrainSectors"][0]
+            terrain_bytes = (layered_base / terrain_template["path"]).read_bytes()
+
+            expected_wide_payloads = {}
+            for level in (-2, 10):
+                manifest["levels"].append({
+                    "level": level,
+                    "name": f"Layer {level}",
+                    "role": "level-m2" if level == -2 else "level-p10",
+                    "worldSpace": manifest["worldSpaces"][0]["id"],
+                })
+                # Use the canonical token spelling without depending on private Java helpers.
+                x_token = (f"m{-terrain_template['sectorX']}"
+                           if terrain_template["sectorX"] < 0
+                           else f"p{terrain_template['sectorX']}")
+                y_token = (f"m{-terrain_template['sectorY']}"
+                           if terrain_template["sectorY"] < 0
+                           else f"p{terrain_template['sectorY']}")
+                terrain_path = (
+                    f"terrain/global/l{'m2' if level == -2 else 'p10'}/"
+                    f"x{x_token}-y{y_token}.raw"
+                )
+                payload = bytearray(terrain_bytes)
+                # A harmless height difference makes exact preservation observable.
+                payload[0] = (payload[0] + (2 if level == -2 else 10)) % 255
+                terrain_file = layered_base / terrain_path
+                terrain_file.parent.mkdir(parents=True, exist_ok=True)
+                terrain_file.write_bytes(payload)
+                expected_wide_payloads[level] = bytes(payload)
+                declaration = dict(terrain_template)
+                declaration.update({
+                    "level": level,
+                    "path": terrain_path,
+                    "sha256": sha256(terrain_file),
+                })
+                manifest["terrainSectors"].append(declaration)
+                placement_path = (
+                    f"placements/global/l{'m2' if level == -2 else 'p10'}.json"
+                )
+                placement_payload = {
+                    "boundaries": [],
+                    "encoding": "layered-world-placements-v3",
+                    "groundItems": [],
+                    "level": level,
+                    "npcs": [],
+                    "scenery": [],
+                    "schemaVersion": 3,
+                    "worldSpace": manifest["worldSpaces"][0]["id"],
+                }
+                write_json(layered_base / placement_path, placement_payload)
+                manifest["placementSets"].append({
+                    "encoding": "layered-world-placements-v3",
+                    "id": "fixture-lm2" if level == -2 else "fixture-lp10",
+                    "level": level,
+                    "path": placement_path,
+                    "sha256": sha256(layered_base / placement_path),
+                    "worldSpace": manifest["worldSpaces"][0]["id"],
+                })
+            manifest["levels"].sort(key=lambda value: value["level"])
+            manifest["terrainSectors"].sort(
+                key=lambda value: (value["level"], value["sectorX"], value["sectorY"])
+            )
+            manifest["placementSets"].sort(key=lambda value: value["level"])
+            write_json(manifest_path, manifest)
+
+            installation = root / "Composed World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target_before = tree_bytes(target)
+            result = subprocess.run(
+                [
+                    "java", "-cp", str(self.classes),
+                    "com.openrsc.worldbuilder.PackedLayeredBaseHarness",
+                    str(installation), str(runtime), str(target), str(report),
+                    "Composed split map", "43841", str(layered_base),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, result.returncode, result.stderr)
+            self.assertEqual(target_before, tree_bytes(target))
+            project = Path(json.loads(result.stdout)["projectRoot"])
+            package = project / "working/layered-world/package"
+            composed = json.loads((package / "manifest.json").read_text(encoding="utf-8"))
+            composed_levels = [value["level"] for value in composed["levels"]]
+            self.assertEqual(sorted(composed_levels), composed_levels)
+            self.assertTrue({-2, -1, 0, 10}.issubset(set(composed_levels)))
+            for level, expected in expected_wide_payloads.items():
+                record = next(
+                    value for value in composed["terrainSectors"]
+                    if value["level"] == level
+                )
+                self.assertEqual(expected, (package / record["path"]).read_bytes())
+            self.assertTrue(
+                (project / "source/migration/layered-base/package/manifest.json").is_file()
+            )
+            self.assertTrue(
+                (project / "source/migration/legacy-converted/package/manifest.json").is_file()
+            )
+            composition = json.loads((
+                project / "source/migration/composition-report.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(
+                "world-builder-layered-terrain-composition-report",
+                composition["manifestType"],
+            )
+            self.assertEqual([-2, -1, 0, 10], composition["preservedBaseLevels"])
+            self.assertGreaterEqual(composition["replacedTerrainSectors"], 2)
 
     def test_packed_fallback_converts_active_runecrafting_scenery_only(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runecraft-scenery-") as temp:
