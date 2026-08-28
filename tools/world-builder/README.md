@@ -454,7 +454,11 @@ owned backups and a durable pending `import-receipt-v3`, stages and verifies
 server/client package files on the target filesystem, and activates the
 configuration last. It then verifies every byte, both selected packages, and
 the configuration semantics. The result names the exact client package an
-administrator must distribute before restart.
+administrator must distribute before restart. When an install-capable packed
+descriptor has completed that transition, later detection recognizes its exact
+content-addressed server/client packages as a compatible layered target. A new
+project can therefore be created from the installed map without restoring or
+reconverting the retired packed source.
 
 Undo is also preview-first:
 

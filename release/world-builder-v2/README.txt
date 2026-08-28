@@ -154,6 +154,9 @@ artifacts or target mutation. Import publishes verified server and client
 package content first, activates the selected configuration last, and then
 verifies every byte and both package selections. Before restarting,
 distribute the exact reported client package/map identity to every player.
+Later Detect Server Map runs recognize that exact packed-profile installation
+as the active compatible layered map, so the edit/import/detect cycle does not
+fall back to the retired packed representation.
 
 Run "Undo Last Map Import" only while the target is offline. It previews the
 latest successful unreverted import and requires UNDO exactly. Any installed

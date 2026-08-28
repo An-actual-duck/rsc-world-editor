@@ -493,7 +493,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				WorldBuilderAdaptiveConfiguration.select(copied, capability, selectedRole);
 			configuration = selection.selected;
 			captureDescriptorPackedContent =
-				"packed".equals(configuration.representation);
+				WorldBuilderPackedLayoutAdapter.ID.equals(capability.adapterId);
 		}
 		WorldBuilderCompatibilityEvidence common =
 			WorldBuilderCompatibilityEvidence.inspect(copied, capability, configuration);
@@ -513,6 +513,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				throw problem(WorldBuilderErrorCodes.MAP_MISMATCH, BASELINE_DIRECTORY,
 					"Adopted baseline differs from the exact active layered package.",
 					"Discard the unpublished project and retry from stable target evidence.");
+			}
+			if (captureDescriptorPackedContent) {
+				effectivePackedNpcIds.addAll(
+					layered.requiredDefinitionIds().get("npc"));
 			}
 			baselineFingerprint = adopted.fingerprintSha256;
 		} else {

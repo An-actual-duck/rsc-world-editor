@@ -767,6 +767,35 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertIn("Distribute the exact installed client package", applied.stdout)
                 self.assertNotEqual(before, self.lifecycle.tree_bytes(target, installation))
                 self.assertEqual(source_before, self.lifecycle.tree_bytes(project / "source"))
+                rediscovered = self.run_cli(
+                    "discover-adaptive", "--target-root", target
+                )
+                self.assertEqual(0, rediscovered.returncode, rediscovered.stderr)
+                rediscovered_report = json.loads(rediscovered.stdout)
+                self.assertEqual("compatible", rediscovered_report["status"])
+                self.assertEqual("layered", rediscovered_report["representation"])
+                if representation == "packed":
+                    rediscovery_report = Path(temp) / "post-import-discovery.json"
+                    rediscovery_report.write_text(rediscovered.stdout, encoding="utf-8")
+                    recreated = self.run_cli(
+                        "create-project",
+                        "--installation-root",
+                        installation,
+                        "--runtime-root",
+                        Path(temp) / "builder-runtime",
+                        "--target-root",
+                        target,
+                        "--discovery-report",
+                        rediscovery_report,
+                        "--display-name",
+                        "Post-import layered fixture",
+                        "--port",
+                        "43884",
+                        "--confirm",
+                        "CREATE",
+                    )
+                    self.assertEqual(0, recreated.returncode, recreated.stderr)
+                    self.assertEqual("target-layered", json.loads(recreated.stdout)["origin"])
                 undo_preview = self.run_cli(
                     "undo-adaptive", "--project", project, "--target-root", target
                 )

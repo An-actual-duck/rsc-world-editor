@@ -822,7 +822,10 @@ a shipped map.
     server/client selection.
 12. Finalize the success receipt and display the exact client/map identity the
     administrator must distribute.
-13. On any failure, roll back in reverse safe order and verify the complete
+13. Rediscovery through an install-capable packed descriptor recognizes only
+    its exact content-addressed post-import server/client packages as layered,
+    while retaining the original adapter as transition and undo authority.
+14. On any failure, roll back in reverse safe order and verify the complete
     before inventory. If rollback cannot verify, retain recovery state and
     block new transactions.
 

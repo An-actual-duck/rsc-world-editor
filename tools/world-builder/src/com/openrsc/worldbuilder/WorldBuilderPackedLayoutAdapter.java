@@ -97,6 +97,9 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			WorldBuilderAdaptiveConfiguration.select(target, capability,
 				requestedConfigurationRole);
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		if ("layered".equals(configuration.representation)) {
+			return inspectInstalledLayered(target, capability, selection);
+		}
 		if (!"packed".equals(configuration.representation)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 				configuration.relativePath,
@@ -157,6 +160,111 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		return new WorldBuilderAdapterInspection(ID, capability.capabilityId,
 			WorldBuilderTargetCapability.RELATIVE_PATH, capability.evidenceSha256,
 			"packed", selection.candidates(), selection.selectedCandidate(), files, checks);
+	}
+
+	/**
+	 * The packed install profile deliberately turns its selected configuration
+	 * into a content-addressed layered configuration.  The descriptor remains
+	 * the immutable authority for that transition, so rediscovery must validate
+	 * the exact installed state through the same adapter instead of expecting a
+	 * different descriptor to appear after mutation.
+	 */
+	private static WorldBuilderAdapterInspection inspectInstalledLayered(
+		WorldBuilderReadOnlyTarget target,
+		WorldBuilderTargetCapability capability,
+		WorldBuilderAdaptiveConfiguration.Selection selection)
+		throws WorldBuilderContractException {
+		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		if (!capability.installEnabled
+			|| !MUTATION_PROFILE_ID.equals(capability.mutationProfileId)) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+				configuration.relativePath,
+				"Packed descriptor selected layered content without its compiled install profile.",
+				"Restore the exact packed configuration or matching install-capable descriptor.");
+		}
+
+		WorldBuilderCompatibilityEvidence common =
+			WorldBuilderCompatibilityEvidence.inspect(target, capability, configuration);
+		WorldBuilderGenericLayeredPackage server =
+			WorldBuilderGenericLayeredPackage.inspect(target,
+				configuration.serverMapRelativePath, "server", common.definitions);
+		WorldBuilderGenericLayeredPackage client =
+			WorldBuilderGenericLayeredPackage.inspect(target,
+				configuration.clientMapRelativePath, "client", common.definitions);
+		if (!server.packageId.equals(client.packageId)
+			|| !server.packageVersion.equals(client.packageVersion)
+			|| !server.worldSpace.equals(client.worldSpace)
+			|| !server.fingerprintSha256.equals(client.fingerprintSha256)) {
+			throw problem(WorldBuilderErrorCodes.MAP_MISMATCH,
+				configuration.serverMapRelativePath,
+				"Installed server and client layered packages are not byte-for-byte equivalent.",
+				"Restore one exact imported package on both server and client.");
+		}
+		requireInstalledPackagePath(configuration.serverMapRelativePath,
+			"server/world-builder/packages/", server.fingerprintSha256,
+			configuration.relativePath);
+		String clientPrefix = configuration.clientMapRelativePath
+			.startsWith("Client_Base/")
+				? "Client_Base/world-builder/packages/"
+				: "client/world-builder/packages/";
+		requireInstalledPackagePath(configuration.clientMapRelativePath,
+			clientPrefix, client.fingerprintSha256, configuration.relativePath);
+
+		List<WorldBuilderReadOnlyTarget.FileState> files =
+			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
+		files.addAll(common.files);
+		files.addAll(server.files);
+		files.addAll(client.files);
+		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
+			target, WorldBuilderPackedSourceLayout.selectContentRoots(target)));
+		validateCompleteInventory(files);
+
+		List<WorldBuilderAdapterInspection.Check> checks =
+			new ArrayList<WorldBuilderAdapterInspection.Check>();
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"adapter-capability", "passed",
+			"The packed install profile recognizes its exact post-import layered state.",
+			capability.capabilityId + " retains " + ID + " transition authority."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"client-server-map-agreement", "passed",
+			"Server and client select one exact content-addressed layered package.",
+			server.packageId + " " + server.packageVersion + " at "
+				+ server.fingerprintSha256 + "."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"configuration-selection", "passed",
+			"The active configuration is the compiled packed-to-layered install result.",
+			configuration.configurationId + " at " + configuration.relativePath + "."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"format-validation", "passed",
+			"Every installed manifest, sector, placement set, path, size, and hash is strict.",
+			server.levelCount + " level(s), " + server.terrainCount
+				+ " terrain sector(s), and " + server.placementSetCount
+				+ " placement set(s)."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"inventory-completeness", "passed",
+			"Installed packages and required target content are completely inventoried.",
+			files.size() + " complete source evidence file(s)."));
+		checks.add(new WorldBuilderAdapterInspection.Check(
+			"placement-validation", "passed",
+			"All installed placement families resolve against terrain and definitions.",
+			server.boundaryCount + " boundary, " + server.groundItemCount
+				+ " ground-item, " + server.npcCount + " NPC, and "
+				+ server.sceneryCount + " scenery record(s)."));
+		checks.addAll(common.checks);
+		return new WorldBuilderAdapterInspection(ID, capability.capabilityId,
+			WorldBuilderTargetCapability.RELATIVE_PATH, capability.evidenceSha256,
+			"layered", selection.candidates(), selection.selectedCandidate(), files, checks);
+	}
+
+	private static void requireInstalledPackagePath(String path, String prefix,
+		String fingerprint, String configurationPath)
+		throws WorldBuilderContractException {
+		String expected = prefix + fingerprint + "/package";
+		if (!expected.equals(path)) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, configurationPath,
+				"Layered configuration is outside the compiled content-addressed install root.",
+				"Select the exact package installed by World Builder or restore the packed configuration.");
+		}
 	}
 
 	private static void mergeSupplementalEvidence(

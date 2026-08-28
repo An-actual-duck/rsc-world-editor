@@ -264,6 +264,12 @@ action on the main launcher as well as a File-menu recovery path. The GUI:
 8. shows the verified receipt and installed client/map identity; and
 9. offers the appropriate Undo or Recovery next action.
 
+After a successful packed-to-layered installation, Detect Server Map validates
+the content-addressed server/client package pair through the same immutable
+install-capable descriptor and reports the active target as layered. This is a
+normal cyclical workflow: users may create a fresh isolated project from the
+installed map without reintroducing the retired packed landscape.
+
 Friendly labels must retain the same transaction UUID, plan fingerprint, write
 ordering, verification, and no-force guarantees as the CLI. The GUI never
 manufactures a second, weaker import path.
