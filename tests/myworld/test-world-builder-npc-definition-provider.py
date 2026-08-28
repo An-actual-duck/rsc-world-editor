@@ -572,6 +572,27 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 self.assertIn("Selected provider does not match this server revision", failure)
                 self.assertIn("CAPABILITY_MISMATCH", failure)
 
+    def test_rich_provider_survives_coordinate_only_placement_changes(self):
+        with tempfile.TemporaryDirectory(
+                prefix="npc-provider-placement-coordinate-change-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            self.producer_package(target, selected)
+            write_json(target / "server/conf/server/defs/locs/MyWorldNpcLocs.json", {
+                "npclocs": [
+                    {"id": 2, "start": {"X": 42, "Y": 84},
+                     "min": {"X": 40, "Y": 82}, "max": {"X": 44, "Y": 86}},
+                ]
+            })
+
+            custom, report = self.consume(target, selected, base / "stage")
+
+            self.assertEqual("Neutral producer NPC", custom["npcs"][1]["name"])
+            self.assertEqual([], report["warnings"])
+            self.assertEqual([{"npcId": 1, "status": "gap-placeholder"},
+                              {"npcId": 2, "status": "resolved"}],
+                             report["npcs"])
+
 
 if __name__ == "__main__":
     unittest.main()

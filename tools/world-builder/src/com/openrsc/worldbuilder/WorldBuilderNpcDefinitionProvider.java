@@ -393,13 +393,10 @@ final class WorldBuilderNpcDefinitionProvider {
 				}
 			}
 		}
-		for (String identity : Arrays.asList("NpcDefs.json", "NpcDefsCustom.json",
-			"MyWorldNpcLocs.json")) {
+		for (String identity : Arrays.asList("NpcDefs.json", "NpcDefsCustom.json")) {
 			if (!expected.containsKey(identity)) throw new TargetMismatch(
 				"Provider is missing required target binding " + identity + ".");
-			String relative = "MyWorldNpcLocs.json".equals(identity)
-				? "server/conf/server/defs/locs/" + identity
-				: "server/conf/server/defs/" + identity;
+			String relative = "server/conf/server/defs/" + identity;
 			Path actual = copiedTarget.resolve(relative);
 			if (!Files.isRegularFile(actual, LinkOption.NOFOLLOW_LINKS)
 				|| Files.isSymbolicLink(actual)
@@ -407,6 +404,15 @@ final class WorldBuilderNpcDefinitionProvider {
 				throw new TargetMismatch("Provider was generated for a different "
 					+ identity + ".");
 			}
+		}
+		if (!expected.containsKey("MyWorldNpcLocs.json")) throw new TargetMismatch(
+			"Provider is missing required target binding MyWorldNpcLocs.json.");
+		Path placementSource = copiedTarget.resolve(
+			"server/conf/server/defs/locs/MyWorldNpcLocs.json");
+		if (!Files.isRegularFile(placementSource, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(placementSource)) {
+			throw new TargetMismatch(
+				"Provider target placement evidence is unavailable or unsafe.");
 		}
 
 		for (String key : Arrays.asList("customSpriteArchive", "authenticSpriteArchive")) {
@@ -432,6 +438,10 @@ final class WorldBuilderNpcDefinitionProvider {
 		for (Object raw : array(selection.get("placedNpcIds"), "placedNpcIds")) {
 			selected.add(Integer.valueOf(integer(raw, 0, MAX_ID, "placedNpcId")));
 		}
+		// Placement coordinates and counts may change during ordinary world editing.
+		// Reuse the provider while the extension identity set, declarative registry,
+		// and sprite archives still match; those are the authorities that determine
+		// NPC definitions and visuals.
 		if (!extensionPlacements.equals(selected)) throw new TargetMismatch(
 			"Provider placed extension NPC set differs from the target.");
 	}
