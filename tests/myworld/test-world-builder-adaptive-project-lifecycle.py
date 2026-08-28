@@ -7090,6 +7090,10 @@ public final class FakeAdaptiveClient {
         self.assertIn("Choose from Detected…", launcher_source)
         self.assertIn("fixed imported snapshot", launcher_source)
         self.assertIn("Map configuration:", launcher_source)
+        self.assertNotIn("Select Layered Base…", launcher_source)
+        self.assertIn("Custom_Landscape file detected. Would you like to incorporate it?",
+                      launcher_source)
+        self.assertIn("Choose Detected Layered Map", launcher_source)
 
         with tempfile.TemporaryDirectory(prefix="adaptive-desktop-launcher-") as temp:
             base = Path(temp)

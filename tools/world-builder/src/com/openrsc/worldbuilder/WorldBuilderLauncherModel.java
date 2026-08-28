@@ -130,7 +130,8 @@ final class WorldBuilderLauncherModel {
 		}
 		return new DiscoveryPreview(source, report, report.status,
 			text(document.get("representation")), report.summary(),
-			configurationChoices(document, source), issueCode(document));
+			configurationChoices(document, source), issueCode(document),
+			selectedConfigurationPath(document));
 	}
 
 	DiscoveryPreview inspectEmptyWorld()
@@ -143,7 +144,14 @@ final class WorldBuilderLauncherModel {
 		}
 		return new DiscoveryPreview(installation, report, report.status, "none",
 			"A new standalone empty world will be created. No server map will be read or changed.",
-			Collections.<ConfigurationChoice>emptyList(), "");
+			Collections.<ConfigurationChoice>emptyList(), "", "");
+	}
+
+	WorldBuilderLayeredBaseDiscovery.Discovery inspectLayeredBases(
+		DiscoveryPreview preview) throws IOException {
+		if (preview == null) throw new IOException("A server map preview was not supplied.");
+		return new WorldBuilderLayeredBaseDiscovery().discover(
+			preview.source, preview.selectedConfigurationPath);
 	}
 
 	LegacyMigrationPreview inspectLegacyMigration(DiscoveryPreview selected)
@@ -233,6 +241,10 @@ final class WorldBuilderLauncherModel {
 		@SuppressWarnings("unchecked") Map<String,Object> issue =
 			(Map<String,Object>)((List<?>)raw).get(0);
 		return text(issue.get("code"));
+	}
+
+	private static String selectedConfigurationPath(Map<String,Object> document) {
+		return text(object(document.get("selectedConfiguration")).get("relativePath"));
 	}
 
 	WorldBuilderPortableProvider.Discovery inspectPortableProvider(Path source)
@@ -690,10 +702,12 @@ final class WorldBuilderLauncherModel {
 		final String summary;
 		final List<ConfigurationChoice> configurationChoices;
 		final String issueCode;
+		final String selectedConfigurationPath;
 
 		DiscoveryPreview(Path source, WorldBuilderAdaptiveDiscoveryReport report,
 			String status, String representation, String summary,
-			List<ConfigurationChoice> configurationChoices, String issueCode) {
+			List<ConfigurationChoice> configurationChoices, String issueCode,
+			String selectedConfigurationPath) {
 			this.source = source;
 			this.report = report;
 			this.status = status;
@@ -701,6 +715,7 @@ final class WorldBuilderLauncherModel {
 			this.summary = summary;
 			this.configurationChoices = configurationChoices;
 			this.issueCode = issueCode;
+			this.selectedConfigurationPath = selectedConfigurationPath;
 		}
 
 		boolean canCreateServerProject() {

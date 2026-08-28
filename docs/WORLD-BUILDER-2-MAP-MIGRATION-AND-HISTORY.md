@@ -83,11 +83,13 @@ the selected primary packed map. Choosing to incorporate it means:
 7. record the decision and every input hash in immutable project lineage.
 
 World Builder does not infer which package is newer, scan product-specific
-state directories, or merge an unrelated package. The creator explicitly
-chooses the complete layered base. Legacy-present sectors replace the same
-coordinates; every other base sector, every wider signed level, and existing
-base placement set remains exact. Inputs that cannot satisfy this deterministic
-rule fail without changing either source.
+state directories, or merge an unrelated package. It resolves the complete
+layered base from bounded server-owned launch metadata. The marker's recorded
+server root and selected configuration must match the detected source, and its
+layered-package manifest hash must still be exact. Legacy-present sectors
+replace the same coordinates; every other base sector, every wider signed
+level, and existing base placement set remains exact. Inputs that cannot
+satisfy this deterministic rule fail without changing either source.
 
 ### Streamlined prompt
 
@@ -99,15 +101,20 @@ layered authority, the ordinary prompt is:
 
 > Custom_Landscape file detected. Would you like to incorporate it?
 
-with **Yes** and **No** actions. When the detected primary map is itself the
-legacy archive, the prompt instead explains the four-plane limit and offers:
+with **Yes** and **No** actions. This remains the ordinary prompt when the
+detected primary map is itself the legacy archive: the editor automatically
+resolves its associated active layered package from verified launch metadata.
+**Yes** preserves that complete signed-layered world and applies the converted
+legacy sectors over it. **No** explicitly uses the legacy four-plane map alone.
+There is no normal folder-selection step.
 
-- **Select Layered Base…** — choose the exact package folder containing
-  `manifest.json`, preserve its complete signed-layered world, and apply the
-  converted legacy sectors over it;
-- **Use Legacy Map Only** — explicitly create from the legacy four-plane map
-  when no newer layered package exists; or
-- **Cancel** — create nothing.
+When more than one genuinely different, valid active layered package is
+recorded for the selected configuration, the editor presents those detected
+maps by configuration, launch time, and manifest fingerprint. It never asks an
+ordinary user to navigate to a package directory. If no verified association
+exists, the editor explains that the server must be launched once with its
+layered-map launcher; the user may explicitly use the legacy map alone or
+cancel without creating anything.
 
 - **Yes** creates the project by composing verified legacy sectors over the
   already selected layered target, opens the resulting layered world, and
@@ -116,7 +123,7 @@ legacy archive, the prompt instead explains the four-plane limit and offers:
   authority, but records no retirement intent.
 - Closing or cancelling the prompt creates nothing and changes nothing.
 
-The concise prompt is end-user language. Expandable details list the chosen
+The concise prompt is end-user language. Expandable details list the detected
 base package, legacy paths and hashes, selected configuration, exact
 composition rule, and the fact that the server remains unchanged during
 project creation.
@@ -407,5 +414,5 @@ risk-appropriate test gate before the next begins.
 | Legacy packed detection/conversion | Implemented | Owner validation on additional real-world targets |
 | Complete layered export | GUI action implemented | Optional destination/reveal experience |
 | Target import/undo/recovery | GUI projection implemented | Owner visual validation and release testing |
-| Legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
+| Legacy retirement | Implemented and transaction-tested | Owner validation of automatic active-layer association on the real split-map workflow |
 | Project revision history | Implemented with content-addressed storage and recovery | Owner GUI validation and additional long-running real-project use |

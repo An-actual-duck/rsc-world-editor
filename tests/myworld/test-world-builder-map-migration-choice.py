@@ -166,6 +166,25 @@ public final class LauncherMigrationTransactionHarness {
 }
 """
 
+LAYERED_BASE_DISCOVERY_HARNESS = r"""
+package com.openrsc.worldbuilder;
+
+import java.nio.file.Paths;
+
+public final class LayeredBaseDiscoveryHarness {
+    public static void main(String[] arguments) throws Exception {
+        WorldBuilderLayeredBaseDiscovery.Discovery discovery =
+            new WorldBuilderLayeredBaseDiscovery().discover(
+                Paths.get(arguments[0]), arguments.length > 1 ? arguments[1] : null);
+        for (WorldBuilderLayeredBaseDiscovery.Candidate candidate
+                : discovery.candidates) {
+            System.out.println(candidate.packageRoot + "|" + candidate.configuration
+                + "|" + candidate.manifestSha256);
+        }
+    }
+}
+"""
+
 
 def load_fixtures(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -224,6 +243,23 @@ class MapMigrationChoiceTest(unittest.TestCase):
         sources = sorted(str(path) for path in SOURCE_ROOT.rglob("*.java"))
         subprocess.run(
             ["javac", "-source", "8", "-target", "8", "-d", str(cls.classes), *sources],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+        )
+        layered_base_harness = (
+            cls.classes
+            / "harness/com/openrsc/worldbuilder/LayeredBaseDiscoveryHarness.java"
+        )
+        layered_base_harness.parent.mkdir(parents=True, exist_ok=True)
+        layered_base_harness.write_text(
+            LAYERED_BASE_DISCOVERY_HARNESS, encoding="utf-8"
+        )
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(layered_base_harness),
+            ],
             check=True,
             cwd=ROOT,
             capture_output=True,
@@ -350,6 +386,48 @@ class MapMigrationChoiceTest(unittest.TestCase):
             text=True,
             capture_output=True,
         )
+
+    def discover_layered_bases(
+        self, target: Path, configuration: str = "server/conf/world-builder.conf"
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.LayeredBaseDiscoveryHarness",
+                str(target), configuration,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def write_layered_launch_marker(
+        self,
+        target: Path,
+        package: Path,
+        port: int,
+        configuration: str = "world-builder.conf",
+        manifest_hash: str | None = None,
+    ) -> Path:
+        manifest_hash = manifest_hash or hashlib.sha256(
+            (package / "manifest.json").read_bytes()
+        ).hexdigest()
+        marker = target / f"server/run/server-{port}.env"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        escaped_package = str(package.resolve()).replace(" ", "\\ ")
+        marker.write_text(
+            "\n".join(
+                [
+                    f"marker_root={target.resolve()}",
+                    f"marker_config={configuration}",
+                    f"marker_layered_package_path={escaped_package}",
+                    f"marker_layered_manifest_sha256={manifest_hash}",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+        return marker
 
     def add_layered_authority(self, target: Path, catalog: dict) -> None:
         server_catalog = target / "server/evidence/definitions.json"
@@ -503,6 +581,63 @@ class MapMigrationChoiceTest(unittest.TestCase):
         second, _, _ = self.run_choice(selected, legacy)
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(first.stdout, second.stdout)
+
+    def test_active_layered_base_is_resolved_from_target_launch_metadata(self) -> None:
+        target = self.root / "server root"
+        target.mkdir()
+        package = self.root / "active layered package"
+        package.mkdir()
+        (package / "manifest.json").write_text(
+            '{"manifestType":"layered-world-package"}\n', encoding="utf-8"
+        )
+        expected = hashlib.sha256((package / "manifest.json").read_bytes()).hexdigest()
+        self.write_layered_launch_marker(target, package, 43615)
+
+        result = self.discover_layered_bases(target)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            f"{package.resolve()}|world-builder.conf|{expected}\n", result.stdout
+        )
+
+    def test_layered_base_discovery_rejects_stale_hash_and_wrong_root(self) -> None:
+        target = self.root / "target"
+        target.mkdir()
+        package = self.root / "package"
+        package.mkdir()
+        (package / "manifest.json").write_text("{}\n", encoding="utf-8")
+        self.write_layered_launch_marker(
+            target, package, 43615, manifest_hash="0" * 64
+        )
+        wrong_root = self.write_layered_launch_marker(target, package, 43616)
+        wrong_root.write_text(
+            wrong_root.read_text(encoding="utf-8").replace(
+                f"marker_root={target.resolve()}", f"marker_root={self.root.resolve()}"
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.discover_layered_bases(target)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("", result.stdout)
+
+    def test_layered_base_discovery_prefers_selected_configuration(self) -> None:
+        target = self.root / "target"
+        target.mkdir()
+        primary = self.root / "primary"
+        alternate = self.root / "alternate"
+        primary.mkdir()
+        alternate.mkdir()
+        (primary / "manifest.json").write_text("{\"package\":1}\n", encoding="utf-8")
+        (alternate / "manifest.json").write_text("{\"package\":2}\n", encoding="utf-8")
+        self.write_layered_launch_marker(target, primary, 43615, "world-builder.conf")
+        self.write_layered_launch_marker(target, alternate, 43616, "other.conf")
+
+        result = self.discover_layered_bases(
+            target, "server/conf/world-builder.conf"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(1, len(result.stdout.splitlines()))
+        self.assertTrue(result.stdout.startswith(str(primary.resolve()) + "|"))
 
     def test_retirement_intent_is_explicit(self) -> None:
         selected, legacy = reports()

@@ -1000,21 +1000,47 @@ final class WorldBuilderDesktopLauncher {
 			final Path layeredBasePackage;
 			if (detectedMigration != null) {
 				if (detectedMigration.primaryPacked) {
-					Object[] options = {"Select Layered Base…", "Use Legacy Map Only", "Cancel"};
-					int answer = JOptionPane.showOptionDialog(frame,
-						"Custom_Landscape is a four-plane legacy archive. It cannot contain "
-							+ "modern signed layers such as -2 or +10.\n\n"
-							+ "Select Layered Base preserves every modern layer and applies the "
-							+ "legacy terrain sectors over it. Use Legacy Map Only only when no "
-							+ "newer layered package exists.\n\nThe source remains unchanged.",
-						"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
-						JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-					if (answer < 0 || answer == 2) return;
-					if (answer == 0) {
-						Path selectedBase = chooseLayeredBasePackage(preview.source);
+					WorldBuilderLayeredBaseDiscovery.Discovery bases;
+					try {
+						bases = model.inspectLayeredBases(preview);
+					} catch (Exception failure) {
+						showError("The active layered map could not be detected safely.", failure);
+						return;
+					}
+					WorldBuilderLayeredBaseDiscovery.Candidate selectedBase = bases.automatic();
+					if (selectedBase == null && bases.candidates.size() > 1) {
+						selectedBase = (WorldBuilderLayeredBaseDiscovery.Candidate)
+							JOptionPane.showInputDialog(frame,
+								"More than one active layered map was recorded for this server.\n"
+									+ "Choose the map that the detected Custom_Landscape changes belong to:",
+								"Choose Detected Layered Map", JOptionPane.QUESTION_MESSAGE,
+								null, bases.candidates.toArray(), bases.candidates.get(0));
 						if (selectedBase == null) return;
-						layeredBasePackage = selectedBase;
-					} else layeredBasePackage = null;
+					}
+					if (selectedBase == null) {
+						Object[] options = {"Use Legacy Map Only", "Cancel"};
+						int answer = JOptionPane.showOptionDialog(frame,
+							"Custom_Landscape was detected, but this server has no verified launch "
+								+ "record identifying its active layered map.\n\nNo folder selection is "
+								+ "required or accepted. Start the server once with its layered-map "
+								+ "launcher so the association can be detected automatically, or use "
+								+ "the four-plane legacy map by itself.",
+							"Active Layered Map Not Detected", JOptionPane.DEFAULT_OPTION,
+							JOptionPane.WARNING_MESSAGE, null, options, options[1]);
+						if (answer != 0) return;
+						layeredBasePackage = null;
+					} else {
+						Object[] options = {"Yes", "No"};
+						int answer = JOptionPane.showOptionDialog(frame,
+							"Custom_Landscape file detected. Would you like to incorporate it?\n\n"
+								+ "Yes applies its legacy sectors over the automatically detected "
+								+ "active layered map while preserving layers such as -2 and +10. "
+								+ "No uses the four-plane legacy map by itself.\n\nThe source remains unchanged.",
+							"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
+							JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+						if (answer < 0) return;
+						layeredBasePackage = answer == 0 ? selectedBase.packageRoot : null;
+					}
 					migration = detectedMigration;
 				} else {
 					Object[] options = {"Yes", "No"};
@@ -1143,22 +1169,6 @@ final class WorldBuilderDesktopLauncher {
 			}
 			createPreviewedProject(preview, displayName, automaticMapping, guided[0],
 				migration, layeredBasePackage);
-		}
-
-		private Path chooseLayeredBasePackage(Path source) {
-			JFileChooser chooser = new JFileChooser(source.toFile());
-			chooser.setDialogTitle("Choose the complete layered package folder");
-			chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-			chooser.setAcceptAllFileFilterUsed(false);
-			if (chooser.showOpenDialog(frame) != JFileChooser.APPROVE_OPTION) return null;
-			Path selected = chooser.getSelectedFile().toPath().toAbsolutePath().normalize();
-			if (!Files.isRegularFile(selected.resolve("manifest.json"),
-				LinkOption.NOFOLLOW_LINKS)) {
-				showError("Choose the exact layered package folder containing manifest.json.",
-					null);
-				return null;
-			}
-			return selected;
 		}
 
 		private static String customContentSummary(

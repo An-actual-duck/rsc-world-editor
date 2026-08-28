@@ -63,7 +63,7 @@ World Builder 2 already provides a substantial base for these goals:
   and exact undo;
 - explicit `Custom_Landscape.orsc` incorporation and guarded retirement
   lineage for both layered-plus-packed and primary-packed discovery paths,
-  including deterministic composition over a creator-selected layered base so
+  including deterministic composition over an automatically associated layered base so
   legacy planes cannot collapse or discard signed levels such as `-2` and
   `+10`;
 - a reversible Build presentation mode with a terrain grid and simplified
