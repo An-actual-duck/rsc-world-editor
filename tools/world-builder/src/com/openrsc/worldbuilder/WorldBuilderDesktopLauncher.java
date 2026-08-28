@@ -1020,11 +1020,11 @@ final class WorldBuilderDesktopLauncher {
 					if (selectedBase == null) {
 						Object[] options = {"Use Legacy Map Only", "Cancel"};
 						int answer = JOptionPane.showOptionDialog(frame,
-							"Custom_Landscape was detected, but this server has no verified launch "
-								+ "record identifying its active layered map.\n\nNo folder selection is "
-								+ "required or accepted. Start the server once with its layered-map "
-								+ "launcher so the association can be detected automatically, or use "
-								+ "the four-plane legacy map by itself.",
+							"Custom_Landscape was detected, but no verified server launch record or "
+								+ "content-addressed local layered-map installation could be found.\n\n"
+								+ "No folder selection is required or accepted. Install or launch the "
+								+ "server's layered map normally so it can be detected automatically, "
+								+ "or use the four-plane legacy map by itself.",
 							"Active Layered Map Not Detected", JOptionPane.DEFAULT_OPTION,
 							JOptionPane.WARNING_MESSAGE, null, options, options[1]);
 						if (answer != 0) return;

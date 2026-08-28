@@ -7,6 +7,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -388,8 +389,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
 
     def discover_layered_bases(
-        self, target: Path, configuration: str = "server/conf/world-builder.conf"
+        self, target: Path, configuration: str = "server/conf/world-builder.conf",
+        data_home: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["XDG_DATA_HOME"] = str(data_home or (self.root / "empty-xdg"))
         return subprocess.run(
             [
                 "java", "-cp", str(self.classes),
@@ -399,6 +403,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             cwd=ROOT,
             text=True,
             capture_output=True,
+            env=environment,
         )
 
     def write_layered_launch_marker(
@@ -638,6 +643,51 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(1, len(result.stdout.splitlines()))
         self.assertTrue(result.stdout.startswith(str(primary.resolve()) + "|"))
+
+    def test_content_addressed_external_layered_installation_is_detected(self) -> None:
+        target = self.root / "target"
+        target.mkdir()
+        data_home = self.root / "platform-data"
+        staging = self.root / "package-staging"
+        staging.mkdir()
+        manifest = {
+            "schemaVersion": 1,
+            "packageType": "layered-world",
+            "packageId": "example.creator-world",
+            "packageVersion": "1.2.3",
+            "coordinateModel": "signed-layered-v1",
+            "storage": {"sectorSize": 48, "presentationChunkSize": 24},
+            "worldSpaces": [{"id": "global", "kind": "static"}],
+            "levels": [],
+            "terrainSectors": [],
+            "placementSets": [],
+        }
+        (staging / "manifest.json").write_text(
+            json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+        )
+        manifest_hash = hashlib.sha256(
+            (staging / "manifest.json").read_bytes()
+        ).hexdigest()
+        package = (
+            data_home / "example-game/live/layered-worlds" / manifest_hash / "package"
+        )
+        package.parent.mkdir(parents=True)
+        shutil.move(str(staging), str(package))
+
+        result = self.discover_layered_bases(target, data_home=data_home)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(
+            f"{package.resolve()}|example.creator-world 1.2.3|{manifest_hash}\n",
+            result.stdout,
+        )
+
+        # A same-shaped directory that is not named by its exact manifest hash
+        # is not an automatic authority.
+        misplaced = data_home / "other-game/live/layered-worlds/not-a-hash/package"
+        misplaced.parent.mkdir(parents=True)
+        shutil.copytree(package, misplaced)
+        second = self.discover_layered_bases(target, data_home=data_home)
+        self.assertEqual(result.stdout, second.stdout)
 
     def test_retirement_intent_is_explicit(self) -> None:
         selected, legacy = reports()

@@ -83,10 +83,16 @@ the selected primary packed map. Choosing to incorporate it means:
 7. record the decision and every input hash in immutable project lineage.
 
 World Builder does not infer which package is newer, scan product-specific
-state directories, or merge an unrelated package. It resolves the complete
-layered base from bounded server-owned launch metadata. The marker's recorded
-server root and selected configuration must match the detected source, and its
-layered-package manifest hash must still be exact. Legacy-present sectors
+state directories, or merge an unrelated package. It first resolves the
+complete layered base from bounded server-owned launch metadata. The marker's
+recorded server root and selected configuration must match the detected source,
+and its layered-package manifest hash must still be exact. When a source
+checkout has no such marker, the editor performs a bounded, product-neutral
+search of standard platform application-data roots for the exact portable
+layout `*/live/layered-worlds/<manifest-sha256>/package`. The directory name
+must equal the current manifest hash and the manifest must declare the supported
+layered-world identity. No arbitrary files, server JARs, scripts, or
+product-named locations are searched or executed. Legacy-present sectors
 replace the same coordinates; every other base sector, every wider signed
 level, and existing base placement set remains exact. Inputs that cannot
 satisfy this deterministic rule fail without changing either source.
@@ -109,12 +115,12 @@ legacy sectors over it. **No** explicitly uses the legacy four-plane map alone.
 There is no normal folder-selection step.
 
 When more than one genuinely different, valid active layered package is
-recorded for the selected configuration, the editor presents those detected
-maps by configuration, launch time, and manifest fingerprint. It never asks an
-ordinary user to navigate to a package directory. If no verified association
-exists, the editor explains that the server must be launched once with its
-layered-map launcher; the user may explicitly use the legacy map alone or
-cancel without creating anything.
+recorded or installed, the editor presents those detected maps by package or
+configuration identity, evidence time, and manifest fingerprint. It never asks
+an ordinary user to navigate to a package directory. If no verified candidate
+exists, the editor explains that the layered map must be installed or launched
+normally; the user may explicitly use the legacy map alone or cancel without
+creating anything.
 
 - **Yes** creates the project by composing verified legacy sectors over the
   already selected layered target, opens the resulting layered world, and
