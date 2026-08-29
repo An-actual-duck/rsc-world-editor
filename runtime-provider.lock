@@ -1,4 +1,4 @@
 # Runtime source used by this World Builder source snapshot.
 RUNTIME_PROVIDER_REPOSITORY=https://github.com/An-actual-duck/rsc-world-editor-runtime.git
 RUNTIME_PROVIDER_REF=refs/heads/main
-RUNTIME_PROVIDER_COMMIT=bfa8f6522d0b6766d247dff102a869f4633118a1
+RUNTIME_PROVIDER_COMMIT=7d4690045b7ff0902e888130fd45bbcf8114890e
