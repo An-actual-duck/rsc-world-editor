@@ -379,6 +379,7 @@ function Assert-ApplicationAllowlist(
         "region-compatibility-report-v1.schema.json",
         "region-operation-plan-v1.schema.json", "region-selection-v1.schema.json",
         "region-snapshot-v1.schema.json", "region-snapshot-v2.schema.json",
+        "region-snapshot-v3.schema.json",
         "source-snapshot-v2.schema.json", "target-capability-v1.schema.json",
         "target-mutation-plan-v1.schema.json"
     )) {

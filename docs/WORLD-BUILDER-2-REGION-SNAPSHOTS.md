@@ -110,7 +110,7 @@ The strict schemas are:
 | Contract | Schema |
 | --- | --- |
 | Ordered selection | `region-selection-v1.schema.json` |
-| Region payload | `region-snapshot-v2.schema.json` (current), `region-snapshot-v1.schema.json` (readable legacy) |
+| Region payload | `region-snapshot-v3.schema.json` (current), `region-snapshot-v1.schema.json` and `region-snapshot-v2.schema.json` (readable legacy) |
 | Bundle manifest | `region-bundle-manifest-v1.schema.json` |
 | Compatibility report | `region-compatibility-report-v1.schema.json` |
 | Atomic cut/paste plan | `region-operation-plan-v1.schema.json` |
