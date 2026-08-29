@@ -2200,6 +2200,8 @@ final class WorldBuilderRegionSnapshotService {
 			output.put("position", relativePoint(record.get("position"), anchorX, anchorY));
 		} else if ("npcs".equals(family)) {
 			output.put("npcId", Long.valueOf(integer(record, "npcId")));
+			output.put("respawnSeconds", Long.valueOf(
+				optionalInteger(record, "respawnSeconds", -1)));
 			output.put("start", relativePoint(record.get("start"), anchorX, anchorY));
 			Map<String,Object> bounds = map(record.get("roamBounds"));
 			Map<String,Object> relativeBounds = new LinkedHashMap<String,Object>();
@@ -2231,6 +2233,8 @@ final class WorldBuilderRegionSnapshotService {
 		} else if ("npcs".equals(family)) {
 			output.put("npcId", Long.valueOf(integer(relative, "npcId")));
 			output.put("placementId", text(relative, "placementId"));
+			output.put("respawnSeconds", Long.valueOf(
+				optionalInteger(relative, "respawnSeconds", -1)));
 			Map<String,Object> bounds = map(relative.get("roamBounds"));
 			Map<String,Object> absoluteBounds = new LinkedHashMap<String,Object>();
 			absoluteBounds.put("maximum", absolutePoint(bounds.get("maximum"), x, y));
@@ -2359,6 +2363,12 @@ final class WorldBuilderRegionSnapshotService {
 
 	private static int integer(Map<String,Object> value, String key) {
 		return (int)((Long)value.get(key)).longValue();
+	}
+
+	private static int optionalInteger(
+		Map<String,Object> value, String key, int defaultValue) {
+		Object raw = value.get(key);
+		return raw == null ? defaultValue : (int)((Long)raw).longValue();
 	}
 
 	private static Point point(Object raw) {
@@ -3212,6 +3222,7 @@ final class WorldBuilderRegionSnapshotService {
 			}
 			for (Map.Entry<Integer,Map<String,Object>> entry : placements.entrySet()) {
 				Map<String,Object> declaration = placementDeclarations.get(entry.getKey());
+				upgradeNpcPlacementEncoding(entry.getValue(), declaration);
 				Path path = root.resolve(text(declaration, "path"));
 				Files.write(path, WorldBuilderJsonDocuments.pretty(entry.getValue())
 					.getBytes(StandardCharsets.UTF_8));
@@ -3227,6 +3238,22 @@ final class WorldBuilderRegionSnapshotService {
 			}
 			WorldBuilderAdaptiveDurability.forceTreeDirectories(root);
 			return inspected.fingerprintSha256;
+		}
+
+		private static void upgradeNpcPlacementEncoding(
+			Map<String,Object> payload, Map<String,Object> declaration) {
+			if (!"layered-world-placements-v3".equals(text(payload, "encoding"))) {
+				return;
+			}
+			for (Object raw : list(payload, "npcs")) {
+				Map<String,Object> npc = map(raw);
+				if (!npc.containsKey("respawnSeconds")) {
+					npc.put("respawnSeconds", Long.valueOf(-1));
+				}
+			}
+			payload.put("encoding", "layered-world-placements-v4");
+			payload.put("schemaVersion", Long.valueOf(4));
+			declaration.put("encoding", "layered-world-placements-v4");
 		}
 
 		private static String key(int level, int x, int y) {

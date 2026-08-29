@@ -9,10 +9,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** Strict portable region contracts with readable v1 and wide-elevation v2 snapshots. */
+/** Strict portable region contracts with readable v1/v2 and NPC-respawn v3 snapshots. */
 final class WorldBuilderRegionContracts {
 	static final long VERSION = 1L;
-	static final long SNAPSHOT_VERSION = 2L;
+	static final long SNAPSHOT_VERSION = 3L;
 	static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
 	static final int MAX_MARKERS = 256;
@@ -170,7 +170,8 @@ final class WorldBuilderRegionContracts {
 				previous = key;
 				if (++placementCount > MAX_PLACEMENTS) invalid(op,
 					"Snapshot exceeds its total placement limit.");
-				validatePlacementRecord(family, record, op);
+				validatePlacementRecord(
+					family, record, op, snapshotVersion >= SNAPSHOT_VERSION);
 				String placementId = identifier(record, "placementId", op);
 				if (!placementIds.add(placementId)) invalid(op,
 					"Snapshot placement IDs must be unique across all families.");
@@ -434,7 +435,8 @@ final class WorldBuilderRegionContracts {
 	}
 
 	private static void validatePlacementRecord(String family,
-		Map<String,Object> record, String op) throws WorldBuilderContractException {
+		Map<String,Object> record, String op, boolean npcRespawn)
+		throws WorldBuilderContractException {
 		if ("boundaries".equals(family)) {
 			exact(record, op, "levelOffset", "placementId", "boundaryId", "direction",
 				"position");
@@ -447,8 +449,14 @@ final class WorldBuilderRegionContracts {
 				Integer.MAX_VALUE, op); range(record, "respawnSeconds", 0, 86400, op);
 			pointOffset(record.get("position"), op);
 		} else if ("npcs".equals(family)) {
-			exact(record, op, "levelOffset", "placementId", "npcId", "start",
-				"roamBounds");
+			if (npcRespawn) {
+				exact(record, op, "levelOffset", "placementId", "npcId",
+					"respawnSeconds", "start", "roamBounds");
+				range(record, "respawnSeconds", -1, 86400, op);
+			} else {
+				exact(record, op, "levelOffset", "placementId", "npcId", "start",
+					"roamBounds");
+			}
 			nonnegative(record, "npcId", op); pointOffset(record.get("start"), op);
 			Map<String,Object> bounds = object(record.get("roamBounds"), op, "roamBounds");
 			exact(bounds, op, "minimum", "maximum");
@@ -663,7 +671,7 @@ final class WorldBuilderRegionContracts {
 	static void invalid(String op, String message) throws WorldBuilderContractException {
 		throw new WorldBuilderContractException(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
 			op, "", false, message,
-			"Use one exact, bounded region-snapshot-v1 or region-snapshot-v2 contract.");
+			"Use one exact, bounded region-snapshot-v1, v2, or v3 contract.");
 	}
 
 	private static String ordered(int value) {

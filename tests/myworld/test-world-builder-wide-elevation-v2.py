@@ -130,6 +130,21 @@ public final class WideElevationEditorProbe {
     elevationField.setAccessible(true);
     ok(elevationField.getInt(edit) == 65535, "v6 journal elevation");
 
+    String npcJournal = String.join("\n",
+      "world-builder-layered-draft-v7-npc-respawn",
+      "base-manifest-sha256\t" + String.join("", Collections.nCopies(64, "b")),
+      "level-count\t0", "tile-count\t0", "sector-count\t0",
+      "scenery-count\t0", "npc-count\t1", "ground-item-count\t0",
+      "npc\tupsert\t0\t120\t648\tbuilder.npc.1\t2\t119\t647\t121\t649\t45") + "\n";
+    Files.write(journal, npcJournal.getBytes(StandardCharsets.US_ASCII));
+    parsed = read.invoke(null, journal);
+    Field npcsField = parsed.getClass().getDeclaredField("npcs");
+    npcsField.setAccessible(true);
+    Object npcEdit = ((List<?>)npcsField.get(parsed)).get(0);
+    Field respawnField = npcEdit.getClass().getDeclaredField("respawnSeconds");
+    respawnField.setAccessible(true);
+    ok(respawnField.getInt(npcEdit) == 45, "v7 NPC respawn");
+
     String legacyJournal = base.replace(
       "world-builder-layered-draft-v6-u16-elevation",
       "world-builder-layered-draft-v5");

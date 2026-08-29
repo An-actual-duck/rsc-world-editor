@@ -146,8 +146,8 @@ final class WorldBuilderEmptyWorldGenerator {
 		}
 
 		Map<String,Object> placement = new LinkedHashMap<String,Object>();
-		placement.put("schemaVersion", Long.valueOf(3L));
-		placement.put("encoding", "layered-world-placements-v3");
+		placement.put("schemaVersion", Long.valueOf(4L));
+		placement.put("encoding", "layered-world-placements-v4");
 		placement.put("worldSpace", WORLD_SPACE);
 		placement.put("level", Long.valueOf(0L));
 		placement.put("boundaries", new ArrayList<Object>());
@@ -183,7 +183,7 @@ final class WorldBuilderEmptyWorldGenerator {
 		manifest.put("terrainSectors", sectors);
 		ArrayList<Object> sets = new ArrayList<Object>();
 		Map<String,Object> set = new LinkedHashMap<String,Object>();
-		set.put("encoding", "layered-world-placements-v3");
+		set.put("encoding", "layered-world-placements-v4");
 		set.put("id", "empty-level-0");
 		set.put("level", Long.valueOf(0L));
 		set.put("path", "placements/global/lp0.json");

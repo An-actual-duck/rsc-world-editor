@@ -19,6 +19,13 @@ final class WorldBuilderPlacementSemantics {
 			minimumX, minimumY, maximumX, maximumY);
 	}
 
+	static String npc(int level, int id, int startX, int startY,
+		int minimumX, int minimumY, int maximumX, int maximumY,
+		int respawnSeconds) {
+		return key("npc", level, id, startX, startY,
+			minimumX, minimumY, maximumX, maximumY, respawnSeconds);
+	}
+
 	static String scenery(int level, int id, int x, int y, int direction) {
 		return key("scenery", level, id, x, y, direction);
 	}

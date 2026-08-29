@@ -455,7 +455,7 @@ final class WorldBuilderPackedConversionModel {
 			writeExpected(path, relative, WorldBuilderJsonDocuments.pretty(payload)
 				.getBytes(StandardCharsets.UTF_8), expectedFiles);
 			Map<String,Object> declaration = new LinkedHashMap<String,Object>();
-			declaration.put("encoding", "layered-world-placements-v3");
+			declaration.put("encoding", "layered-world-placements-v4");
 			declaration.put("id", "global-l"
 				+ WorldBuilderLayeredPackage.signedToken(level.getKey().intValue()));
 			declaration.put("level", Long.valueOf(level.getKey().intValue()));
@@ -1025,8 +1025,8 @@ final class WorldBuilderPackedConversionModel {
 
 	private static Map<String,Object> placementPayload(int level, List<Placement> placements) {
 		Map<String,Object> payload = new LinkedHashMap<String,Object>();
-		payload.put("schemaVersion", Long.valueOf(3L));
-		payload.put("encoding", "layered-world-placements-v3");
+		payload.put("schemaVersion", Long.valueOf(4L));
+		payload.put("encoding", "layered-world-placements-v4");
 		payload.put("worldSpace", WORLD_SPACE);
 		payload.put("level", Long.valueOf(level));
 		for (String family : Arrays.asList("boundary", "ground-item", "npc", "scenery")) {
@@ -1401,7 +1401,7 @@ final class WorldBuilderPackedConversionModel {
 			}
 			if ("npc".equals(family)) {
 				return WorldBuilderPlacementSemantics.npc(level, definitionId, x, y,
-					minimum.x, minimum.y, maximum.x, maximum.y);
+					minimum.x, minimum.y, maximum.x, maximum.y, -1);
 			}
 			return WorldBuilderPlacementSemantics.scenery(
 				level, definitionId, x, y, direction);
@@ -1438,6 +1438,7 @@ final class WorldBuilderPackedConversionModel {
 				bounds.put("minimum", pointJson(minimum.x, minimum.y));
 				bounds.put("maximum", pointJson(maximum.x, maximum.y));
 				value.put("roamBounds", bounds);
+				value.put("respawnSeconds", Long.valueOf(-1));
 				value.put("start", pointJson(x, y));
 			} else {
 				value.put("direction", Long.valueOf(direction));

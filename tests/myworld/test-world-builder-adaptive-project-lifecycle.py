@@ -1980,6 +1980,7 @@ public final class FakeAdaptiveClient {
                     "maximum": {"x": 121, "y": 649},
                     "minimum": {"x": 120, "y": 648},
                 },
+                "respawnSeconds": -1,
                 "start": {"x": 120, "y": 648},
             }
         ]
@@ -2011,8 +2012,8 @@ public final class FakeAdaptiveClient {
         placement_relative = f"placements/global/l{token}.json"
         placement_path = package / placement_relative
         placement = {
-            "schemaVersion": 3,
-            "encoding": "layered-world-placements-v3",
+            "schemaVersion": 4,
+            "encoding": "layered-world-placements-v4",
             "worldSpace": "global",
             "level": level,
             "boundaries": [],
@@ -2046,7 +2047,7 @@ public final class FakeAdaptiveClient {
         )
         manifest["placementSets"].append(
             {
-                "encoding": "layered-world-placements-v3",
+                "encoding": "layered-world-placements-v4",
                 "id": f"region-fixture-level-{token}",
                 "level": level,
                 "path": placement_relative,
@@ -2980,6 +2981,121 @@ public final class FakeAdaptiveClient {
             self.assertEqual(runtime_before, tree_bytes(runtime))
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_v3_npc_placements_upgrade_all_payloads_consistently(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-npc-respawn-v4-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "NPC respawn v4", 43859
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            self.add_empty_level(project, -1)
+            package = project / "working/layered-world/package"
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            for declaration in manifest["placementSets"]:
+                payload_path = package / declaration["path"]
+                payload = json.loads(payload_path.read_text(encoding="utf-8"))
+                if declaration["level"] == -1:
+                    payload["npcs"] = [
+                        {
+                            "npcId": 2,
+                            "placementId": "builder.npc.respawn-test",
+                            "roamBounds": {
+                                "maximum": {"x": 120, "y": 648},
+                                "minimum": {"x": 120, "y": 648},
+                            },
+                            "start": {"x": 120, "y": 648},
+                        }
+                    ]
+                payload["schemaVersion"] = 3
+                payload["encoding"] = "layered-world-placements-v3"
+                for npc in payload["npcs"]:
+                    npc.pop("respawnSeconds", None)
+                write_json(payload_path, payload)
+                declaration["encoding"] = "layered-world-placements-v3"
+                declaration["sha256"] = sha256(payload_path)
+            write_json(manifest_path, manifest)
+
+            harness = base / "UpgradeNpcPlacements.java"
+            harness.write_text(
+                """
+package com.openrsc.worldbuilder;
+import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
+import java.util.List;
+import java.util.Map;
+public final class UpgradeNpcPlacements {
+    @SuppressWarnings("unchecked")
+    public static void main(String[] args) throws Exception {
+        Path packageRoot = Paths.get(args[0]);
+        Path manifestPath = packageRoot.resolve("manifest.json");
+        Map<String,Object> manifest =
+            WorldBuilderJsonDocuments.readObject(manifestPath);
+        List<Object> placements = (List<Object>)manifest.get("placementSets");
+        Method upgrade = WorldBuilderLayeredTerrainDraftJournal.class
+            .getDeclaredMethod("upgradeAllNpcPlacementPayloads", Path.class, List.class);
+        upgrade.setAccessible(true);
+        upgrade.invoke(null, packageRoot, placements);
+        Files.write(manifestPath, WorldBuilderJsonDocuments.pretty(manifest)
+            .getBytes(StandardCharsets.UTF_8), StandardOpenOption.TRUNCATE_EXISTING);
+    }
+}
+""".strip()
+                + "\n",
+                encoding="utf-8",
+            )
+            classes = base / "journal-classes"
+            classes.mkdir()
+            compiled = subprocess.run(
+                [
+                    "javac", "-source", "8", "-target", "8",
+                    "-cp", str(ROOT / "output/world-builder-tools/classes"),
+                    "-d", str(classes), str(harness),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, compiled.returncode, compiled.stderr)
+            committed = subprocess.run(
+                [
+                    "java", "-cp",
+                    f"{classes}:{ROOT / 'output/world-builder-tools/classes'}",
+                    "com.openrsc.worldbuilder.UpgradeNpcPlacements",
+                    str(package),
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+            )
+            self.assertEqual(0, committed.returncode, committed.stderr)
+            upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+            self.assertTrue(
+                all(
+                    value["encoding"] == "layered-world-placements-v4"
+                    for value in upgraded["placementSets"]
+                ),
+                upgraded["placementSets"],
+            )
+            declaration = next(
+                value for value in upgraded["placementSets"] if value["level"] == -1
+            )
+            payload = json.loads((package / declaration["path"]).read_text(encoding="utf-8"))
+            self.assertEqual(4, payload["schemaVersion"])
+            self.assertEqual(-1, payload["npcs"][0]["respawnSeconds"])
+
     def test_region_copy_cut_paste_round_trip_is_exact_and_project_local(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-round-trip-") as temp:
             base = Path(temp)
@@ -3057,7 +3173,7 @@ public final class FakeAdaptiveClient {
                 )
                 snapshot = json.loads(archive.read("snapshot.json"))
             self.assertEqual(copy_result["snapshotId"], snapshot["snapshotId"])
-            self.assertEqual(2, snapshot["schemaVersion"])
+            self.assertEqual(3, snapshot["schemaVersion"])
             self.assertEqual("global", snapshot["worldSpace"])
             self.assertEqual(
                 {0, 1}, {value["levelOffset"] for value in snapshot["levels"]}
@@ -3085,6 +3201,7 @@ public final class FakeAdaptiveClient {
                 },
                 {key: len(value) for key, value in snapshot["placements"].items()},
             )
+            self.assertEqual(-1, snapshot["placements"]["npcs"][0]["respawnSeconds"])
             self.assertTrue(
                 any(
                     dependency["kind"] == "definition-catalog"
@@ -4071,6 +4188,7 @@ public final class FakeAdaptiveClient {
                 {"npcId": 2, "placementId": "outside-npc",
                  "roamBounds": {"minimum": {"x": 118, "y": 648},
                                 "maximum": {"x": 119, "y": 649}},
+                 "respawnSeconds": -1,
                  "start": {"x": 118, "y": 648}}
             )
             placement["boundaries"].sort(
@@ -5187,14 +5305,18 @@ public final class FakeAdaptiveClient {
                 placement_path = (
                     f"placements/global/l{'m2' if level == -2 else 'p10'}.json"
                 )
+                placement_encoding = manifest["placementSets"][0]["encoding"]
+                placement_schema = (
+                    4 if placement_encoding == "layered-world-placements-v4" else 3
+                )
                 placement_payload = {
                     "boundaries": [],
-                    "encoding": "layered-world-placements-v3",
+                    "encoding": placement_encoding,
                     "groundItems": [],
                     "level": level,
                     "npcs": [],
                     "scenery": [],
-                    "schemaVersion": 3,
+                    "schemaVersion": placement_schema,
                     "worldSpace": manifest["worldSpaces"][0]["id"],
                 }
                 if level == -2:
@@ -5204,7 +5326,7 @@ public final class FakeAdaptiveClient {
                     placement_payload["scenery"] = [legacy_relocated_scenery[4]]
                 write_json(layered_base / placement_path, placement_payload)
                 manifest["placementSets"].append({
-                    "encoding": "layered-world-placements-v3",
+                    "encoding": placement_encoding,
                     "id": "fixture-lm2" if level == -2 else "fixture-lp10",
                     "level": level,
                     "path": placement_path,
@@ -5267,6 +5389,7 @@ public final class FakeAdaptiveClient {
                         "maximum": {"x": npc_x, "y": npc_y},
                         "minimum": {"x": npc_x, "y": npc_y},
                     },
+                    "respawnSeconds": -1,
                     "start": {"x": npc_x, "y": npc_y},
                 },
                 {
@@ -5276,6 +5399,7 @@ public final class FakeAdaptiveClient {
                         "maximum": {"x": npc_x, "y": npc_y},
                         "minimum": {"x": npc_x, "y": npc_y},
                     },
+                    "respawnSeconds": -1,
                     "start": {"x": npc_x, "y": npc_y},
                 },
             ]
