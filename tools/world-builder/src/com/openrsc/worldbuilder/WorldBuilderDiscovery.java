@@ -459,7 +459,7 @@ public final class WorldBuilderDiscovery {
 		return WorldBuilderHashes.hex(digest.digest());
 	}
 
-	private static final class Config {
+	static final class Config {
 		private final Map<String, List<String>> values;
 
 		private Config(Map<String, List<String>> values) {

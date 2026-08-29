@@ -539,6 +539,18 @@ uses the generated project-local configuration, so no canonical configuration
 alias is written and the target configuration is never modified during
 discovery or project creation.
 
+Definition discovery now also distinguishes stored definition files from the
+effective definition profile selected by the server. `based_config_data`
+selects at most one matching historical NPC/item patch below profile 85;
+merely finding Patch18 does not activate it. `want_myworld` controls the world
+override layer. The isolated project canonicalizes those decisions, reports
+every applied and ignored replacement in
+`diagnostics/definition-composition-v1.json`, and rejects duplicates within an
+active layer or active references outside the composed registry. Inactive
+historical conflicts remain diagnostic-only. This reconciliation runs over
+every NPC and ground-item ID, so collisions are discovered as a class of data
+issue rather than repaired with per-ID name exceptions.
+
 The fourth source-path increment completes the reviewed flattened server
 profiles. Definitions and placements may additionally reside under
 `conf/server/defs` or `data/definitions`, while server terrain may reside under

@@ -690,6 +690,7 @@ public final class AdaptiveDiscoveryDriftHarness {
             "client_version: 10046\n"
             "member_world: true\n"
             "based_map_data: 64\n"
+            "based_config_data: 18\n"
             "want_myworld: true\n"
             "custom_landscape: true\n",
             encoding="utf-8",
@@ -784,7 +785,9 @@ public final class AdaptiveDiscoveryDriftHarness {
             {"npcs": [{"id": 100, "name": "patched-100"}]},
         )
         write_json(definitions / "ItemDefs.json", {"item": [{"id": 0}, {"id": 7}]})
-        write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 9000}]})
+        write_json(definitions / "ItemDefsCustom.json", {
+            "items": [{"id": 9000}, {"id": 9001}, {"id": 9002}]
+        })
         write_json(definitions / "ItemDefsMyWorld.json", {"items": [{"id": 9001}]})
         write_json(definitions / "ItemDefsPatch18.json", {"items": [{"id": 9002}]})
         write_json(

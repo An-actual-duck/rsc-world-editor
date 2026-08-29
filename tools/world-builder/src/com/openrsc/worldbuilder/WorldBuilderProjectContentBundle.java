@@ -101,6 +101,8 @@ final class WorldBuilderProjectContentBundle {
 	static List<WorldBuilderReadOnlyTarget.FileState> inspectTarget(
 		WorldBuilderReadOnlyTarget target, WorldBuilderPackedSourceLayout layout)
 		throws WorldBuilderContractException {
+		WorldBuilderDefinitionComposition.Profile composition =
+			WorldBuilderDefinitionComposition.inspect(target, layout);
 		List<WorldBuilderReadOnlyTarget.FileState> result =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
 		for (Spec spec : SPECS) {
@@ -110,6 +112,17 @@ final class WorldBuilderProjectContentBundle {
 			validateFile(target.requiredFile(sourceSpec.targetPath), sourceSpec);
 			result.add(state);
 		}
+		for (String selectedPatch : composition.selectedPatchPaths()) {
+			boolean alreadyInventoried = false;
+			for (WorldBuilderReadOnlyTarget.FileState state : result) {
+				if (state.relativePath.equals(selectedPatch)) {
+					alreadyInventoried = true;
+					break;
+				}
+			}
+			if (!alreadyInventoried) result.add(target.requiredState(
+				"definition-composition.patch", selectedPatch));
+		}
 		WorldBuilderReadOnlyTarget.FileState visuals = target.optionalState(
 			discoveryRole(ITEM_VISUAL_SPEC), ITEM_VISUAL_EVIDENCE_PATH);
 		if (visuals.present) {
@@ -117,7 +130,8 @@ final class WorldBuilderProjectContentBundle {
 		}
 		result.add(visuals);
 		try {
-			deriveCatalog(target.root, "target-adopted-content-v1", layout);
+			deriveCatalog(target.root, "target-adopted-content-v1", layout,
+				composition);
 		} catch (IOException changed) {
 			throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, "target-content",
 				"Target definitions changed while their complete catalog was derived.",
@@ -174,8 +188,17 @@ final class WorldBuilderProjectContentBundle {
 				"Discard the unpublished project stage and retry.");
 		}
 		Files.createDirectories(sourceRoot);
+		WorldBuilderReadOnlyTarget copied = WorldBuilderReadOnlyTarget.open(copiedTarget);
+		List<String> copiedConfigurations =
+			WorldBuilderPackedSourceLayout.configurationPaths(copied);
+		WorldBuilderPackedSourceLayout sourceLayout =
+			WorldBuilderPackedSourceLayout.canonical(copiedConfigurations.size() == 1
+				? copiedConfigurations.get(0)
+				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
+		WorldBuilderDefinitionComposition.Profile composition =
+			WorldBuilderDefinitionComposition.inspect(copied, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
-			"target-adopted-content-v2");
+			"target-adopted-content-v2", sourceLayout, composition);
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
 			WorldBuilderNpcDefinitionProvider.consume(
 				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds);
@@ -210,7 +233,8 @@ final class WorldBuilderProjectContentBundle {
 			Path destination = sourceRoot.resolve(bundlePath).normalize();
 			if (!destination.startsWith(sourceRoot)) throw unsafe(bundlePath);
 			Files.createDirectories(destination.getParent());
-			Path source = copiedTarget.resolve(spec.targetPath);
+			Spec selectedSpec = sourceSpec(spec, sourceLayout);
+			Path source = copiedTarget.resolve(selectedSpec.targetPath);
 			if (spec == ITEM_VISUAL_SPEC
 				&& !Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) {
 				Map<String,Object> generated = new LinkedHashMap<String,Object>();
@@ -232,12 +256,19 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("animations", animations);
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
+			} else if ("definition.npc.patch".equals(spec.role)
+				|| "definition.item.patch".equals(spec.role)
+				|| "definition.npc.world".equals(spec.role)
+				|| "definition.item.world".equals(spec.role)) {
+				Files.write(destination, WorldBuilderDefinitionComposition.effectiveJson(
+					composition, copiedTarget, spec.role, selectedSpec.targetPath));
 			} else {
-				source = safeRegular(source, spec.targetPath);
+				source = safeRegular(source, selectedSpec.targetPath);
 				validateFile(source, spec);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
-			boolean overridden = false;
+			boolean overridden = !composition.sourceFor(
+				spec.role, selectedSpec.targetPath).equals(selectedSpec.targetPath);
 			if (sceneryMigration.changed()
 				&& "definition.scenery".equals(spec.role)) {
 				Files.write(destination, sceneryMigration.definitionsOverride);
@@ -278,6 +309,8 @@ final class WorldBuilderProjectContentBundle {
 		WorldBuilderSceneryModelProvider.writeReport(projectStage, sceneryMigration);
 		WorldBuilderTerrainMaterialProvider.writeReport(
 			projectStage, materialMigration);
+		WorldBuilderDefinitionComposition.writeReport(
+			projectStage, copiedTarget, composition, sourceRoot);
 		Collections.sort(records);
 		Map<String,Object> catalog = deriveCatalog(sourceRoot,
 			version >= 2 ? "target-adopted-content-v2" : "target-adopted-content-v1");
@@ -569,6 +602,13 @@ final class WorldBuilderProjectContentBundle {
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId,
 		WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderContractException {
+		return deriveCatalog(root, catalogId, layout, null);
+	}
+
+	private static Map<String,Object> deriveCatalog(Path root, String catalogId,
+		WorldBuilderPackedSourceLayout layout,
+		WorldBuilderDefinitionComposition.Profile composition)
+		throws IOException, WorldBuilderContractException {
 		List<Object> tiles = range(tileCount(root, layout));
 		List<Object> boundaries = range(boundaryCount(root, layout));
 		List<Object> scenery = range(sceneryCount(root, layout));
@@ -576,13 +616,27 @@ final class WorldBuilderProjectContentBundle {
 		int appendedNpcCount = jsonCount(root, "definition.npc.base", layout, "npcs")
 			+ jsonCount(root, "definition.npc.custom", layout, "npcs");
 		for (int id = 0; id < appendedNpcCount; id++) npcIds.add(Integer.valueOf(id));
-		npcIds.addAll(jsonIds(root, "definition.npc.world", layout, "npcs"));
-		npcIds.addAll(jsonIds(root, "definition.npc.patch", layout, "npcs"));
+		if (composition == null || composition.wantMyWorld) {
+			npcIds.addAll(jsonIds(root, "definition.npc.world", layout, "npcs"));
+		}
+		if (composition == null) {
+			npcIds.addAll(jsonIds(root, "definition.npc.patch", layout, "npcs"));
+		} else if (!composition.npcPatchPath.isEmpty()) {
+			npcIds.addAll(jsonIdsAt(root.resolve(composition.npcPatchPath),
+				"definition.npc.patch", "npcs"));
+		}
 		Set<Integer> itemIds = new TreeSet<Integer>();
 		itemIds.addAll(jsonIds(root, "definition.item.base", layout, "item"));
 		itemIds.addAll(jsonIds(root, "definition.item.custom", layout, "items"));
-		itemIds.addAll(jsonIds(root, "definition.item.world", layout, "items"));
-		itemIds.addAll(jsonIds(root, "definition.item.patch", layout, "items", "item"));
+		if (composition == null || composition.wantMyWorld) {
+			itemIds.addAll(jsonIds(root, "definition.item.world", layout, "items"));
+		}
+		if (composition == null) {
+			itemIds.addAll(jsonIds(root, "definition.item.patch", layout, "items", "item"));
+		} else if (!composition.itemPatchPath.isEmpty()) {
+			itemIds.addAll(jsonIdsAt(root.resolve(composition.itemPatchPath),
+				"definition.item.patch", "items", "item"));
+		}
 		Map<String,Object> catalog = new LinkedHashMap<String,Object>();
 		catalog.put("schemaVersion", Long.valueOf(1L));
 		catalog.put("manifestType", CATALOG_TYPE);
@@ -680,6 +734,38 @@ final class WorldBuilderProjectContentBundle {
 			Object id = value.get("id");
 				if (!(id instanceof Long) || ((Long)id).longValue() < 0L
 					|| ((Long)id).longValue() > MAX_RUNTIME_ID
+				|| !result.add(Integer.valueOf((int)((Long)id).longValue()))) {
+				throw malformedDefinition(role);
+			}
+		}
+		return result;
+	}
+
+	private static Set<Integer> jsonIdsAt(Path path, String role,
+		String... arrayNames) throws IOException, WorldBuilderContractException {
+		Set<Integer> result = new TreeSet<Integer>();
+		Map<String,Object> value;
+		try {
+			value = WorldBuilderJsonDocuments.readTargetDefinitionObject(path);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw malformedDefinition(role, malformed);
+		}
+		Object entries = null;
+		if (value.size() == 1) {
+			for (String arrayName : arrayNames) {
+				if (value.containsKey(arrayName)) entries = value.get(arrayName);
+			}
+		}
+		if (!(entries instanceof List)
+			|| ((List<?>)entries).size() > MAX_DEFINITIONS) {
+			throw malformedDefinition(role);
+		}
+		for (Object raw : (List<?>)entries) {
+			if (!(raw instanceof Map)) throw malformedDefinition(role);
+			@SuppressWarnings("unchecked") Map<String,Object> row = (Map<String,Object>)raw;
+			Object id = row.get("id");
+			if (!(id instanceof Long) || ((Long)id).longValue() < 0L
+				|| ((Long)id).longValue() > MAX_RUNTIME_ID
 				|| !result.add(Integer.valueOf((int)((Long)id).longValue()))) {
 				throw malformedDefinition(role);
 			}
@@ -1289,7 +1375,8 @@ final class WorldBuilderProjectContentBundle {
 		}
 		if (!actual.equals(beyondPackaged)) throw problem(
 			WorldBuilderErrorCodes.CONVERSION_BLOCKED, ITEM_VISUAL_EVIDENCE_PATH,
-			"Static item visual evidence does not exactly cover the beyond-packaged ground-item definitions.",
+			"Static item visual evidence does not exactly cover the beyond-packaged ground-item definitions; required="
+				+ beyondPackaged + ", actual=" + actual + ".",
 			"Add each missing beyond-packaged item once and remove packaged, unknown, or duplicate item records.");
 	}
 

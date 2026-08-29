@@ -68,6 +68,11 @@ final class WorldBuilderPackedSourceLayout {
 			CANONICAL_DATA_ROOT, CANONICAL_CONFIGURATION);
 	}
 
+	static WorldBuilderPackedSourceLayout canonical(String configurationPath) {
+		return create(CANONICAL_VIDEO_ROOT, CANONICAL_DEFINITION_ROOT,
+			CANONICAL_DATA_ROOT, configurationPath);
+	}
+
 	/** Select only the standard packed content roots, without guessing a map config. */
 	static WorldBuilderPackedSourceLayout selectContentRoots(
 		WorldBuilderReadOnlyTarget target) throws WorldBuilderContractException {

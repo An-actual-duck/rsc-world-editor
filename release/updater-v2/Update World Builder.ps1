@@ -362,6 +362,7 @@ function Assert-ApplicationAllowlist(
         "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
         "conversion-plan-v1.schema.json", "conversion-report-v1.schema.json",
         "content-reconciliation-v1.schema.json",
+        "definition-composition-v1.schema.json",
         "discovery-reconciliation-v1.schema.json",
         "discovery-report-v2.schema.json", "map-migration-choice-v1.schema.json",
         "packed-map-migration-choice-v1.schema.json",

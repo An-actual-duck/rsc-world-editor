@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/definition-composition-v1.schema.json",
+  "title": "World Builder effective definition composition v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "configuration", "families", "status",
+    "compositionFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-definition-composition"},
+    "configuration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "relativePath", "sha256", "basedConfigData", "wantMyWorld",
+        "activeNpcPatch", "activeItemPatch"
+      ],
+      "properties": {
+        "relativePath": {"type": "string", "maxLength": 4096},
+        "sha256": {"anyOf": [
+          {"const": ""},
+          {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+        ]},
+        "basedConfigData": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "wantMyWorld": {"type": "boolean"},
+        "activeNpcPatch": {"type": "string", "maxLength": 4096},
+        "activeItemPatch": {"type": "string", "maxLength": 4096}
+      }
+    },
+    "families": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/family"}, {"properties": {"family": {"const": "npc"}}}]},
+        {"allOf": [{"$ref": "#/$defs/family"}, {"properties": {"family": {"const": "ground-item"}}}]}
+      ],
+      "items": false
+    },
+    "status": {"const": "matched"},
+    "compositionFingerprintSha256": {
+      "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+    }
+  },
+  "$defs": {
+    "family": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "family", "effectiveDefinitionCount", "effectiveDefinitions",
+        "replacements", "effectiveRoleHashes"
+      ],
+      "properties": {
+        "family": {"enum": ["npc", "ground-item"]},
+        "effectiveDefinitionCount": {"type": "integer", "minimum": 0, "maximum": 65536},
+        "effectiveDefinitions": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "name"],
+            "properties": {
+              "id": {"type": "integer", "minimum": 0, "maximum": 65535},
+              "name": {"type": "string", "maxLength": 4096}
+            }
+          }
+        },
+        "replacements": {
+          "type": "array",
+          "maxItems": 65536,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id", "previousName", "replacementName", "sourceRole",
+              "sourceRelativePath", "disposition", "reason"
+            ],
+            "properties": {
+              "id": {"type": "integer", "minimum": 0, "maximum": 65535},
+              "previousName": {"type": "string", "maxLength": 4096},
+              "replacementName": {"type": "string", "maxLength": 4096},
+              "sourceRole": {"enum": [
+                "definition.npc.patch", "definition.npc.world",
+                "definition.item.custom", "definition.item.patch",
+                "definition.item.world"
+              ]},
+              "sourceRelativePath": {"type": "string", "minLength": 1, "maxLength": 4096},
+              "disposition": {"enum": ["applied", "ignored"]},
+              "reason": {"enum": [
+                "declared-layer-precedence", "inactive-profile",
+                "superseded-source", "disabled-by-configuration"
+              ]}
+            }
+          }
+        },
+        "effectiveRoleHashes": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["role", "sha256"],
+            "properties": {
+              "role": {"type": "string", "minLength": 1, "maxLength": 64},
+              "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -6041,6 +6041,7 @@ public final class UpgradeNpcPlacements {
             self.assertEqual(
                 tree_bytes(source_content), tree_bytes(working_content)
             )
+
             normalized_scenery_definitions = (
                 source_content
                 / "files/server/conf/server/defs/GameObjectDef.xml"
@@ -6178,6 +6179,123 @@ public final class UpgradeNpcPlacements {
             self.assertEqual(3, refused_import.returncode)
             self.assertIn("LOADER_INCOMPATIBLE", refused_import.stderr)
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_modern_definition_profile_ignores_historical_patch_collisions(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-definition-profile-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            config = target / "server/myworld.conf"
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    "based_config_data: 18", "based_config_data: 85"
+                ),
+                encoding="utf-8",
+            )
+            definitions = target / "server/conf/server/defs"
+            write_json(
+                definitions / "NpcDefs.json",
+                {"npcs": [
+                    {"id": npc_id, "name": (
+                        "Lesser Demon" if npc_id == 22 else f"base-{npc_id}"
+                    )}
+                    for npc_id in range(23)
+                ]},
+            )
+            write_json(definitions / "NpcDefsCustom.json", {"npcs": []})
+            write_json(
+                definitions / "NpcDefsPatch18.json",
+                {"npcs": [
+                    {"id": 22, "name": "Demon"},
+                    {"id": 65000, "name": "Orphaned historical NPC"},
+                    {"id": 65000, "name": "Duplicate orphaned historical NPC"},
+                ]},
+            )
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation, scenery_count=55)
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Modern definition profile", 43814,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            npc_patch = json.loads((
+                project / "source/content-bundle/files/server/conf/server/defs/"
+                "NpcDefsPatch18.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual([], npc_patch["npcs"])
+            composition = json.loads((
+                project / "diagnostics/definition-composition-v1.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual(85, composition["configuration"]["basedConfigData"])
+            npc_family = next(
+                value for value in composition["families"]
+                if value["family"] == "npc"
+            )
+            effective_22 = next(
+                value for value in npc_family["effectiveDefinitions"]
+                if value["id"] == 22
+            )
+            self.assertEqual("Lesser Demon", effective_22["name"])
+            ignored_22 = next(
+                value for value in npc_family["replacements"]
+                if value["id"] == 22
+                and value["sourceRole"] == "definition.npc.patch"
+            )
+            self.assertEqual("Demon", ignored_22["replacementName"])
+            self.assertEqual("ignored", ignored_22["disposition"])
+            self.assertEqual("inactive-profile", ignored_22["reason"])
+            ignored_orphans = [
+                value for value in npc_family["replacements"]
+                if value["id"] == 65000
+            ]
+            self.assertEqual(2, len(ignored_orphans))
+            for ignored_orphan in ignored_orphans:
+                self.assertEqual("", ignored_orphan["previousName"])
+                self.assertEqual("ignored", ignored_orphan["disposition"])
+                self.assertEqual("inactive-profile", ignored_orphan["reason"])
+
+    def test_active_definition_overlay_cannot_repeat_an_id(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-active-overlay-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(
+                definitions / "NpcDefsPatch18.json",
+                {"npcs": [
+                    {"id": 1, "name": "First active replacement"},
+                    {"id": 1, "name": "Contradictory active replacement"},
+                ]},
+            )
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+
+            discovered = self.run_cli(
+                "discover-adaptive", "--target-root", target
+            )
+            self.assertEqual(3, discovered.returncode, discovered.stderr)
+            failure = json.loads(discovered.stdout)
+            self.assertEqual("DEFINITION_MISMATCH", failure["issues"][0]["code"])
+            self.assertIn("malformed", failure["issues"][0]["observed"].lower())
 
     def test_missing_scenery_models_without_a_truthful_placeholder_block_atomically(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-scenery-placeholder-") as temp:
@@ -6876,7 +6994,7 @@ public final class UpgradeNpcPlacements {
             write_json(definitions / "ItemDefsCustom.json", {"items": [{
                 "id": 9000, "sprite": "items/0",
                 "pictureMask": 0x336699, "blueMask": 0x112233,
-            }]})
+            }, {"id": 9001}, {"id": 9002}]})
             write_json(definitions / "ItemDefsMyWorld.json", {"items": [{
                 "id": 9001, "authenticSpriteId": 417,
                 "pictureMask": -1, "blueMask": 0,
@@ -6965,6 +7083,11 @@ public final class UpgradeNpcPlacements {
                 ])
             )
             definitions = target / "server/conf/server/defs"
+            custom_items = json.loads((
+                definitions / "ItemDefsCustom.json"
+            ).read_text(encoding="utf-8"))
+            custom_items["items"].append({"id": 9003})
+            write_json(definitions / "ItemDefsCustom.json", custom_items)
             write_json(definitions / "ItemDefsPatch18.json", {
                 "items": [{"id": 9002}, {"id": 9003}],
             })

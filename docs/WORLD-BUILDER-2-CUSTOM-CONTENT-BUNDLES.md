@@ -289,6 +289,39 @@ immutable copied source before normalization. A mismatch is a hard
 unresolved records, whereas a stale provider could assign valid-looking but
 incorrect content to an existing numeric ID.
 
+## Effective definition composition
+
+Packed targets may retain historical `NpcDefsPatch<N>.json` and
+`ItemDefsPatch<N>.json` files beside their current definitions. Their presence
+does not activate them. Project creation reads the selected server
+configuration and applies only the patch named by `based_config_data` when the
+value is below 85 and that exact file exists. `NpcDefsMyWorld.json` and
+`ItemDefsMyWorld.json` participate only when `want_myworld` is active. The
+bundle keeps its established patch/world runtime roles, but inactive roles are
+materialized as canonical empty overlays. Historical source bytes remain in
+the immutable source snapshot.
+
+Every target-backed project records the complete result in
+`diagnostics/definition-composition-v1.json`, governed by
+`tools/world-builder/schema/definition-composition-v1.schema.json`. For NPCs
+and ground items the report lists every effective ID/name, every applied or
+ignored replacement, its source role/path, the reason for its disposition, and
+the hashes of all four effective definition roles. Duplicate IDs within an
+active layer, noncanonical sequential NPC base/custom registries, and active
+overlays that reference an undefined ID block project publication. Inactive
+historical records—including orphaned or duplicated IDs—are reported as
+ignored and cannot block or alter a modern composition. Cross-layer
+replacement is allowed only through the declared deterministic precedence
+order and is always reported.
+
+Descriptor-backed v1 targets that expose no ordinary gameplay configuration
+retain the legacy supplied Patch18/world closure for compatibility. New packed
+discovery with a readable configuration never guesses from filenames: a modern
+profile such as `based_config_data: 85` leaves Patch18 inactive. This is why a
+base NPC 22 named `Lesser Demon` can no longer be silently replaced by the
+obsolete Patch18 `Demon`, while an explicitly historical profile can still
+select that patch truthfully.
+
 ## Canonical compatibility fixture
 
 The legacy bundle at `tests/fixtures/project-content-bundle-v1/bundle/` remains

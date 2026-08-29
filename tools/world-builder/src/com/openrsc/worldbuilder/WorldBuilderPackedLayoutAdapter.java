@@ -121,7 +121,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderGenericLayeredAdapter.validateInventoryAndRoles(
 			files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
 		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
-			target, WorldBuilderPackedSourceLayout.selectContentRoots(target)));
+			target, contentLayout(target, configuration.configurationId)));
 		validateCompleteInventory(files);
 
 		List<WorldBuilderAdapterInspection.Check> checks =
@@ -216,7 +216,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		files.addAll(server.files);
 		files.addAll(client.files);
 		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
-			target, WorldBuilderPackedSourceLayout.selectContentRoots(target)));
+			target, contentLayout(target, configuration.configurationId)));
 		validateCompleteInventory(files);
 
 		List<WorldBuilderAdapterInspection.Check> checks =
@@ -292,6 +292,15 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			}
 			if (!duplicate) files.add(candidate);
 		}
+	}
+
+	private static WorldBuilderPackedSourceLayout contentLayout(
+		WorldBuilderReadOnlyTarget target, String configurationRole)
+		throws WorldBuilderContractException {
+		if (WorldBuilderPackedSourceLayout.configurationPaths(target).isEmpty()) {
+			return WorldBuilderPackedSourceLayout.selectContentRoots(target);
+		}
+		return WorldBuilderPackedSourceLayout.select(target, configurationRole);
 	}
 
 	private static void validateCompleteInventory(
