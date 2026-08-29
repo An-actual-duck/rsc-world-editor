@@ -1514,6 +1514,8 @@ final class WorldBuilderDesktopLauncher {
 				WorldBuilderContractException contract =
 					(WorldBuilderContractException)cause;
 				explanation += "\n\nCode: " + contract.code()
+					+ (contract.relativePath().isEmpty() ? ""
+						: "\nSource: " + contract.relativePath())
 					+ "\nNext step: " + contract.nextStep();
 			}
 			details.setText(explanation);

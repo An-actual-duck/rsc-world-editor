@@ -791,10 +791,15 @@ final class WorldBuilderGenericLayeredPackage {
 
 	private static void exact(Map<String,Object> value, String path, String... keys)
 		throws WorldBuilderContractException {
-		Set<String> expected = new HashSet<String>(Arrays.asList(keys));
+		Set<String> expected = new TreeSet<String>(Arrays.asList(keys));
 		if (value.size() != expected.size() || !value.keySet().equals(expected)) {
+			Set<String> missing = new TreeSet<String>(expected);
+			missing.removeAll(value.keySet());
+			Set<String> unexpected = new TreeSet<String>(value.keySet());
+			unexpected.removeAll(expected);
 			throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, path,
-				"Layered package contains missing or unexpected fields.",
+				"Layered package fields do not match the declared schema; missing="
+					+ missing + ", unexpected=" + unexpected + ".",
 				"Use the exact declared layered package/payload schema.");
 		}
 	}

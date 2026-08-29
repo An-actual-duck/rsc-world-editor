@@ -1959,6 +1959,27 @@ public final class AdaptiveDiscoveryDriftHarness {
             write_json(boundary, document)
             self.assert_blocked(packed, "MALFORMED_SERVER")
 
+    def test_layered_schema_mismatch_names_exact_payload_and_fields(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-layered-schema-diagnostic-") as temp:
+            root = self.descriptor_fixture(temp)
+            payload = root / "server/maps/active/placements/creator/lp0.json"
+            document = json.loads(payload.read_text())
+            document["scenery"][0]["unexpected"] = True
+            write_json(payload, document)
+            manifest_path = root / "server/maps/active/manifest.json"
+            manifest = json.loads(manifest_path.read_text())
+            manifest["placementSets"][0]["sha256"] = sha256(payload)
+            write_json(manifest_path, manifest)
+
+            report = self.assert_blocked(root, "MALFORMED_SERVER")
+            issue = report["issues"][0]
+            self.assertEqual(
+                "server/maps/active/placements/creator/lp0.json",
+                issue["relativePath"],
+            )
+            self.assertIn("missing=[]", issue["observed"])
+            self.assertIn("unexpected=[unexpected]", issue["observed"])
+
     def test_single_mid_discovery_change_restarts_and_persistent_drift_blocks(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-drift-") as temp:
             stable_after_restart = self.descriptor_fixture(str(Path(temp) / "once"))
