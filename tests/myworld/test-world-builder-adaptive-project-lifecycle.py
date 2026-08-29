@@ -5225,6 +5225,21 @@ public final class UpgradeNpcPlacements {
             )
             manifest_path = layered_base / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            # Reproduce an established placement-v3 layered base. The current
+            # packed converter emits v4, so composition must upgrade this isolated
+            # copy as one package before relocating any NPC into it.
+            for declaration in manifest["placementSets"]:
+                placement_path = layered_base / declaration["path"]
+                placement_payload = json.loads(
+                    placement_path.read_text(encoding="utf-8")
+                )
+                placement_payload["schemaVersion"] = 3
+                placement_payload["encoding"] = "layered-world-placements-v3"
+                for npc in placement_payload["npcs"]:
+                    npc.pop("respawnSeconds", None)
+                write_json(placement_path, placement_payload)
+                declaration["encoding"] = "layered-world-placements-v3"
+                declaration["sha256"] = sha256(placement_path)
             terrain_template = next(
                 value for value in manifest["terrainSectors"] if value["level"] == -1
             )
@@ -5261,6 +5276,8 @@ public final class UpgradeNpcPlacements {
                 value for value in old_placement_payload["npcs"]
                 if value["start"] == {"x": 10, "y": 5}
             )
+            expected_relocated_npc = dict(legacy_relocated_npc)
+            expected_relocated_npc["respawnSeconds"] = -1
             for family in ("boundaries", "groundItems", "npcs", "scenery"):
                 old_placement_payload[family] = []
             write_json(old_placement_path, old_placement_payload)
@@ -5389,7 +5406,6 @@ public final class UpgradeNpcPlacements {
                         "maximum": {"x": npc_x, "y": npc_y},
                         "minimum": {"x": npc_x, "y": npc_y},
                     },
-                    "respawnSeconds": -1,
                     "start": {"x": npc_x, "y": npc_y},
                 },
                 {
@@ -5399,7 +5415,6 @@ public final class UpgradeNpcPlacements {
                         "maximum": {"x": npc_x, "y": npc_y},
                         "minimum": {"x": npc_x, "y": npc_y},
                     },
-                    "respawnSeconds": -1,
                     "start": {"x": npc_x, "y": npc_y},
                 },
             ]
@@ -5482,9 +5497,19 @@ public final class UpgradeNpcPlacements {
             )
             composed_by_level = {}
             for declaration in composed["placementSets"]:
+                self.assertEqual("layered-world-placements-v4", declaration["encoding"])
                 composed_by_level[declaration["level"]] = json.loads(
                     (package / declaration["path"]).read_text(encoding="utf-8")
                 )
+                self.assertEqual(
+                    "layered-world-placements-v4",
+                    composed_by_level[declaration["level"]]["encoding"],
+                )
+                self.assertEqual(
+                    4, composed_by_level[declaration["level"]]["schemaVersion"]
+                )
+                for npc in composed_by_level[declaration["level"]]["npcs"]:
+                    self.assertIn("respawnSeconds", npc)
             self.assertEqual(
                 [(2, 5, 5), (4, 6, 5)],
                 [
@@ -5504,7 +5529,7 @@ public final class UpgradeNpcPlacements {
             self.assertIn(
                 legacy_relocated_item, composed_by_level[-2]["groundItems"]
             )
-            self.assertIn(legacy_relocated_npc, composed_by_level[-2]["npcs"])
+            self.assertIn(expected_relocated_npc, composed_by_level[-2]["npcs"])
             self.assertFalse(
                 [
                     value for value in composed_by_level[-1]["scenery"]

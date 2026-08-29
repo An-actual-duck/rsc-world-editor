@@ -132,6 +132,11 @@ final class WorldBuilderLayeredTerrainComposer {
 			target, baseRelative, placements);
 		Map<Integer,Map<String,Object>> legacyPlacementPayloads = placementPayloads(
 			target, legacyRelative, legacyPlacementRecords);
+		if (containsPlacementV4(placements) || containsPlacementV4(legacyPlacementRecords)) {
+			upgradePlacementPayloadsToV4(placements, basePlacementPayloads);
+			upgradePlacementPayloadsToV4(
+				legacyPlacementRecords, legacyPlacementPayloads);
+		}
 		PlacementRelocationResult placementRelocations = relocateLegacyPlacements(
 			basePlacementPayloads, legacyPlacementPayloads, relocatedTileLevels);
 		for (Integer changedLevel : placementRelocations.changedBaseLevels) {
@@ -365,6 +370,63 @@ final class WorldBuilderLayeredTerrainComposer {
 				target.readObject(packageRelative + "/" + path));
 		}
 		return result;
+	}
+
+	private static boolean containsPlacementV4(
+		TreeMap<Integer,Map<String,Object>> declarations)
+		throws WorldBuilderContractException {
+		for (Map<String,Object> declaration : declarations.values()) {
+			if ("layered-world-placements-v4".equals(
+				text(declaration.get("encoding")))) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * Composition may combine an established v3 layered base with a new packed
+	 * conversion emitted as v4. Upgrade every isolated output payload together
+	 * before moving placements so the result never carries a v4 NPC record under
+	 * a v3 declaration. Source packages remain byte-for-byte unchanged.
+	 */
+	private static void upgradePlacementPayloadsToV4(
+		TreeMap<Integer,Map<String,Object>> declarations,
+		Map<Integer,Map<String,Object>> payloads)
+		throws WorldBuilderContractException {
+		for (Map.Entry<Integer,Map<String,Object>> entry : declarations.entrySet()) {
+			Map<String,Object> declaration = entry.getValue();
+			Map<String,Object> payload = payloads.get(entry.getKey());
+			if (payload == null) throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+				"placementSets", "A placement declaration has no payload.",
+				"Use a complete canonical layered package.");
+			String declaredEncoding = text(declaration.get("encoding"));
+			String payloadEncoding = text(payload.get("encoding"));
+			int schemaVersion = number(payload, "schemaVersion");
+			if ("layered-world-placements-v4".equals(declaredEncoding)
+				&& declaredEncoding.equals(payloadEncoding) && schemaVersion == 4) {
+				continue;
+			}
+			if (!"layered-world-placements-v3".equals(declaredEncoding)
+				|| !declaredEncoding.equals(payloadEncoding) || schemaVersion != 3) {
+				throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+					text(declaration.get("path")),
+					"A placement payload cannot be upgraded losslessly to v4.",
+					"Use a complete placement-v3 or placement-v4 package.");
+			}
+			for (Object raw : mutableList(payload, "npcs", "NPC placement payload")) {
+				Map<String,Object> npc = object(raw, "NPC placement");
+				if (npc.containsKey("respawnSeconds")) {
+					throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER,
+						text(declaration.get("path")),
+						"A placement-v3 NPC unexpectedly contains respawn metadata.",
+						"Use exact v3 records or declare the complete payload as v4.");
+				}
+				npc.put("respawnSeconds", Long.valueOf(-1L));
+			}
+			payload.put("encoding", "layered-world-placements-v4");
+			payload.put("schemaVersion", Long.valueOf(4L));
+			declaration.put("encoding", "layered-world-placements-v4");
+			declaration.put("__syntheticPlacementPayload", payload);
+		}
 	}
 
 	/**
