@@ -6779,6 +6779,52 @@ public final class UpgradeNpcPlacements {
                 (original / "myworld.conf").read_bytes())
             self.assertEqual(target_before, tree_bytes(target))
 
+    def test_descriptor_packed_alias_preserves_chosen_content_configuration(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-descriptor-map-choice-") as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(
+                str(base), representation="packed"
+            )
+            configuration = (
+                "client_version: 10046\n"
+                "member_world: true\n"
+                "based_map_data: 64\n"
+                "based_config_data: 18\n"
+                "want_myworld: true\n"
+                "custom_landscape: true\n"
+            )
+            (target / "myworld.conf").write_text(configuration, encoding="utf-8")
+            (target / "server/myworld.conf").write_text(
+                configuration, encoding="utf-8"
+            )
+            server_terrain = target / "server/maps/active.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain, target / "client/maps/active.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            selected = self.run_cli(
+                "discover-adaptive", "--target-root", target,
+                "--configuration-role", "packed-map-1",
+            )
+            self.assertEqual(0, selected.returncode, selected.stderr)
+            report.write_text(selected.stdout, encoding="utf-8")
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Descriptor packed choice", 43837,
+            )
+
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            original = project / "source/original"
+            self.assertTrue((original / "myworld.conf").is_file())
+            self.assertFalse((original / "server/myworld.conf").exists())
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:
             base = Path(temp)

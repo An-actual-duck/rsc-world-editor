@@ -95,10 +95,12 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		requireCapability(capability);
 		WorldBuilderAdaptiveConfiguration.Selection selection =
 			WorldBuilderAdaptiveConfiguration.select(target, capability,
-				requestedConfigurationRole);
+				descriptorConfigurationRole(
+					target, capability, requestedConfigurationRole));
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
 		if ("layered".equals(configuration.representation)) {
-			return inspectInstalledLayered(target, capability, selection);
+			return inspectInstalledLayered(target, capability, selection,
+				requestedConfigurationRole);
 		}
 		if (!"packed".equals(configuration.representation)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
@@ -121,7 +123,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderGenericLayeredAdapter.validateInventoryAndRoles(
 			files, capability, WorldBuilderTargetCapability.RELATIVE_PATH);
 		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
-			target, contentLayout(target, configuration.configurationId)));
+			target, contentLayout(target, requestedConfigurationRole)));
 		validateCompleteInventory(files);
 
 		List<WorldBuilderAdapterInspection.Check> checks =
@@ -172,7 +174,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	private static WorldBuilderAdapterInspection inspectInstalledLayered(
 		WorldBuilderReadOnlyTarget target,
 		WorldBuilderTargetCapability capability,
-		WorldBuilderAdaptiveConfiguration.Selection selection)
+		WorldBuilderAdaptiveConfiguration.Selection selection,
+		String requestedConfigurationRole)
 		throws WorldBuilderContractException {
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
 		if (!capability.installEnabled
@@ -216,7 +219,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		files.addAll(server.files);
 		files.addAll(client.files);
 		mergeSupplementalEvidence(files, WorldBuilderProjectContentBundle.inspectTarget(
-			target, contentLayout(target, configuration.configurationId)));
+			target, contentLayout(target, requestedConfigurationRole)));
 		validateCompleteInventory(files);
 
 		List<WorldBuilderAdapterInspection.Check> checks =
@@ -301,6 +304,21 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			return WorldBuilderPackedSourceLayout.selectContentRoots(target);
 		}
 		return WorldBuilderPackedSourceLayout.select(target, configurationRole);
+	}
+
+	private static String descriptorConfigurationRole(
+		WorldBuilderReadOnlyTarget target,
+		WorldBuilderTargetCapability capability, String requestedRole)
+		throws WorldBuilderContractException {
+		if (requestedRole != null
+			&& !capability.configurationRoles.contains(requestedRole)
+			&& capability.configurationRoles.size() == 1
+			&& (requestedRole.matches("packed-map-[1-9][0-9]*")
+				|| WorldBuilderPackedSourceLayout.configurationPaths(target)
+					.contains(requestedRole))) {
+			return capability.configurationRoles.get(0);
+		}
+		return requestedRole;
 	}
 
 	private static void validateCompleteInventory(
@@ -408,10 +426,20 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			files.add(target.requiredState(role, source[1]));
 			validateLegacyPlacement(target, source[0], source[1]);
 		}
-		files.addAll(WorldBuilderProjectContentBundle.inspectTarget(target, sourceLayout));
+		files.add(legacyConfig);
+		for (WorldBuilderReadOnlyTarget.FileState supplemental :
+			WorldBuilderProjectContentBundle.inspectTarget(target, sourceLayout)) {
+			if (supplemental.relativePath.equals(legacyConfig.relativePath)
+				&& supplemental.role.equals(legacyConfig.role)
+				&& supplemental.present == legacyConfig.present
+				&& supplemental.size == legacyConfig.size
+				&& supplemental.sha256.equals(legacyConfig.sha256)) {
+				continue;
+			}
+			files.add(supplemental);
+		}
 		files.add(target.optionalState("placement.ground-item-overlay",
 			targetGroundItems));
-		files.add(legacyConfig);
 		if (!secondaryCandidate) {
 			for (String relative : WorldBuilderPackedFallbackEvidence.reservedTargetPaths()) {
 				WorldBuilderReadOnlyTarget.FileState reserved = target.optionalState(

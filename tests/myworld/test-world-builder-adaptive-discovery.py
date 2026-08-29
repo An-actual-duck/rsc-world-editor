@@ -1445,6 +1445,39 @@ public final class AdaptiveDiscoveryDriftHarness {
                 selected["selectedConfiguration"]["relativePath"])
             self.assertEqual(before, self.snapshot(root))
 
+    def test_numbered_packed_choice_binds_single_descriptor_configuration(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-descriptor-packed-choice-") as temp:
+            root = self.descriptor_fixture(temp, representation="packed")
+            configuration = (
+                "client_version: 10046\n"
+                "member_world: true\n"
+                "based_map_data: 64\n"
+                "based_config_data: 85\n"
+                "want_myworld: true\n"
+                "custom_landscape: true\n"
+            )
+            (root / "myworld.conf").write_text(configuration, encoding="utf-8")
+            (root / "server/myworld.conf").write_text(
+                configuration, encoding="utf-8"
+            )
+            before = self.snapshot(root)
+
+            selected_result, selected = self.assert_read_only(
+                root, "--configuration-role", "packed-map-1"
+            )
+
+            self.assertEqual(0, selected_result.returncode, selected_result.stderr)
+            self.assertEqual("primary", selected["selectedConfiguration"]["role"])
+            selected_configs = [
+                record for record in selected["files"]
+                if record["role"] == "server-runtime-config"
+            ]
+            self.assertEqual(
+                ["myworld.conf"],
+                [record["relativePath"] for record in selected_configs],
+            )
+            self.assertEqual(before, self.snapshot(root))
+
     def test_legacy_fallback_selects_base_placement_profile_from_configuration(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-fallback-profile-") as temp:
             root = self.legacy_fixture(temp)

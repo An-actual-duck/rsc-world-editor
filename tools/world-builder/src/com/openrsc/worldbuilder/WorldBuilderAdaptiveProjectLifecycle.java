@@ -2356,7 +2356,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		WorldBuilderAdaptiveDiscoveryReport fresh =
 			new WorldBuilderAdaptiveDiscovery().discover(target,
-				"compatible".equals(status) ? selectedRole(report) : null);
+				"compatible".equals(status) ? rediscoveryRole(report) : null);
 		if (!status.equals(fresh.status)
 			|| !string(report, "discoveryFingerprintSha256").equals(
 				fresh.fingerprintSha256())) {
@@ -2364,6 +2364,29 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				"Target discovery no longer matches the approved creation report.",
 				"Stop target changes, rediscover, and create a new project.");
 		}
+	}
+
+	private static String rediscoveryRole(Map<String,Object> report)
+		throws WorldBuilderContractException {
+		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
+		if (bool(descriptor, "present")
+			&& "packed".equals(string(report, "representation"))) {
+			String selectedContentPath = "";
+			for (Object raw : array(report.get("files"), "files")) {
+				Map<String,Object> file = object(raw, "discovery file");
+				if (!"server-runtime-config".equals(string(file, "role"))
+					|| !bool(file, "present")) continue;
+				if (!selectedContentPath.isEmpty()) {
+					throw problem(WorldBuilderErrorCodes.AMBIGUOUS_CONFIGURATION,
+						"target-configuration",
+						"Discovery report contains more than one selected content configuration.",
+						"Detect the server map again and choose exactly one map configuration.");
+				}
+				selectedContentPath = string(file, "relativePath");
+			}
+			if (!selectedContentPath.isEmpty()) return selectedContentPath;
+		}
+		return selectedRole(report);
 	}
 
 	private static void requireFreshMigration(MigrationOrigin migration, Path target)

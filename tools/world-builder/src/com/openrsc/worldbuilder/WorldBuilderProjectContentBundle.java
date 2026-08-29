@@ -105,6 +105,10 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderDefinitionComposition.inspect(target, layout);
 		List<WorldBuilderReadOnlyTarget.FileState> result =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
+		if (target.exists(layout.configurationPath)) {
+			result.add(target.requiredState(
+				"server-runtime-config", layout.configurationPath));
+		}
 		for (Spec spec : SPECS) {
 			Spec sourceSpec = sourceSpec(spec, layout);
 			WorldBuilderReadOnlyTarget.FileState state =
