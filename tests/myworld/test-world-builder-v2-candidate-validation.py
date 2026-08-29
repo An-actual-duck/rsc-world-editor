@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.24-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.30-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -720,21 +720,21 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("ca7740da87c8cdda431e3a8549c3f54cecd6b73a", text)
-        self.assertIn("47af68b8d9be971bf0d65f53c4971a9ff03fe8c6", text)
+        self.assertIn("d1017c44c50705b9883250a046b0e5db31185726", text)
+        self.assertIn("7d4690045b7ff0902e888130fd45bbcf8114890e", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("without screenshots", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("second detection did not offer `Custom_Landscape.orsc`", text)
+        self.assertIn("whole-scene flash populated with object ID 0", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.24", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.30", gate["releaseVersion"])
             self.assertEqual(
-                "ca7740da87c8cdda431e3a8549c3f54cecd6b73a",
+                "d1017c44c50705b9883250a046b0e5db31185726",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
-                "47af68b8d9be971bf0d65f53c4971a9ff03fe8c6",
+                "7d4690045b7ff0902e888130fd45bbcf8114890e",
                 gate["runtimeProviderCommit"],
             )
         else:

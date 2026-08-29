@@ -1390,6 +1390,7 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             environment.update(
                 {
                     "WORLD_BUILDER_SKIP_UPDATE": "1",
+                    "WORLD_BUILDER_NO_TERMINAL": "1",
                     "WORLD_BUILDER_PORT": "44600",
                     "FAKE_JAVA_CALLS": str(calls),
                 }
