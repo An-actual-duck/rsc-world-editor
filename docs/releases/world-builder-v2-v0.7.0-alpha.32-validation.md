@@ -100,3 +100,24 @@ Production archives must be rebuilt after this record and `RELEASE-READY` are
 committed and published on clean `main`, using the exact locked runtime and
 reviewed JRE inputs.
 
+## Post-publication gate state
+
+The production release was published from gate commit
+`3907d3acd2825fba808b5c3069837b5ad5353c2c` as tag
+`rsc-world-editor-v2-0.7.0-alpha.32`. That immutable tag retains this accepted
+record and the release gate. The production assets were downloaded back from
+GitHub, verified against the uploaded `SHA256SUMS.txt`, and compared
+byte-for-byte with the independently inspected pre-upload files.
+
+| Production artifact | SHA-256 |
+| --- | --- |
+| `rsc-world-editor-v2-0.7.0-alpha.32-linux-x64.zip` | `06b814d671c1ccb317914d46575a1c7ecdd59b037490936709d87196d7a503a6` |
+| `rsc-world-editor-v2-0.7.0-alpha.32-windows-x64.zip` | `10fdfffc4bef6a9b66c60394f23bec84cfe2711356fdde60cb096eb7e57c70f7` |
+| `SHA256SUMS.txt` | `7d1b365e5277a8cc74ec39a09a4aa342274cd03316b8e22023694a32615ad85b` |
+| Pre-upload production inspection | `46e8ea23bfae45ae43dd3908f4793e03562ae1686ca88de076af301e9949204b` |
+
+The public release is
+<https://github.com/An-actual-duck/rsc-world-editor/releases/tag/rsc-world-editor-v2-0.7.0-alpha.32>.
+Development `main` consumes/removes the gate after publication. Any later
+release therefore requires a new exact candidate, owner decision, validation
+record, and gate commit.
