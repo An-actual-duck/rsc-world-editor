@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.31-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.32-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -720,17 +720,17 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("fc869ab22896f7e94daf14105be68475a6797c3e", text)
+        self.assertIn("ae6c56f74afe07ed71c5ad4bd30df0f9962dd4af", text)
         self.assertIn("e5291460920ec07422f36d2e95cd03d0a5b4b7c3", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("without screenshots", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("save/reopen cycle", text)
+        self.assertIn("respawnSeconds", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.31", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.32", gate["releaseVersion"])
             self.assertEqual(
-                "fc869ab22896f7e94daf14105be68475a6797c3e",
+                "ae6c56f74afe07ed71c5ad4bd30df0f9962dd4af",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
