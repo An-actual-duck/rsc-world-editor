@@ -55,6 +55,11 @@ World Builder 2 already provides a substantial base for these goals:
 - absolute and relative elevation editing across the unsigned 16-bit
   `0..65535` range;
 - contextual toolbar actions for terrain, scenery, NPCs, and ground items;
+- entity subtools that both select their action and open/close the matching
+  Scenery, NPC, or Items flyout;
+- NPC placement-local respawn controls for definition default (`-1`), never
+  (`0`), or an explicit `1..86400` second delay, preserved through save,
+  reopen, copy, cut, paste, import, and export;
 - one bounded session Undo/Redo stack for terrain clicks, complete Ctrl-drag
   gestures, Lines, Rectangles, scenery Place/Move/Rotate/Remove, NPC
   Place/Remove, and ground-item Place/Remove, with toolbar controls and
@@ -903,6 +908,8 @@ material-sharing model that custom materials later have to replace.
 | Rectangle outline/fill | 4,096-tile atomic implementation complete and owner-validated | Unavailable-tile preview detail |
 | Session operation Undo/Redo | Terrain and scenery/NPC/ground-item placement operations owner-validated in one ordered stack | Reconcile durable region transactions with the session stack |
 | Scenery drag-move | Same-level atomic implementation complete and owner-validated | Cross-level, multi-object, duplicate, and rotate-during-move workflows |
+| NPC respawn controls | Implemented across placement, persistence, runtime population, and Region Copier v3 snapshots | Owner UI and death/respawn validation |
+| New signed-layer navigation | Draft allocation is crash-guarded; navigation waits for save/reopen publication | Owner validation creating and reopening a previously absent level |
 | Quick house tools | Foundational design required | Selection, lines, presets, region transaction and undo |
 | Drop-in wall/floor textures | Design-ready with revision | Portable identity/remapping plus runtime implementation |
 | Wider elevation | Implemented | Polished Editor UI and additional visual validation |

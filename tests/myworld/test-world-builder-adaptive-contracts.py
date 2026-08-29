@@ -1149,6 +1149,7 @@ SCHEMA_CONTRACTS = {
     "region-selection-v1.schema.json": (1, "world-builder-region-selection"),
     "region-snapshot-v1.schema.json": (1, "world-builder-region-snapshot"),
     "region-snapshot-v2.schema.json": (2, "world-builder-region-snapshot"),
+    "region-snapshot-v3.schema.json": (3, "world-builder-region-snapshot"),
     "region-bundle-manifest-v1.schema.json": (1, "world-builder-region-bundle"),
     "region-compatibility-report-v1.schema.json": (1, "world-builder-region-compatibility-report"),
     "region-operation-plan-v1.schema.json": (1, "world-builder-region-operation-plan"),

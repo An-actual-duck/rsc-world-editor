@@ -40,6 +40,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		"world-builder-layered-draft-v5";
 	private static final String WIDE_ELEVATION_HEADER =
 		"world-builder-layered-draft-v6-u16-elevation";
+	private static final String NPC_RESPAWN_HEADER =
+		"world-builder-layered-draft-v7-npc-respawn";
 	private static final int SECTOR_SIZE = 48;
 	private static final int TILE_BYTES = WorldBuilderRawLayeredTerrainCodec.V2_TILE_BYTES;
 	private static final int MAX_TILES = 4096;
@@ -171,6 +173,9 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		applyLevelCreations(
 			packageRoot, levels, placements, sourceLevels, writableLevels,
 			journal.levels, journal.sectors);
+		if (journal.npcRespawnEncoding) {
+			upgradeAllNpcPlacementPayloads(packageRoot, placements);
+		}
 		Map<String,Map<String,Object>> declarations =
 			new LinkedHashMap<String,Map<String,Object>>();
 		Set<String> occupied = new HashSet<String>();
@@ -368,12 +373,12 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			Files.createDirectories(payloadPath.getParent());
 			Map<String,Object> payload=new LinkedHashMap<String,Object>();
 			payload.put("boundaries",new ArrayList<Object>());
-			payload.put("encoding","layered-world-placements-v3");
+			payload.put("encoding","layered-world-placements-v4");
 			payload.put("groundItems",new ArrayList<Object>());
 			payload.put("level",Long.valueOf(creation.level));
 			payload.put("npcs",new ArrayList<Object>());
 			payload.put("scenery",new ArrayList<Object>());
-			payload.put("schemaVersion",Long.valueOf(3));
+			payload.put("schemaVersion",Long.valueOf(4));
 			payload.put("worldSpace","global");
 			Files.write(
 				payloadPath,
@@ -388,7 +393,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			}
 			Map<String,Object> declaration=
 				new LinkedHashMap<String,Object>();
-			declaration.put("encoding","layered-world-placements-v3");
+			declaration.put("encoding","layered-world-placements-v4");
 			declaration.put("id",placementId);
 			declaration.put("level",Long.valueOf(creation.level));
 			declaration.put("path",placementPath);
@@ -452,6 +457,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			Map<String,Object> payload =
 				WorldBuilderJsonDocuments.readObject(payloadPath);
 			List<Object> npcs = array(payload, "npcs");
+			upgradeNpcPlacementPayload(payload, npcs, declaration);
 			Map<String,Map<String,Object>> byId =
 				new LinkedHashMap<String,Map<String,Object>>();
 			Set<String> placementIds = placementIds(payload);
@@ -495,6 +501,62 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			moveFile(stagedPayload, payloadPath);
 			declaration.put("sha256", WorldBuilderHashes.sha256(payloadPath));
 		}
+	}
+
+	private static void upgradeAllNpcPlacementPayloads(
+		Path packageRoot, List<Object> declarations)
+		throws IOException, WorldBuilderDiscoveryException {
+		for (Object value : declarations) {
+			Map<String,Object> declaration = object(value);
+			String relative = text(declaration, "path");
+			Path payloadPath = packageRoot.resolve(relative).normalize();
+			requireContained(packageRoot, payloadPath, relative);
+			Map<String,Object> payload =
+				WorldBuilderJsonDocuments.readObject(payloadPath);
+			if (!upgradeNpcPlacementPayload(
+				payload, array(payload, "npcs"), declaration)) {
+				continue;
+			}
+			Path staged = payloadPath.resolveSibling(
+				payloadPath.getFileName() + ".npc-v4");
+			Files.write(staged, WorldBuilderJsonDocuments.pretty(payload)
+				.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+			moveFile(staged, payloadPath);
+			declaration.put("sha256", WorldBuilderHashes.sha256(payloadPath));
+		}
+	}
+
+	private static boolean upgradeNpcPlacementPayload(
+		Map<String,Object> payload,
+		List<Object> npcs,
+		Map<String,Object> declaration)
+		throws WorldBuilderDiscoveryException {
+		String encoding = text(payload, "encoding");
+		int schemaVersion = number(payload, "schemaVersion");
+		String declaredEncoding = text(declaration, "encoding");
+		if ("layered-world-placements-v4".equals(encoding)
+			&& schemaVersion == 4
+			&& encoding.equals(declaredEncoding)) {
+			return false;
+		}
+		if (!"layered-world-placements-v3".equals(encoding)
+			|| schemaVersion != 3
+			|| !encoding.equals(declaredEncoding)) {
+			throw new WorldBuilderDiscoveryException(
+				"Builder-created NPC placement payload encoding is unsupported.");
+		}
+		for (Object value : npcs) {
+			Map<String,Object> record = object(value);
+			if (record.containsKey("respawnSeconds")) {
+				throw new WorldBuilderDiscoveryException(
+					"Legacy NPC placement contains an unexpected respawn field.");
+			}
+			record.put("respawnSeconds", Long.valueOf(-1));
+		}
+		payload.put("encoding", "layered-world-placements-v4");
+		payload.put("schemaVersion", Long.valueOf(4));
+		declaration.put("encoding", "layered-world-placements-v4");
+		return true;
 	}
 
 	private static Set<String> placementIds(Map<String,Object> payload)
@@ -742,7 +804,9 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 	private static Journal read(Path path)
 		throws IOException, WorldBuilderDiscoveryException {
 		List<String> lines = Files.readAllLines(path, StandardCharsets.US_ASCII);
-		boolean wideElevation = !lines.isEmpty()
+		boolean npcRespawn = !lines.isEmpty()
+			&& NPC_RESPAWN_HEADER.equals(lines.get(0));
+		boolean wideElevation = npcRespawn || !lines.isEmpty()
 			&& WIDE_ELEVATION_HEADER.equals(lines.get(0));
 		boolean groundItemAuthoring = wideElevation
 			|| (!lines.isEmpty() && GROUND_ITEM_HEADER.equals(lines.get(0)));
@@ -885,7 +949,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		}
 		for (int item = 0; item < npcCount; item++, index++) {
 			String[] values = lines.get(index).split("\\t", -1);
-			if (values.length != 11 || !"npc".equals(values[0])
+			if (values.length != (npcRespawn ? 12 : 11) || !"npc".equals(values[0])
 				|| (!"upsert".equals(values[1])
 					&& !"remove".equals(values[1]))) {
 				throw new WorldBuilderDiscoveryException(
@@ -901,7 +965,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 				coordinate(values[7]),
 				coordinate(values[8]),
 				coordinate(values[9]),
-				coordinate(values[10]));
+				coordinate(values[10]),
+				npcRespawn ? range(values[11], -1, 86400) : -1);
 			if (!placementIds.add(edit.placementId)) {
 				throw new WorldBuilderDiscoveryException(
 					"Layered NPC journal contains duplicate identity.");
@@ -936,7 +1001,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		}
 		return new Journal(
 			base, levels, sectors, tiles, scenery, npcs, groundItems,
-			allocation);
+			allocation, npcRespawn);
 	}
 
 	private static String field(String line, String name)
@@ -1006,6 +1071,16 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		if (result < 1 || result > maximum) {
 			throw new WorldBuilderDiscoveryException(
 				"Layered ground-item " + label + " is invalid.");
+		}
+		return result;
+	}
+
+	private static int range(String value, int minimum, int maximum)
+		throws WorldBuilderDiscoveryException {
+		int result = signed(value);
+		if (result < minimum || result > maximum) {
+			throw new WorldBuilderDiscoveryException(
+				"Layered NPC respawn time is outside its supported range.");
 		}
 		return result;
 	}
@@ -1313,6 +1388,12 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		return ((Long)value.get(key)).intValue();
 	}
 
+	private static int optionalNumber(
+		Map<String,Object> value, String key, int defaultValue) {
+		Object candidate = value.get(key);
+		return candidate == null ? defaultValue : ((Long)candidate).intValue();
+	}
+
 	private static String text(Map<String,Object> value, String key) {
 		return (String)value.get(key);
 	}
@@ -1351,6 +1432,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		final List<NpcEdit> npcs;
 		final List<GroundItemEdit> groundItems;
 		final boolean sparseAllocation;
+		final boolean npcRespawnEncoding;
 
 		Journal(
 			String baseManifestSha256,
@@ -1360,7 +1442,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			List<SceneryEdit> scenery,
 			List<NpcEdit> npcs,
 			List<GroundItemEdit> groundItems,
-			boolean sparseAllocation) {
+			boolean sparseAllocation,
+			boolean npcRespawnEncoding) {
 			this.baseManifestSha256 = baseManifestSha256;
 			this.levels = levels;
 			this.sectors = sectors;
@@ -1369,6 +1452,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			this.npcs = npcs;
 			this.groundItems = groundItems;
 			this.sparseAllocation = sparseAllocation;
+			this.npcRespawnEncoding = npcRespawnEncoding;
 		}
 	}
 
@@ -1489,6 +1573,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		final int minY;
 		final int maxX;
 		final int maxY;
+		final int respawnSeconds;
 
 		NpcEdit(
 			boolean remove,
@@ -1500,10 +1585,12 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			int minX,
 			int minY,
 			int maxX,
-			int maxY) throws WorldBuilderDiscoveryException {
+			int maxY,
+			int respawnSeconds) throws WorldBuilderDiscoveryException {
 			if (minX > startX || startX > maxX
 				|| minY > startY || startY > maxY
-				|| maxX - minX > 128 || maxY - minY > 128) {
+				|| maxX - minX > 128 || maxY - minY > 128
+				|| respawnSeconds < -1 || respawnSeconds > 86400) {
 				throw new WorldBuilderDiscoveryException(
 					"Layered NPC roaming bounds are invalid.");
 			}
@@ -1517,6 +1604,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			this.minY = minY;
 			this.maxX = maxX;
 			this.maxY = maxY;
+			this.respawnSeconds = respawnSeconds;
 		}
 
 		boolean matches(Map<String,Object> record) {
@@ -1531,7 +1619,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 				&& minX == number(minimum, "x")
 				&& minY == number(minimum, "y")
 				&& maxX == number(maximum, "x")
-				&& maxY == number(maximum, "y");
+				&& maxY == number(maximum, "y")
+				&& respawnSeconds == optionalNumber(record, "respawnSeconds", -1);
 		}
 
 		Map<String,Object> toJson() {
@@ -1543,6 +1632,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			result.put("npcId", Long.valueOf(npcId));
 			result.put("placementId", placementId);
 			result.put("roamBounds", bounds);
+			result.put("respawnSeconds", Long.valueOf(respawnSeconds));
 			result.put("start", start);
 			return result;
 		}

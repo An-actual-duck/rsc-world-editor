@@ -157,17 +157,19 @@ roofTexture=0, verticalWall=0, horizontalWall=0, diagonalWall=0
 ```
 
 Snapshot v1 restricts elevation to `0..255` and remains readable without
-reinterpretation. New captures use snapshot v2 and retain elevations through
-`65535`; copy, cut, paste, bundle import/export, and recovery preserve those
-values exactly. Every non-elevation terrain field and placement family has the
-same representation in both versions.
+reinterpretation. Snapshot v2 retains elevations through `65535`. New captures
+use snapshot v3, retain that wide elevation, and additionally preserve each
+NPC placement's respawn policy. Copy, cut, paste, bundle import/export, and
+recovery preserve those values exactly. Older v1/v2 snapshots remain readable
+and use definition-default NPC respawn.
 
 The snapshot retains every supported placement whose ownership point belongs
 to the polygon:
 
 - boundary: origin tile, definition ID, direction, and placement ID;
 - scenery: anchor tile, definition ID, direction, and placement ID;
-- NPC: start tile, definition ID, placement ID, and complete roam bounds; and
+- NPC: start tile, definition ID, placement ID, complete roam bounds, and
+  definition-default/never/explicit respawn policy; and
 - ground item: tile, definition ID, placement ID, amount, and respawn seconds.
 
 All coordinates and levels are stored relative to marker 1. Placement IDs are
