@@ -36,6 +36,10 @@ a possible emergency repair, not automatically the long-term design.
 
 ## Iteration-time audit
 
+The detailed measurements, retention classification, test-architecture review,
+and prioritized optimization recommendations are maintained in [World Builder
+2 Maintainability and AI Iteration Audit](WORLD-BUILDER-2-MAINTAINABILITY-AUDIT.md).
+
 ### Observed costs
 
 The repository preflight takes less than a second. The long onboarding delay on
