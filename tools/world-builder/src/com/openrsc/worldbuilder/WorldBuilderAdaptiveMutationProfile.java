@@ -53,7 +53,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Selected target configuration");
 
 		WorldBuilderAdaptiveDiscoveryReport fresh =
-			new WorldBuilderAdaptiveDiscovery().discover(target, selectedRole);
+			new WorldBuilderAdaptiveDiscovery().discover(target,
+				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
+					project.discoveryReport));
 		String expectedLineage = WorldBuilderAdaptiveExporter.string(
 			projectTarget, "targetFingerprintSha256");
 		if (!"compatible".equals(fresh.status)

@@ -6895,6 +6895,12 @@ public final class UpgradeNpcPlacements {
             self.assertTrue((original / "myworld.conf").is_file())
             self.assertFalse((original / "server/myworld.conf").exists())
             self.assertEqual(target_before, tree_bytes(target))
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-attached", json.loads(reopened.stdout)["state"])
 
     def test_pre_runtime_config_descriptor_project_reattaches_without_target_drift(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-pre-runtime-config-") as temp:

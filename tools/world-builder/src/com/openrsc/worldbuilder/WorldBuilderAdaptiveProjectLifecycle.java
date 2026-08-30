@@ -1369,12 +1369,9 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			if (importCapable && requestedTargetRoot != null) {
 				try {
 					Path target = realDirectory(requestedTargetRoot, "target root");
-					Map<String,Object> selected = object(
-						verified.snapshot.get("selectedConfiguration"),
-						"selectedConfiguration");
 					WorldBuilderAdaptiveDiscoveryReport fresh =
 						new WorldBuilderAdaptiveDiscovery().discover(
-							target, string(selected, "role"));
+							target, rediscoveryRole(verified.discoveryReport));
 					String targetFingerprint = string(
 						targetInfo, "targetFingerprintSha256");
 					attached = "compatible".equals(fresh.status)
@@ -2397,7 +2394,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 	}
 
-	private static String rediscoveryRole(Map<String,Object> report)
+	static String rediscoveryRole(Map<String,Object> report)
 		throws WorldBuilderContractException {
 		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
 		if (bool(descriptor, "present")

@@ -534,7 +534,8 @@ final class WorldBuilderAdaptiveUndo {
 		}
 		WorldBuilderAdaptiveDiscoveryReport report =
 			new WorldBuilderAdaptiveDiscovery().discover(undo.targetRoot,
-				installed.configuration.configurationId);
+				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
+					installed.project.discoveryReport));
 		if (!"compatible".equals(report.status)
 			|| !installed.targetLineage().equals(report.fingerprintSha256())) {
 			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "target-root", true,

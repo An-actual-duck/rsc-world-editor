@@ -814,12 +814,11 @@ final class WorldBuilderAdaptiveRecovery {
 				action.after.present ? action.after.sha256 : "absent"));
 		}
 		if ("import".equals(plan.failed.transactionType())) {
-			Map<String,Object> selected = object(
-				plan.failed.document.get("selectedConfiguration"),
-				"selectedConfiguration");
 			WorldBuilderAdaptiveDiscoveryReport discovery =
 				new WorldBuilderAdaptiveDiscovery().discover(
-					plan.targetRoot, string(selected, "role"));
+					plan.targetRoot,
+					WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
+						plan.project.discoveryReport));
 			if (!"compatible".equals(discovery.status)
 				|| !string(plan.failed.document, "targetLineageSha256").equals(
 					discovery.fingerprintSha256())) throw problem(
