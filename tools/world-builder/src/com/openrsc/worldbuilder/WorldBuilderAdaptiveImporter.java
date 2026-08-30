@@ -125,7 +125,9 @@ final class WorldBuilderAdaptiveImporter {
 			"Standalone project " + initial.projectId
 				+ " has no target; import stopped before target access.",
 			"Continue editing/exporting the standalone project; Import is unavailable.");
-		if (!"ready-attached".equals(initial.state)) {
+		WorldBuilderAdaptiveReceipt.State outstanding =
+			latestOutstandingSuccessfulImport(initial.projectRoot);
+		if (!"ready-attached".equals(initial.state) && outstanding == null) {
 			Map<String,Object> targetIdentity = WorldBuilderAdaptiveExporter.object(
 				initial.manifest.get("target"), "target");
 			String profile = WorldBuilderAdaptiveExporter.string(
@@ -134,10 +136,6 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, "project.json", false,
 				"This target-backed project was created without compatible server/client install capability.",
 				"Install a runtime that truthfully advertises the matching layered loader, client, definitions, protocol, and bounded mutation profile, then create a fresh project.");
-			if (hasOutstandingSuccessfulImport(initial.projectRoot)) throw problem(
-				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "receipts", false,
-				"This project's last successful server map import is still installed.",
-				"Use Undo Last Server Import to restore the exact pre-import server files, then reopen this project and import its current map.");
 			throw problem(WorldBuilderErrorCodes.PROJECT_DETACHED,
 				"project.json", false,
 				"Only an exactly attached target-backed project can be imported.",
@@ -150,7 +148,7 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 				requireSameProject(initial, verified);
-				requireNoUnresolvedTransaction(project);
+				outstanding = latestOutstandingSuccessfulImport(project);
 				Path target = WorldBuilderAdaptiveMutationProfile.requireTarget(requestedTarget);
 				WorldBuilderAdaptiveExporter.VerifiedExport export =
 					WorldBuilderAdaptiveExporter.validate(requestedExport, verified);
@@ -172,9 +170,25 @@ final class WorldBuilderAdaptiveImporter {
 						? expectedPreview.plan.transactionId()
 						: requestedTransactionId == null
 							? UUID.randomUUID().toString() : requestedTransactionId;
-					WorldBuilderAdaptiveMutationProfile.Plan plan =
-						WorldBuilderAdaptiveMutationProfile.prepare(
+					WorldBuilderAdaptiveMutationProfile.Plan plan;
+					if (outstanding == null) {
+						plan = WorldBuilderAdaptiveMutationProfile.prepare(
 							verified, export, target, transactionId);
+					} else {
+						WorldBuilderAdaptiveExporter.VerifiedExport previousExport =
+							WorldBuilderAdaptiveUndo.findExport(verified,
+								outstanding.exportFingerprint());
+						WorldBuilderAdaptiveMutationProfile.Plan previous =
+							WorldBuilderAdaptiveMutationProfile.reconstructInstalled(
+								verified, previousExport, target,
+								outstanding.transactionId());
+						WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(
+							previous, outstanding);
+						previous = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(
+							previous);
+						plan = WorldBuilderAdaptiveMutationProfile.prepareChained(
+							verified, export, target, transactionId, previous);
+					}
 					if (expectedPreview != null
 						&& !expectedPreview.plan.canonicalSha256.equals(
 							plan.canonicalSha256)) throw problem(
@@ -364,7 +378,8 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
-	private static void requireNoUnresolvedTransaction(Path project)
+	private static WorldBuilderAdaptiveReceipt.State latestOutstandingSuccessfulImport(
+		Path project)
 		throws IOException, WorldBuilderContractException {
 		List<WorldBuilderAdaptiveReceipt.State> receipts =
 			WorldBuilderAdaptiveReceipt.readAll(project);
@@ -382,41 +397,13 @@ final class WorldBuilderAdaptiveImporter {
 				reverted.add(receipt.revertsTransactionId());
 			}
 		}
-		for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
+		for (int index = receipts.size() - 1; index >= 0; index--) {
+			WorldBuilderAdaptiveReceipt.State receipt = receipts.get(index);
 			if ("import".equals(receipt.transactionType())
 				&& "successful".equals(receipt.status())
-				&& !reverted.contains(receipt.transactionId())) throw problem(
-				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
-				"receipts/" + receipt.transactionId() + ".json", false,
-				"This project's last successful server map import is still installed.",
-				"Use Undo Last Server Import to restore the exact pre-import server files, then import the desired working state as a fresh transaction.");
+				&& !reverted.contains(receipt.transactionId())) return receipt;
 		}
-	}
-
-	private static boolean hasOutstandingSuccessfulImport(Path project)
-		throws IOException, WorldBuilderContractException {
-		List<WorldBuilderAdaptiveReceipt.State> receipts =
-			WorldBuilderAdaptiveReceipt.readAll(project);
-		Set<String> reverted = new java.util.HashSet<String>();
-		for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
-			if ("pending".equals(receipt.status())
-				|| "recovery-required".equals(receipt.status())) {
-				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-					"receipts/" + receipt.transactionId() + ".json", false,
-					"An earlier adaptive transaction requires recovery.",
-					"Keep the target offline and use Recover Interrupted Server Map Import before another transaction.");
-			}
-			if ("undo".equals(receipt.transactionType())
-				&& "reverted".equals(receipt.status())) {
-				reverted.add(receipt.revertsTransactionId());
-			}
-		}
-		for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
-			if ("import".equals(receipt.transactionType())
-				&& "successful".equals(receipt.status())
-				&& !reverted.contains(receipt.transactionId())) return true;
-		}
-		return false;
+		return null;
 	}
 
 	private static void ensureFreeSpace(WorldBuilderAdaptiveMutationProfile.Plan plan)

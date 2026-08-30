@@ -186,6 +186,155 @@ final class WorldBuilderAdaptiveMutationProfile {
 			actions, changes, directoriesToCreate, document);
 	}
 
+	static Plan prepareChained(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		WorldBuilderAdaptiveExporter.VerifiedExport export,
+		Path targetRoot, String transactionId, Plan installed)
+		throws IOException, WorldBuilderContractException {
+		Path target = requireTarget(targetRoot);
+		if (!target.equals(installed.targetRoot)
+			|| !project.projectId.equals(installed.project.projectId)) throw problem(
+			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, "target-root",
+			"Installed transaction authority does not belong to this project and target.",
+			"Use the exact project and server root from the latest successful import.");
+		List<String> changed = WorldBuilderAdaptiveUndo.changedAfterPaths(installed);
+		if (!changed.isEmpty()) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, changed.get(0),
+			"The latest installed World Builder package or activation changed: "
+				+ joinPaths(changed) + ".",
+			"Restore the exact current installed package before importing again; no force mode exists.");
+		verifyUnchangedTargetEvidence(project, target,
+			installed.configuration.relativePath);
+		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
+		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);
+		if (!installed.capability.evidenceSha256.equals(capability.evidenceSha256)
+			|| !installed.capability.capabilityId.equals(capability.capabilityId)
+			|| !installed.profileId.equals(capability.mutationProfileId)) throw problem(
+			WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+			WorldBuilderTargetCapability.RELATIVE_PATH,
+			"Target capability changed after the latest successful import.",
+			"Restore the exact compatible target capability before importing again.");
+		requireInstallEncodingSupport(capability, export.packageValue);
+
+		WorldBuilderAdaptiveDiscoveryReport fresh =
+			new WorldBuilderAdaptiveDiscovery().discover(target,
+				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
+					project.discoveryReport));
+		if (!"compatible".equals(fresh.status)) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, "target-root",
+			"The currently installed World Builder package is not a compatible import baseline.",
+			"Restore the exact latest successful import before importing again.");
+
+		String selectedRole = installed.configuration.configurationId;
+		WorldBuilderAdaptiveConfiguration configuration =
+			WorldBuilderAdaptiveConfiguration.select(readOnly, capability,
+				selectedRole).selected;
+		String configurationPath = installed.configuration.relativePath;
+		if (!configurationPath.equals(configuration.relativePath)) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, configurationPath,
+			"The active configuration path changed after the latest successful import.",
+			"Restore the exact installed target before importing again.");
+
+		String clientRoot = compiledClientRoot(configuration);
+		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
+			+ "/package";
+		String clientPackage = clientRoot + "/world-builder/packages/"
+			+ packageContentAddress + "/package";
+		if (serverPackage.equals(installed.serverPackageRelativePath)
+			|| clientPackage.equals(installed.clientPackageRelativePath)) throw problem(
+			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "exports",
+			"This exact exported map package is already installed on the target.",
+			"Make and save another map edit before importing again.");
+		requireInstallRootsAbsent(target, serverPackage, clientPackage);
+
+		Map<String,Object> beforeConfiguration = readOnly.readObject(configurationPath);
+		Map<String,Object> afterConfiguration = deepCopy(beforeConfiguration);
+		afterConfiguration.put("representation", "layered");
+		afterConfiguration.put("serverMapRelativePath", serverPackage);
+		afterConfiguration.put("clientMapRelativePath", clientPackage);
+		afterConfiguration.put("placements", Collections.emptyList());
+		byte[] configurationBytes = WorldBuilderJsonDocuments.pretty(afterConfiguration)
+			.getBytes(StandardCharsets.UTF_8);
+
+		List<Action> actions = packageInstallActions(export, serverPackage, clientPackage);
+		Path configFile = safeExistingFile(target, configurationPath,
+			"selected target configuration");
+		FileState configurationBefore = FileState.present(
+			Files.size(configFile), WorldBuilderHashes.sha256(configFile));
+		if (!configuration.sha256.equals(configurationBefore.sha256)) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, configurationPath,
+			"Active configuration changed while the replacement plan was built.",
+			"Stop target updates and request a fresh import preview.");
+		actions.add(new Action("activation-configuration", configurationPath,
+			configurationBefore, FileState.present(configurationBytes.length,
+				WorldBuilderHashes.sha256(configurationBytes)),
+			TRANSACTION_CONTENT_CONFIG,
+			"backups/" + transactionId + "/before/" + configurationPath,
+			true, configurationBytes));
+
+		List<ConfigurationChange> changes = configurationChanges(configurationPath,
+			beforeConfiguration, serverPackage, clientPackage);
+		long requiredSpace = requiredSpace(actions);
+		List<String> directories = plannedDirectories(target, actions);
+		Map<String,Object> document = document(transactionId, project, export,
+			capability, configuration, fresh.fingerprintSha256(), actions, changes,
+			directories, requiredSpace);
+		return new Plan(target, project, export, capability, configuration,
+			installed.profileId, serverPackage, clientPackage, configurationBytes,
+			actions, changes, directories, document);
+	}
+
+	private static List<Action> packageInstallActions(
+		WorldBuilderAdaptiveExporter.VerifiedExport export,
+		String serverPackage, String clientPackage)
+		throws WorldBuilderContractException {
+		List<Action> actions = new ArrayList<Action>();
+		List<WorldBuilderReadOnlyTarget.FileState> packageFiles =
+			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(export.packageValue.files);
+		Collections.sort(packageFiles);
+		String prefix = WorldBuilderAdaptiveExporter.PACKAGE_DIRECTORY + "/";
+		for (WorldBuilderReadOnlyTarget.FileState file : packageFiles) {
+			if (!file.relativePath.startsWith(prefix)) throw problem(
+				WorldBuilderErrorCodes.UNSAFE_PATH, file.relativePath,
+				"Validated export package file escaped its package root.",
+				"Use one exact complete adaptive export.");
+			String inside = file.relativePath.substring(prefix.length());
+			actions.add(Action.install("server-package-" + pad(actions.size()),
+				serverPackage + "/" + inside, file.relativePath, file.size, file.sha256));
+			actions.add(Action.install("client-package-" + pad(actions.size()),
+				clientPackage + "/" + inside, file.relativePath, file.size, file.sha256));
+		}
+		return actions;
+	}
+
+	private static List<ConfigurationChange> configurationChanges(String path,
+		Map<String,Object> before, String serverPackage, String clientPackage)
+		throws WorldBuilderContractException {
+		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
+		addConfigurationChange(changes, path, "clientMapRelativePath",
+			WorldBuilderAdaptiveExporter.string(before, "clientMapRelativePath"),
+			clientPackage);
+		addConfigurationChange(changes, path, "representation",
+			WorldBuilderAdaptiveExporter.string(before, "representation"), "layered");
+		addConfigurationChange(changes, path, "placements",
+			WorldBuilderJsonDocuments.canonical(before.get("placements")), "[]");
+		addConfigurationChange(changes, path, "serverMapRelativePath",
+			WorldBuilderAdaptiveExporter.string(before, "serverMapRelativePath"),
+			serverPackage);
+		return changes;
+	}
+
+	private static long requiredSpace(List<Action> actions)
+		throws WorldBuilderContractException {
+		long result = 0L;
+		for (Action action : actions) {
+			result = safeAdd(result, action.before.size);
+			result = safeAdd(result, action.after.size);
+		}
+		return result;
+	}
+
 	private static void requireInstallEncodingSupport(
 		WorldBuilderTargetCapability capability,
 		WorldBuilderGenericLayeredPackage packageValue)
@@ -426,7 +575,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Immutable configuration identity no longer matches its role.",
 			"Restore the complete project from a trusted backup.");
 
-		String clientRoot = compiledClientRoot(configuration);
 		Path durablePlan = WorldBuilderPortablePath.resolveContained(
 			project.projectRoot, "backups/" + transactionId + "/mutation-plan.json",
 			OPERATION);
@@ -447,6 +595,47 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			storedObject, "planFingerprintSha256");
+		Map<String,Object> storedSelected = WorldBuilderAdaptiveExporter.object(
+			storedObject.get("selectedConfiguration"), "selectedConfiguration");
+		String planSelectedHash = WorldBuilderAdaptiveExporter.string(
+			storedSelected, "sha256");
+		Map<String,Object> beforeConfiguration = original.readObject(configurationPath);
+		FileState configurationBefore = FileState.present(
+			originalConfigurationState.size, originalConfigurationState.sha256);
+		String lineage = WorldBuilderAdaptiveExporter.string(
+			projectTarget, "targetFingerprintSha256");
+		boolean chained = !planSelectedHash.equals(originalConfigurationState.sha256);
+		if (chained) {
+			String backupRelative = "backups/" + transactionId + "/before/"
+				+ configurationPath;
+			Path backup = WorldBuilderAdaptiveExporter.requireFile(
+				project.projectRoot, backupRelative,
+				"chained import configuration before-state backup");
+			byte[] beforeBytes = Files.readAllBytes(backup);
+			if (!planSelectedHash.equals(WorldBuilderHashes.sha256(beforeBytes))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, backupRelative,
+				"Chained import configuration backup does not match its selected before state.",
+				"Restore the exact complete transaction backup; do not force undo.");
+			WorldBuilderAdaptiveConfiguration chainedConfiguration =
+				WorldBuilderAdaptiveConfiguration.readBytes(beforeBytes,
+					configurationPath, planSelectedHash);
+			Map<String,Object> savedConfiguration = configurationDocument(
+				beforeBytes, backupRelative);
+			if (!selectedRole.equals(chainedConfiguration.configurationId)
+				|| !immutableConfigurationFields(beforeConfiguration,
+					savedConfiguration)) {
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, backupRelative,
+					"Chained import configuration changes evidence outside map activation fields.",
+					"Restore the exact compatible transaction backup.");
+			}
+			configuration = chainedConfiguration;
+			beforeConfiguration = savedConfiguration;
+			configurationBefore = FileState.present(beforeBytes.length, planSelectedHash);
+			lineage = WorldBuilderAdaptiveExporter.string(
+				storedObject, "targetLineageSha256");
+		}
+
+		String clientRoot = compiledClientRoot(configuration);
 		String packageContentAddress = reconstructedPackageContentAddress(
 			storedObject, clientRoot, export.packageValue.nativeInventorySha256,
 			export.packageValue.fingerprintSha256);
@@ -454,8 +643,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
 			+ packageContentAddress + "/package";
-		Map<String,Object> originalConfiguration = original.readObject(configurationPath);
-		Map<String,Object> installedConfiguration = deepCopy(originalConfiguration);
+		Map<String,Object> installedConfiguration = deepCopy(beforeConfiguration);
 		installedConfiguration.put("representation", "layered");
 		installedConfiguration.put("serverMapRelativePath", serverPackage);
 		installedConfiguration.put("clientMapRelativePath", clientPackage);
@@ -464,60 +652,25 @@ final class WorldBuilderAdaptiveMutationProfile {
 			installedConfiguration).getBytes(StandardCharsets.UTF_8);
 		String configurationAfterHash = WorldBuilderHashes.sha256(configurationBytes);
 
-		List<Action> actions = new ArrayList<Action>();
-		List<WorldBuilderReadOnlyTarget.FileState> packageFiles =
-			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(export.packageValue.files);
-		Collections.sort(packageFiles);
-		String packagePrefix = WorldBuilderAdaptiveExporter.PACKAGE_DIRECTORY + "/";
-		for (WorldBuilderReadOnlyTarget.FileState file : packageFiles) {
-			if (!file.relativePath.startsWith(packagePrefix)) throw problem(
-				WorldBuilderErrorCodes.UNSAFE_PATH, file.relativePath,
-				"Validated export package file escaped its package root.",
-				"Use one exact complete adaptive export.");
-			String inside = file.relativePath.substring(packagePrefix.length());
-			actions.add(Action.install("server-package-" + pad(actions.size()),
-				serverPackage + "/" + inside, file.relativePath, file.size, file.sha256));
-			actions.add(Action.install("client-package-" + pad(actions.size()),
-				clientPackage + "/" + inside, file.relativePath, file.size, file.sha256));
-		}
-		FileState configurationBefore = FileState.present(
-			originalConfigurationState.size, originalConfigurationState.sha256);
+		List<Action> actions = packageInstallActions(
+			export, serverPackage, clientPackage);
 		actions.add(new Action("activation-configuration", configurationPath,
 			configurationBefore,
 			FileState.present(configurationBytes.length, configurationAfterHash),
 			TRANSACTION_CONTENT_CONFIG,
 			"backups/" + transactionId + "/before/" + configurationPath, true,
 			configurationBytes));
-		appendLegacyLandscapeRetirement(project, target, capability, configuration,
-			selectedReference, WorldBuilderAdaptiveExporter.string(
-				projectTarget, "targetFingerprintSha256"),
-			transactionId, actions, false);
+		if (!chained) appendLegacyLandscapeRetirement(project, target, capability,
+			configuration, selectedReference, lineage, transactionId, actions, false);
 
-		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
-		addConfigurationChange(changes, configurationPath, "clientMapRelativePath",
-			WorldBuilderAdaptiveExporter.string(originalConfiguration,
-				"clientMapRelativePath"), clientPackage);
-		addConfigurationChange(changes, configurationPath, "representation",
-			WorldBuilderAdaptiveExporter.string(originalConfiguration, "representation"),
-			"layered");
-		addConfigurationChange(changes, configurationPath, "placements",
-			WorldBuilderJsonDocuments.canonical(originalConfiguration.get("placements")),
-			"[]");
-		addConfigurationChange(changes, configurationPath, "serverMapRelativePath",
-			WorldBuilderAdaptiveExporter.string(originalConfiguration,
-				"serverMapRelativePath"), serverPackage);
+		List<ConfigurationChange> changes = configurationChanges(configurationPath,
+			beforeConfiguration, serverPackage, clientPackage);
 
-		long requiredSpace = 0L;
-		for (Action action : actions) {
-			requiredSpace = safeAdd(requiredSpace, action.before.size);
-			requiredSpace = safeAdd(requiredSpace, action.after.size);
-		}
-		String lineage = WorldBuilderAdaptiveExporter.string(
-			projectTarget, "targetFingerprintSha256");
+		long requiredSpace = requiredSpace(actions);
 		List<String> directories = planCreatedDirectories(storedObject, actions);
 		Map<String,Object> generated = document(transactionId, project, export,
 			capability, configuration, lineage, actions, changes, directories,
-			requiredSpace);
+			requiredSpace, planSelectedHash);
 		Plan plan = new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directories, generated);
@@ -535,6 +688,20 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the exact complete transaction evidence; do not force undo.");
 		requireBeforeBackups(plan);
 		return plan;
+	}
+
+	private static boolean immutableConfigurationFields(Map<String,Object> original,
+		Map<String,Object> candidate) {
+		Map<String,Object> left = deepCopy(original);
+		Map<String,Object> right = deepCopy(candidate);
+		for (String mutable : new String[] {
+			"representation", "serverMapRelativePath", "clientMapRelativePath",
+			"placements"
+		}) {
+			left.remove(mutable);
+			right.remove(mutable);
+		}
+		return left.equals(right);
 	}
 
 	static String reconstructedPackageContentAddress(Map<String,Object> storedPlan,
@@ -573,6 +740,98 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Durable mutation plan uses an unrecognized package content-address.",
 			"Retain the project and restore its exact transaction evidence; arbitrary package paths are never adopted.");
 		return selected;
+	}
+
+	static Plan relocateHistoricalInstalledPlan(Plan historical)
+		throws IOException, WorldBuilderContractException {
+		String legacyAddress = historical.export.packageValue.fingerprintSha256;
+		String nativeAddress = historical.export.packageValue.nativeInventorySha256;
+		if (legacyAddress.equals(nativeAddress)) return historical;
+		String clientRoot = compiledClientRoot(historical.configuration);
+		String legacyServer = SERVER_PACKAGE_ROOT + "/" + legacyAddress + "/package";
+		String legacyClient = clientRoot + "/world-builder/packages/"
+			+ legacyAddress + "/package";
+		if (!legacyServer.equals(historical.serverPackageRelativePath)
+			|| !legacyClient.equals(historical.clientPackageRelativePath)) return historical;
+		String nativeServer = SERVER_PACKAGE_ROOT + "/" + nativeAddress + "/package";
+		String nativeClient = clientRoot + "/world-builder/packages/"
+			+ nativeAddress + "/package";
+
+		Map<String,Object> configuration = configurationDocument(
+			historical.configurationBytes, "historical installed configuration");
+		configuration.put("serverMapRelativePath", nativeServer);
+		configuration.put("clientMapRelativePath", nativeClient);
+		byte[] configurationBytes = WorldBuilderJsonDocuments.pretty(configuration)
+			.getBytes(StandardCharsets.UTF_8);
+		FileState configurationAfter = FileState.present(
+			configurationBytes.length, WorldBuilderHashes.sha256(configurationBytes));
+
+		List<Action> actions = new ArrayList<Action>();
+		for (Action action : historical.actions) {
+			String destination = relocatePackagePath(action.destinationRelativePath,
+				legacyServer, nativeServer, legacyClient, nativeClient);
+			FileState after = action.after;
+			byte[] generated = action.generatedContent;
+			if (action.activation && action.destinationRelativePath.equals(
+				historical.configuration.relativePath) && action.after.present) {
+				after = configurationAfter;
+				generated = configurationBytes;
+			}
+			actions.add(new Action(action.role, destination, action.before, after,
+				action.contentRelativePath, action.backupRelativePath,
+				action.activation, generated));
+		}
+		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
+		for (ConfigurationChange change : historical.configurationChanges) {
+			String after = relocatePackagePath(change.afterValue,
+				legacyServer, nativeServer, legacyClient, nativeClient);
+			changes.add(new ConfigurationChange(change.path, change.key,
+				change.beforePresent, change.beforeValue, change.afterPresent, after));
+		}
+		String legacyServerRoot = fingerprintRoot(legacyServer);
+		String legacyClientRoot = fingerprintRoot(legacyClient);
+		String nativeServerRoot = fingerprintRoot(nativeServer);
+		String nativeClientRoot = fingerprintRoot(nativeClient);
+		List<String> directories = new ArrayList<String>();
+		for (String directory : historical.directoriesToCreate) {
+			directories.add(relocatePackagePath(directory,
+				legacyServerRoot, nativeServerRoot, legacyClientRoot, nativeClientRoot));
+		}
+		long requiredSpace = 0L;
+		for (Action action : actions) {
+			requiredSpace = safeAdd(requiredSpace, action.before.size);
+			requiredSpace = safeAdd(requiredSpace, action.after.size);
+		}
+		Map<String,Object> document = document(historical.transactionId(),
+			historical.project, historical.export, historical.capability,
+			historical.configuration, historical.targetLineage(), actions, changes,
+			directories, requiredSpace);
+		return new Plan(historical.targetRoot, historical.project, historical.export,
+			historical.capability, historical.configuration, historical.profileId,
+			nativeServer, nativeClient, configurationBytes, actions, changes,
+			directories, document);
+	}
+
+	private static String relocatePackagePath(String value,
+		String oldServer, String newServer, String oldClient, String newClient) {
+		if (value.equals(oldServer) || value.startsWith(oldServer + "/")) {
+			return newServer + value.substring(oldServer.length());
+		}
+		if (value.equals(oldClient) || value.startsWith(oldClient + "/")) {
+			return newClient + value.substring(oldClient.length());
+		}
+		return value;
+	}
+
+	private static Map<String,Object> configurationDocument(byte[] bytes, String label)
+		throws WorldBuilderContractException {
+		try {
+			return WorldBuilderJsonDocuments.readObject(bytes, label);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, label,
+				"Saved transaction configuration JSON is malformed.",
+				"Restore the exact complete transaction evidence.");
+		}
 	}
 
 	private static void requireBeforeBackups(Plan plan)

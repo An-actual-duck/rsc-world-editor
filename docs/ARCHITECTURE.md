@@ -124,10 +124,12 @@ the target without making normal non-root Linux imports fail on system services
 or a harmless terminal. Java and ambiguous target-root processes remain
 blocked. Process exits and empty kernel-thread command lines are handled separately.
 
-Phase 6 deliberately permits only one outstanding successful import per
-project. To install a later saved/exported working state, run exact Undo for
-the outstanding import first, then preview and import the new export. Import
-refuses this condition before resolving or mutating the target.
+Phase 6 permits successive imports only as an exact verified chain. A later
+saved/exported working state may use the latest successful unreverted import as
+its before-state when both installed package trees and the active configuration
+still match byte-for-byte. Each Undo restores the immediately preceding chain
+generation. Drift, missing history, ambiguous relocation, or an unrelated
+detached target is refused before mutation.
 
 There is deliberately no force-import path.
 

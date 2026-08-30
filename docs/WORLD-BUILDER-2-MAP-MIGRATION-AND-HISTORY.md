@@ -267,9 +267,10 @@ action on the main launcher as well as a File-menu recovery path. The GUI:
 The main selected-project actions keep **Undo Last Server Import** separate
 from **Restore Project Backup**. Undo uses the successful server-import receipt
 and its exact target backup; project restore changes only the Editor's isolated
-working world and never reverses a server import. Until import transactions are
-chainable, an unreverted successful import must be undone before the same
-project can install a later working state.
+working world and never reverses a server import. A later export can be imported
+directly when the latest installed package and active configuration still match
+the prior receipt exactly. The new receipt records that installed generation as
+its before-state, so repeated Undo steps walk backward through the import chain.
 
 After a successful packed-to-layered installation, Detect Server Map validates
 the content-addressed server/client package pair through the same immutable
@@ -308,9 +309,9 @@ loader is sole authority, so safety takes precedence over cosmetic cleanup.
 
 ### Undo and recovery
 
-The GUI exposes **Undo Last Server Import…** for one successful unreverted
-transaction and **Recover Interrupted Server Import…** when a pending receipt
-blocks normal work. Both project the existing exact transaction engine.
+The GUI exposes **Undo Last Server Import…** for the newest successful
+unreverted transaction and **Recover Interrupted Server Import…** when a pending
+receipt blocks normal work. Both project the existing exact transaction engine.
 Changed-after, missing-backup, target-lineage, online-target, and receipt
 failures remain blockers. There is no force button.
 

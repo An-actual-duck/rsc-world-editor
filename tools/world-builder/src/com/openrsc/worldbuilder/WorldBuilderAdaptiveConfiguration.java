@@ -131,7 +131,26 @@ final class WorldBuilderAdaptiveConfiguration {
 	static WorldBuilderAdaptiveConfiguration read(
 		WorldBuilderReadOnlyTarget target, String relative, String sha256)
 		throws WorldBuilderContractException {
-		Map<String,Object> root = target.readObject(relative);
+		return parse(target.readObject(relative), relative, sha256);
+	}
+
+	static WorldBuilderAdaptiveConfiguration readBytes(
+		byte[] bytes, String relative, String sha256)
+		throws WorldBuilderContractException {
+		Map<String,Object> root;
+		try {
+			root = WorldBuilderJsonDocuments.readObject(bytes, relative);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, relative,
+				"Saved map configuration JSON is malformed.",
+				"Restore the exact transaction backup before importing or undoing.");
+		}
+		return parse(root, relative, sha256);
+	}
+
+	private static WorldBuilderAdaptiveConfiguration parse(
+		Map<String,Object> root, String relative, String sha256)
+		throws WorldBuilderContractException {
 		exact(root, relative, "schemaVersion", "manifestType", "configurationId",
 			"active", "representation", "serverMapRelativePath", "clientMapRelativePath",
 			"serverRuntimeRelativePath", "clientRuntimeRelativePath",

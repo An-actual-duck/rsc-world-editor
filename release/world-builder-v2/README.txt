@@ -166,12 +166,12 @@ original configuration and target inventory exactly. Configuration is
 deactivated/restored before package removal; rollback restores packages before
 reactivation.
 
-Phase 6 supports one outstanding successful import per project. You may keep
-editing and saving the isolated project after Import A. Undo A uses its exact
-historical export and preserves the later working bytes. Before Import B, run
-exact Undo A, then export/preview/import the desired saved state. A second
-outstanding import is refused with this instruction rather than guessed or
-chained.
+Later saved exports may be imported directly over the exact latest installed
+state. Before Import B, World Builder verifies Import A's complete server/client
+package trees, active configuration, receipt, plan, and export. Undo B restores
+A; another Undo restores the original pre-A target. Any drift or unrelated
+detached server is refused rather than guessed, and working project bytes are
+never rolled back by server Undo.
 
 A partial failure automatically rolls back and verifies the safe state. If the
 tool reports RECOVERY_REQUIRED, do not start the server or run another

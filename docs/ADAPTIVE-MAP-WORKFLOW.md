@@ -1248,8 +1248,10 @@ project/export/source lineage and all declared offline evidence, creates
 verified project-owned backups and a durable receipt, stages content-addressed
 server/client packages, activates configuration last, and verifies both
 selections. Reverse rollback, explicit `RECOVER`, successful-receipt-authorized
-`UNDO`, extra/changed-path refusal, and exact original-lineage verification are
-covered with temporary layered and packed-origin fixtures. Linux and Windows
+`UNDO`, extra/changed-path refusal, and exact pre-import-lineage verification are
+covered with temporary layered and packed-origin fixtures. Successive imports
+form a verified chain: the exact active package/configuration becomes the next
+transaction's before-state, and Undo restores one generation. Linux and Windows
 packages expose Import, Recover, and Undo launchers. Standalone origin refuses
 all three target operations before target resolution or lock acquisition.
 
@@ -1295,11 +1297,15 @@ apply refuses before creating transaction artifacts or changing the target.
 The pending receipt is never published before its plan and rollback authority
 have completed that ordering.
 
-Successive outstanding imports are not chained in Phase 6. A valid edit/save
-after import A remains safe project-local state, and Undo A uses its historical
-export without comparing it to current working bytes. Import B is refused with
-an explicit instruction to Undo A first; after Undo, the saved B bytes remain
-available for a fresh export/import.
+Successive imports are chained only through exact durable authority. A valid
+edit/save after import A remains safe project-local state. Import B first proves
+the complete installed A package trees, active configuration, unchanged target
+evidence, prior receipt, prior plan, and prior export; it then installs B at a
+new content address and switches configuration atomically. Undo B restores A,
+and a later Undo A restores the original target. The bounded historical
+logical-address-to-native-address correction is recognized only when the old
+roots are absent and the corrected trees/configuration match every expected
+byte. No arbitrary current server state is adopted.
 
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.

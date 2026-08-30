@@ -115,6 +115,7 @@ final class WorldBuilderAdaptiveUndo {
 							project, export, target, authority.transactionId());
 					WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(
 						installed, authority);
+					installed = resolveEffectiveInstalledPlan(installed);
 					String undoId = expected != null
 						? expected.undoPlan.transactionId()
 						: requestedTransactionId == null
@@ -411,7 +412,27 @@ final class WorldBuilderAdaptiveUndo {
 		return WorldBuilderAdaptiveExporter.validateHistorical(matches.get(0), project);
 	}
 
-	private static List<String> changedAfterPaths(
+	static WorldBuilderAdaptiveMutationProfile.Plan resolveEffectiveInstalledPlan(
+		WorldBuilderAdaptiveMutationProfile.Plan historical)
+		throws IOException, WorldBuilderContractException {
+		if (changedAfterPaths(historical).isEmpty()) return historical;
+		WorldBuilderAdaptiveMutationProfile.Plan relocated =
+			WorldBuilderAdaptiveMutationProfile.relocateHistoricalInstalledPlan(historical);
+		if (relocated == historical) return historical;
+		Path oldServer = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			historical.targetRoot,
+			WorldBuilderAdaptiveMutationProfile.fingerprintRoot(
+				historical.serverPackageRelativePath));
+		Path oldClient = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			historical.targetRoot,
+			WorldBuilderAdaptiveMutationProfile.fingerprintRoot(
+				historical.clientPackageRelativePath));
+		if (Files.exists(oldServer, LinkOption.NOFOLLOW_LINKS)
+			|| Files.exists(oldClient, LinkOption.NOFOLLOW_LINKS)) return historical;
+		return changedAfterPaths(relocated).isEmpty() ? relocated : historical;
+	}
+
+	static List<String> changedAfterPaths(
 		WorldBuilderAdaptiveMutationProfile.Plan installed)
 		throws IOException, WorldBuilderContractException {
 		List<String> changed = new ArrayList<String>();

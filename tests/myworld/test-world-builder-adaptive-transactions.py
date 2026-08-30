@@ -69,8 +69,8 @@ class AdaptiveTransactionTest(unittest.TestCase):
             "String packageContentAddress = "
             "export.packageValue.fingerprintSha256;"
         )
-        if legacy_source.count(current_address) != 1:
-            raise AssertionError("historical address fixture requires one prepare address")
+        if legacy_source.count(current_address) < 1:
+            raise AssertionError("historical address fixture requires a prepare address")
         legacy_source = legacy_source.replace(
             current_address, historical_address, 1
         )
@@ -777,6 +777,68 @@ public final class AdaptiveTransactionFailureHarness {
                 "--target-root", target,
             )
             self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+
+    def test_chained_import_adopts_exact_historical_address_correction(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-corrected-chain-") as temp:
+            target, installation, project, export_a = self.target_project(Path(temp))
+            target_before = self.lifecycle.tree_bytes(target, installation)
+            imported_a = self.run_legacy_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_a, "--target-root", target,
+            )
+            self.assertEqual(0, imported_a.returncode, imported_a.stderr)
+
+            configuration_path = target / "server/world-builder-configs/primary.json"
+            configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+            legacy_address = json.loads(
+                (export_a / "manifest.json").read_text(encoding="utf-8")
+            )["packageFingerprintSha256"]
+            native_address = self.native_package_inventory_sha256(export_a / "package")
+            for key in ("serverMapRelativePath", "clientMapRelativePath"):
+                old_package = configuration[key]
+                self.assertIn(legacy_address, old_package)
+                new_package = old_package.replace(legacy_address, native_address)
+                old_root = target / Path(old_package).parent
+                new_root = target / Path(new_package).parent
+                self.assertFalse(new_root.exists())
+                old_root.rename(new_root)
+                configuration[key] = new_package
+            self.lifecycle.write_json(configuration_path, configuration)
+            corrected_a = self.lifecycle.tree_bytes(target, installation)
+
+            self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported_b = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported_b.returncode, exported_b.stderr)
+            export_b = Path(json.loads(exported_b.stdout)["exportDirectory"])
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+
+            imported_b = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_b, "--target-root", target,
+            )
+            self.assertEqual(0, imported_b.returncode, imported_b.stderr)
+            self.assertNotEqual(corrected_a, self.lifecycle.tree_bytes(target, installation))
+
+            undone_b = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone_b.returncode, undone_b.stderr)
+            self.assertEqual(corrected_a, self.lifecycle.tree_bytes(target, installation))
+
+            undone_a = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone_a.returncode, undone_a.stderr)
             self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
 
     @staticmethod
@@ -2281,7 +2343,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(b"\x09\x03", marker.read_bytes())
             marker.unlink()
 
-    def test_saved_working_edits_preserve_historical_undo_authority(self):
+    def test_saved_working_edits_chain_imports_and_undo_one_generation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-historical-undo-") as temp:
             target, installation, project, export_a = self.target_project(Path(temp))
             target_before = self.lifecycle.tree_bytes(target, installation)
@@ -2290,6 +2352,7 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export_a, "--target-root", target,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
+            installed_a = self.lifecycle.tree_bytes(target, installation)
             self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
@@ -2305,24 +2368,19 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, reopened.returncode, reopened.stderr)
             self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
 
-            installed = self.lifecycle.tree_bytes(target, installation)
-            artifacts = self.transaction_artifacts(project)
-            second = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export_b,
-                "--target-root", target,
+            second = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_b, "--target-root", target,
             )
-            self.assertEqual(3, second.returncode, second.stderr)
-            self.assertIn("last successful server map import is still installed", second.stderr)
-            self.assertIn("Undo Last Server Import", second.stderr)
-            self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
-            self.assertEqual(artifacts, self.transaction_artifacts(project))
+            self.assertEqual(0, second.returncode, second.stderr)
+            self.assertNotEqual(installed_a, self.lifecycle.tree_bytes(target, installation))
 
             undone = self.run_reviewed_apply(
                 "undo-adaptive", "UNDO", "--project", project,
                 "--target-root", target,
             )
             self.assertEqual(0, undone.returncode, undone.stderr)
-            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+            self.assertEqual(installed_a, self.lifecycle.tree_bytes(target, installation))
             self.assertEqual(working_b, self.lifecycle.tree_bytes(project / "working"))
 
             reattached = self.run_cli(
@@ -2330,12 +2388,42 @@ public final class AdaptiveTransactionFailureHarness {
                 "--target-root", target,
             )
             self.assertEqual(0, reattached.returncode, reattached.stderr)
-            self.assertEqual("ready-attached", json.loads(reattached.stdout)["state"])
-            current_import = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export_b, "--target-root", target,
+            self.assertEqual("ready-detached", json.loads(reattached.stdout)["state"])
+            undone_original = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
             )
-            self.assertEqual(0, current_import.returncode, current_import.stderr)
+            self.assertEqual(0, undone_original.returncode, undone_original.stderr)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+
+    def test_failed_chained_import_rolls_back_to_latest_installed_generation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-chain-rollback-") as temp:
+            target, installation, project, export_a = self.target_project(Path(temp))
+            imported_a = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_a, "--target-root", target,
+            )
+            self.assertEqual(0, imported_a.returncode, imported_a.stderr)
+            installed_a = self.lifecycle.tree_bytes(target, installation)
+
+            self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported_b = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported_b.returncode, exported_b.stderr)
+            export_b = Path(json.loads(exported_b.stdout)["exportDirectory"])
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+
+            failed = self.run_failure(
+                "import", "activation-published", project, target, export_b
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertEqual(installed_a, self.lifecycle.tree_bytes(target, installation))
+            self.assert_no_transaction_stage(target)
 
     def test_final_boundary_drift_and_appeared_paths_are_preserved(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-activation-drift-") as temp:
