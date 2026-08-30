@@ -91,6 +91,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Adapter and compiled mutation-profile identities disagree.",
 				"Use the exact capability descriptor recorded when the project was created.");
 		}
+		requireInstallEncodingSupport(capability, export.packageValue);
 
 		WorldBuilderAdaptiveConfiguration.Selection selection =
 			WorldBuilderAdaptiveConfiguration.select(readOnly, capability, selectedRole);
@@ -105,11 +106,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 
 		String clientRoot = compiledClientRoot(configuration);
-		String packageFingerprint = export.packageValue.fingerprintSha256;
-		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageFingerprint
+		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
-			+ packageFingerprint + "/package";
+			+ packageContentAddress + "/package";
 		requireInstallRootsAbsent(target, serverPackage, clientPackage);
 		Map<String,Object> originalConfiguration = readOnly.readObject(configurationPath);
 		Map<String,Object> installedConfiguration = deepCopy(originalConfiguration);
@@ -183,6 +184,23 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directoriesToCreate, document);
+	}
+
+	private static void requireInstallEncodingSupport(
+		WorldBuilderTargetCapability capability,
+		WorldBuilderGenericLayeredPackage packageValue)
+		throws WorldBuilderContractException {
+		List<Integer> missing = new ArrayList<Integer>();
+		for (Integer required : packageValue.requiredEncodingVersions) {
+			if (!capability.encodingVersions.contains(required)) missing.add(required);
+		}
+		if (!missing.isEmpty()) throw problem(
+			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+			WorldBuilderTargetCapability.RELATIVE_PATH,
+			"Exported layered package requires encoding version(s) " + missing
+				+ ", but the target runtime advertises "
+				+ capability.encodingVersions + ".",
+			"Adopt runtime support for the required terrain/placement encodings, regenerate truthful target capability evidence, and retry import.");
 	}
 
 	private static void appendLegacyLandscapeRetirement(
@@ -409,11 +427,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the complete project from a trusted backup.");
 
 		String clientRoot = compiledClientRoot(configuration);
-		String packageFingerprint = export.packageValue.fingerprintSha256;
-		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageFingerprint
+		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
-			+ packageFingerprint + "/package";
+			+ packageContentAddress + "/package";
 		Map<String,Object> originalConfiguration = original.readObject(configurationPath);
 		Map<String,Object> installedConfiguration = deepCopy(originalConfiguration);
 		installedConfiguration.put("representation", "layered");

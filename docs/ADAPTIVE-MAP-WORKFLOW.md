@@ -811,26 +811,36 @@ a shipped map.
    binary capability, or client/server drift.
 5. Acquire every adapter-required offline signal: relevant ports, process/lock
    evidence, and configuration locks. One port check is not assumed sufficient.
-6. Build a bounded mutation plan and show an exact human/JSON preview using
+6. Compare every terrain and placement encoding in the exact export with the
+   independently captured server/client runtime evidence. A target that
+   advertises only legacy versions is refused with `LOADER_INCOMPATIBLE` before
+   a backup, receipt, package directory, or configuration mutation is created.
+   Runtime source or binaries are never patched implicitly during a map import;
+   the server distribution must first adopt the published compatible loader and
+   regenerate truthful capability evidence.
+7. Build a bounded mutation plan and show an exact human/JSON preview using
    actual safe transaction IDs and paths.
-7. Require exact `IMPORT` confirmation.
-8. Write a durable pending receipt and verified backups before first mutation.
-9. Stage and verify content-addressed server/client package data on the target
+8. Require exact `IMPORT` confirmation.
+9. Write a durable pending receipt and verified backups before first mutation.
+10. Stage and verify content-addressed server/client package data on the target
    filesystem.
-10. Change package activation/configuration last.
-11. Verify every byte, semantic config value, active package hash, and
+11. Change package activation/configuration last.
+12. Verify every byte, semantic config value, active package hash, and
     server/client selection.
-12. Finalize the success receipt and display the exact client/map identity the
+13. Finalize the success receipt and display the exact client/map identity the
     administrator must distribute.
-13. Rediscovery through an install-capable packed descriptor recognizes only
+14. Rediscovery through an install-capable packed descriptor recognizes only
     its exact content-addressed post-import server/client packages as layered,
     while retaining the original adapter as transition and undo authority.
-14. On any failure, roll back in reverse safe order and verify the complete
+15. On any failure, roll back in reverse safe order and verify the complete
     before inventory. If rollback cannot verify, retain recovery state and
     block new transactions.
 
 The adapter SHOULD install a package under a content-addressed destination such
 as `.../packages/<package-fingerprint>/` and switch a separate active reference.
+The address is the native runtime inventory SHA-256 over each canonical relative
+path, NUL-delimited size and file SHA-256, and newline-delimited record. It is
+not the Editor's distinct internal package-lineage fingerprint.
 The adapter determines the exact bounded path. Existing packed source maps are
 backed up and retained unless versioned migration lineage and a separately
 approved mutation profile explicitly authorize recoverable retirement. Such

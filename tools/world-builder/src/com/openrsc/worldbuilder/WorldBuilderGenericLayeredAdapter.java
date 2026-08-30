@@ -129,15 +129,18 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 		if (!FORMAT_ID.equals(capability.mapFormatId)
 			|| !PACKAGE_SCHEMA_ID.equals(capability.packageSchemaId)
 			|| !capability.sourceRepresentations.equals(Collections.singletonList("layered"))
-			|| !capability.encodingVersions.equals(Arrays.asList(
-				Integer.valueOf(1), Integer.valueOf(3)))
+			|| !capability.encodingVersions.contains(Integer.valueOf(1))
+			|| !capability.encodingVersions.contains(Integer.valueOf(3))
+			|| !Arrays.asList(Integer.valueOf(1), Integer.valueOf(2),
+				Integer.valueOf(3), Integer.valueOf(4)).containsAll(
+					capability.encodingVersions)
 			|| !capability.editExistingLevels || !capability.createLevels
 			|| !capability.placementFamilies.equals(families)
 			|| !capability.serverLoaderId.equals(capability.clientLoaderId)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 				WorldBuilderTargetCapability.RELATIVE_PATH,
 				"Descriptor does not declare the complete generic layered map/authoring contract.",
-				"Declare signed-layered-v1, package v1, encodings 1/3, matching loaders, and all authoring families.");
+				"Declare signed-layered-v1, package v1, every supported encoding version, matching loaders, and all authoring families.");
 		}
 		if (capability.installEnabled) {
 			if (!MUTATION_PROFILE_ID.equals(capability.mutationProfileId)

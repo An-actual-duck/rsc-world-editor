@@ -204,14 +204,14 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				"Restore one exact imported package on both server and client.");
 		}
 		requireInstalledPackagePath(configuration.serverMapRelativePath,
-			"server/world-builder/packages/", server.fingerprintSha256,
+			"server/world-builder/packages/", server.nativeInventorySha256,
 			configuration.relativePath);
 		String clientPrefix = configuration.clientMapRelativePath
 			.startsWith("Client_Base/")
 				? "Client_Base/world-builder/packages/"
 				: "client/world-builder/packages/";
 		requireInstalledPackagePath(configuration.clientMapRelativePath,
-			clientPrefix, client.fingerprintSha256, configuration.relativePath);
+			clientPrefix, client.nativeInventorySha256, configuration.relativePath);
 
 		List<WorldBuilderReadOnlyTarget.FileState> files =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
@@ -567,7 +567,10 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		if (!FORMAT_ID.equals(capability.mapFormatId)
 			|| !PACKAGE_SCHEMA_ID.equals(capability.packageSchemaId)
 			|| !capability.sourceRepresentations.equals(Collections.singletonList("packed"))
-			|| !capability.encodingVersions.equals(Collections.singletonList(Integer.valueOf(1)))
+			|| !capability.encodingVersions.contains(Integer.valueOf(1))
+			|| !Arrays.asList(Integer.valueOf(1), Integer.valueOf(2),
+				Integer.valueOf(3), Integer.valueOf(4)).containsAll(
+					capability.encodingVersions)
 			|| !capability.editExistingLevels || !capability.createLevels
 			|| !capability.placementFamilies.equals(
 				Arrays.asList("boundary", "ground-item", "npc", "scenery"))
@@ -575,7 +578,7 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 				WorldBuilderTargetCapability.RELATIVE_PATH,
 				"Descriptor does not declare the complete packed conversion/authoring contract.",
-				"Declare legacy-packed-orsc-v1, package v1, encoding 1, matching loaders, and all authoring families.");
+				"Declare legacy-packed-orsc-v1, package v1, every supported encoding version, matching loaders, and all authoring families.");
 		}
 		if (capability.installEnabled
 			&& (!MUTATION_PROFILE_ID.equals(capability.mutationProfileId)

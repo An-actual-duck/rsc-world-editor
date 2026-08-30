@@ -45,6 +45,7 @@ final class WorldBuilderGenericLayeredPackage {
 	final long sceneryCount;
 	final List<String> placementSemantics;
 	final List<String> placementIdentities;
+	final List<Integer> requiredEncodingVersions;
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
 	final List<Integer> terrainFloorDefinitionIds;
 	final List<Integer> terrainBoundaryDefinitionIds;
@@ -69,6 +70,7 @@ final class WorldBuilderGenericLayeredPackage {
 		long sceneryCount,
 		List<String> placementSemantics,
 		List<String> placementIdentities,
+		List<Integer> requiredEncodingVersions,
 		List<WorldBuilderReadOnlyTarget.FileState> files,
 		Set<Integer> terrainFloorDefinitionIds,
 		Set<Integer> terrainBoundaryDefinitionIds,
@@ -93,6 +95,8 @@ final class WorldBuilderGenericLayeredPackage {
 			new ArrayList<String>(placementSemantics));
 		this.placementIdentities = Collections.unmodifiableList(
 			new ArrayList<String>(placementIdentities));
+		this.requiredEncodingVersions = Collections.unmodifiableList(
+			new ArrayList<Integer>(requiredEncodingVersions));
 		this.files = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>(files));
 		this.terrainFloorDefinitionIds = Collections.unmodifiableList(
@@ -121,7 +125,7 @@ final class WorldBuilderGenericLayeredPackage {
 			worldSpace, fingerprintSha256, nativeInventorySha256, manifestSha256,
 			level, x, y, levelCount, terrainCount, placementSetCount,
 			boundaryCount, groundItemCount, npcCount, sceneryCount,
-			placementSemantics, placementIdentities, files,
+			placementSemantics, placementIdentities, requiredEncodingVersions, files,
 			new TreeSet<Integer>(terrainFloorDefinitionIds),
 			new TreeSet<Integer>(terrainBoundaryDefinitionIds), terrainCoverage);
 	}
@@ -230,6 +234,7 @@ final class WorldBuilderGenericLayeredPackage {
 		Set<String> terrainCoverage = new HashSet<String>();
 		Set<Integer> terrainFloorDefinitionIds = new TreeSet<Integer>();
 		Set<Integer> terrainBoundaryDefinitionIds = new TreeSet<Integer>();
+		Set<Integer> requiredEncodingVersions = new TreeSet<Integer>();
 		Integer initialLevel = null;
 		Integer initialX = null;
 		Integer initialY = null;
@@ -255,6 +260,8 @@ final class WorldBuilderGenericLayeredPackage {
 					"Layered terrain declarations are invalid, duplicated, or not canonical.",
 					"Use unique level/sector coordinates sorted in canonical order.");
 			}
+			requiredEncodingVersions.add(Integer.valueOf(
+				WorldBuilderRawLayeredTerrainCodec.isWide(encoding) ? 2 : 1));
 			previousTerrain = order;
 			long minimumX = (long)sectorX * 48L;
 			long minimumY = (long)sectorY * 48L;
@@ -336,6 +343,8 @@ final class WorldBuilderGenericLayeredPackage {
 					"Declare exactly one ascending v3 or v4 placement set per level.");
 			}
 			packagePlacementEncoding = placementEncoding;
+			requiredEncodingVersions.add(Integer.valueOf(
+				"layered-world-placements-v4".equals(placementEncoding) ? 4 : 3));
 			previousPlacementLevel = Integer.valueOf(level);
 			String packagePath = portableRelative(placement, "path", manifestRelative);
 			String targetPath = child(packageRelative, packagePath, manifestRelative);
@@ -400,7 +409,8 @@ final class WorldBuilderGenericLayeredPackage {
 			WorldBuilderHashes.hex(nativeDigest.digest()), manifestState.sha256,
 			initialLevel.intValue(), initialX.intValue(), initialY.intValue(), levels.size(),
 			rawTerrain.size(), rawPlacementSets.size(), boundaries, groundItems,
-			npcs, scenery, placementSemantics, placementIdentities, files,
+			npcs, scenery, placementSemantics, placementIdentities,
+			new ArrayList<Integer>(requiredEncodingVersions), files,
 			terrainFloorDefinitionIds, terrainBoundaryDefinitionIds,
 			terrainCoverage);
 	}

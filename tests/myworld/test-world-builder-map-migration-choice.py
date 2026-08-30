@@ -488,7 +488,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "definitionCatalogSha256": catalog_hash,
                 "mapFormatId": "signed-layered-v1",
                 "packageSchemaId": "layered-world-package-v1",
-                "encodingVersions": [1, 3],
+                "encodingVersions": [1, 2, 3, 4],
                 "authoring": authoring,
             }
             runtime_path = target / f"{side}/evidence/runtime.json"
@@ -537,7 +537,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             "map": {
                 "formatId": "signed-layered-v1",
                 "packageSchemaId": "layered-world-package-v1",
-                "encodingVersions": [1, 3],
+                "encodingVersions": [1, 2, 3, 4],
             },
             "discovery": {
                 "configurationRoles": ["primary"],
@@ -704,6 +704,17 @@ class MapMigrationChoiceTest(unittest.TestCase):
         discovery_fixture.add_packed_content(
             target, base / "descriptor-packed-content"
         )
+        capability_path = target / "server/world-builder-capabilities.json"
+        capability = json.loads(capability_path.read_text(encoding="utf-8"))
+        capability["map"]["encodingVersions"] = [1, 2, 3, 4]
+        DISCOVERY.write_json(capability_path, capability)
+        for runtime_path in (
+            target / "server/evidence/runtime.json",
+            target / "client/evidence/runtime.json",
+        ):
+            evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
+            evidence["encodingVersions"] = [1, 2, 3, 4]
+            DISCOVERY.write_json(runtime_path, evidence)
         server_source = target / "server/maps/active.orsc"
         client_source = target / "client/maps/active.orsc"
         server_legacy = target / "server/conf/server/data/Custom_Landscape.orsc"

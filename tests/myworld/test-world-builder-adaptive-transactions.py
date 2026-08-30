@@ -640,15 +640,49 @@ public final class AdaptiveTransactionFailureHarness {
             for component in relative.split("/"):
                 self.assertFalse(component.endswith((" ", ".")), relative)
 
+    @staticmethod
+    def native_package_inventory_sha256(package: Path) -> str:
+        canonical = bytearray()
+        for path in sorted(candidate for candidate in package.rglob("*") if candidate.is_file()):
+            relative = path.relative_to(package).as_posix()
+            payload = path.read_bytes()
+            canonical.extend(relative.encode("utf-8"))
+            canonical.append(0)
+            canonical.extend(str(len(payload)).encode("ascii"))
+            canonical.append(0)
+            canonical.extend(hashlib.sha256(payload).hexdigest().encode("ascii"))
+            canonical.extend(b"\n")
+        return hashlib.sha256(canonical).hexdigest()
+
+    def upgrade_fixture_placements_to_v4(self, package: Path) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        for declaration in manifest["placementSets"]:
+            payload_path = package / declaration["path"]
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            payload["schemaVersion"] = 4
+            payload["encoding"] = "layered-world-placements-v4"
+            for npc in payload["npcs"]:
+                npc["respawnSeconds"] = -1
+            self.lifecycle.write_json(payload_path, payload)
+            declaration["encoding"] = "layered-world-placements-v4"
+            declaration["sha256"] = hashlib.sha256(payload_path.read_bytes()).hexdigest()
+        self.lifecycle.write_json(manifest_path, manifest)
+
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
         port_evidence=False, offline_evidence=None,
+        supported_encodings=(1, 2, 3, 4),
+        source_placement_v4=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
             if representation == "layered"
             else self.packed_fixtures.fixture(base)
         )
+        if source_placement_v4:
+            self.upgrade_fixture_placements_to_v4(target / "server/maps/active")
+            self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
         capability_path = target / "server/world-builder-capabilities.json"
         capability = json.loads(capability_path.read_text(encoding="utf-8"))
         if not install_enabled:
@@ -660,9 +694,18 @@ public final class AdaptiveTransactionFailureHarness {
                 "mutationProfileId": "",
                 "offlineEvidence": [],
             }
-        elif offline_evidence is not None:
+        else:
+            capability["map"]["encodingVersions"] = list(supported_encodings)
+            for runtime_path in (
+                target / "server/evidence/runtime.json",
+                target / "client/evidence/runtime.json",
+            ):
+                evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
+                evidence["encodingVersions"] = list(supported_encodings)
+                self.lifecycle.write_json(runtime_path, evidence)
+        if install_enabled and offline_evidence is not None:
             capability["install"]["offlineEvidence"] = list(offline_evidence)
-        elif not port_evidence:
+        elif install_enabled and not port_evidence:
             capability["install"]["offlineEvidence"] = ["pid-file"]
         self.lifecycle.write_json(capability_path, capability)
         installation = target / "World Builder 2"
@@ -729,6 +772,39 @@ public final class AdaptiveTransactionFailureHarness {
         self.assertEqual(0, created.returncode, created.stderr)
         return installation, Path(json.loads(created.stdout)["projectRoot"])
 
+    def test_import_refuses_unadvertised_layered_output_encodings_before_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-old-loader-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), supported_encodings=(1, 3)
+            )
+            before = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive",
+                "--project", project,
+                "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("encoding version(s) [2]", refused.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-old-placement-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), supported_encodings=(1, 2, 3), source_placement_v4=True
+            )
+            before = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive",
+                "--project", project,
+                "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("encoding version(s) [4]", refused.stderr)
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+
     def test_export_preview_import_and_exact_undo(self):
         for representation in ("layered", "packed"):
             with self.subTest(representation=representation), tempfile.TemporaryDirectory(
@@ -749,7 +825,21 @@ public final class AdaptiveTransactionFailureHarness {
                     target,
                 )
                 self.assertEqual(0, preview.returncode, preview.stderr)
-                self.assert_windows_safe_plan_paths(json.loads(preview.stdout))
+                preview_value = json.loads(preview.stdout)
+                self.assert_windows_safe_plan_paths(preview_value)
+                native_address = self.native_package_inventory_sha256(export / "package")
+                configured_paths = {
+                    change["afterValue"]
+                    for change in preview_value["configurationChanges"]
+                    if change["key"] in {
+                        "serverMapRelativePath", "clientMapRelativePath"
+                    }
+                }
+                self.assertEqual(2, len(configured_paths))
+                self.assertTrue(all(
+                    f"/world-builder/packages/{native_address}/package" in path
+                    for path in configured_paths
+                ))
                 self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
                 applied = self.run_reviewed_apply(
                     "import-adaptive",

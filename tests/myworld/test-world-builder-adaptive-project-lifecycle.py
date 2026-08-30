@@ -4964,6 +4964,17 @@ public final class UpgradeNpcPlacements {
             target = self.fixtures.descriptor_fixture(
                 str(base), world_space="global"
             )
+            capability_path = target / "server/world-builder-capabilities.json"
+            capability = json.loads(capability_path.read_text(encoding="utf-8"))
+            capability["map"]["encodingVersions"] = [1, 2, 3, 4]
+            write_json(capability_path, capability)
+            for runtime_path in (
+                target / "server/evidence/runtime.json",
+                target / "client/evidence/runtime.json",
+            ):
+                evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
+                evidence["encodingVersions"] = [1, 2, 3, 4]
+                write_json(runtime_path, evidence)
             installation = target / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
