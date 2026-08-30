@@ -150,11 +150,11 @@ Exit condition: one repeatable failure with evidence, not another inferred fix.
 
 ### 2. Shorten routine feedback
 
-- [ ] Add a documented focused-test entry point that can select one test file,
+- [x] Add a documented focused-test entry point that can select one test file,
   test class, or test method without weakening `./scripts/test.sh`.
 - [ ] Make the focused runner build the tools once and allow compatible test
   modules to reuse that build instead of rebuilding independently.
-- [ ] Add per-module timing output and maintain a small list of subsystem test
+- [x] Add per-module timing output and maintain a small list of subsystem test
   groups: discovery, projects, transactions, packaging/updater, and workflow.
 - [ ] Identify redundant full-install fixture construction in the lifecycle
   and transaction suites and introduce safe shared immutable fixture builders.
@@ -164,9 +164,9 @@ Exit condition: one repeatable failure with evidence, not another inferred fix.
   are touched; do not delay the import repair for a broad refactor.
 - [ ] Make release status canonical in one location and update stale README and
   changelog claims. Historical validation records remain immutable evidence.
-- [ ] Add a concise manager status mode that hides already-merged remote topic
+- [x] Add a concise manager status mode that hides already-merged remote topic
   branches unless detailed history is requested.
-- [ ] Document the verification-tier rule in the collaboration workflow so
+- [x] Document the verification-tier rule in the development workflow so
   onboarding, diagnosis, and documentation work do not trigger full release
   verification by habit.
 

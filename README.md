@@ -160,7 +160,9 @@ procedure.
 
 See [Development](docs/DEVELOPMENT.md),
 [Architecture](docs/ARCHITECTURE.md), and [Releasing](docs/RELEASING.md) for the
-full contracts.
+full contracts. Use the [documentation index](docs/INDEX.md), [tooling code
+map](tools/world-builder/CODE-MAP.md), and [test map](tests/README.md) to route a
+narrow change without reading every historical or subsystem document.
 
 The approved foundation for target-derived maps, content-neutral releases,
 isolated projects, and packed-to-layered conversion is documented in [World

@@ -9,7 +9,7 @@ source "$SCRIPT_ROOT/scripts/lib/ai-workspace-common.sh"
 usage() {
   cat <<'USAGE'
 Usage:
-  ./scripts/ai-manager.sh status
+  ./scripts/ai-manager.sh status [--verbose]
   ./scripts/ai-manager.sh rescue <ai-N> [-m message] [--local-only] [--allow-sensitive] [--allow-large]
   ./scripts/ai-manager.sh collect-contributor <ai-N> <remote-topic-branch> <exact-commit>
   ./scripts/ai-manager.sh merge <topic-branch>
@@ -334,8 +334,13 @@ shift
 
 case "$command" in
   status)
-    [[ $# -eq 0 ]] || ai_fail "status takes no arguments."
-    ai_status
+    if [[ $# -eq 0 ]]; then
+      ai_status false
+    elif [[ $# -eq 1 && "$1" == --verbose ]]; then
+      ai_status true
+    else
+      ai_fail "status accepts only optional --verbose."
+    fi
     ;;
   rescue)
     manager_rescue "$@"

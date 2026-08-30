@@ -14,6 +14,10 @@ its ignored Editor-owned output. It does not inspect or manage another product.
 No generated archive, workspace, release record, schema, or compatibility
 fixture was deleted during the audit.
 
+Measurements and problem descriptions below refer to the audited baseline.
+Completed checklist items record later improvements; they do not rewrite the
+baseline evidence that motivated them.
+
 ## Executive findings
 
 The repository has three different kinds of bloat, and they should not be
@@ -325,13 +329,13 @@ Suggested default retention after those guards are implemented:
 
 ### Priority 0 — immediate feedback and storage controls
 
-- [ ] Add concise manager status and detailed `--verbose` output.
-- [ ] Add focused test selection, named groups, timings, and concise success
+- [x] Add concise manager status and detailed `--verbose` output.
+- [x] Add focused test selection, named groups, timings, and concise success
   output.
-- [ ] Add a read-only generated-output inventory/cleanup preview command.
+- [x] Add a read-only generated-output inventory/cleanup preview command.
 - [ ] Review the 31 GB output inventory with the owner, then perform one exact
   recoverable/archive-aware cleanup under explicit approval.
-- [ ] Add `docs/INDEX.md`, `tools/world-builder/CODE-MAP.md`, and
+- [x] Add `docs/INDEX.md`, `tools/world-builder/CODE-MAP.md`, and
   `tests/README.md`.
 
 ### Priority 1 — extract test infrastructure

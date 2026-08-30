@@ -742,12 +742,14 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
 
     def test_focused_suite_is_noninteractive_and_covers_runtime_supervision(self) -> None:
         text = FOCUSED_SUITE.read_text(encoding="utf-8")
-        self.assertIn('python3 "$ROOT_DIR/$relative" -v </dev/null', text)
-        self.assertIn("test-world-builder-native-runtime-integration.py", text)
-        self.assertIn("test-world-builder-supervision.py", text)
-        self.assertIn("test-world-builder-adaptive-transactions.py", text)
-        self.assertIn("test-world-builder-ai-workspaces.py", text)
-        self.assertIn("test-world-builder-v2-updater.py", text)
+        self.assertIn('"$ROOT_DIR/scripts/test.sh" --group candidate --verbose', text)
+        runner = (ROOT / "scripts/test.sh").read_text(encoding="utf-8")
+        self.assertIn('if "${command[@]}" </dev/null', runner)
+        self.assertIn("test-world-builder-native-runtime-integration.py", runner)
+        self.assertIn("test-world-builder-supervision.py", runner)
+        self.assertIn("test-world-builder-adaptive-transactions.py", runner)
+        self.assertIn("test-world-builder-ai-workspaces.py", runner)
+        self.assertIn("test-world-builder-v2-updater.py", runner)
 
         native = NATIVE_PROOF.read_text(encoding="utf-8")
         self.assertIn("defaultAdaptiveClientCommand(project)", native)

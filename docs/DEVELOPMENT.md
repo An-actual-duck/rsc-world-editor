@@ -21,6 +21,34 @@ Run the complete repository test suite:
 ./scripts/test.sh
 ```
 
+Routine development should use the smallest relevant named group, file, or
+exact unittest selector. Successful output is concise by default; `--verbose`
+prints the complete captured unittest output:
+
+```bash
+./scripts/test.sh --list
+./scripts/test.sh --group workflow
+./scripts/test.sh --file test-world-builder-adaptive-transactions.py
+./scripts/test.sh --test \
+  test-world-builder-adaptive-transactions.py::AdaptiveTransactionTest.test_export_preview_import_and_exact_undo
+```
+
+The no-argument command remains the full integration gate. Focused selection
+shortens feedback; it does not replace the risk-appropriate full run before
+behavioral integration or release. See [Test map](../tests/README.md) for group
+ownership and native requirements.
+
+Inspect ignored generated-output retention without changing any file:
+
+```bash
+./scripts/preview-generated-output-cleanup.sh
+./scripts/preview-generated-output-cleanup.sh --verbose
+```
+
+`REVIEW-DISPOSABLE` is an inventory classification, not deletion authority.
+Development sandboxes and paths with durable-state markers remain blocked or
+manual-review-only.
+
 ## Reusable tool test environment
 
 Tool interaction work uses a generated development-only world rather than a

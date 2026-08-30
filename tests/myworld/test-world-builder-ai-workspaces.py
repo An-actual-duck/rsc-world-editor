@@ -252,6 +252,23 @@ class AiWorkspaceWorkflowTest(unittest.TestCase):
         self.assertIn("branch=fix/status", status)
         self.assertIn("remote=MISSING", status)
 
+    def test_status_collapses_merged_remote_history_unless_verbose(self) -> None:
+        f = self.fixture
+        f.git("branch", "docs/already-merged")
+        f.git("push", "origin", "docs/already-merged")
+
+        concise = f.run("ai-manager.sh", "status").stdout
+        self.assertIn("Remote task branches: total=1 merged=1 unmerged=0", concise)
+        self.assertNotIn("origin/docs/already-merged merged=yes", concise)
+
+        verbose = f.run("ai-manager.sh", "status", "--verbose").stdout
+        self.assertIn("Remote task branches:", verbose)
+        self.assertIn("origin/docs/already-merged merged=yes", verbose)
+
+        invalid = f.run("ai-manager.sh", "status", "--unexpected", check=False)
+        self.assertNotEqual(0, invalid.returncode)
+        self.assertIn("optional --verbose", invalid.stderr)
+
     def test_cross_project_invocation_is_rejected(self) -> None:
         f = self.fixture
         outside = f.base / "unrelated-project"

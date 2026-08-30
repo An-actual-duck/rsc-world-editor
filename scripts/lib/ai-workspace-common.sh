@@ -607,10 +607,16 @@ ai_list_worktree_paths() {
 }
 
 ai_status() {
+  local verbose="${1:-false}"
   local published_ref published_head stash_count path path_real role branch head short_head
   local dirty_count behind ahead merged remote_state slot phase state_flag live_real primary_real
   local orphan_count=0 candidate candidate_path candidate_head candidate_remote_head
-  local remote_count=0 remote_candidate remote_branch local_state
+  local remote_count=0 remote_merged_count=0 remote_unmerged_count=0
+  local remote_candidate remote_branch local_state remote_line
+  local -a remote_lines=()
+
+  [[ "$verbose" == true || "$verbose" == false ]] \
+    || ai_fail "Internal status verbosity must be true or false."
 
   published_ref="$(ai_published_ref || true)"
   if [[ -n "$published_ref" ]]; then
@@ -720,7 +726,6 @@ ai_status() {
   done < <(git -C "$ROOT_DIR" for-each-ref '--format=%(refname:short)' refs/heads)
   ((orphan_count > 0)) || printf '  (none)\n'
 
-  printf '\nRemote task branches:\n'
   while IFS= read -r remote_candidate; do
     [[ -n "$remote_candidate" ]] || continue
     remote_branch="${remote_candidate#"$AI_REMOTE/"}"
@@ -733,12 +738,35 @@ ai_status() {
     fi
     if [[ -n "$published_ref" ]] && git -C "$ROOT_DIR" merge-base --is-ancestor "$remote_candidate" "$published_ref"; then
       merged=yes
+      remote_merged_count=$((remote_merged_count + 1))
     else
       merged=no
+      remote_unmerged_count=$((remote_unmerged_count + 1))
     fi
-    printf '  %s merged=%s state=%s\n' "$remote_candidate" "$merged" "$local_state"
+    remote_line="  $remote_candidate merged=$merged state=$local_state"
+    if [[ "$verbose" == true || "$merged" == no ]]; then
+      remote_lines+=("$remote_line")
+    fi
   done < <(git -C "$ROOT_DIR" for-each-ref '--format=%(refname:short)' "refs/remotes/$AI_REMOTE")
-  ((remote_count > 0)) || printf '  (none)\n'
+  if [[ "$verbose" == true ]]; then
+    printf '\nRemote task branches:\n'
+    if ((remote_count > 0)); then
+      printf '%s\n' "${remote_lines[@]}"
+    else
+      printf '  (none)\n'
+    fi
+  else
+    printf '\nRemote task branches: total=%s merged=%s unmerged=%s' \
+      "$remote_count" "$remote_merged_count" "$remote_unmerged_count"
+    if ((remote_count > 0)); then
+      printf ' (use status --verbose for the complete inventory)\n'
+    else
+      printf '\n'
+    fi
+    if ((remote_unmerged_count > 0)); then
+      printf '%s\n' "${remote_lines[@]}"
+    fi
+  fi
 }
 
 ai_initialize_context

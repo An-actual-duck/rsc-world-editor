@@ -14,7 +14,7 @@ Usage:
   ./scripts/ai-workspace.sh start <ai-N> <topic-branch>
   ./scripts/ai-workspace.sh checkpoint [-m message] [--local-only] [--allow-sensitive] [--allow-large]
   ./scripts/ai-workspace.sh handoff [-m message] [--allow-sensitive] [--allow-large]
-  ./scripts/ai-workspace.sh status
+  ./scripts/ai-workspace.sh status [--verbose]
   ./scripts/ai-workspace.sh recycle <ai-N> [--keep-remote]
 
 Neutral slots are persistent folders. Each task receives a short-lived,
@@ -350,8 +350,13 @@ case "$command" in
     workspace_checkpoint READY "$@"
     ;;
   status)
-    [[ $# -eq 0 ]] || ai_fail "status takes no arguments."
-    ai_status
+    if [[ $# -eq 0 ]]; then
+      ai_status false
+    elif [[ $# -eq 1 && "$1" == --verbose ]]; then
+      ai_status true
+    else
+      ai_fail "status accepts only optional --verbose."
+    fi
     ;;
   recycle)
     workspace_recycle "$@"

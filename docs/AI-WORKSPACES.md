@@ -77,6 +77,10 @@ git push origin main
 ./scripts/ai-workspace.sh recycle ai-1
 ```
 
+Status is concise by default and always shows work that is active, dirty,
+stale, local-only, or unmerged. Use `./scripts/ai-manager.sh status --verbose`
+when the complete inventory of already-merged remote task branches is relevant.
+
 ## Cross-repository runtime work
 
 Runtime implementation remains in the independent runtime repository. The
