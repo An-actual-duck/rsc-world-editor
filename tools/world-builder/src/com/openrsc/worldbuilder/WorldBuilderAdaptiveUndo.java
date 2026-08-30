@@ -415,7 +415,8 @@ final class WorldBuilderAdaptiveUndo {
 	static WorldBuilderAdaptiveMutationProfile.Plan resolveEffectiveInstalledPlan(
 		WorldBuilderAdaptiveMutationProfile.Plan historical)
 		throws IOException, WorldBuilderContractException {
-		if (changedAfterPaths(historical).isEmpty()) return historical;
+		List<String> historicalChanges = changedAfterPaths(historical);
+		if (historicalChanges.isEmpty()) return historical;
 		WorldBuilderAdaptiveMutationProfile.Plan relocated =
 			WorldBuilderAdaptiveMutationProfile.relocateHistoricalInstalledPlan(historical);
 		if (relocated == historical) return historical;
@@ -427,9 +428,18 @@ final class WorldBuilderAdaptiveUndo {
 			historical.targetRoot,
 			WorldBuilderAdaptiveMutationProfile.fingerprintRoot(
 				historical.clientPackageRelativePath));
-		if (Files.exists(oldServer, LinkOption.NOFOLLOW_LINKS)
-			|| Files.exists(oldClient, LinkOption.NOFOLLOW_LINKS)) return historical;
-		return changedAfterPaths(relocated).isEmpty() ? relocated : historical;
+		if (!changedAfterPaths(relocated).isEmpty()) return historical;
+		boolean oldServerPresent = Files.exists(oldServer, LinkOption.NOFOLLOW_LINKS);
+		boolean oldClientPresent = Files.exists(oldClient, LinkOption.NOFOLLOW_LINKS);
+		if (!oldServerPresent && !oldClientPresent) return relocated;
+		if (!oldServerPresent || !oldClientPresent
+			|| historicalChanges.size() != 1
+			|| !historical.configuration.relativePath.equals(
+				historicalChanges.get(0))) return historical;
+		WorldBuilderAdaptiveMutationProfile.Plan retained =
+			WorldBuilderAdaptiveMutationProfile.retainHistoricalPackagePlan(
+				historical, relocated);
+		return changedAfterPaths(retained).isEmpty() ? retained : historical;
 	}
 
 	static List<String> changedAfterPaths(

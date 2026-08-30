@@ -1304,8 +1304,10 @@ evidence, prior receipt, prior plan, and prior export; it then installs B at a
 new content address and switches configuration atomically. Undo B restores A,
 and a later Undo A restores the original target. The bounded historical
 logical-address-to-native-address correction is recognized only when the old
-roots are absent and the corrected trees/configuration match every expected
-byte. No arbitrary current server state is adopted.
+roots are absent, or when both retained old roots and corrected roots match
+every expected byte and configuration selects the corrected pair. Retained
+owned roots remain in the transaction chain so final Undo removes both. No
+arbitrary current server state is adopted.
 
 - Replace fixed five-file/fixed-layered destinations with adaptive export and
   bounded server/client mutation profiles.

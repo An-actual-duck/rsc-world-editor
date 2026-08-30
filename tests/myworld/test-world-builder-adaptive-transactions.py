@@ -802,7 +802,7 @@ public final class AdaptiveTransactionFailureHarness {
                 old_root = target / Path(old_package).parent
                 new_root = target / Path(new_package).parent
                 self.assertFalse(new_root.exists())
-                old_root.rename(new_root)
+                shutil.copytree(old_root, new_root)
                 configuration[key] = new_package
             self.lifecycle.write_json(configuration_path, configuration)
             corrected_a = self.lifecycle.tree_bytes(target, installation)
@@ -819,6 +819,20 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, reopened.returncode, reopened.stderr)
             self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+
+            retained_manifest = (
+                target / "server/world-builder/packages" / legacy_address
+                / "package/manifest.json"
+            )
+            retained_bytes = retained_manifest.read_bytes()
+            retained_manifest.unlink()
+            refused = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export_b, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("TARGET_DRIFT", refused.stderr)
+            retained_manifest.write_bytes(retained_bytes)
 
             imported_b = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,

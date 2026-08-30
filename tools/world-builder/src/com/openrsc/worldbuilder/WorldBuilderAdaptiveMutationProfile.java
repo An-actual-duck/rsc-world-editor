@@ -812,6 +812,49 @@ final class WorldBuilderAdaptiveMutationProfile {
 			directories, document);
 	}
 
+	static Plan retainHistoricalPackagePlan(Plan historical, Plan relocated)
+		throws WorldBuilderContractException {
+		List<Action> actions = new ArrayList<Action>();
+		for (Action action : relocated.actions) {
+			if (!action.activation) actions.add(action);
+		}
+		for (Action action : historical.actions) {
+			if (action.activation) continue;
+			boolean historicalPackage = action.destinationRelativePath.startsWith(
+				historical.serverPackageRelativePath + "/")
+				|| action.destinationRelativePath.startsWith(
+					historical.clientPackageRelativePath + "/");
+			if (!historicalPackage) continue;
+			actions.add(new Action("retained-" + action.role,
+				action.destinationRelativePath, action.before, action.after,
+				action.contentRelativePath, action.backupRelativePath,
+				false, action.generatedContent));
+		}
+		for (Action action : relocated.actions) {
+			if (action.activation) actions.add(action);
+		}
+		Set<String> directorySet = new HashSet<String>();
+		directorySet.addAll(relocated.directoriesToCreate);
+		directorySet.addAll(historical.directoriesToCreate);
+		List<String> directories = new ArrayList<String>(directorySet);
+		Collections.sort(directories, new Comparator<String>() {
+			@Override public int compare(String left, String right) {
+				int depth = left.split("/").length - right.split("/").length;
+				return depth == 0 ? left.compareTo(right) : depth;
+			}
+		});
+		long requiredSpace = requiredSpace(actions);
+		Map<String,Object> document = document(historical.transactionId(),
+			historical.project, historical.export, historical.capability,
+			historical.configuration, historical.targetLineage(), actions,
+			relocated.configurationChanges, directories, requiredSpace);
+		return new Plan(historical.targetRoot, historical.project, historical.export,
+			historical.capability, historical.configuration, historical.profileId,
+			relocated.serverPackageRelativePath, relocated.clientPackageRelativePath,
+			relocated.configurationBytes, actions, relocated.configurationChanges,
+			directories, document);
+	}
+
 	private static String relocatePackagePath(String value,
 		String oldServer, String newServer, String oldClient, String newClient) {
 		if (value.equals(oldServer) || value.startsWith(oldServer + "/")) {
