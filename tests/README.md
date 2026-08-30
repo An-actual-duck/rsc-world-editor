@@ -43,9 +43,13 @@ deduplicates repeated file selections within one invocation.
 | `test-world-builder-adaptive-project-lifecycle.py` | 69 tests spanning creation, reopen, runtime, content, regions, migration, and durability | 114.278 seconds |
 | `test-world-builder-adaptive-transactions.py` | 41 tests spanning export/import/Undo/recovery and filesystem failure boundaries | 196.682 seconds |
 
-These modules still contain shared fixture builders and embedded Java harnesses.
-They are scheduled for extraction and subsystem splitting. Until then, prefer
-an exact method while iterating and the complete module at subsystem handoff.
+Shared deterministic project/runtime fixtures now live in
+`myworld/adaptive_project_test_support.py`; transaction tests no longer import
+the lifecycle test module as a hidden library. The two suites still contain
+large embedded Java harnesses and broad behavioral groupings. Prefer an exact
+method while iterating and the complete module at subsystem handoff. Split a
+behavioral group only when that improves selection or ownership; line count by
+itself is not a reason to fragment an otherwise navigable suite.
 
 ## Native and optional checks
 

@@ -4,7 +4,7 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Initial audit complete; cleanup and optimization not yet implemented |
+| Status | Initial audit complete; first optimization batch and reviewed output cleanup complete |
 | Audited | 2026-08-30 |
 | Editor baseline | `b48e74270a88bff47c442e9a628f6d02db304a6d` |
 | Purpose | Reduce routine AI/developer latency without weakening integration or release safety |
@@ -140,7 +140,7 @@ are mixed in the same files.
 2. Add a concise default suitable for AI: one line per module with status,
    tests, skips, and duration; preserve complete output in a temporary log and
    print the relevant tail on failure. Keep `--verbose` for diagnosis.
-3. Extract shared Python fixture builders into `tests/myworld/support/`.
+3. Extract shared Python fixture builders into a clearly named support module.
    Transaction tests must not import another test module as a library.
 4. Move embedded Java harnesses into normal files under
    `tests/java/com/openrsc/worldbuilder/`, named by the failure boundary they
@@ -333,14 +333,18 @@ Suggested default retention after those guards are implemented:
 - [x] Add focused test selection, named groups, timings, and concise success
   output.
 - [x] Add a read-only generated-output inventory/cleanup preview command.
-- [ ] Review the 31 GB output inventory with the owner, then perform one exact
-  recoverable/archive-aware cleanup under explicit approval.
+- [x] Review the 31 GB output inventory with the owner, then perform one exact
+  recoverable/archive-aware cleanup under explicit approval. The reviewed 109
+  disposable directories (about 24 GB) were moved to system Trash; protected
+  development, project-bearing, current-tool, and frozen-v1 outputs remained.
 - [x] Add `docs/INDEX.md`, `tools/world-builder/CODE-MAP.md`, and
   `tests/README.md`.
 
 ### Priority 1 — extract test infrastructure
 
-- [ ] Move fixture builders into `tests/myworld/support/`.
+- [x] Move shared fixture builders into
+  `tests/myworld/adaptive_project_test_support.py`; transaction tests no longer
+  dynamically import the 8,000-line lifecycle suite.
 - [ ] Move embedded Java harnesses into `tests/java/`.
 - [ ] Share source-hash-bound compiled production classes.
 - [ ] Split lifecycle and transaction modules along subsystem boundaries.

@@ -8,7 +8,7 @@
 | Created | 2026-08-30 |
 | Product | World Builder 2 |
 | Immediate objective | Restore trustworthy server import and shorten development feedback loops |
-| Current manager baseline | Editor `7c954ed73b6ec135a77c876c2f770fad3b0a62ca`; runtime provider `69f908a2be1ff52085f4730f47714423c58c1cba` |
+| Current published baseline | Editor `90cadb1b3247edf0580f65c81934c02a2f3a5c5b`; runtime provider `69f908a2be1ff52085f4730f47714423c58c1cba` |
 | Release state | `v0.7.0-alpha.35` published; development release gate closed |
 
 This document keeps the reliability work visible while an independent stop-gap
@@ -156,10 +156,10 @@ Exit condition: one repeatable failure with evidence, not another inferred fix.
   modules to reuse that build instead of rebuilding independently.
 - [x] Add per-module timing output and maintain a small list of subsystem test
   groups: discovery, projects, transactions, packaging/updater, and workflow.
-- [ ] Identify redundant full-install fixture construction in the lifecycle
-  and transaction suites and introduce safe shared immutable fixture builders.
-- [ ] Split the 8,461-line lifecycle test module and other oversized modules by
-  subsystem so focused runs do not execute unrelated behavior.
+- [x] Identify redundant full-install fixture construction in the lifecycle
+  and transaction suites and introduce shared deterministic fixture builders.
+- [ ] Split oversized test modules only where a behavioral boundary materially
+  improves focused execution or navigation; do not split by line count alone.
 - [ ] Split production classes only along proven ownership boundaries as they
   are touched; do not delay the import repair for a broad refactor.
 - [ ] Make release status canonical in one location and update stale README and
