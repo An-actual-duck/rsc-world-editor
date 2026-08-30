@@ -264,6 +264,13 @@ action on the main launcher as well as a File-menu recovery path. The GUI:
 8. shows the verified receipt and installed client/map identity; and
 9. offers the appropriate Undo or Recovery next action.
 
+The main selected-project actions keep **Undo Last Server Import** separate
+from **Restore Project Backup**. Undo uses the successful server-import receipt
+and its exact target backup; project restore changes only the Editor's isolated
+working world and never reverses a server import. Until import transactions are
+chainable, an unreverted successful import must be undone before the same
+project can install a later working state.
+
 After a successful packed-to-layered installation, Detect Server Map validates
 the content-addressed server/client package pair through the same immutable
 install-capable descriptor and reports the active target as layered. This is a
@@ -353,7 +360,8 @@ reviewed retention policy may follow.
 
 ### Backup browser
 
-The main launcher provides a visible **Restore Backup** selected-project action.
+The main launcher provides a visible **Restore Project Backup** selected-project
+action.
 It opens the same **Project Backups** browser available from the File menu, with:
 
 - a newest-first revision list;

@@ -2159,6 +2159,13 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, exported_b.returncode, exported_b.stderr)
             export_b = Path(json.loads(exported_b.stdout)["exportDirectory"])
 
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+
             installed = self.lifecycle.tree_bytes(target, installation)
             artifacts = self.transaction_artifacts(project)
             second = self.run_cli(
@@ -2166,8 +2173,8 @@ public final class AdaptiveTransactionFailureHarness {
                 "--target-root", target,
             )
             self.assertEqual(3, second.returncode, second.stderr)
-            self.assertIn("one outstanding successful import", second.stderr)
-            self.assertIn("Undo", second.stderr)
+            self.assertIn("last successful server map import is still installed", second.stderr)
+            self.assertIn("Undo Last Server Import", second.stderr)
             self.assertEqual(installed, self.lifecycle.tree_bytes(target, installation))
             self.assertEqual(artifacts, self.transaction_artifacts(project))
 
@@ -2178,6 +2185,18 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, undone.returncode, undone.stderr)
             self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
             self.assertEqual(working_b, self.lifecycle.tree_bytes(project / "working"))
+
+            reattached = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reattached.returncode, reattached.stderr)
+            self.assertEqual("ready-attached", json.loads(reattached.stdout)["state"])
+            current_import = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_b, "--target-root", target,
+            )
+            self.assertEqual(0, current_import.returncode, current_import.stderr)
 
     def test_final_boundary_drift_and_appeared_paths_are_preserved(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-activation-drift-") as temp:

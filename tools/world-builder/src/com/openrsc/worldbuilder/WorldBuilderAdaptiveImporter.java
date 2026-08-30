@@ -134,6 +134,10 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderErrorCodes.LOADER_INCOMPATIBLE, "project.json", false,
 				"This target-backed project was created without compatible server/client install capability.",
 				"Install a runtime that truthfully advertises the matching layered loader, client, definitions, protocol, and bounded mutation profile, then create a fresh project.");
+			if (hasOutstandingSuccessfulImport(initial.projectRoot)) throw problem(
+				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "receipts", false,
+				"This project's last successful server map import is still installed.",
+				"Use Undo Last Server Import to restore the exact pre-import server files, then reopen this project and import its current map.");
 			throw problem(WorldBuilderErrorCodes.PROJECT_DETACHED,
 				"project.json", false,
 				"Only an exactly attached target-backed project can be imported.",
@@ -384,9 +388,35 @@ final class WorldBuilderAdaptiveImporter {
 				&& !reverted.contains(receipt.transactionId())) throw problem(
 				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
 				"receipts/" + receipt.transactionId() + ".json", false,
-				"Phase 6 supports one outstanding successful import per project; a second import is not chainable.",
-				"Run exact Undo for this import first, then save/export/import the desired working state as a fresh transaction.");
+				"This project's last successful server map import is still installed.",
+				"Use Undo Last Server Import to restore the exact pre-import server files, then import the desired working state as a fresh transaction.");
 		}
+	}
+
+	private static boolean hasOutstandingSuccessfulImport(Path project)
+		throws IOException, WorldBuilderContractException {
+		List<WorldBuilderAdaptiveReceipt.State> receipts =
+			WorldBuilderAdaptiveReceipt.readAll(project);
+		Set<String> reverted = new java.util.HashSet<String>();
+		for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
+			if ("pending".equals(receipt.status())
+				|| "recovery-required".equals(receipt.status())) {
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+					"receipts/" + receipt.transactionId() + ".json", false,
+					"An earlier adaptive transaction requires recovery.",
+					"Keep the target offline and use Recover Interrupted Server Map Import before another transaction.");
+			}
+			if ("undo".equals(receipt.transactionType())
+				&& "reverted".equals(receipt.status())) {
+				reverted.add(receipt.revertsTransactionId());
+			}
+		}
+		for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
+			if ("import".equals(receipt.transactionType())
+				&& "successful".equals(receipt.status())
+				&& !reverted.contains(receipt.transactionId())) return true;
+		}
+		return false;
 	}
 
 	private static void ensureFreeSpace(WorldBuilderAdaptiveMutationProfile.Plan plan)
