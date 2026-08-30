@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Temporary-fixture coverage for the Phase 3 adaptive project lifecycle."""
 
+import copy
 import hashlib
 import gzip
 import importlib.util
@@ -3039,8 +3040,12 @@ public final class FakeAdaptiveClient {
                     export_root / "package/placements/global/lp0.json"
                 ).read_text(encoding="utf-8")
             )
+            expected_export = copy.deepcopy(expected)
+            for npc in expected_export["npcs"]:
+                npc.pop("respawnSeconds", None)
+            self.assertEqual("layered-world-placements-v3", exported_placement["encoding"])
             for family in ("boundaries", "groundItems", "npcs", "scenery"):
-                self.assertEqual(expected[family], exported_placement[family])
+                self.assertEqual(expected_export[family], exported_placement[family])
             validation = json.loads(
                 (export_root / "validation-report.json").read_text(encoding="utf-8")
             )

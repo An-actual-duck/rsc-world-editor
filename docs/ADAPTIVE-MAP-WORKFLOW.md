@@ -811,28 +811,34 @@ a shipped map.
    binary capability, or client/server drift.
 5. Acquire every adapter-required offline signal: relevant ports, process/lock
    evidence, and configuration locks. One port check is not assumed sufficient.
-6. Compare every terrain and placement encoding in the exact export with the
-   independently captured server/client runtime evidence. A target that
-   advertises only legacy versions is refused with `LOADER_INCOMPATIBLE` before
-   a backup, receipt, package directory, or configuration mutation is created.
-   Runtime source or binaries are never patched implicitly during a map import;
-   the server distribution must first adopt the published compatible loader and
-   regenerate truthful capability evidence.
-7. Build a bounded mutation plan and show an exact human/JSON preview using
+6. Create a deterministic lossless compatibility projection before publication:
+   terrain whose elevations all fit `0..255` is emitted as
+   `raw-layered-sector-v1`, and placements whose NPCs all retain inherited
+   respawn behavior are emitted as `layered-world-placements-v3`. Wide terrain
+   and explicit NPC respawn values retain v2/v4 respectively. This keeps the
+   ordinary end-user import compatible with an unchanged older target without
+   discarding newer authored data.
+7. Compare every terrain and placement encoding in that exact projected export
+   with the independently captured server/client runtime evidence. A target is
+   refused with `LOADER_INCOMPATIBLE` before a backup, receipt, package
+   directory, or configuration mutation is created only when the map genuinely
+   uses a newer feature the target cannot represent. Runtime source or binaries
+   are never patched implicitly during a map import.
+8. Build a bounded mutation plan and show an exact human/JSON preview using
    actual safe transaction IDs and paths.
-8. Require exact `IMPORT` confirmation.
-9. Write a durable pending receipt and verified backups before first mutation.
-10. Stage and verify content-addressed server/client package data on the target
+9. Require exact `IMPORT` confirmation.
+10. Write a durable pending receipt and verified backups before first mutation.
+11. Stage and verify content-addressed server/client package data on the target
    filesystem.
-11. Change package activation/configuration last.
-12. Verify every byte, semantic config value, active package hash, and
+12. Change package activation/configuration last.
+13. Verify every byte, semantic config value, active package hash, and
     server/client selection.
-13. Finalize the success receipt and display the exact client/map identity the
+14. Finalize the success receipt and display the exact client/map identity the
     administrator must distribute.
-14. Rediscovery through an install-capable packed descriptor recognizes only
+15. Rediscovery through an install-capable packed descriptor recognizes only
     its exact content-addressed post-import server/client packages as layered,
     while retaining the original adapter as transition and undo authority.
-15. On any failure, roll back in reverse safe order and verify the complete
+16. On any failure, roll back in reverse safe order and verify the complete
     before inventory. If rollback cannot verify, retain recovery state and
     block new transactions.
 

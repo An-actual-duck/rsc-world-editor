@@ -80,20 +80,6 @@ final class WorldBuilderAdaptiveExporter {
 		}
 
 		Path exports = requireDirectory(project, "exports", "project exports directory");
-		Map<String,Object> manifest = manifest(verified);
-		Map<String,Object> validation = validationReport(verified, manifest);
-		String validationHash = canonicalHash(validation);
-		@SuppressWarnings("unchecked") List<Object> validationReports =
-			(List<Object>)manifest.get("validationReports");
-		@SuppressWarnings("unchecked") Map<String,Object> reportRecord =
-			(Map<String,Object>)validationReports.get(0);
-		reportRecord.put("sha256", validationHash);
-		bindFingerprint(manifest, "exportFingerprintSha256");
-		WorldBuilderAdaptiveContracts.validateParsed(
-			WorldBuilderAdaptiveContracts.Kind.ADAPTIVE_EXPORT, manifest);
-
-		String fingerprint = string(manifest, "exportFingerprintSha256");
-		Path published = uniqueExportPath(exports, fingerprint);
 		Path stage = exports.resolve(".staging-" + UUID.randomUUID().toString()).normalize();
 		Path incomplete = null;
 		OwnedTree owned = new OwnedTree();
@@ -104,7 +90,26 @@ final class WorldBuilderAdaptiveExporter {
 			owned.record(stage, stage);
 			observe("stage-created", stage);
 			copyPackage(verified, stage.resolve(PACKAGE_DIRECTORY), owned);
+			minimizePackageEncodings(stage.resolve(PACKAGE_DIRECTORY));
 			observe("package-copied", stage);
+			WorldBuilderGenericLayeredPackage packageValue =
+				WorldBuilderGenericLayeredPackage.inspect(
+					WorldBuilderReadOnlyTarget.open(stage), PACKAGE_DIRECTORY,
+					"export", verified.definitions);
+			Map<String,Object> manifest = manifest(verified, packageValue);
+			Map<String,Object> validation = validationReport(
+				verified, manifest, packageValue);
+			String validationHash = canonicalHash(validation);
+			@SuppressWarnings("unchecked") List<Object> validationReports =
+				(List<Object>)manifest.get("validationReports");
+			@SuppressWarnings("unchecked") Map<String,Object> reportRecord =
+				(Map<String,Object>)validationReports.get(0);
+			reportRecord.put("sha256", validationHash);
+			bindFingerprint(manifest, "exportFingerprintSha256");
+			WorldBuilderAdaptiveContracts.validateParsed(
+				WorldBuilderAdaptiveContracts.Kind.ADAPTIVE_EXPORT, manifest);
+			String fingerprint = string(manifest, "exportFingerprintSha256");
+			Path published = uniqueExportPath(exports, fingerprint);
 			writeNew(stage.resolve(VALIDATION_FILE),
 				WorldBuilderJsonDocuments.pretty(validation).getBytes(StandardCharsets.UTF_8));
 			owned.record(stage, stage.resolve(VALIDATION_FILE));
@@ -123,8 +128,8 @@ final class WorldBuilderAdaptiveExporter {
 			validate(published, verified);
 			incomplete = null;
 			return new ExportResult(published, verified.projectId, verified.origin,
-				fingerprint, verified.working.fingerprintSha256,
-				verified.working.files.size());
+				fingerprint, packageValue.fingerprintSha256,
+				packageValue.files.size());
 		} catch (WorldBuilderContractException failure) {
 			cleanupAfterFailure(owned, incomplete, failure);
 			throw failure;
@@ -224,6 +229,7 @@ final class WorldBuilderAdaptiveExporter {
 				"Adaptive export package identity did not independently validate.",
 				"Use the exact complete export produced by World Builder.");
 		}
+		if (requireCurrentWorking) requireLosslessProjection(export, project);
 		requireValidationReport(report, project, packageValue);
 		return new VerifiedExport(export, manifest, packageValue,
 			WorldBuilderAdaptiveContracts.validateParsed(
@@ -231,7 +237,8 @@ final class WorldBuilderAdaptiveExporter {
 	}
 
 	private static Map<String,Object> manifest(
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		WorldBuilderGenericLayeredPackage packageValue)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> projectManifest = project.manifest;
 		Map<String,Object> fingerprints = object(
@@ -255,12 +262,11 @@ final class WorldBuilderAdaptiveExporter {
 		lineage.put("workingSha256", string(fingerprints, "workingSha256"));
 		value.put("lineage", lineage);
 		value.put("packageManifestSha256",
-			packageManifestHash(project.working,
-				WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/"));
-		value.put("packageFingerprintSha256", project.working.fingerprintSha256);
+			packageManifestHash(packageValue, PACKAGE_DIRECTORY + "/"));
+		value.put("packageFingerprintSha256", packageValue.fingerprintSha256);
 		List<Object> files = new ArrayList<Object>();
-		String prefix = WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/";
-		for (WorldBuilderReadOnlyTarget.FileState file : project.working.files) {
+		String prefix = PACKAGE_DIRECTORY + "/";
+		for (WorldBuilderReadOnlyTarget.FileState file : packageValue.files) {
 			if (!file.relativePath.startsWith(prefix)) throw problem(
 				WorldBuilderErrorCodes.UNSAFE_PATH, file.relativePath,
 				"Working package inventory escaped its declared project directory.",
@@ -298,7 +304,9 @@ final class WorldBuilderAdaptiveExporter {
 
 	private static Map<String,Object> validationReport(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
-		Map<String,Object> manifest) throws WorldBuilderContractException {
+		Map<String,Object> manifest,
+		WorldBuilderGenericLayeredPackage packageValue)
+		throws WorldBuilderContractException {
 		Map<String,Object> value = new LinkedHashMap<String,Object>();
 		value.put("schemaVersion", Long.valueOf(1L));
 		value.put("manifestType", "world-builder-adaptive-export-validation");
@@ -307,17 +315,17 @@ final class WorldBuilderAdaptiveExporter {
 		value.put("packageManifestSha256", string(manifest, "packageManifestSha256"));
 		value.put("packageFingerprintSha256",
 			string(manifest, "packageFingerprintSha256"));
-		value.put("packageId", project.working.packageId);
-		value.put("packageVersion", project.working.packageVersion);
-		value.put("worldSpace", project.working.worldSpace);
-		value.put("fileCount", Long.valueOf(project.working.files.size()));
-		value.put("levelCount", Long.valueOf(project.working.levelCount));
-		value.put("terrainCount", Long.valueOf(project.working.terrainCount));
-		value.put("placementSetCount", Long.valueOf(project.working.placementSetCount));
-		value.put("boundaryCount", Long.valueOf(project.working.boundaryCount));
-		value.put("groundItemCount", Long.valueOf(project.working.groundItemCount));
-		value.put("npcCount", Long.valueOf(project.working.npcCount));
-		value.put("sceneryCount", Long.valueOf(project.working.sceneryCount));
+		value.put("packageId", packageValue.packageId);
+		value.put("packageVersion", packageValue.packageVersion);
+		value.put("worldSpace", packageValue.worldSpace);
+		value.put("fileCount", Long.valueOf(packageValue.files.size()));
+		value.put("levelCount", Long.valueOf(packageValue.levelCount));
+		value.put("terrainCount", Long.valueOf(packageValue.terrainCount));
+		value.put("placementSetCount", Long.valueOf(packageValue.placementSetCount));
+		value.put("boundaryCount", Long.valueOf(packageValue.boundaryCount));
+		value.put("groundItemCount", Long.valueOf(packageValue.groundItemCount));
+		value.put("npcCount", Long.valueOf(packageValue.npcCount));
+		value.put("sceneryCount", Long.valueOf(packageValue.sceneryCount));
 		return value;
 	}
 
@@ -381,13 +389,8 @@ final class WorldBuilderAdaptiveExporter {
 				string(lineage, "conversionSha256"))
 			|| !definitionsRuntimeHash(fingerprints).equals(
 				string(lineage, "definitionsRuntimeSha256"))
-			|| requireCurrentWorking && (!string(fingerprints, "workingSha256").equals(
-					string(lineage, "workingSha256"))
-				|| !project.working.fingerprintSha256.equals(
-					string(value, "packageFingerprintSha256"))
-				|| !packageManifestHash(project.working,
-					WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY + "/")
-					.equals(string(value, "packageManifestSha256")))) {
+			|| requireCurrentWorking && !string(fingerprints, "workingSha256").equals(
+				string(lineage, "workingSha256"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, MANIFEST_FILE,
 				"Adaptive export no longer matches its project/source/working lineage.",
 				"Create a fresh export from the saved project.");
@@ -424,6 +427,127 @@ final class WorldBuilderAdaptiveExporter {
 					"Check storage health and retry export.");
 			}
 		}
+	}
+
+	private static void minimizePackageEncodings(Path packageRoot)
+		throws IOException, WorldBuilderContractException {
+		Path manifestPath = requireFile(packageRoot, "manifest.json",
+			"staged package manifest");
+		Map<String,Object> manifest = readObject(manifestPath, "package/manifest.json");
+		List<?> terrain = array(manifest.get("terrainSectors"), "terrainSectors");
+		for (Object raw : terrain) {
+			Map<String,Object> declaration = object(raw, "terrain sector");
+			String encoding = string(declaration, "encoding");
+			if (!WorldBuilderRawLayeredTerrainCodec.V2_ENCODING.equals(encoding)) continue;
+			String relative = string(declaration, "path");
+			Path payloadPath = WorldBuilderPortablePath.resolveContained(
+				packageRoot, relative, OPERATION);
+			byte[] payload = Files.readAllBytes(requireFile(
+				packageRoot, relative, "staged terrain payload"));
+			if (!WorldBuilderRawLayeredTerrainCodec.fitsV1(payload, encoding)) continue;
+			byte[] compact = WorldBuilderRawLayeredTerrainCodec.toV1(payload, encoding,
+				(int)integer(declaration, "level"),
+				(int)integer(declaration, "sectorX"),
+				(int)integer(declaration, "sectorY"));
+			Files.write(payloadPath, compact, StandardOpenOption.TRUNCATE_EXISTING,
+				StandardOpenOption.WRITE);
+			declaration.put("encoding", WorldBuilderRawLayeredTerrainCodec.V1_ENCODING);
+			declaration.put("sha256", WorldBuilderHashes.sha256(payloadPath));
+		}
+
+		List<?> placementSets = array(manifest.get("placementSets"), "placementSets");
+		List<Map<String,Object>> payloads = new ArrayList<Map<String,Object>>();
+		boolean defaultNpcRespawns = true;
+		for (Object raw : placementSets) {
+			Map<String,Object> declaration = object(raw, "placement set");
+			String relative = string(declaration, "path");
+			Map<String,Object> payload = readObject(requireFile(
+				packageRoot, relative, "staged placement payload"), relative);
+			payloads.add(payload);
+			if (!"layered-world-placements-v4".equals(
+				string(declaration, "encoding"))) continue;
+			for (Object npcRaw : array(payload.get("npcs"), relative + " npcs")) {
+				Map<String,Object> npc = object(npcRaw, relative + " npc");
+				if (integer(npc, "respawnSeconds") != -1L) defaultNpcRespawns = false;
+			}
+		}
+		if (defaultNpcRespawns) {
+			for (int index = 0; index < placementSets.size(); index++) {
+				Map<String,Object> declaration = object(
+					placementSets.get(index), "placement set");
+				if (!"layered-world-placements-v4".equals(
+					string(declaration, "encoding"))) continue;
+				String relative = string(declaration, "path");
+				Map<String,Object> payload = payloads.get(index);
+				for (Object npcRaw : array(payload.get("npcs"), relative + " npcs")) {
+					object(npcRaw, relative + " npc").remove("respawnSeconds");
+				}
+				payload.put("schemaVersion", Long.valueOf(3L));
+				payload.put("encoding", "layered-world-placements-v3");
+				Path payloadPath = WorldBuilderPortablePath.resolveContained(
+					packageRoot, relative, OPERATION);
+				Files.write(payloadPath,
+					WorldBuilderJsonDocuments.pretty(payload).getBytes(StandardCharsets.UTF_8),
+					StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+				declaration.put("encoding", "layered-world-placements-v3");
+				declaration.put("sha256", WorldBuilderHashes.sha256(payloadPath));
+			}
+		}
+		Files.write(manifestPath,
+			WorldBuilderJsonDocuments.pretty(manifest).getBytes(StandardCharsets.UTF_8),
+			StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+	}
+
+	private static void requireLosslessProjection(Path export,
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+		throws IOException, WorldBuilderContractException {
+		String working = normalizedPackageFingerprint(project.projectRoot,
+			WorldBuilderAdaptiveProjectLifecycle.WORKING_PACKAGE_DIRECTORY);
+		String published = normalizedPackageFingerprint(export, PACKAGE_DIRECTORY);
+		if (!working.equals(published)) throw problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, "package",
+			"Adaptive export is not a lossless compatibility projection of the saved project.",
+			"Create a fresh export from the unchanged saved project.");
+	}
+
+	private static String normalizedPackageFingerprint(Path root, String packageRelative)
+		throws IOException, WorldBuilderContractException {
+		Path manifestPath = requireFile(root, packageRelative + "/manifest.json",
+			"layered package manifest");
+		Map<String,Object> manifest = readObject(manifestPath,
+			packageRelative + "/manifest.json");
+		for (Object raw : array(manifest.get("terrainSectors"), "terrainSectors")) {
+			Map<String,Object> declaration = object(raw, "terrain sector");
+			String encoding = string(declaration, "encoding");
+			String relative = string(declaration, "path");
+			byte[] payload = Files.readAllBytes(requireFile(root,
+				packageRelative + "/" + relative, "terrain payload"));
+			byte[] wide = WorldBuilderRawLayeredTerrainCodec.V1_ENCODING.equals(encoding)
+				? WorldBuilderRawLayeredTerrainCodec.promoteV1(payload) : payload;
+			WorldBuilderRawLayeredTerrainCodec.requireDecodable(
+				wide, WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
+			declaration.put("encoding", WorldBuilderRawLayeredTerrainCodec.V2_ENCODING);
+			declaration.put("sha256", WorldBuilderHashes.sha256(wide));
+		}
+		for (Object raw : array(manifest.get("placementSets"), "placementSets")) {
+			Map<String,Object> declaration = object(raw, "placement set");
+			String relative = string(declaration, "path");
+			Map<String,Object> payload = readObject(requireFile(root,
+				packageRelative + "/" + relative, "placement payload"), relative);
+			if ("layered-world-placements-v3".equals(
+				string(declaration, "encoding"))) {
+				for (Object npcRaw : array(payload.get("npcs"), relative + " npcs")) {
+					object(npcRaw, relative + " npc").put(
+						"respawnSeconds", Long.valueOf(-1L));
+				}
+			}
+			payload.put("schemaVersion", Long.valueOf(4L));
+			payload.put("encoding", "layered-world-placements-v4");
+			declaration.put("encoding", "layered-world-placements-v4");
+			declaration.put("sha256", WorldBuilderHashes.sha256(
+				WorldBuilderJsonDocuments.canonical(payload).getBytes(StandardCharsets.UTF_8)));
+		}
+		return canonicalHash(manifest);
 	}
 
 	private static void ensureOwnedDirectories(Path stage, Path packageRoot,

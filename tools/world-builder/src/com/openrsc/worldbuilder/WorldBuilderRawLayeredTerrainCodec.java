@@ -112,6 +112,19 @@ final class WorldBuilderRawLayeredTerrainCodec {
 		return result;
 	}
 
+	static boolean fitsV1(byte[] payload, String encoding)
+		throws WorldBuilderContractException {
+		requireDecodable(payload, encoding);
+		if (V1_ENCODING.equals(encoding)) return true;
+		for (int tile = 0; tile < TILE_COUNT; tile++) {
+			int offset = tile * V2_TILE_BYTES;
+			int elevation = ((payload[offset] & 0xff) << 8)
+				| (payload[offset + 1] & 0xff);
+			if (elevation > 255) return false;
+		}
+		return true;
+	}
+
 	static int elevation(byte[] payload, String encoding, int tile) {
 		int offset = tile * tileBytes(encoding);
 		return isWide(encoding)

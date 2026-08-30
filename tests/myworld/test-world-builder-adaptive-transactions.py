@@ -654,7 +654,9 @@ public final class AdaptiveTransactionFailureHarness {
             canonical.extend(b"\n")
         return hashlib.sha256(canonical).hexdigest()
 
-    def upgrade_fixture_placements_to_v4(self, package: Path) -> None:
+    def upgrade_fixture_placements_to_v4(
+        self, package: Path, respawn_seconds: int = -1
+    ) -> None:
         manifest_path = package / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         for declaration in manifest["placementSets"]:
@@ -663,10 +665,29 @@ public final class AdaptiveTransactionFailureHarness {
             payload["schemaVersion"] = 4
             payload["encoding"] = "layered-world-placements-v4"
             for npc in payload["npcs"]:
-                npc["respawnSeconds"] = -1
+                npc["respawnSeconds"] = respawn_seconds
             self.lifecycle.write_json(payload_path, payload)
             declaration["encoding"] = "layered-world-placements-v4"
             declaration["sha256"] = hashlib.sha256(payload_path.read_bytes()).hexdigest()
+        self.lifecycle.write_json(manifest_path, manifest)
+
+    def promote_fixture_terrain_to_v2(self, package: Path, elevation: int) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declaration = manifest["terrainSectors"][0]
+        payload_path = package / declaration["path"]
+        payload = payload_path.read_bytes()
+        if declaration["encoding"] == "raw-layered-sector-v1":
+            promoted = bytearray()
+            for offset in range(0, len(payload), 10):
+                promoted.extend(b"\0")
+                promoted.extend(payload[offset : offset + 10])
+            payload = bytes(promoted)
+        payload = bytearray(payload)
+        payload[0:2] = elevation.to_bytes(2, "big")
+        payload_path.write_bytes(payload)
+        declaration["encoding"] = "raw-layered-sector-v2-u16"
+        declaration["sha256"] = hashlib.sha256(payload).hexdigest()
         self.lifecycle.write_json(manifest_path, manifest)
 
     def target_project(
@@ -674,6 +695,8 @@ public final class AdaptiveTransactionFailureHarness {
         port_evidence=False, offline_evidence=None,
         supported_encodings=(1, 2, 3, 4),
         source_placement_v4=False,
+        working_elevation=None,
+        working_npc_respawn=None,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -735,6 +758,13 @@ public final class AdaptiveTransactionFailureHarness {
         self.assertEqual(0, created.returncode, created.stderr)
         project = Path(json.loads(created.stdout)["projectRoot"])
         self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
+        working_package = project / "working/layered-world/package"
+        if working_elevation is not None:
+            self.promote_fixture_terrain_to_v2(working_package, working_elevation)
+        if working_npc_respawn is not None:
+            self.upgrade_fixture_placements_to_v4(
+                working_package, working_npc_respawn
+            )
         saved = self.run_cli("save-project", "--project", project)
         self.assertEqual(0, saved.returncode, saved.stderr)
         exported = self.run_cli("export-adaptive", "--project", project)
@@ -772,16 +802,41 @@ public final class AdaptiveTransactionFailureHarness {
         self.assertEqual(0, created.returncode, created.stderr)
         return installation, Path(json.loads(created.stdout)["projectRoot"])
 
-    def test_import_refuses_unadvertised_layered_output_encodings_before_mutation(self):
+    def test_import_projects_the_lowest_lossless_target_encodings(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-old-loader-") as temp:
             target, installation, project, export = self.target_project(
-                Path(temp), supported_encodings=(1, 3)
+                Path(temp), supported_encodings=(1, 3),
+                working_elevation=200, working_npc_respawn=-1,
             )
             before = self.lifecycle.tree_bytes(target, installation)
-            refused = self.run_cli(
+            preview = self.run_cli(
                 "import-adaptive",
                 "--project", project,
                 "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            manifest = json.loads(
+                (export / "package/manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                {"raw-layered-sector-v1"},
+                {entry["encoding"] for entry in manifest["terrainSectors"]},
+            )
+            self.assertEqual(
+                {"layered-world-placements-v3"},
+                {entry["encoding"] for entry in manifest["placementSets"]},
+            )
+            self.assertEqual(before, self.lifecycle.tree_bytes(target, installation))
+
+    def test_import_refuses_genuinely_required_new_encodings_before_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-wide-loader-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), supported_encodings=(1, 3), working_elevation=300
+            )
+            before = self.lifecycle.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
                 "--target-root", target,
             )
             self.assertEqual(3, refused.returncode, refused.stderr)
@@ -791,7 +846,7 @@ public final class AdaptiveTransactionFailureHarness {
 
         with tempfile.TemporaryDirectory(prefix="adaptive-import-old-placement-") as temp:
             target, installation, project, export = self.target_project(
-                Path(temp), supported_encodings=(1, 2, 3), source_placement_v4=True
+                Path(temp), supported_encodings=(1, 2, 3), working_npc_respawn=30
             )
             before = self.lifecycle.tree_bytes(target, installation)
             refused = self.run_cli(
