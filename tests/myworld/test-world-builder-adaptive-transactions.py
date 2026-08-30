@@ -855,6 +855,65 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, undone_a.returncode, undone_a.stderr)
             self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
 
+    def test_chained_import_adopts_asymmetric_historical_address_correction(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-asymmetric-chain-") as temp:
+            target, installation, project, export_a = self.target_project(Path(temp))
+            target_before = self.lifecycle.tree_bytes(target, installation)
+            imported_a = self.run_legacy_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_a, "--target-root", target,
+            )
+            self.assertEqual(0, imported_a.returncode, imported_a.stderr)
+
+            configuration_path = target / "server/world-builder-configs/primary.json"
+            configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+            legacy_address = json.loads(
+                (export_a / "manifest.json").read_text(encoding="utf-8")
+            )["packageFingerprintSha256"]
+            native_address = self.native_package_inventory_sha256(export_a / "package")
+            for key in ("serverMapRelativePath", "clientMapRelativePath"):
+                old_package = configuration[key]
+                self.assertIn(legacy_address, old_package)
+                new_package = old_package.replace(legacy_address, native_address)
+                old_root = target / Path(old_package).parent
+                new_root = target / Path(new_package).parent
+                self.assertFalse(new_root.exists())
+                if key == "serverMapRelativePath":
+                    old_root.rename(new_root)
+                else:
+                    shutil.copytree(old_root, new_root)
+                configuration[key] = new_package
+            self.lifecycle.write_json(configuration_path, configuration)
+            corrected_a = self.lifecycle.tree_bytes(target, installation)
+
+            self.lifecycle.AdaptiveProjectLifecycleTest.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported_b = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported_b.returncode, exported_b.stderr)
+            export_b = Path(json.loads(exported_b.stdout)["exportDirectory"])
+
+            imported_b = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export_b, "--target-root", target,
+            )
+            self.assertEqual(0, imported_b.returncode, imported_b.stderr)
+            self.assertNotEqual(corrected_a, self.lifecycle.tree_bytes(target, installation))
+
+            undone_b = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone_b.returncode, undone_b.stderr)
+            self.assertEqual(corrected_a, self.lifecycle.tree_bytes(target, installation))
+
+            undone_a = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone_a.returncode, undone_a.stderr)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
+
     @staticmethod
     def native_package_inventory_sha256(package: Path) -> str:
         canonical = bytearray()

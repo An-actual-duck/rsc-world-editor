@@ -432,13 +432,23 @@ final class WorldBuilderAdaptiveUndo {
 		boolean oldServerPresent = Files.exists(oldServer, LinkOption.NOFOLLOW_LINKS);
 		boolean oldClientPresent = Files.exists(oldClient, LinkOption.NOFOLLOW_LINKS);
 		if (!oldServerPresent && !oldClientPresent) return relocated;
-		if (!oldServerPresent || !oldClientPresent
-			|| historicalChanges.size() != 1
-			|| !historical.configuration.relativePath.equals(
-				historicalChanges.get(0))) return historical;
+		String oldServerRelative =
+			WorldBuilderAdaptiveMutationProfile.fingerprintRoot(
+				historical.serverPackageRelativePath);
+		String oldClientRelative =
+			WorldBuilderAdaptiveMutationProfile.fingerprintRoot(
+				historical.clientPackageRelativePath);
+		for (String changed : historicalChanges) {
+			if (historical.configuration.relativePath.equals(changed)) continue;
+			if (!oldServerPresent && (oldServerRelative.equals(changed)
+				|| changed.startsWith(oldServerRelative + "/"))) continue;
+			if (!oldClientPresent && (oldClientRelative.equals(changed)
+				|| changed.startsWith(oldClientRelative + "/"))) continue;
+			return historical;
+		}
 		WorldBuilderAdaptiveMutationProfile.Plan retained =
 			WorldBuilderAdaptiveMutationProfile.retainHistoricalPackagePlan(
-				historical, relocated);
+				historical, relocated, oldServerPresent, oldClientPresent);
 		return changedAfterPaths(retained).isEmpty() ? retained : historical;
 	}
 
