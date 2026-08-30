@@ -1361,6 +1361,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if (!"standalone-empty".equals(verified.origin)) {
 			boolean attached = false;
 			String attachedLocator = "";
+			String attachedFingerprint = "";
 			Map<String,Object> targetInfo = object(
 				verified.manifest.get("target"), "target");
 			boolean importCapable = !"no-import-v1".equals(
@@ -1374,10 +1375,16 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					WorldBuilderAdaptiveDiscoveryReport fresh =
 						new WorldBuilderAdaptiveDiscovery().discover(
 							target, string(selected, "role"));
+					String targetFingerprint = string(
+						targetInfo, "targetFingerprintSha256");
 					attached = "compatible".equals(fresh.status)
-						&& fresh.fingerprintSha256().equals(
-							string(targetInfo, "targetFingerprintSha256"));
-					if (attached) attachedLocator = target.toString();
+						&& (fresh.fingerprintSha256().equals(targetFingerprint)
+							|| matchesPreRuntimeConfigurationDiscovery(
+								verified, fresh, targetFingerprint));
+					if (attached) {
+						attachedLocator = target.toString();
+						attachedFingerprint = fresh.fingerprintSha256();
+					}
 				} catch (WorldBuilderContractException ignored) {
 					attached = false;
 				} catch (IOException ignored) {
@@ -1387,14 +1394,35 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			String wanted = attached ? "ready-attached" : "ready-detached";
 			if (updateAttachmentState && (!wanted.equals(verified.state)
 				|| attached && !attachedLocator.equals(
-					string(targetInfo, "locatorDisplay")))) {
+					string(targetInfo, "locatorDisplay"))
+				|| attached && !attachedFingerprint.equals(
+					string(targetInfo, "targetFingerprintSha256")))) {
 				verified = updateState(
-					install, verified, wanted, attachedLocator);
+					install, verified, wanted, attachedLocator,
+					attachedFingerprint);
 			}
 		}
 		int port = readRuntimePort(verified.projectRoot);
 		return new ProjectResult(verified.projectRoot, verified.projectId,
 			verified.origin, verified.state, verified.working.fingerprintSha256, port);
+	}
+
+	private static boolean matchesPreRuntimeConfigurationDiscovery(
+		VerifiedProject verified, WorldBuilderAdaptiveDiscoveryReport fresh,
+		String targetFingerprint) throws WorldBuilderContractException {
+		if (!targetFingerprint.equals(string(
+			verified.discoveryReport, "discoveryFingerprintSha256"))
+			|| !"packed".equals(string(
+				verified.discoveryReport, "representation"))) return false;
+		Map<String,Object> descriptor = object(
+			verified.discoveryReport.get("descriptor"), "descriptor");
+		if (!bool(descriptor, "present")) return false;
+		for (Object raw : array(verified.discoveryReport.get("files"), "files")) {
+			if ("server-runtime-config".equals(
+				string(object(raw, "discovery file"), "role"))) return false;
+		}
+		String predecessor = fresh.fingerprintWithoutSoleRuntimeConfiguration();
+		return !predecessor.isEmpty() && predecessor.equals(targetFingerprint);
 	}
 
 	ProjectResult select(Path requestedInstallRoot, String projectId)
@@ -1792,12 +1820,15 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	}
 
 	private static VerifiedProject updateState(Path install, VerifiedProject verified,
-		String state, String locatorDisplay)
+		String state, String locatorDisplay, String targetFingerprint)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> manifest = verified.manifest;
 		manifest.put("state", state);
 		Map<String,Object> target = object(manifest.get("target"), "target");
 		if (!locatorDisplay.isEmpty()) target.put("locatorDisplay", locatorDisplay);
+		if (!targetFingerprint.isEmpty()) {
+			target.put("targetFingerprintSha256", targetFingerprint);
+		}
 		manifest.put("operations", operations(true, true,
 			"ready-attached".equals(state), false));
 		bindSelfFingerprint(manifest, "projectFingerprintSha256", true);

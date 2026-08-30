@@ -1782,6 +1782,77 @@ public final class FakeAdaptiveClient {
         result = self.run_cli(*arguments)
         return result, json.loads(result.stdout) if result.returncode == 0 else None
 
+    @staticmethod
+    def rewrite_as_pre_runtime_config_project(
+        installation: Path, project: Path
+    ) -> str:
+        report_path = project / "discovery/report.json"
+        report = json.loads(report_path.read_text(encoding="utf-8"))
+        runtime_configs = [
+            record for record in report["files"]
+            if record["role"] == "server-runtime-config"
+        ]
+        if len(runtime_configs) != 1:
+            raise AssertionError("fixture needs one new runtime-config record")
+        report["files"] = [
+            record for record in report["files"]
+            if record["role"] != "server-runtime-config"
+        ]
+        inventory = next(
+            check for check in report["checks"]
+            if check["checkId"] == "inventory-completeness"
+        )
+        suffix = " complete source evidence file(s)."
+        count = int(inventory["observed"].removesuffix(suffix))
+        inventory["observed"] = f"{count - 1}{suffix}"
+        report["discoveryFingerprintSha256"] = "0" * 64
+        report["discoveryFingerprintSha256"] = canonical_hash(report)
+        write_json(report_path, report)
+
+        snapshot_path = project / "source/snapshot-manifest.json"
+        snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
+        snapshot["discoveryReport"]["sha256"] = sha256(report_path)
+        snapshot["sourceFingerprintSha256"] = "0" * 64
+        snapshot["sourceFingerprintSha256"] = canonical_hash(snapshot)
+        write_json(snapshot_path, snapshot)
+
+        manifest_path = project / "project.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["state"] = "ready-detached"
+        manifest["operations"]["import"] = False
+        manifest["operations"]["undo"] = False
+        manifest["target"]["targetFingerprintSha256"] = report[
+            "discoveryFingerprintSha256"
+        ]
+        manifest["fingerprints"]["sourceSha256"] = snapshot[
+            "sourceFingerprintSha256"
+        ]
+        manifest["projectFingerprintSha256"] = "0" * 64
+        locator = manifest["target"]["locatorDisplay"]
+        manifest["target"]["locatorDisplay"] = ""
+        manifest["projectFingerprintSha256"] = canonical_hash(manifest)
+        manifest["target"]["locatorDisplay"] = locator
+        write_json(manifest_path, manifest)
+        manifest_hash = sha256(manifest_path)
+
+        registry_path = installation / "project-registry.json"
+        registry = json.loads(registry_path.read_text(encoding="utf-8"))
+        record = next(
+            item for item in registry["projects"]
+            if item["projectId"] == manifest["projectId"]
+        )
+        record["state"] = "ready-detached"
+        record["manifestSha256"] = manifest_hash
+        registry["registryFingerprintSha256"] = "0" * 64
+        registry["registryFingerprintSha256"] = canonical_hash(registry)
+        write_json(registry_path, registry)
+
+        active_path = installation / "active-project.json"
+        active = json.loads(active_path.read_text(encoding="utf-8"))
+        active["manifestSha256"] = manifest_hash
+        write_json(active_path, active)
+        return report["discoveryFingerprintSha256"]
+
     def install_legacy_working_package(
         self, installation: Path, project: Path
     ) -> tuple[dict[str, tuple], dict[str, bytes]]:
@@ -6824,6 +6895,72 @@ public final class UpgradeNpcPlacements {
             self.assertTrue((original / "myworld.conf").is_file())
             self.assertFalse((original / "server/myworld.conf").exists())
             self.assertEqual(target_before, tree_bytes(target))
+
+    def test_pre_runtime_config_descriptor_project_reattaches_without_target_drift(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-pre-runtime-config-") as temp:
+            base = Path(temp)
+            target = self.fixtures.descriptor_fixture(
+                str(base), representation="packed"
+            )
+            (target / "server/myworld.conf").write_text(
+                "client_version: 10046\n"
+                "member_world: true\n"
+                "based_map_data: 64\n"
+                "based_config_data: 18\n"
+                "want_myworld: true\n"
+                "custom_landscape: true\n",
+                encoding="utf-8",
+            )
+            server_terrain = target / "server/maps/active.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain, target / "client/maps/active.orsc")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Pre-alpha.35 project", 43838,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            predecessor = self.rewrite_as_pre_runtime_config_project(
+                installation, project
+            )
+
+            reopened = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-attached", json.loads(reopened.stdout)["state"])
+            self.assertNotEqual(
+                predecessor,
+                json.loads(report.read_text(encoding="utf-8"))[
+                    "discoveryFingerprintSha256"
+                ],
+            )
+            migrated_manifest = json.loads(
+                (project / "project.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                json.loads(report.read_text(encoding="utf-8"))[
+                    "discoveryFingerprintSha256"
+                ],
+                migrated_manifest["target"]["targetFingerprintSha256"],
+            )
+            definitions = target / "server/evidence/definitions.json"
+            definitions.write_text(
+                definitions.read_text(encoding="utf-8") + "\n", encoding="utf-8"
+            )
+            detached = self.run_cli(
+                "open-project", "--installation-root", installation,
+                "--target-root", target,
+            )
+            self.assertEqual(0, detached.returncode, detached.stderr)
+            self.assertEqual("ready-detached", json.loads(detached.stdout)["state"])
 
     def test_known_legacy_npc_roam_typo_is_corrected_only_in_project_evidence(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-known-npc-roam-typo-") as temp:

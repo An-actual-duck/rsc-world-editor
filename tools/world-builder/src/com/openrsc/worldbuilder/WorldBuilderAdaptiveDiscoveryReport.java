@@ -147,6 +147,77 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		return (String)document.get("discoveryFingerprintSha256");
 	}
 
+	/**
+	 * Returns the exact fingerprint emitted before descriptor-backed packed
+	 * discovery began inventorying its selected ordinary server configuration.
+	 * An empty result means this report does not have precisely that one-record
+	 * successor shape.
+	 */
+	String fingerprintWithoutSoleRuntimeConfiguration() {
+		if (!"compatible".equals(status)
+			|| !"packed".equals(document.get("representation"))) return "";
+		Object rawDescriptor = document.get("descriptor");
+		if (!(rawDescriptor instanceof Map)
+			|| !Boolean.TRUE.equals(((Map<?,?>)rawDescriptor).get("present"))) return "";
+
+		Object rawFiles = document.get("files");
+		if (!(rawFiles instanceof List)) return "";
+		List<Object> legacyFiles = new ArrayList<Object>();
+		int removed = 0;
+		for (Object raw : (List<?>)rawFiles) {
+			if (!(raw instanceof Map)) return "";
+			Map<?,?> file = (Map<?,?>)raw;
+			if ("server-runtime-config".equals(file.get("role"))) {
+				if (!Boolean.TRUE.equals(file.get("present"))) return "";
+				removed++;
+				continue;
+			}
+			legacyFiles.add(raw);
+		}
+		if (removed != 1) return "";
+
+		Object rawChecks = document.get("checks");
+		if (!(rawChecks instanceof List)) return "";
+		List<Object> legacyChecks = new ArrayList<Object>();
+		int adjusted = 0;
+		for (Object raw : (List<?>)rawChecks) {
+			if (!(raw instanceof Map)) return "";
+			@SuppressWarnings("unchecked") Map<String,Object> original =
+				(Map<String,Object>)raw;
+			if (!"inventory-completeness".equals(original.get("checkId"))) {
+				legacyChecks.add(raw);
+				continue;
+			}
+			Object rawObserved = original.get("observed");
+			if (!(rawObserved instanceof String)) return "";
+			String observed = (String)rawObserved;
+			String suffix = " complete source evidence file(s).";
+			if (!observed.endsWith(suffix)) return "";
+			String countText = observed.substring(0,
+				observed.length() - suffix.length());
+			long count;
+			try {
+				count = Long.parseLong(countText);
+			} catch (NumberFormatException invalid) {
+				return "";
+			}
+			if (count != ((List<?>)rawFiles).size() || count < 2L) return "";
+			Map<String,Object> check = new LinkedHashMap<String,Object>(original);
+			check.put("observed", Long.toString(count - 1L) + suffix);
+			legacyChecks.add(check);
+			adjusted++;
+		}
+		if (adjusted != 1) return "";
+
+		Map<String,Object> legacy = new LinkedHashMap<String,Object>(document);
+		legacy.put("files", legacyFiles);
+		legacy.put("checks", legacyChecks);
+		legacy.put("targetRootDisplay", "");
+		legacy.put("discoveryFingerprintSha256", zeroHash());
+		return WorldBuilderHashes.sha256(WorldBuilderJsonDocuments.canonical(legacy)
+			.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+	}
+
 	private static Map<String,Object> base(
 		String targetDisplay, List<String> adapterIds, Map<String,Object> descriptor) {
 		Map<String,Object> root = new LinkedHashMap<String,Object>();
