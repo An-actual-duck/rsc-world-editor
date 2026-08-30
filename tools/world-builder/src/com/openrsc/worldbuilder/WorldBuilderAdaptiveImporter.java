@@ -184,10 +184,23 @@ final class WorldBuilderAdaptiveImporter {
 								outstanding.transactionId());
 						WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(
 							previous, outstanding);
-						previous = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(
-							previous);
-						plan = WorldBuilderAdaptiveMutationProfile.prepareChained(
-							verified, export, target, transactionId, previous);
+						try {
+							previous = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(
+								previous);
+							plan = WorldBuilderAdaptiveMutationProfile.prepareChained(
+								verified, export, target, transactionId, previous);
+						} catch (WorldBuilderContractException drift) {
+							if (!WorldBuilderErrorCodes.TARGET_DRIFT.equals(drift.code())) {
+								throw drift;
+							}
+							try {
+								plan = WorldBuilderAdaptiveMutationProfile
+									.prepareRuntimeCompatibilityCompletion(verified, export,
+										target, transactionId, previous.targetLineage());
+							} catch (WorldBuilderContractException notCompletable) {
+								throw drift;
+							}
+						}
 					}
 					if (expectedPreview != null
 						&& !expectedPreview.plan.canonicalSha256.equals(
@@ -302,7 +315,11 @@ final class WorldBuilderAdaptiveImporter {
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".stage-" + plan.transactionId());
 				staged.reserve(temporary);
-				writeReserved(temporary, action.generatedContent);
+				if (action.generatedContent != null) {
+					writeReserved(temporary, action.generatedContent);
+				} else {
+					copyActionContent(plan, action, temporary);
+				}
 				verifyFile(temporary, action.after);
 				staged.seal(temporary);
 				observe("activation-staged", temporary);

@@ -151,9 +151,13 @@ activation content, and every verified backup, then forces their directory
 entries before publishing and forcing the pending receipt. A filesystem/Java
 provider that cannot provide that ordering is refused before transaction
 artifacts or target mutation. Import publishes verified server and client
-package content first, activates the selected configuration last, and then
-verifies every byte and both package selections. Before restarting,
-distribute the exact reported client package/map identity to every player.
+package content first. If the target server core or client archive differs from
+the exact runtime pinned inside this project, Import previews, backs up, and
+atomically replaces those two bounded archives before activating the selected
+configuration. Plugins, definitions, databases, and unrelated target files are
+not replaced. Import then verifies every changed byte and both package
+selections. Before restarting, distribute the exact reported client/map
+identity to every player.
 Later Detect Server Map runs recognize that exact packed-profile installation
 as the active compatible layered map, so the edit/import/detect cycle does not
 fall back to the retired packed representation.
@@ -179,9 +183,11 @@ transaction. Keep the complete project/backups/receipts and run "Recover Map
 Transaction"; review its exact plan and type RECOVER. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
-There is no force option and no binary patcher. Standalone projects can save
-and export, but Import, Undo, and Recovery return NO_TARGET before resolving,
-accessing, or locking any target path.
+There is no force option. Runtime installation is limited to the exact pinned
+server core and client archives and uses the same preview, backup, rollback,
+receipt, and verification transaction as map activation. Standalone projects
+can save and export, but Import, Undo, and Recovery return NO_TARGET before
+resolving, accessing, or locking any target path.
 
 HISTORICAL V2 ALPHA
 -------------------

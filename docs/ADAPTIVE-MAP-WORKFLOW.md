@@ -318,9 +318,10 @@ projected through the desktop GUI without creating a second mutation path. It:
 
 1. verifies the project's source, conversion, working package, and export;
 2. rediscovers the target and rejects drift;
-3. verifies that target server and client binaries already advertise the exact
-   layered-loader, package-format, protocol, and definition capabilities;
-4. shows exact server/client package destinations and configuration changes;
+3. verifies the target capability and installs the project's exact pinned
+   compatible server/client runtime archives when the target archives differ;
+4. shows exact runtime replacements, server/client package destinations, and
+   configuration changes;
 5. requires the administrator to confirm `IMPORT`;
 6. backs up every affected file and records expected absence;
 7. installs the package and related data, changes activation/configuration
@@ -337,10 +338,13 @@ mutation profile after exact conversion, package installation, verified
 backup, and safe activation. Undo restores its exact bytes and configuration;
 file-name detection alone never authorizes removal.
 
-Import MAY install adapter-approved map packages, client map data, and bounded
-configuration. It MUST NOT overwrite arbitrary customized binaries. If the
-target lacks loader code, it fails with the exact compatible runtime requirement
-and directs the administrator to upgrade the server/client first.
+Import MAY install adapter-approved map packages, client map data, bounded
+configuration, and the exact server/client runtime archives carried by the
+validated project. Runtime replacement is limited to the compiled server core
+and client archive destinations, is previewed and backed up like every other
+activation, and never changes plugins, definitions, databases, or unrelated
+target files. An older map-only transaction may be completed in place only when
+the active server/client map packages exactly match the selected export.
 
 ## Installation and project directories
 

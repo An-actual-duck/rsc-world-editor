@@ -464,12 +464,25 @@ final class WorldBuilderAdaptiveUndo {
 				changed.add(action.destinationRelativePath);
 			}
 		}
-		collectUnexpectedFingerprintEntries(installed.targetRoot,
-			installed.serverPackageRelativePath, expected, changed);
-		collectUnexpectedFingerprintEntries(installed.targetRoot,
-			installed.clientPackageRelativePath, expected, changed);
+		if (ownsPackageEntries(installed.serverPackageRelativePath, expected)) {
+			collectUnexpectedFingerprintEntries(installed.targetRoot,
+				installed.serverPackageRelativePath, expected, changed);
+		}
+		if (ownsPackageEntries(installed.clientPackageRelativePath, expected)) {
+			collectUnexpectedFingerprintEntries(installed.targetRoot,
+				installed.clientPackageRelativePath, expected, changed);
+		}
 		Collections.sort(changed);
 		return changed;
+	}
+
+	private static boolean ownsPackageEntries(String packagePath,
+		Set<String> expected) throws WorldBuilderContractException {
+		String root = WorldBuilderAdaptiveMutationProfile.fingerprintRoot(packagePath);
+		for (String relative : expected) {
+			if (relative.startsWith(root + "/")) return true;
+		}
+		return false;
 	}
 
 	private static void collectUnexpectedFingerprintEntries(Path target, String packagePath,
@@ -573,6 +586,7 @@ final class WorldBuilderAdaptiveUndo {
 				"undo-post-" + pad(index), true,
 				action.after.present ? action.after.sha256 : "absent"));
 		}
+		if (runtimeCompatibilityOnly(installed)) return values;
 		WorldBuilderAdaptiveDiscoveryReport report =
 			new WorldBuilderAdaptiveDiscovery().discover(undo.targetRoot,
 				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
@@ -584,6 +598,16 @@ final class WorldBuilderAdaptiveUndo {
 				"Keep the target offline while automatic rollback restores the installed state.");
 		}
 		return values;
+	}
+
+	private static boolean runtimeCompatibilityOnly(
+		WorldBuilderAdaptiveMutationProfile.Plan plan) {
+		if (plan.actions.isEmpty() || !plan.configurationChanges.isEmpty()) return false;
+		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
+			if (!("runtime-compatibility-server".equals(action.role)
+				|| "runtime-compatibility-client".equals(action.role))) return false;
+		}
+		return true;
 	}
 
 	private List<WorldBuilderAdaptiveReceipt.Verification> restoreInstalledState(

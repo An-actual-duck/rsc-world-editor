@@ -971,6 +971,7 @@ public final class AdaptiveTransactionFailureHarness {
         source_placement_v4=False,
         working_elevation=None,
         working_npc_respawn=None,
+        target_runtime_archives=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -980,6 +981,14 @@ public final class AdaptiveTransactionFailureHarness {
         if source_placement_v4:
             self.upgrade_fixture_placements_to_v4(target / "server/maps/active")
             self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
+        if target_runtime_archives:
+            (target / "server/core.jar").write_bytes(b"target server runtime\n")
+            client_root = target / "Client_Base"
+            if not client_root.is_dir():
+                client_root = target / "client"
+            (client_root / "Open_RSC_Client.jar").write_bytes(
+                b"target client runtime\n"
+            )
         capability_path = target / "server/world-builder-capabilities.json"
         capability = json.loads(capability_path.read_text(encoding="utf-8"))
         if not install_enabled:
@@ -1045,6 +1054,139 @@ public final class AdaptiveTransactionFailureHarness {
         self.assertEqual(0, exported.returncode, exported.stderr)
         export = Path(json.loads(exported.stdout)["exportDirectory"])
         return target, installation, project, export
+
+    def test_import_installs_matching_runtime_archives_and_undo_restores_them(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+            )
+            server = target / "server/core.jar"
+            client = target / "client/Open_RSC_Client.jar"
+            if not client.is_file():
+                client = target / "Client_Base/Open_RSC_Client.jar"
+            before_server = server.read_bytes()
+            before_client = client.read_bytes()
+            project_server = project / "working/runtime/server/core.jar"
+            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
+
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+
+            undone = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(before_server, server.read_bytes())
+            self.assertEqual(before_client, client.read_bytes())
+
+    def test_existing_map_install_can_be_completed_with_runtime_compatibility(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-completion-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
+            server = target / "server/core.jar"
+            client = target / "client/Open_RSC_Client.jar"
+            if not client.parent.is_dir():
+                client = target / "Client_Base/Open_RSC_Client.jar"
+            server.write_bytes(b"incompatible installed server runtime\n")
+            client.write_bytes(b"incompatible installed client runtime\n")
+
+            completed = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                server.read_bytes(),
+            )
+            self.assertEqual(
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                client.read_bytes(),
+            )
+
+            repeated = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, repeated.returncode, repeated.stderr)
+            self.assertIn("already installed", repeated.stderr)
+
+            undone = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(b"incompatible installed server runtime\n", server.read_bytes())
+            self.assertEqual(b"incompatible installed client runtime\n", client.read_bytes())
+            configuration = json.loads(
+                (target / "server/world-builder-configs/primary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertTrue((target / configuration["serverMapRelativePath"]).is_dir())
+            self.assertTrue((target / configuration["clientMapRelativePath"]).is_dir())
+
+    def test_runtime_completion_ignores_drift_in_inactive_historical_package(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-drift-completion-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            imported = self.run_legacy_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
+            configuration_path = target / "server/world-builder-configs/primary.json"
+            configuration = json.loads(configuration_path.read_text(encoding="utf-8"))
+            legacy_address = json.loads(
+                (export / "manifest.json").read_text(encoding="utf-8")
+            )["packageFingerprintSha256"]
+            native_address = self.native_package_inventory_sha256(export / "package")
+            for key in ("serverMapRelativePath", "clientMapRelativePath"):
+                old_package = configuration[key]
+                new_package = old_package.replace(legacy_address, native_address)
+                shutil.copytree(
+                    target / Path(old_package).parent,
+                    target / Path(new_package).parent,
+                )
+                configuration[key] = new_package
+            self.lifecycle.write_json(configuration_path, configuration)
+
+            inactive_manifest = (
+                target / "server/world-builder/packages" / legacy_address
+                / "package/manifest.json"
+            )
+            inactive_manifest.write_bytes(inactive_manifest.read_bytes() + b"\n")
+            server = target / "server/core.jar"
+            client = target / "client/Open_RSC_Client.jar"
+            if not client.parent.is_dir():
+                client = target / "Client_Base/Open_RSC_Client.jar"
+            server.write_bytes(b"incompatible installed server runtime\n")
+            client.write_bytes(b"incompatible installed client runtime\n")
+
+            completed = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                server.read_bytes(),
+            )
+            self.assertEqual(
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                client.read_bytes(),
+            )
 
     def standalone_project(self, base: Path):
         installation = base / "World Builder 2"

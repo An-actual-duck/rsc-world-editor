@@ -98,8 +98,10 @@ The adaptive v2 product contract is:
    static placements of its own.
 4. Edit, save, close, and reopen only the project copy under World Builder.
 5. Change the target only by running the explicit previewed, backed-up,
-   verified import transaction. Distribute the reported matching client
-   package before restart.
+   verified import transaction. Import installs the exact pinned compatible
+   server/client runtime archives when the target's archives differ, as well as
+   the map packages and activation; every replaced archive is backed up and
+   verified before restart.
 6. Use the exact previewed Undo transaction to restore an unchanged imported
    target, or keep the target offline and use Recovery if an interrupted
    rollback is explicitly reported. Standalone empty projects have no target
