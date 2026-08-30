@@ -427,7 +427,29 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the complete project from a trusted backup.");
 
 		String clientRoot = compiledClientRoot(configuration);
-		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		Path durablePlan = WorldBuilderPortablePath.resolveContained(
+			project.projectRoot, "backups/" + transactionId + "/mutation-plan.json",
+			OPERATION);
+		WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+			"backups/" + transactionId + "/mutation-plan.json",
+			"durable adaptive mutation plan");
+		WorldBuilderAdaptiveContracts.Document stored =
+			WorldBuilderAdaptiveContracts.read(
+				WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, durablePlan);
+		Map<String,Object> storedObject;
+		try {
+			storedObject = WorldBuilderJsonDocuments.readObject(durablePlan);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				"backups/" + transactionId + "/mutation-plan.json",
+				"Durable mutation plan JSON is malformed.",
+				"Retain the project and restore its exact transaction evidence.");
+		}
+		WorldBuilderAdaptiveExporter.requireFingerprint(
+			storedObject, "planFingerprintSha256");
+		String packageContentAddress = reconstructedPackageContentAddress(
+			storedObject, clientRoot, export.packageValue.nativeInventorySha256,
+			export.packageValue.fingerprintSha256);
 		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
@@ -492,26 +514,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		String lineage = WorldBuilderAdaptiveExporter.string(
 			projectTarget, "targetFingerprintSha256");
-		Path durablePlan = WorldBuilderPortablePath.resolveContained(
-			project.projectRoot, "backups/" + transactionId + "/mutation-plan.json",
-			OPERATION);
-		WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
-			"backups/" + transactionId + "/mutation-plan.json",
-			"durable adaptive mutation plan");
-		WorldBuilderAdaptiveContracts.Document stored =
-			WorldBuilderAdaptiveContracts.read(
-				WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, durablePlan);
-		Map<String,Object> storedObject;
-		try {
-			storedObject = WorldBuilderJsonDocuments.readObject(durablePlan);
-		} catch (WorldBuilderDiscoveryException malformed) {
-			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
-				"backups/" + transactionId + "/mutation-plan.json",
-				"Durable mutation plan JSON is malformed.",
-				"Retain the project and restore its exact transaction evidence.");
-		}
-		WorldBuilderAdaptiveExporter.requireFingerprint(
-			storedObject, "planFingerprintSha256");
 		List<String> directories = planCreatedDirectories(storedObject, actions);
 		Map<String,Object> generated = document(transactionId, project, export,
 			capability, configuration, lineage, actions, changes, directories,
@@ -533,6 +535,44 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the exact complete transaction evidence; do not force undo.");
 		requireBeforeBackups(plan);
 		return plan;
+	}
+
+	static String reconstructedPackageContentAddress(Map<String,Object> storedPlan,
+		String clientRoot, String nativeAddress, String legacyAddress)
+		throws WorldBuilderContractException {
+		Set<String> candidates = new java.util.LinkedHashSet<String>();
+		candidates.add(nativeAddress);
+		candidates.add(legacyAddress);
+		String serverAfter = "";
+		String clientAfter = "";
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			storedPlan.get("configurationChanges"), "configurationChanges")) {
+			Map<String,Object> change = WorldBuilderAdaptiveExporter.object(
+				raw, "configurationChange");
+			String key = WorldBuilderAdaptiveExporter.string(change, "key");
+			if ("serverMapRelativePath".equals(key)) {
+				serverAfter = WorldBuilderAdaptiveExporter.string(change, "afterValue");
+			} else if ("clientMapRelativePath".equals(key)) {
+				clientAfter = WorldBuilderAdaptiveExporter.string(change, "afterValue");
+			}
+		}
+		String selected = "";
+		for (String candidate : candidates) {
+			String server = SERVER_PACKAGE_ROOT + "/" + candidate + "/package";
+			String client = clientRoot + "/world-builder/packages/" + candidate
+				+ "/package";
+			if (!server.equals(serverAfter) || !client.equals(clientAfter)) continue;
+			if (!selected.isEmpty() && !selected.equals(candidate)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "configurationChanges",
+				"Durable mutation plan has ambiguous package content-address lineage.",
+				"Retain the project and restore its exact transaction evidence.");
+			selected = candidate;
+		}
+		if (selected.isEmpty()) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "configurationChanges",
+			"Durable mutation plan uses an unrecognized package content-address.",
+			"Retain the project and restore its exact transaction evidence; arbitrary package paths are never adopted.");
+		return selected;
 	}
 
 	private static void requireBeforeBackups(Plan plan)

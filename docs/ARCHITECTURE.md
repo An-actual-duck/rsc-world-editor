@@ -85,6 +85,10 @@ Undo independently rebuilds the successful import plan from immutable project
 evidence, its exact historical export, compiled profile, durable plan, and
 receipt. Mutable working state may be saved and exported after the import; it
 is preserved byte-for-byte and is not substituted for that historical export.
+Reconstruction recognizes both the current native-inventory content address and
+the earlier logical-package content address, but only when the validated durable
+plan selects one of those two addresses at both compiled package roots. It never
+adopts an arbitrary path from old transaction evidence.
 The exact canonical list of directories absent at preview is inside the plan
 fingerprint and receipt authority; its separate evidence file must match that
 list exactly and every entry must be an action ancestor. Undo

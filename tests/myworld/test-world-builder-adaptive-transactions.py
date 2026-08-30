@@ -55,6 +55,42 @@ class AdaptiveTransactionTest(unittest.TestCase):
             ROOT / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt",
             allowlist_resource,
         )
+        cls.legacy_classes = Path(cls.compile_temp.name) / "legacy-classes"
+        cls.legacy_classes.mkdir()
+        legacy_source = (
+            SOURCE_ROOT
+            / "com/openrsc/worldbuilder/WorldBuilderAdaptiveMutationProfile.java"
+        ).read_text(encoding="utf-8")
+        current_address = (
+            "String packageContentAddress = "
+            "export.packageValue.nativeInventorySha256;"
+        )
+        historical_address = (
+            "String packageContentAddress = "
+            "export.packageValue.fingerprintSha256;"
+        )
+        if legacy_source.count(current_address) != 1:
+            raise AssertionError("historical address fixture requires one prepare address")
+        legacy_source = legacy_source.replace(
+            current_address, historical_address, 1
+        )
+        legacy_file = (
+            Path(cls.compile_temp.name)
+            / "legacy/com/openrsc/worldbuilder/WorldBuilderAdaptiveMutationProfile.java"
+        )
+        legacy_file.parent.mkdir(parents=True)
+        legacy_file.write_text(legacy_source, encoding="utf-8")
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8",
+                "-cp", str(cls.classes), "-d", str(cls.legacy_classes),
+                str(legacy_file),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
         harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/AdaptiveTransactionFailureHarness.java"
@@ -188,6 +224,31 @@ public final class AdaptiveTransactionFailureHarness {
                         source, directory.resolve("published.bin"),
                         "atomic-provider-test", "published.bin");
                 }
+            } else if ("historical-address".equals(operation)) {
+                String nativeAddress = "1111111111111111111111111111111111111111111111111111111111111111";
+                String legacyAddress = "2222222222222222222222222222222222222222222222222222222222222222";
+                String selectedAddress = "native".equals(failures)
+                    ? nativeAddress : "legacy".equals(failures)
+                        ? legacyAddress
+                        : "3333333333333333333333333333333333333333333333333333333333333333";
+                java.util.Map<String,Object> plan = new java.util.LinkedHashMap<String,Object>();
+                java.util.List<Object> changes = new java.util.ArrayList<Object>();
+                for (String key : new String[] {
+                    "clientMapRelativePath", "serverMapRelativePath"
+                }) {
+                    java.util.Map<String,Object> change =
+                        new java.util.LinkedHashMap<String,Object>();
+                    change.put("key", key);
+                    String prefix = key.startsWith("client")
+                        ? "Client_Base/world-builder/packages/"
+                        : "server/world-builder/packages/";
+                    change.put("afterValue", prefix + selectedAddress + "/package");
+                    changes.add(change);
+                }
+                plan.put("configurationChanges", changes);
+                System.out.print(
+                    WorldBuilderAdaptiveMutationProfile.reconstructedPackageContentAddress(
+                        plan, "Client_Base", nativeAddress, legacyAddress));
             } else if ("export".equals(operation)) {
                 WorldBuilderAdaptiveExporter.Observer observer =
                     new WorldBuilderAdaptiveExporter.Observer() {
@@ -521,6 +582,27 @@ public final class AdaptiveTransactionFailureHarness {
             capture_output=True,
         )
 
+    def run_legacy_cli(self, *args):
+        classpath = os.pathsep.join((str(self.legacy_classes), str(self.classes)))
+        return subprocess.run(
+            ["java", "-cp", classpath, MAIN_CLASS, *map(str, args)],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def run_legacy_reviewed_apply(self, command, confirmation, *args):
+        preview = self.run_legacy_cli(command, *args)
+        self.assertEqual(0, preview.returncode, preview.stderr)
+        plan = json.loads(preview.stdout)
+        return self.run_legacy_cli(
+            command,
+            *args,
+            "--confirm", confirmation,
+            "--transaction-id", plan["transactionId"],
+            "--plan-sha256", plan["planFingerprintSha256"],
+        )
+
     def run_reviewed_apply(self, command, confirmation, *args, preview=None):
         if preview is None:
             preview = self.run_cli(command, *args)
@@ -639,6 +721,63 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertTrue(invalid.isdisjoint(relative), relative)
             for component in relative.split("/"):
                 self.assertFalse(component.endswith((" ", ".")), relative)
+
+    def test_historical_package_addresses_are_reconstructed_from_durable_plan(self):
+        for lineage, expected in (
+            ("native", "1" * 64),
+            ("legacy", "2" * 64),
+        ):
+            with self.subTest(lineage=lineage):
+                selected = self.run_failure(
+                    "historical-address", lineage, Path("."), Path(".")
+                )
+                self.assertEqual(0, selected.returncode, selected.stderr)
+                self.assertEqual(expected, selected.stdout)
+
+        refused = self.run_failure(
+            "historical-address", "unknown", Path("."), Path(".")
+        )
+        self.assertEqual(3, refused.returncode, refused.stderr)
+        self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+        self.assertIn("unrecognized package content-address", refused.stderr)
+
+    def test_current_undo_accepts_exact_historical_package_address_plan(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-historical-address-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            target_before = self.lifecycle.tree_bytes(target, installation)
+            imported = self.run_legacy_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            legacy_address = json.loads(
+                (export / "manifest.json").read_text(encoding="utf-8")
+            )["packageFingerprintSha256"]
+            native_address = self.native_package_inventory_sha256(export / "package")
+            self.assertNotEqual(native_address, legacy_address)
+            transaction_id = json.loads(imported.stdout)["transactionId"]
+            durable_plan = json.loads(
+                (project / "backups" / transaction_id / "mutation-plan.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            installed_paths = {
+                change["afterValue"]
+                for change in durable_plan["configurationChanges"]
+                if change["key"] in {
+                    "serverMapRelativePath", "clientMapRelativePath"
+                }
+            }
+            self.assertEqual(2, len(installed_paths))
+            self.assertTrue(all(legacy_address in path for path in installed_paths))
+            self.assertTrue(all(native_address not in path for path in installed_paths))
+
+            undone = self.run_reviewed_apply(
+                "undo-adaptive", "UNDO", "--project", project,
+                "--target-root", target,
+            )
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(target_before, self.lifecycle.tree_bytes(target, installation))
 
     @staticmethod
     def native_package_inventory_sha256(package: Path) -> str:
