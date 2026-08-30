@@ -199,6 +199,11 @@ Product Goals and Readiness](docs/WORLD-BUILDER-2-PRODUCT-GOALS.md). That
 document assesses the current foundation and does not itself start
 implementation work.
 
+The active reliability audit and ordered worklist for shorter development
+feedback, removal of completed server-import Undo, explicit backup guidance,
+and complete map-plus-runtime compatibility installation is recorded in [World
+Builder 2 Reliability and Iteration Plan](docs/WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md).
+
 Development now integrates the runtime v2 unsigned 16-bit elevation contract:
 v1 terrain remains readable and is promoted losslessly for editing, while v2
 packages and region snapshots preserve elevations through 65535. True RGB
