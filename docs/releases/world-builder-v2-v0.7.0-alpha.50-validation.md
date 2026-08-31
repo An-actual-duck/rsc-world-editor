@@ -117,6 +117,22 @@ reviewed JRE inputs.
 
 ## Post-publication gate state
 
-Pending production rebuild, publication, download-back verification, and gate
-consumption. The immutable release tag will retain this accepted record and
-release gate.
+The production release was published from gate commit
+`8dba44a4f353fc56bc3a4c4770151e8c0cb041c5` as tag
+`rsc-world-editor-v2-0.7.0-alpha.50`. That immutable tag retains this accepted
+record and the release gate. The production assets were downloaded back from
+GitHub, verified against the uploaded `SHA256SUMS.txt`, and compared
+byte-for-byte with the independently inspected pre-upload files.
+
+| Production artifact | SHA-256 |
+| --- | --- |
+| `rsc-world-editor-v2-0.7.0-alpha.50-linux-x64.zip` | `3537a13bf0b3574650828c565e7f312db11bcc78d4433abef45082a443853765` |
+| `rsc-world-editor-v2-0.7.0-alpha.50-windows-x64.zip` | `4b40a2eeb5c25d243a117b43176ebd4bf832def70c3a704e68813ce27813ce3f` |
+| `SHA256SUMS.txt` | `24dba09a6588831cdcfa60a92d992af7d3b05ec8fbd24857b79f6f83c4f05a50` |
+| Pre-upload production inspection | `e2117bf06792ca0fb7b3c5eb8ec3c9e2aa3c9cac66b24483212065b024197850` |
+
+The public release is
+<https://github.com/An-actual-duck/rsc-world-editor/releases/tag/rsc-world-editor-v2-0.7.0-alpha.50>.
+Development `main` consumes/removes the gate after publication. Any later
+release therefore requires a new exact candidate, owner decision, validation
+record, and gate commit.

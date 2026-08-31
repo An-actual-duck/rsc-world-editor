@@ -9,7 +9,7 @@
 | Product | World Builder 2 |
 | Immediate objective | Restore trustworthy server import and shorten development feedback loops |
 | Current published baseline | Editor `56cee9d29b7b208b57a12be336d034ca0aafe5ce`; runtime provider `eac0e33bd5f09b6288be65a7665b6b282331560b` |
-| Release state | `v0.7.0-alpha.50` accepted; production release gate open |
+| Release state | `v0.7.0-alpha.50` published; development release gate closed |
 
 This document keeps the reliability work visible after the independent
 stop-gap was applied manually to the separate Core checkout. It restored that
