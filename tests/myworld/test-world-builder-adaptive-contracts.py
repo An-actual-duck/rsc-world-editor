@@ -36,6 +36,8 @@ HARNESS = r"""
 package com.openrsc.worldbuilder;
 
 import java.nio.file.Paths;
+import java.util.Set;
+import java.util.TreeSet;
 
 public final class AdaptiveContractHarness {
     public static void main(String[] arguments) throws Exception {
@@ -53,6 +55,20 @@ public final class AdaptiveContractHarness {
                 String value = WorldBuilderPortablePath.require(arguments[1], "test-path");
                 System.out.println(value);
                 System.out.println(WorldBuilderPortablePath.collisionKey(value, "test-path"));
+                return;
+            }
+            if (arguments.length == 2 && "terrain-overlay".equals(arguments[0])) {
+                int overlay = Integer.parseInt(arguments[1]);
+                byte[] payload = new byte[
+                    WorldBuilderRawLayeredTerrainCodec.BYTE_COUNT];
+                payload[3] = (byte)overlay;
+                Set<Integer> floors = new TreeSet<Integer>();
+                Set<Integer> boundaries = new TreeSet<Integer>();
+                boolean blocking = WorldBuilderGenericLayeredPackage
+                    .collectTerrainDefinitionIds(payload,
+                        WorldBuilderRawLayeredTerrainCodec.V2_ENCODING,
+                        floors, boundaries);
+                System.out.println(blocking + "|" + floors + "|" + boundaries);
                 return;
             }
             System.err.println("USAGE");
@@ -1249,6 +1265,19 @@ class AdaptiveContractTests(unittest.TestCase):
         self.assert_valid("project-manifest", standalone_project())
         self.assert_valid("source-snapshot", source_snapshot(standalone=True))
         self.assert_valid("adaptive-export", export_manifest(standalone=True))
+
+    def test_blocking_base_color_is_not_a_tile_definition_dependency(self):
+        walkable = self.run_harness("terrain-overlay", "0")
+        self.assertEqual(0, walkable.returncode, walkable.stderr)
+        self.assertEqual("false|[]|[]\n", walkable.stdout)
+
+        ordinary = self.run_harness("terrain-overlay", "7")
+        self.assertEqual(0, ordinary.returncode, ordinary.stderr)
+        self.assertEqual("false|[6]|[]\n", ordinary.stdout)
+
+        blocking = self.run_harness("terrain-overlay", "255")
+        self.assertEqual(0, blocking.returncode, blocking.stderr)
+        self.assertEqual("true|[]|[]\n", blocking.stdout)
 
     def test_map_migration_choice_binds_distinct_reports_and_exact_terrain(self):
         same_reports = map_migration_choice()

@@ -239,7 +239,7 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         "serverBuildId": "fixture-installed-server-v2",
         "clientBuildId": "fixture-installed-client-v2",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
-        "loaderId": "generic-signed-layered-loader-v6-project-content-bundle-v3",
+        "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
         "mapFormatId": "signed-layered-v1",
         "packageSchemaId": "layered-world-package-v1",
