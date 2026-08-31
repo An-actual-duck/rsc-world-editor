@@ -599,13 +599,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			choice, "migrationChoiceFingerprintSha256");
 		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return;
+		if (!archiveFreeClientBootstrapProven) return;
 		WorldBuilderRuntimeCompatibility.requireArchiveFreeClientBootstrap(project);
-		if (!archiveFreeClientBootstrapProven) {
-			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-				WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME,
-				"Legacy landscape retirement has no proven archive-free target client installation.",
-				"Keep both Custom_Landscape files until the matching target client runtime and installed profile can be updated atomically.");
-		}
 		if (!expectedLineage.equals(WorldBuilderAdaptiveExporter.string(
 			choice, "selectedTargetDiscoveryFingerprintSha256"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
@@ -903,7 +898,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			configurationBytes));
 		if (!chained) appendLegacyLandscapeRetirement(project, target, capability,
 			configuration, selectedReference, lineage, transactionId, actions, false,
-			true);
+			storedHasLegacyLandscapeRetirement(storedObject));
 
 		List<ConfigurationChange> changes = configurationChanges(configurationPath,
 			beforeConfiguration, serverPackage, clientPackage);
@@ -930,6 +925,18 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the exact complete transaction evidence; do not force undo.");
 		requireBeforeBackups(plan);
 		return plan;
+	}
+
+	private static boolean storedHasLegacyLandscapeRetirement(
+		Map<String,Object> storedPlan) throws WorldBuilderContractException {
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			storedPlan.get("actions"), "actions")) {
+			Map<String,Object> action = WorldBuilderAdaptiveExporter.object(
+				raw, "actions entry");
+			if (WorldBuilderAdaptiveExporter.string(action, "role")
+				.startsWith("retire-legacy-landscape-")) return true;
+		}
+		return false;
 	}
 
 	private static boolean runtimeCompatibilityOnly(Map<String,Object> storedPlan)

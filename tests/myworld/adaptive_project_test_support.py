@@ -122,6 +122,32 @@ def write_json(path: Path, value: dict) -> None:
     )
 
 
+def installed_v1_capability() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-installed-runtime-capability",
+        "capabilityId": "world-builder-installed-runtime-capability-v1",
+        "profileId": "world-builder-installed",
+        "loaderId": "generic-signed-layered-loader-v6-project-content-bundle-v3",
+        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+        "mapFormatId": "signed-layered-v1",
+        "packageSchemaId": "layered-world-package-v1",
+        "coordinateModel": "signed-layered-v1",
+        "encodingVersions": [1, 2, 3, 4],
+        "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        "activation": {
+            "runtimeProfile": "world-builder-installed",
+            "builderOnly": False,
+            "requiresExactManifestSha256": True,
+            "requiresExactInventorySha256": False,
+            "replacesLegacyTerrain": True,
+            "replacesLegacyPlacements": True,
+            "requiredBooleanKeys": [],
+            "requiredStringKeys": [],
+        },
+    }
+
+
 def tree_bytes(root: Path, excluded: Path | None = None) -> dict[str, tuple]:
     result = {}
     if not root.exists():

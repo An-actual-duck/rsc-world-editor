@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,6 +16,8 @@ import java.util.Map;
 final class WorldBuilderRuntimeCompatibility {
 	static final String CAPABILITY_DESTINATION =
 		"server/conf/world-builder/installed-runtime-capability-v2.json";
+	static final String LEGACY_CAPABILITY_DESTINATION =
+		"server/conf/world-builder/installed-runtime-capability-v1.json";
 	static final String CAPABILITY_SOURCE =
 		"working/runtime/server/conf/world-builder/installed-runtime-capability-v2.json";
 	static final String CONFIGURATION_DESTINATION = "server/myworld.conf";
@@ -53,6 +56,15 @@ final class WorldBuilderRuntimeCompatibility {
 			serverPresent ? clientDestination : SERVER_DESTINATION,
 			"Automatic runtime compatibility installation found only one target runtime archive.",
 			"Restore the complete server and client runtime pair, then retry Import.");
+
+		List<Integer> preservedEncodingVersions =
+			preservedInstalledV1(target);
+		if (preservedEncodingVersions != null) {
+			List<WorldBuilderAdaptiveMutationProfile.Action> preservedActions =
+				new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+			appendServerConfiguration(target, packageValue, preservedActions);
+			return new Upgrade(preservedEncodingVersions, preservedActions, false);
+		}
 
 		Path capabilitySource = WorldBuilderAdaptiveExporter.requireFile(
 			project.projectRoot, CAPABILITY_SOURCE,
@@ -94,6 +106,57 @@ final class WorldBuilderRuntimeCompatibility {
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
 		return new Upgrade(encodingVersions, actions, true);
+	}
+
+	private static List<Integer> preservedInstalledV1(Path target)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, LEGACY_CAPABILITY_DESTINATION);
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null;
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) {
+			throw problem(LEGACY_CAPABILITY_DESTINATION,
+				"Installed v1 runtime capability is not a safe regular file.",
+				"Restore the exact prior World Builder runtime installation.");
+		}
+		Map<String,Object> capability;
+		try {
+			capability = WorldBuilderJsonDocuments.readObject(path);
+		} catch (WorldBuilderDiscoveryException invalid) {
+			throw problem(LEGACY_CAPABILITY_DESTINATION,
+				"Installed v1 runtime capability is malformed.",
+				"Restore the exact prior World Builder runtime installation.");
+		}
+		Map<String,Object> activation = WorldBuilderAdaptiveExporter.object(
+			capability.get("activation"), "activation");
+		List<Integer> encodings = integerList(
+			capability.get("encodingVersions"), LEGACY_CAPABILITY_DESTINATION);
+		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
+			|| !"world-builder-installed-runtime-capability".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "manifestType"))
+			|| !"world-builder-installed-runtime-capability-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
+			|| !"world-builder-installed".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "profileId"))
+			|| !"generic-signed-layered-loader-v6-project-content-bundle-v3".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "loaderId"))
+			|| !"world-builder-native-layered-protocol-v2-u16-elevation".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "protocolId"))
+			|| !"layered-world-package-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "packageSchemaId"))
+			|| !"signed-layered-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "coordinateModel"))
+			|| !Arrays.asList(1, 2, 3, 4).equals(encodings)
+			|| WorldBuilderAdaptiveExporter.bool(activation, "builderOnly")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "replacesLegacyTerrain")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "replacesLegacyPlacements")) {
+			throw problem(LEGACY_CAPABILITY_DESTINATION,
+				"Installed v1 runtime capability does not match the preservable contract.",
+				"Restore the exact prior World Builder runtime installation.");
+		}
+		return encodings;
 	}
 
 	static void requireArchiveFreeClientBootstrap(

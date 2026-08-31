@@ -233,6 +233,17 @@ not another unconditional overlay prompt:
    fingerprint into immutable project evidence and the later installed
    receipt. Repeated detection must recognize that evidence and never ask the
    same question again unless either side changes.
+
+The implemented import compatibility path now treats the exact installed v1
+capability as a preservation contract. It keeps that target-specific
+server/client runtime pair, activates each new content-addressed map package,
+and patches the bounded server launch configuration without installing the
+generic v2 runtime over it. Because the v1 ordinary client still consumes the
+packed archive during startup, both exact `Custom_Landscape.orsc` copies remain
+in place and the requested retirement is deferred. A later edit/save/import
+uses the same project decision and repeats the map update without replacing
+the preserved runtime. Generic targets that receive the proven v2
+archive-free client bootstrap retain the guarded retirement path.
 5. Do not retire the physical archives until the installed player client can
    bootstrap from a verified installed-package identity without opening a
    packed archive. Once that runtime support exists, import may back up, remove,
@@ -361,8 +372,10 @@ the remaining transaction safety mechanisms have unambiguous purposes.
   installed client package path.
 - [x] Connect the matching private client to the disposable imported server and
   verify that the installed layered package activates after authentication.
-- [x] Add an installed-package client bootstrap contract so ordinary player
-  startup no longer opens or hashes `Custom_Landscape.orsc` before login.
+- [x] Add an installed-package client bootstrap contract for v2-compatible
+  targets so ordinary player startup no longer opens or hashes
+  `Custom_Landscape.orsc` before login; preserve archives for installed v1
+  targets until they can adopt that bootstrap without losing customization.
 - [ ] Separate the overloaded `custom_landscape` feature flag from terrain
   authority and unrelated combat-sprite presentation behavior.
 - [ ] Complete remaining client launch/configuration and cache/assets

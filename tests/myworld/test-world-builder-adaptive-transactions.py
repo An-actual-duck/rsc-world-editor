@@ -956,6 +956,7 @@ public final class AdaptiveTransactionFailureHarness {
         working_elevation=None,
         working_npc_respawn=None,
         target_runtime_archives=False,
+        preserved_installed_v1=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -982,6 +983,12 @@ public final class AdaptiveTransactionFailureHarness {
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
+            if preserved_installed_v1:
+                project_support.write_json(
+                    target
+                    / "server/conf/world-builder/installed-runtime-capability-v1.json",
+                    project_support.installed_v1_capability(),
+                )
         capability_path = target / "server/world-builder-capabilities.json"
         capability = json.loads(capability_path.read_text(encoding="utf-8"))
         if not install_enabled:
@@ -1082,6 +1089,68 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, undone.returncode, undone.stderr)
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
+
+    def test_import_preserves_installed_v1_runtime_across_repeated_map_updates(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-preserve-") as temp:
+            target, _, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                preserved_installed_v1=True,
+            )
+            server = target / "server/core.jar"
+            client = target / "client/Open_RSC_Client.jar"
+            if not client.is_file():
+                client = target / "Client_Base/Open_RSC_Client.jar"
+            capability = (
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v1.json"
+            )
+            preserved = {
+                server: server.read_bytes(),
+                client: client.read_bytes(),
+                capability: capability.read_bytes(),
+            }
+
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            compatibility_roles = {
+                action["role"] for action in json.loads(preview.stdout)["actions"]
+                if action["role"].startswith("runtime-compatibility-")
+            }
+            self.assertEqual(
+                {"runtime-compatibility-server-configuration"},
+                compatibility_roles,
+            )
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target, preview=preview,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            for path, before in preserved.items():
+                self.assertEqual(before, path.read_bytes())
+            self.assertFalse((
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v2.json"
+            ).exists())
+            self.assertFalse((
+                client.parent / "world-builder-configs/installed-client.json"
+            ).exists())
+
+            project_support.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            second_export = Path(json.loads(exported.stdout)["exportDirectory"])
+            repeated = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", second_export, "--target-root", target,
+            )
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            for path, before in preserved.items():
+                self.assertEqual(before, path.read_bytes())
 
     def test_import_bootstraps_runtime_capability_before_map_activation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:

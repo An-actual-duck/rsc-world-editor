@@ -318,7 +318,8 @@ projected through the desktop GUI without creating a second mutation path. It:
 
 1. verifies the project's source, conversion, working package, and export;
 2. rediscovers the target and rejects drift;
-3. verifies the target capability and installs the project's exact pinned
+3. verifies the target capability and either preserves an exact recognized
+   target-specific installed v1 runtime or installs the project's exact pinned
    compatible server/client runtime archives when the target archives differ;
 4. shows exact runtime replacements, server/client package destinations, and
    configuration changes;
@@ -337,6 +338,12 @@ History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). A migrated
 mutation profile after exact conversion, package installation, verified
 backup, and safe activation. Undo restores its exact bytes and configuration;
 file-name detection alone never authorizes removal.
+
+An exact installed v1 target capability deliberately defers that retirement:
+the target-specific runtime archives and both legacy landscape archives remain
+unchanged while the layered package and bounded server configuration are
+updated. Only the proven v2 archive-free client bootstrap authorizes automatic
+legacy archive retirement.
 
 Import MAY install adapter-approved map packages, client map data, bounded
 configuration, and the exact server/client runtime archives carried by the
