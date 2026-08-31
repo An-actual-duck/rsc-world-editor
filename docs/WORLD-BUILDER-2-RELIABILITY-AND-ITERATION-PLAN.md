@@ -291,6 +291,30 @@ gate before integration.
 
 ## Ordered task list
 
+### Current priority: one managed runtime with automatic upgrades
+
+The owner has explicitly chosen forward server evolution over permanent
+backward-runtime support. The desired end state is one current managed World
+Builder runtime. Import upgrades an older supported target—including the
+matching player client when the protocol or rendering contract requires it—as
+one previewed, offline, backed-up, verified, and recoverable transaction before
+activating the selected map. Existing architecture may be changed
+fundamentally to achieve that result.
+
+- [ ] Define the single current managed-runtime identity and the target-owned
+  bundle contract needed to retain legitimate game customization.
+- [ ] Make Import install that exact current server/client bundle when an older
+  managed target is detected, then import and activate the map in the same
+  reviewed transaction.
+- [ ] Replace installed-v1 preservation with a bounded one-way migration and
+  remove obsolete runtime branches after migration and rollback coverage are
+  proven.
+- [ ] Keep old project/map readers only where needed to migrate authored data
+  losslessly into the current format; do not maintain old runtimes merely to
+  avoid designing the upgrade.
+- [ ] Prove the cutover on a disposable target through upgrade, launch, client
+  connection, map edit, and at least two repeat imports.
+
 ### Current post-release feature: blocking blended base color
 
 - [x] Reserve raw ground overlay `255` outside the `TileDef` domain as the

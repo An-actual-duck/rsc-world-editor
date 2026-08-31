@@ -7,6 +7,40 @@ routing, scope changes, delegation, integration, dependency adoption,
 verification, publication, and releases for the product while preserving the
 repository boundary.
 
+## Product direction: upgrade the server
+
+The product objective is to **upgrade the server**, not preserve an old runtime
+indefinitely. World Builder, its runtime provider, the target server, and the
+matching player client may be changed at a fundamental level when that produces
+the best version of the owner's game and tool. Existing architecture, file
+formats, loader versions, profiles, and historical implementation choices are
+inputs to understand; they are not permanent design constraints.
+
+- Prefer one current managed runtime and a clear migration/cutover path over a
+  growing matrix of active legacy runtime versions.
+- Import is expected to upgrade an older managed target to the current
+  compatible server/client runtime transactionally when an upgrade is needed.
+  Do not refuse merely because the target is old when an exact trusted upgrade
+  path can be built.
+- Legacy compatibility is a bounded bridge for retaining user-authored data and
+  reaching the current version. It is not a reason to fossilize an obsolete
+  runtime or make the owner manually avoid new World Builder features.
+- When customization prevents use of a generic runtime archive, build or adopt
+  the correct current customized runtime bundle and teach Import to install it.
+  Preserve the customization, not the obsolete loader.
+- If the present architecture cannot perform the desired upgrade safely, the
+  task is to improve or replace that architecture, including fundamental
+  runtime changes where useful—not to treat the limitation as a product
+  requirement.
+- Preview, offline checks, exact backups, verification, recovery, and rollback
+  remain mandatory. These safeguards exist to make ambitious upgrades safe;
+  they must not be misused as reasons to prevent authorized upgrades.
+
+This direction does not weaken the independent-repository or live-target
+boundaries below. It establishes the intended destination within those
+boundaries: a better current product rather than permanent backward-runtime
+support.
+
 Before changing anything, identify the checkout role and run its matching
 preflight.
 
