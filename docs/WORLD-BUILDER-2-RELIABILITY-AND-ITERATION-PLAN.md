@@ -452,7 +452,7 @@ the remaining transaction safety mechanisms have unambiguous purposes.
   fingerprint rather than the Editor's newer native-inventory digest.
 - [ ] Define supported source layouts explicitly. Unknown or ambiguous layouts
   must fail with a precise report instead of receiving a partial installation.
-- [ ] Version the compatibility contract so future runtime changes cannot be
+- [x] Version the compatibility contract so future runtime changes cannot be
   mistaken for compatibility with older import plans.
 
 Exit condition: one reviewed manifest explains exactly what makes a target
@@ -460,23 +460,23 @@ capable of loading an imported World Builder 2 map.
 
 ### 5. Implement atomic compatibility installation
 
-- [ ] Make Import preview list the complete compatibility plan separately from
+- [x] Make Import preview list the complete compatibility plan separately from
   map-package and activation changes.
-- [ ] Support the proven real starting layout, including targets that do not
+- [x] Support the proven real starting layout, including targets that do not
   already contain World Builder's capability evidence or exact runtime pair.
-- [ ] Stage and verify every required compatibility byte before target mutation.
-- [ ] Back up every replaced target file for failure rollback, while continuing
+- [x] Stage and verify every required compatibility byte before target mutation.
+- [x] Back up every replaced target file for failure rollback, while continuing
   to tell the user that this is not a substitute for a server backup.
-- [ ] Apply runtime/support files first, map packages next, and selected-map
+- [x] Apply runtime/support files first, map packages next, and selected-map
   activation last, with a defined durable order.
-- [ ] Refuse map activation if any required compatibility component is absent,
+- [x] Refuse map activation if any required compatibility component is absent,
   mismatched, unverifiable, or unsupported.
-- [ ] Verify the installed server package, client package, active configuration,
+- [x] Verify the installed server package, client package, active configuration,
   capability/protocol, runtime hashes, and all other manifest components after
   apply.
-- [ ] On any pre-completion failure, restore the exact before-state or leave a
+- [x] On any pre-completion failure, restore the exact before-state or leave a
   precise recovery record; never report a map-only partial result as success.
-- [ ] Keep all testing and validation against disposable target copies. Do not
+- [x] Keep all testing and validation against disposable target copies. Do not
   mutate a real user server without separate explicit authorization.
 - [x] Replace the unconditional legacy-file question with exact
   absent/equivalent/already-incorporated/conflicting classification.
@@ -491,20 +491,26 @@ capable of loading an imported World Builder 2 map.
 Exit condition: import is one atomic map-plus-compatibility operation, not a map
 copy followed by advice to repair the server manually.
 
+Implementation checkpoint (2026-08-31): runtime provider
+`f48bdfcefd9706d61a2c157d57a22ce7ef93b4e1` publishes the current managed
+runtime bundle; Editor `dfd9129c41e5f2eb5cc9a2b10d12b78f62127067`
+pins it and implements the one-transaction upgrade/import path. Owner-native
+testing of a fresh candidate remains in section 6 before release.
+
 ### 6. Prove end-to-end usability
 
-- [ ] Run the focused regression against the sanitized old/incompatible target
+- [x] Run the focused regression against the sanitized old/incompatible target
   fixture and confirm it now passes for the right reason.
 - [ ] Start the installed server from a cold state and prove it loads the new
   layered map without loader, configuration, definition, schema, or protocol
   errors.
 - [ ] Start the matching client, authenticate to the isolated server, enter the
   imported area, and verify terrain and all supported placement families.
-- [ ] Test changed-target refusal, missing components, mixed versions, partial
+- [x] Test changed-target refusal, missing components, mixed versions, partial
   failure rollback, interrupted recovery, and a second later import.
-- [ ] Compare every path outside the reviewed mutation plan before and after.
-- [ ] Run runtime-provider parity and the relevant subsystem suites.
-- [ ] Run `./scripts/test.sh` and `git diff --check` at final integration.
+- [x] Compare every path outside the reviewed mutation plan before and after.
+- [x] Run runtime-provider parity and the relevant subsystem suites.
+- [x] Run `./scripts/test.sh` and `git diff --check` at final integration.
 - [ ] Obtain owner-native validation from a disposable server copy before any
   release gate is opened.
 
@@ -513,13 +519,13 @@ previously incompatible server becomes runnable with the imported map.
 
 ### 7. Integrate and release deliberately
 
-- [ ] Review the complete Editor diff and any independent runtime-provider diff
+- [x] Review the complete Editor diff and any independent runtime-provider diff
   at exact pushed tips.
-- [ ] Publish and pin runtime work first if the compatibility contract requires
+- [x] Publish and pin runtime work first if the compatibility contract requires
   runtime-provider changes.
-- [ ] Merge the tested Editor work only after the stop-gap has been reconciled
+- [x] Merge the tested Editor work only after the stop-gap has been reconciled
   and no unique work is stranded.
-- [ ] Update user documentation to explain supported targets, backup
+- [x] Update user documentation to explain supported targets, backup
   responsibility, previewed compatibility changes, and recovery limitations.
 - [ ] Build a fresh restricted candidate and complete the normal owner
   acceptance, release gate, archive inspection, production rebuild, upload,
