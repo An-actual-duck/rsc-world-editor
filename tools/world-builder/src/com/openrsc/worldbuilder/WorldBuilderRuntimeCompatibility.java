@@ -57,13 +57,25 @@ final class WorldBuilderRuntimeCompatibility {
 			"Automatic runtime compatibility installation found only one target runtime archive.",
 			"Restore the complete server and client runtime pair, then retry Import.");
 
+		List<Integer> preservedV2EncodingVersions =
+			preservedInstalledV2(target, clientDestination);
+		if (preservedV2EncodingVersions != null) {
+			List<WorldBuilderAdaptiveMutationProfile.Action> preservedActions =
+				new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+			appendServerConfiguration(target, packageValue, preservedActions);
+			appendClientProfile(target, clientDestination, targetCapability,
+				packageValue, preservedActions);
+			return new Upgrade(
+				preservedV2EncodingVersions, preservedActions, true);
+		}
+
 		List<Integer> preservedEncodingVersions =
 			preservedInstalledV1(target);
 		if (preservedEncodingVersions != null) {
 			if (packageValue.usesBlockingBaseColorOverlay) throw problem(
 				LEGACY_CAPABILITY_DESTINATION,
 				"The selected map uses blocking blended base-color terrain, but this preserved installed v1 runtime predates that overlay contract.",
-				"Import into a target that supports loader v7, or replace overlay 255 before importing to this preserved runtime.");
+				"Have this customized target's server and client upgraded once to the installed v2 loader-v7 contract, then retry Import. Do not replace customized archives with the generic runtime. Alternatively, replace overlay 255 in the map.");
 			List<WorldBuilderAdaptiveMutationProfile.Action> preservedActions =
 				new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
 			appendServerConfiguration(target, packageValue, preservedActions);
@@ -112,6 +124,77 @@ final class WorldBuilderRuntimeCompatibility {
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
 		return new Upgrade(encodingVersions, actions, true);
+	}
+
+	private static List<Integer> preservedInstalledV2(
+		Path target, String clientDestination)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, CAPABILITY_DESTINATION);
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null;
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) {
+			throw problem(CAPABILITY_DESTINATION,
+				"Installed v2 runtime capability is not a safe regular file.",
+				"Restore the exact target-specific installed v2 runtime capability.");
+		}
+		Map<String,Object> capability;
+		try {
+			capability = WorldBuilderJsonDocuments.readObject(path);
+		} catch (WorldBuilderDiscoveryException invalid) {
+			throw problem(CAPABILITY_DESTINATION,
+				"Installed v2 runtime capability is malformed.",
+				"Restore the exact target-specific installed v2 runtime capability.");
+		}
+		Map<String,Object> activation = WorldBuilderAdaptiveExporter.object(
+			capability.get("activation"), "activation");
+		Map<String,Object> archives = WorldBuilderAdaptiveExporter.object(
+			capability.get("runtimeArchives"), "runtimeArchives");
+		List<Integer> encodings = integerList(
+			capability.get("encodingVersions"), CAPABILITY_DESTINATION);
+		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
+			|| !"world-builder-installed-runtime-capability".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "manifestType"))
+			|| !"world-builder-installed-runtime-capability-v2".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
+			|| !"world-builder-installed".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "profileId"))
+			|| !"generic-signed-layered-loader-v7-blocking-base-color".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "loaderId"))
+			|| !"world-builder-installed-client-profile-v1".equals(
+				WorldBuilderAdaptiveExporter.string(
+					capability, "clientBootstrapId"))
+			|| !"world-builder-native-layered-protocol-v2-u16-elevation".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "protocolId"))
+			|| !"signed-layered-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "mapFormatId"))
+			|| !"layered-world-package-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "packageSchemaId"))
+			|| !"signed-layered-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "coordinateModel"))
+			|| !Arrays.asList(1, 2, 3, 4).equals(encodings)
+			|| !SERVER_DESTINATION.equals(
+				WorldBuilderAdaptiveExporter.string(
+					archives, "serverRelativePath"))
+			|| !containsString(
+				archives.get("clientNames"), clientDestination)
+			|| !"world-builder-installed".equals(
+				WorldBuilderAdaptiveExporter.string(
+					activation, "runtimeProfile"))
+			|| WorldBuilderAdaptiveExporter.bool(activation, "builderOnly")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "requiresExactManifestSha256")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "replacesLegacyTerrain")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "replacesLegacyPlacements")
+			|| !WorldBuilderAdaptiveExporter.bool(
+				activation, "replacesLegacyClientBootstrap")) {
+			throw problem(CAPABILITY_DESTINATION,
+				"Installed v2 runtime capability does not match the preservable loader-v7 contract.",
+				"Restore the exact target-specific installed v2 runtime capability.");
+		}
+		return encodings;
 	}
 
 	private static List<Integer> preservedInstalledV1(Path target)
@@ -354,6 +437,14 @@ final class WorldBuilderRuntimeCompatibility {
 			result.add(Integer.valueOf(((Long)value).intValue()));
 		}
 		return Collections.unmodifiableList(result);
+	}
+
+	private static boolean containsString(Object raw, String expected) {
+		if (!(raw instanceof List<?>)) return false;
+		for (Object value : (List<?>)raw) {
+			if (expected.equals(value)) return true;
+		}
+		return false;
 	}
 
 	private static String compiledClientRoot(

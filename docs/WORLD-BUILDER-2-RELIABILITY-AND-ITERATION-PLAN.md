@@ -244,6 +244,17 @@ in place and the requested retirement is deferred. A later edit/save/import
 uses the same project decision and repeats the map update without replacing
 the preserved runtime. Generic targets that receive the proven v2
 archive-free client bootstrap retain the guarded retirement path.
+
+The blocking blended base-color contract advances that installed loader from
+v6 to v7. A customized v1 runtime cannot interpret raw overlay `255`, and map
+import must not solve that by replacing its complete server/client archives
+with the generic provider build. The target maintainer must integrate the
+bounded v7 terrain changes into the target's own runtime once and publish the
+standard installed v2 capability beside those archives. Import recognizes that
+v2 capability as a preservation contract: it keeps the target-specific JARs,
+updates only the map activation configuration and installed-client profile,
+and supports subsequent edited-map imports without repeating the runtime
+upgrade.
 5. Do not retire the physical archives until the installed player client can
    bootstrap from a verified installed-package identity without opening a
    packed archive. Once that runtime support exists, import may back up, remove,
@@ -296,8 +307,15 @@ gate before integration.
   dependencies and packed-conversion definition validation.
 - [x] Version the installed runtime loader capability and refuse imports that
   use overlay `255` with the preserved v1 loader.
+- [x] Preserve a target-specific installed v2/loader-v7 server and client
+  instead of overwriting them with the generic runtime; update only the
+  bounded activation configuration and per-map client profile.
 - [x] Publish the tested runtime revision, advance `runtime-provider.lock`, and
   complete the Editor parity and full-suite gates.
+- [ ] Integrate the loader-v7 terrain changes into the customized target's own
+  server/client build once and install its exact v2 capability descriptor. A
+  generic archive replacement is not a safe substitute for that target-owned
+  build.
 - [ ] Obtain native user validation of painting, mixed-edge blending,
   collision, save/reload, and a repeated server import before the next release.
 

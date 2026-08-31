@@ -148,6 +148,43 @@ def installed_v1_capability() -> dict:
     }
 
 
+def installed_v2_capability() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-installed-runtime-capability",
+        "capabilityId": "world-builder-installed-runtime-capability-v2",
+        "profileId": "world-builder-installed",
+        "serverBuildId": "fixture-installed-server-v2",
+        "clientBuildId": "fixture-installed-client-v2",
+        "clientBootstrapId": "world-builder-installed-client-profile-v1",
+        "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
+        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+        "mapFormatId": "signed-layered-v1",
+        "packageSchemaId": "layered-world-package-v1",
+        "coordinateModel": "signed-layered-v1",
+        "encodingVersions": [1, 2, 3, 4],
+        "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        "runtimeArchives": {
+            "serverRelativePath": "server/core.jar",
+            "clientNames": [
+                "Client_Base/Open_RSC_Client.jar",
+                "client/Open_RSC_Client.jar",
+            ],
+        },
+        "activation": {
+            "runtimeProfile": "world-builder-installed",
+            "builderOnly": False,
+            "requiresExactManifestSha256": True,
+            "requiresExactInventorySha256": False,
+            "replacesLegacyTerrain": True,
+            "replacesLegacyPlacements": True,
+            "replacesLegacyClientBootstrap": True,
+            "requiredBooleanKeys": [],
+            "requiredStringKeys": [],
+        },
+    }
+
+
 def tree_bytes(root: Path, excluded: Path | None = None) -> dict[str, tuple]:
     result = {}
     if not root.exists():
@@ -231,43 +268,9 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         "canonicalVoidTile": [0, 1, 8, 0, 0, 0, 0, 0, 0, 0],
     }
     write_json(server / "conf/world-builder/adaptive-runtime-capability-v2.json", capability)
-    installed_capability = {
-        "schemaVersion": 1,
-        "manifestType": "world-builder-installed-runtime-capability",
-        "capabilityId": "world-builder-installed-runtime-capability-v2",
-        "profileId": "world-builder-installed",
-        "serverBuildId": "fixture-installed-server-v2",
-        "clientBuildId": "fixture-installed-client-v2",
-        "clientBootstrapId": "world-builder-installed-client-profile-v1",
-        "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
-        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
-        "mapFormatId": "signed-layered-v1",
-        "packageSchemaId": "layered-world-package-v1",
-        "coordinateModel": "signed-layered-v1",
-        "encodingVersions": [1, 2, 3, 4],
-        "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
-        "runtimeArchives": {
-            "serverRelativePath": "server/core.jar",
-            "clientNames": [
-                "Client_Base/Open_RSC_Client.jar",
-                "client/Open_RSC_Client.jar",
-            ],
-        },
-        "activation": {
-            "runtimeProfile": "world-builder-installed",
-            "builderOnly": False,
-            "requiresExactManifestSha256": True,
-            "requiresExactInventorySha256": False,
-            "replacesLegacyTerrain": True,
-            "replacesLegacyPlacements": True,
-            "replacesLegacyClientBootstrap": True,
-            "requiredBooleanKeys": [],
-            "requiredStringKeys": [],
-        },
-    }
     write_json(
         server / "conf/world-builder/installed-runtime-capability-v2.json",
-        installed_capability,
+        installed_v2_capability(),
     )
     (server / "world-builder-install").mkdir(parents=True, exist_ok=True)
     (client / "world-builder-install").mkdir(parents=True, exist_ok=True)
