@@ -228,8 +228,10 @@ REQUIREMENTS AND LIMITS
 - Import, Undo, and Recovery require a filesystem/Java provider capable of
   forcing transaction directory entries; unsupported providers fail before
   target mutation.
-- The default local port is 43615. WORLD_BUILDER_PORT may select 1 through
-  65534; WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
+- The preferred local port is 43615. New desktop-created projects use it when
+  43615/43616 are free and otherwise select the next free loopback port pair.
+  WORLD_BUILDER_PORT may choose another preferred port from 1 through 65534;
+  WORLD_BUILDER_CONFIGURATION_ROLE chooses one declared ambiguous role.
 - Server administrators remain responsible for distributing the exact
   compatible client/map identity reported by each successful Import.
 - World Editor v1 remains frozen with separate identity, update channel,

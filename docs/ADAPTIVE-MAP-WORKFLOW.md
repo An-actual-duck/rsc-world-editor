@@ -345,6 +345,13 @@ unchanged while the layered package and bounded server configuration are
 updated. Only the proven v2 archive-free client bootstrap authorizes automatic
 legacy archive retirement.
 
+Desktop project creation treats the configured Builder port as a preference,
+not permission to collide with another local server. It tests the loopback
+server/WebSocket pair without inspecting or stopping the owning process and
+records the first free bounded pair in the new project runtime. Existing
+projects retain their recorded port; recreating a project is required to adopt
+a newly selected pair.
+
 Import MAY install adapter-approved map packages, client map data, bounded
 configuration, and the exact server/client runtime archives carried by the
 validated project. Runtime replacement is limited to the compiled server core

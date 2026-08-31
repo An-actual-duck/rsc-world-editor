@@ -54,6 +54,15 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
                             Path workspace = Paths.get(args[0]);
                             int port = Integer.parseInt(args[1]);
                             String classes = args[2];
+                            try (ServerSocket occupied = new ServerSocket(0, 1,
+                                    java.net.InetAddress.getByName("127.0.0.1"))) {
+                                int selected = WorldBuilderLauncherModel
+                                    .selectAvailablePortPair(occupied.getLocalPort());
+                                require(selected != occupied.getLocalPort(),
+                                    "desktop project creation must avoid an occupied port");
+                                require(selected >= 1 && selected < 65535,
+                                    "selected Builder port range");
+                            }
                             Files.createDirectories(workspace.resolve("working/server/run/world-builder"));
                             Files.createDirectories(workspace.resolve("working/server/inc/sqlite"));
                             Files.createDirectories(workspace.resolve("working/Client_Base"));

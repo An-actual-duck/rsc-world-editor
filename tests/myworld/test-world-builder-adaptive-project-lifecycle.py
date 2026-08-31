@@ -7,6 +7,7 @@ import gzip
 import json
 import os
 import shutil
+import socket
 import struct
 import subprocess
 import tempfile
@@ -7765,15 +7766,26 @@ public final class UpgradeNpcPlacements {
             self.assertTrue((imported_mapping.parent / "package-manifest-v1.json").is_file())
             self.assertEqual(detected_before, tree_bytes(detected))
 
-            created_empty = self.run_desktop_launcher(
-                installation, runtime, detected, 44100, "NEW_EMPTY", None, marker
-            )
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as occupied:
+                occupied.bind(("127.0.0.1", 0))
+                occupied.listen(1)
+                preferred_port = occupied.getsockname()[1]
+                created_empty = self.run_desktop_launcher(
+                    installation, runtime, detected, preferred_port,
+                    "NEW_EMPTY", None, marker,
+                )
             self.assertEqual(0, created_empty.returncode, created_empty.stderr)
             empty_project = Path(marker.read_text(encoding="utf-8").strip())
             empty_manifest = json.loads(
                 (empty_project / "project.json").read_text(encoding="utf-8")
             )
             self.assertEqual("standalone-empty", empty_manifest["origin"])
+            runtime_metadata = json.loads(
+                (empty_project / "working/runtime/runtime.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertNotEqual(preferred_port, runtime_metadata["port"])
             self.assertEqual(detected_before, tree_bytes(detected))
             self.assertFalse(list(installation.glob(".desktop-discovery-*")))
 

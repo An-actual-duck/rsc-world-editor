@@ -1,6 +1,9 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -29,8 +32,52 @@ final class WorldBuilderLauncherModel {
 		this.runtime = requireDirectory(runtime, "World Builder runtime");
 		this.defaultTarget = defaultTarget == null ? null
 			: requireDirectory(defaultTarget, "default server source");
+		if (port < 1 || port >= 65535) {
+			throw new IOException("Builder port must be between 1 and 65534.");
+		}
 		this.port = port;
 		this.configurationRole = emptyToNull(configurationRole);
+	}
+
+	static int selectAvailablePortPair(int preferredPort) throws IOException {
+		if (preferredPort < 1 || preferredPort >= 65535) {
+			throw new IOException("Builder port must be between 1 and 65534.");
+		}
+		for (int offset = 0; offset < 512; offset++) {
+			int candidate = preferredPort + offset;
+			if (candidate > 65534) candidate = 1024 + candidate - 65535;
+			int companion = candidate == 65534 ? 65533 : candidate + 1;
+			try (ServerSocket primary = bindLoopback(candidate);
+				ServerSocket secondary = bindLoopback(companion)) {
+				return candidate;
+			} catch (IOException occupied) {
+				// Continue through a bounded local range without inspecting or stopping
+				// the process that owns the requested port.
+			}
+		}
+		throw new IOException("No free local Builder port pair was found near "
+			+ preferredPort + ". Close another local Builder session or select a "
+			+ "different WORLD_BUILDER_PORT and restart World Builder.");
+	}
+
+	private static ServerSocket bindLoopback(int port) throws IOException {
+		ServerSocket socket = new ServerSocket();
+		try {
+			socket.setReuseAddress(false);
+			socket.bind(new InetSocketAddress(
+				InetAddress.getByName("127.0.0.1"), port), 1);
+			return socket;
+		} catch (IOException failure) {
+			try {
+				socket.close();
+			} catch (IOException ignored) {
+			}
+			throw failure;
+		}
+	}
+
+	private int creationPort() throws IOException {
+		return selectAvailablePortPair(port);
 	}
 
 	Path installation() {
@@ -322,7 +369,7 @@ final class WorldBuilderLauncherModel {
 				StandardOpenOption.TRUNCATE_EXISTING);
 			return new WorldBuilderAdaptiveProjectLifecycle().createKeepLayered(
 				installation, runtime, selected.source, selectedReport, legacyReport,
-				displayName, port, "CREATE", itemVisualMappings, true);
+				displayName, creationPort(), "CREATE", itemVisualMappings, true);
 		} finally {
 			Files.deleteIfExists(selectedReport);
 			Files.deleteIfExists(legacyReport);
@@ -343,7 +390,8 @@ final class WorldBuilderLauncherModel {
 					selected.report.toJson().getBytes(StandardCharsets.UTF_8),
 					StandardOpenOption.TRUNCATE_EXISTING);
 				return new WorldBuilderAdaptiveProjectLifecycle().createPackedMigrated(
-					installation, runtime, selected.source, report, displayName, port,
+					installation, runtime, selected.source, report, displayName,
+					creationPort(),
 					"CREATE", itemVisualMappings, true, layeredBasePackage);
 			} finally {
 				Files.deleteIfExists(report);
@@ -364,7 +412,7 @@ final class WorldBuilderLauncherModel {
 				StandardOpenOption.TRUNCATE_EXISTING);
 			return new WorldBuilderAdaptiveProjectLifecycle().createMigrated(
 				installation, runtime, selected.source, selectedReport, legacyReport,
-				displayName, port, "CREATE", itemVisualMappings, true);
+				displayName, creationPort(), "CREATE", itemVisualMappings, true);
 		} finally {
 			Files.deleteIfExists(selectedReport);
 			Files.deleteIfExists(legacyReport);
@@ -381,7 +429,7 @@ final class WorldBuilderLauncherModel {
 				StandardOpenOption.TRUNCATE_EXISTING);
 			Path target = "standalone".equals(preview.status) ? null : preview.source;
 			return new WorldBuilderAdaptiveProjectLifecycle().create(
-				installation, runtime, target, reportPath, displayName, port, "CREATE",
+				installation, runtime, target, reportPath, displayName, creationPort(), "CREATE",
 				itemVisualMappings);
 		} finally {
 			Files.deleteIfExists(reportPath);
