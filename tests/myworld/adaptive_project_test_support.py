@@ -205,6 +205,52 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         "canonicalVoidTile": [0, 1, 8, 0, 0, 0, 0, 0, 0, 0],
     }
     write_json(server / "conf/world-builder/adaptive-runtime-capability-v2.json", capability)
+    installed_capability = {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-installed-runtime-capability",
+        "capabilityId": "world-builder-installed-runtime-capability-v2",
+        "profileId": "world-builder-installed",
+        "serverBuildId": "fixture-installed-server-v2",
+        "clientBuildId": "fixture-installed-client-v2",
+        "clientBootstrapId": "world-builder-installed-client-profile-v1",
+        "loaderId": "generic-signed-layered-loader-v6-project-content-bundle-v3",
+        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+        "mapFormatId": "signed-layered-v1",
+        "packageSchemaId": "layered-world-package-v1",
+        "coordinateModel": "signed-layered-v1",
+        "encodingVersions": [1, 2, 3, 4],
+        "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        "runtimeArchives": {
+            "serverRelativePath": "server/core.jar",
+            "clientNames": [
+                "Client_Base/Open_RSC_Client.jar",
+                "client/Open_RSC_Client.jar",
+            ],
+        },
+        "activation": {
+            "runtimeProfile": "world-builder-installed",
+            "builderOnly": False,
+            "requiresExactManifestSha256": True,
+            "requiresExactInventorySha256": False,
+            "replacesLegacyTerrain": True,
+            "replacesLegacyPlacements": True,
+            "replacesLegacyClientBootstrap": True,
+            "requiredBooleanKeys": [],
+            "requiredStringKeys": [],
+        },
+    }
+    write_json(
+        server / "conf/world-builder/installed-runtime-capability-v2.json",
+        installed_capability,
+    )
+    (server / "world-builder-install").mkdir(parents=True, exist_ok=True)
+    (client / "world-builder-install").mkdir(parents=True, exist_ok=True)
+    (server / "world-builder-install/core.jar").write_bytes(
+        b"installed server runtime\n"
+    )
+    (client / "world-builder-install/Open_RSC_Client.jar").write_bytes(
+        b"installed client runtime\n"
+    )
     for name in REQUIRED_LANGUAGE_BUNDLES:
         path = server / "conf/server/languages" / name
         path.parent.mkdir(parents=True, exist_ok=True)

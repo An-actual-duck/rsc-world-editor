@@ -204,14 +204,14 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				"Restore one exact imported package on both server and client.");
 		}
 		requireInstalledPackagePath(configuration.serverMapRelativePath,
-			"server/world-builder/packages/", server.nativeInventorySha256,
+			"server/world-builder/packages/", server.fingerprintSha256,
 			configuration.relativePath);
 		String clientPrefix = configuration.clientMapRelativePath
 			.startsWith("Client_Base/")
 				? "Client_Base/world-builder/packages/"
 				: "client/world-builder/packages/";
 		requireInstalledPackagePath(configuration.clientMapRelativePath,
-			clientPrefix, client.nativeInventorySha256, configuration.relativePath);
+			clientPrefix, client.fingerprintSha256, configuration.relativePath);
 
 		List<WorldBuilderReadOnlyTarget.FileState> files =
 			new ArrayList<WorldBuilderReadOnlyTarget.FileState>();

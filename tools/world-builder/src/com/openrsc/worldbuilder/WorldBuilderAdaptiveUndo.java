@@ -604,8 +604,7 @@ final class WorldBuilderAdaptiveUndo {
 		WorldBuilderAdaptiveMutationProfile.Plan plan) {
 		if (plan.actions.isEmpty() || !plan.configurationChanges.isEmpty()) return false;
 		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
-			if (!("runtime-compatibility-server".equals(action.role)
-				|| "runtime-compatibility-client".equals(action.role))) return false;
+			if (!action.role.startsWith("runtime-compatibility-")) return false;
 		}
 		return true;
 	}

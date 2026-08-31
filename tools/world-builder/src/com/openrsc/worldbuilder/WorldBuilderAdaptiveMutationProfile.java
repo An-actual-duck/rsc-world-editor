@@ -91,11 +91,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Adapter and compiled mutation-profile identities disagree.",
 				"Use the exact capability descriptor recorded when the project was created.");
 		}
-		requireInstallEncodingSupport(capability, export.packageValue);
-
 		WorldBuilderAdaptiveConfiguration.Selection selection =
 			WorldBuilderAdaptiveConfiguration.select(readOnly, capability, selectedRole);
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		WorldBuilderRuntimeCompatibility.Upgrade runtimeCompatibility =
+			WorldBuilderRuntimeCompatibility.inspect(
+				project, target, configuration, capability, export.packageValue);
+		requireInstallEncodingSupport(
+			runtimeCompatibility.encodingVersions, export.packageValue);
 		String configurationPath = WorldBuilderAdaptiveConfiguration.pathForRole(selectedRole);
 		if (!configurationPath.equals(configuration.relativePath)
 			|| !configuration.sha256.equals(
@@ -106,7 +109,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 
 		String clientRoot = compiledClientRoot(configuration);
-		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		String packageContentAddress = packageContentAddress(
+			profile, export.packageValue);
 		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
@@ -142,8 +146,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			actions.add(Action.install("client-package-" + pad(actions.size()),
 				clientDestination, file.relativePath, file.size, file.sha256));
 		}
-		appendRuntimeCompatibilityActions(project, target, configuration,
-			transactionId, actions);
+		actions.addAll(WorldBuilderRuntimeCompatibility.bindTransaction(
+			runtimeCompatibility, transactionId));
 		Path configFile = safeExistingFile(target, configurationPath,
 			"selected target configuration");
 		FileState configBefore = FileState.present(
@@ -158,7 +162,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"backups/" + transactionId + "/before/" + configurationPath, true,
 			configurationBytes));
 		appendLegacyLandscapeRetirement(project, target, capability, configuration,
-			selectedReference, expectedLineage, transactionId, actions, true);
+			selectedReference, expectedLineage, transactionId, actions, true,
+			runtimeCompatibility.archiveFreeClientBootstrapProven);
 
 		List<ConfigurationChange> changes = new ArrayList<ConfigurationChange>();
 		addConfigurationChange(changes, configurationPath, "clientMapRelativePath",
@@ -205,8 +210,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"The latest installed World Builder package or activation changed: "
 				+ joinPaths(changed) + ".",
 			"Restore the exact current installed package before importing again; no force mode exists.");
+		Set<String> installedDestinations = new HashSet<String>();
+		for (Action action : installed.actions) {
+			installedDestinations.add(action.destinationRelativePath);
+		}
 		verifyUnchangedTargetEvidence(project, target,
-			installed.configuration.relativePath);
+			installed.configuration.relativePath, installedDestinations);
 		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);
 		if (!installed.capability.evidenceSha256.equals(capability.evidenceSha256)
@@ -216,8 +225,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 			WorldBuilderTargetCapability.RELATIVE_PATH,
 			"Target capability changed after the latest successful import.",
 			"Restore the exact compatible target capability before importing again.");
-		requireInstallEncodingSupport(capability, export.packageValue);
-
 		WorldBuilderAdaptiveDiscoveryReport fresh =
 			new WorldBuilderAdaptiveDiscovery().discover(target,
 				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
@@ -231,6 +238,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveConfiguration configuration =
 			WorldBuilderAdaptiveConfiguration.select(readOnly, capability,
 				selectedRole).selected;
+		WorldBuilderRuntimeCompatibility.Upgrade runtimeCompatibility =
+			WorldBuilderRuntimeCompatibility.inspect(
+				project, target, configuration, capability, export.packageValue);
+		requireInstallEncodingSupport(
+			runtimeCompatibility.encodingVersions, export.packageValue);
 		String configurationPath = installed.configuration.relativePath;
 		if (!configurationPath.equals(configuration.relativePath)) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, configurationPath,
@@ -238,7 +250,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the exact installed target before importing again.");
 
 		String clientRoot = compiledClientRoot(configuration);
-		String packageContentAddress = export.packageValue.nativeInventorySha256;
+		String packageContentAddress = packageContentAddress(
+			installed.profileId, export.packageValue);
 		String serverPackage = SERVER_PACKAGE_ROOT + "/" + packageContentAddress
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
@@ -252,8 +265,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"selected target configuration");
 		if (samePackage) {
 			List<Action> compatibility = new ArrayList<Action>();
-			appendRuntimeCompatibilityActions(project, target, configuration,
-				transactionId, compatibility);
+			compatibility.addAll(WorldBuilderRuntimeCompatibility.bindTransaction(
+				runtimeCompatibility, transactionId));
 			if (compatibility.isEmpty()) throw problem(
 				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "exports",
 				"This exact exported map package and matching runtime are already installed.",
@@ -280,8 +293,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			.getBytes(StandardCharsets.UTF_8);
 
 		List<Action> actions = packageInstallActions(export, serverPackage, clientPackage);
-		appendRuntimeCompatibilityActions(project, target, configuration,
-			transactionId, actions);
+		actions.addAll(WorldBuilderRuntimeCompatibility.bindTransaction(
+			runtimeCompatibility, transactionId));
 		FileState configurationBefore = FileState.present(
 			Files.size(configFile), WorldBuilderHashes.sha256(configFile));
 		if (!configuration.sha256.equals(configurationBefore.sha256)) throw problem(
@@ -366,8 +379,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Select the export currently installed on this target before completing its runtime update.");
 
 		List<Action> actions = new ArrayList<Action>();
-		appendRuntimeCompatibilityActions(project, target, configuration,
-			transactionId, actions);
+		WorldBuilderRuntimeCompatibility.Upgrade runtimeCompatibility =
+			WorldBuilderRuntimeCompatibility.inspect(
+				project, target, configuration, capability, export.packageValue);
+		requireInstallEncodingSupport(
+			runtimeCompatibility.encodingVersions, export.packageValue);
+		actions.addAll(WorldBuilderRuntimeCompatibility.bindTransaction(
+			runtimeCompatibility, transactionId));
 		if (actions.isEmpty()) throw problem(
 			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "runtime-compatibility",
 			"The pinned World Builder runtime is already installed.",
@@ -416,6 +434,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return actions;
 	}
 
+	private static String packageContentAddress(
+		String profile, WorldBuilderGenericLayeredPackage packageValue) {
+		return PACKED_PROFILE.equals(profile)
+			? packageValue.fingerprintSha256
+			: packageValue.nativeInventorySha256;
+	}
+
 	private static List<ConfigurationChange> configurationChanges(String path,
 		Map<String,Object> before, String serverPackage, String clientPackage)
 		throws WorldBuilderContractException {
@@ -443,74 +468,53 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return result;
 	}
 
-	private static void appendRuntimeCompatibilityActions(
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
-		Path target, WorldBuilderAdaptiveConfiguration configuration,
-		String transactionId, List<Action> actions)
-		throws IOException, WorldBuilderContractException {
-		String clientRoot = compiledClientRoot(configuration);
-		String[] destinations = new String[] {
-			"server/core.jar", clientRoot + "/Open_RSC_Client.jar"
-		};
-		String[] sources = new String[] {
-			"working/runtime/server/core.jar",
-			"working/runtime/client/Open_RSC_Client.jar"
-		};
-		String[] roles = new String[] {
-			"runtime-compatibility-server", "runtime-compatibility-client"
-		};
-		boolean serverPresent = Files.isRegularFile(
-			safeDestination(target, destinations[0]), LinkOption.NOFOLLOW_LINKS);
-		boolean clientPresent = Files.isRegularFile(
-			safeDestination(target, destinations[1]), LinkOption.NOFOLLOW_LINKS);
-		if (!serverPresent && !clientPresent) return;
-		if (!serverPresent || !clientPresent) throw problem(
-			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
-			serverPresent ? destinations[1] : destinations[0],
-			"Automatic runtime compatibility installation found only one target runtime archive.",
-			"Restore the complete server and client runtime pair, then retry Import.");
-		for (int index = 0; index < destinations.length; index++) {
-			Path source = WorldBuilderAdaptiveExporter.requireFile(
-				project.projectRoot, sources[index], "project runtime compatibility archive");
-			Path destination = safeExistingFile(target, destinations[index],
-				"target runtime compatibility archive");
-			FileState before = FileState.present(
-				Files.size(destination), WorldBuilderHashes.sha256(destination));
-			byte[] content = Files.readAllBytes(source);
-			FileState after = FileState.present(
-				content.length, WorldBuilderHashes.sha256(source));
-			if (before.size == after.size && before.sha256.equals(after.sha256)) continue;
-			actions.add(new Action(roles[index], destinations[index], before, after,
-				"package/activation/" + roles[index] + ".jar",
-				"backups/" + transactionId + "/before/" + destinations[index],
-				true, content));
-		}
-	}
-
 	private static void appendStoredRuntimeCompatibilityActions(
 		Map<String,Object> storedPlan,
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
-		String transactionId, List<Action> actions)
+		Path target, String transactionId, List<Action> actions)
 		throws IOException, WorldBuilderContractException {
 		for (Object raw : WorldBuilderAdaptiveExporter.array(
 			storedPlan.get("actions"), "actions")) {
 			Map<String,Object> value = WorldBuilderAdaptiveExporter.object(raw, "action");
 			String role = WorldBuilderAdaptiveExporter.string(value, "role");
-			if (!("runtime-compatibility-server".equals(role)
-				|| "runtime-compatibility-client".equals(role))) continue;
+			if (!role.startsWith("runtime-compatibility-")) continue;
 			boolean server = "runtime-compatibility-server".equals(role);
+			boolean client = "runtime-compatibility-client".equals(role);
+			boolean capability = "runtime-compatibility-capability".equals(role);
+			boolean serverConfiguration =
+				"runtime-compatibility-server-configuration".equals(role);
+			boolean clientProfile =
+				"runtime-compatibility-client-profile".equals(role);
 			String destination = WorldBuilderAdaptiveExporter.string(
 				value, "destinationRelativePath");
 			boolean destinationAllowed = server
 				? "server/core.jar".equals(destination)
-				: "Client_Base/Open_RSC_Client.jar".equals(destination)
-					|| "client/Open_RSC_Client.jar".equals(destination);
+				: client
+					? "Client_Base/Open_RSC_Client.jar".equals(destination)
+						|| "client/Open_RSC_Client.jar".equals(destination)
+					: capability
+						? WorldBuilderRuntimeCompatibility.CAPABILITY_DESTINATION
+							.equals(destination)
+						: serverConfiguration && WorldBuilderRuntimeCompatibility
+							.CONFIGURATION_DESTINATION.equals(destination)
+							|| clientProfile && (("Client_Base/"
+								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
+								.equals(destination)
+								|| ("client/"
+								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
+								.equals(destination));
 			String sourceRelative = server
-				? "working/runtime/server/core.jar"
-				: "working/runtime/client/Open_RSC_Client.jar";
-			String contentRelative = "package/activation/" + role + ".jar";
-			String backupRelative = "backups/" + transactionId + "/before/"
-				+ destination;
+				? "working/runtime/server/world-builder-install/core.jar"
+				: client
+					? "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
+			String contentRelative = "package/activation/" + role
+				+ (capability || clientProfile ? ".json"
+					: serverConfiguration ? ".conf" : ".jar");
+			FileState before = storedFileState(
+				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
+			String backupRelative = before.present
+				? "backups/" + transactionId + "/before/" + destination : "";
 			if (!destinationAllowed
 				|| !contentRelative.equals(WorldBuilderAdaptiveExporter.string(
 					value, "contentRelativePath"))
@@ -522,15 +526,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 					"Runtime compatibility action does not match the bounded install contract.",
 					"Retain the project and restore its exact transaction evidence.");
 			}
-			FileState before = storedFileState(
-				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			FileState after = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("after"), "after"));
-			Path source = WorldBuilderAdaptiveExporter.requireFile(
-				project.projectRoot, sourceRelative,
-				"project runtime compatibility archive");
+			Path source = serverConfiguration || clientProfile
+				? safeExistingFile(target, destination,
+					clientProfile ? "installed client profile"
+						: "installed server launch configuration")
+				: WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+					sourceRelative, "project runtime compatibility archive");
 			byte[] content = Files.readAllBytes(source);
-			if (!before.present || !after.present || after.size != content.length
+			if (!after.present || after.size != content.length
 				|| !after.sha256.equals(WorldBuilderHashes.sha256(source))) {
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, sourceRelative,
 					"Runtime compatibility content no longer matches the durable install plan.",
@@ -549,19 +554,19 @@ final class WorldBuilderAdaptiveMutationProfile {
 	}
 
 	private static void requireInstallEncodingSupport(
-		WorldBuilderTargetCapability capability,
+		List<Integer> effectiveEncodingVersions,
 		WorldBuilderGenericLayeredPackage packageValue)
 		throws WorldBuilderContractException {
 		List<Integer> missing = new ArrayList<Integer>();
 		for (Integer required : packageValue.requiredEncodingVersions) {
-			if (!capability.encodingVersions.contains(required)) missing.add(required);
+			if (!effectiveEncodingVersions.contains(required)) missing.add(required);
 		}
 		if (!missing.isEmpty()) throw problem(
 			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
 			WorldBuilderTargetCapability.RELATIVE_PATH,
 			"Exported layered package requires encoding version(s) " + missing
-				+ ", but the target runtime advertises "
-				+ capability.encodingVersions + ".",
+				+ ", but the effective install runtime supports "
+				+ effectiveEncodingVersions + ".",
 			"Adopt runtime support for the required terrain/placement encodings, regenerate truthful target capability evidence, and retry import.");
 	}
 
@@ -570,7 +575,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Path target, WorldBuilderTargetCapability capability,
 		WorldBuilderAdaptiveConfiguration configuration,
 		Map<String,Object> selectedReference, String expectedLineage,
-		String transactionId, List<Action> actions, boolean requirePresent)
+		String transactionId, List<Action> actions, boolean requirePresent,
+		boolean archiveFreeClientBootstrapProven)
 		throws IOException, WorldBuilderContractException {
 		Path choicePath = WorldBuilderPortablePath.resolveContained(
 			project.projectRoot, "source/migration/choice.json", OPERATION);
@@ -593,6 +599,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			choice, "migrationChoiceFingerprintSha256");
 		if (!WorldBuilderAdaptiveExporter.bool(choice, "retirementRequested")) return;
+		WorldBuilderRuntimeCompatibility.requireArchiveFreeClientBootstrap(project);
+		if (!archiveFreeClientBootstrapProven) {
+			throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
+				WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME,
+				"Legacy landscape retirement has no proven archive-free target client installation.",
+				"Keep both Custom_Landscape files until the matching target client runtime and installed profile can be updated atomically.");
+		}
 		if (!expectedLineage.equals(WorldBuilderAdaptiveExporter.string(
 			choice, "selectedTargetDiscoveryFingerprintSha256"))) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
@@ -742,7 +755,6 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Immutable selected-configuration role and path disagree.",
 			"Restore the complete project from a trusted backup.");
 
-		verifyUnchangedTargetEvidence(project, target, configurationPath);
 		WorldBuilderReadOnlyTarget live = WorldBuilderReadOnlyTarget.open(target);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(live);
 		String adapter = WorldBuilderAdaptiveExporter.string(projectTarget, "adapterId");
@@ -808,6 +820,15 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 		WorldBuilderAdaptiveExporter.requireFingerprint(
 			storedObject, "planFingerprintSha256");
+		Set<String> installedDestinations = new HashSet<String>();
+		for (Object raw : WorldBuilderAdaptiveExporter.array(
+			storedObject.get("actions"), "actions")) {
+			Map<String,Object> action = WorldBuilderAdaptiveExporter.object(raw, "action");
+			installedDestinations.add(WorldBuilderAdaptiveExporter.string(
+				action, "destinationRelativePath"));
+		}
+		verifyUnchangedTargetEvidence(project, target, configurationPath,
+			installedDestinations);
 		if (runtimeCompatibilityOnly(storedObject)) {
 			return reconstructRuntimeCompatibilityOnly(project, export, target,
 				transactionId, capability, profile, selectedRole, configurationPath,
@@ -872,7 +893,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 
 		List<Action> actions = packageInstallActions(
 			export, serverPackage, clientPackage);
-		appendStoredRuntimeCompatibilityActions(storedObject, project,
+		appendStoredRuntimeCompatibilityActions(storedObject, project, target,
 			transactionId, actions);
 		actions.add(new Action("activation-configuration", configurationPath,
 			configurationBefore,
@@ -881,7 +902,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"backups/" + transactionId + "/before/" + configurationPath, true,
 			configurationBytes));
 		if (!chained) appendLegacyLandscapeRetirement(project, target, capability,
-			configuration, selectedReference, lineage, transactionId, actions, false);
+			configuration, selectedReference, lineage, transactionId, actions, false,
+			true);
 
 		List<ConfigurationChange> changes = configurationChanges(configurationPath,
 			beforeConfiguration, serverPackage, clientPackage);
@@ -920,8 +942,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		for (Object raw : actions) {
 			String role = WorldBuilderAdaptiveExporter.string(
 				WorldBuilderAdaptiveExporter.object(raw, "action"), "role");
-			if (!("runtime-compatibility-server".equals(role)
-				|| "runtime-compatibility-client".equals(role))) return false;
+			if (!role.startsWith("runtime-compatibility-")) return false;
 		}
 		return true;
 	}
@@ -964,7 +985,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Restore the exact complete transaction evidence.");
 
 		List<Action> actions = new ArrayList<Action>();
-		appendStoredRuntimeCompatibilityActions(storedObject, project,
+		appendStoredRuntimeCompatibilityActions(storedObject, project, target,
 			transactionId, actions);
 		if (actions.size() != WorldBuilderAdaptiveExporter.array(
 			storedObject.get("actions"), "actions").size()) throw problem(
@@ -1054,6 +1075,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 
 	static Plan relocateHistoricalInstalledPlan(Plan historical)
 		throws IOException, WorldBuilderContractException {
+		if (PACKED_PROFILE.equals(historical.profileId)) return historical;
 		String legacyAddress = historical.export.packageValue.fingerprintSha256;
 		String nativeAddress = historical.export.packageValue.nativeInventorySha256;
 		if (legacyAddress.equals(nativeAddress)) return historical;
@@ -1217,7 +1239,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 
 	private static void verifyUnchangedTargetEvidence(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
-		Path target, String changedConfiguration)
+		Path target, String changedConfiguration, Set<String> installedDestinations)
 		throws IOException, WorldBuilderContractException {
 		Set<String> retirementPaths = legacyRetirementPaths(project);
 		for (String key : new String[] {"originalFiles", "definitionRuntimeFiles"}) {
@@ -1230,6 +1252,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				if (!sourcePath.startsWith(prefix)) continue;
 				String relative = sourcePath.substring(prefix.length());
 				if (relative.equals(changedConfiguration)) continue;
+				if (installedDestinations.contains(relative)) continue;
 				if (retirementPaths.contains(relative)) continue;
 				boolean present = WorldBuilderAdaptiveExporter.bool(record, "present");
 				Path live = safeDestination(target, relative);
@@ -1566,8 +1589,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		if (restoredConfiguration == null || selectedInstalledHash.isEmpty()) {
 			boolean runtimeOnly = !installed.actions.isEmpty();
 			for (Action original : installed.actions) {
-				runtimeOnly &= "runtime-compatibility-server".equals(original.role)
-					|| "runtime-compatibility-client".equals(original.role);
+				runtimeOnly &= original.role.startsWith("runtime-compatibility-");
 			}
 			if (!runtimeOnly || !installed.configurationChanges.isEmpty()) {
 				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "mutation-plan",

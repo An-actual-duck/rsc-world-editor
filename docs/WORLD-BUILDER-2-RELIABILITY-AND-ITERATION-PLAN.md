@@ -8,13 +8,13 @@
 | Created | 2026-08-30 |
 | Product | World Builder 2 |
 | Immediate objective | Restore trustworthy server import and shorten development feedback loops |
-| Current published baseline | Editor `90cadb1b3247edf0580f65c81934c02a2f3a5c5b`; runtime provider `69f908a2be1ff52085f4730f47714423c58c1cba` |
+| Current published baseline | Editor `792ebfd18685b83800f1d4051856fbc90a933bfb`; runtime provider `eac0e33bd5f09b6288be65a7665b6b282331560b` (selected on the active integration branch) |
 | Release state | `v0.7.0-alpha.35` published; development release gate closed |
 
-This document keeps the reliability work visible while an independent stop-gap
-repair is being prepared. The stop-gap must be collected and reviewed as an
-exact commit before any overlapping implementation begins. It is evidence and
-a possible emergency repair, not automatically the long-term design.
+This document keeps the reliability work visible after the independent
+stop-gap was applied manually to the separate Core checkout. It restored that
+server but is evidence, not the long-term import design. The disposable
+pre-fix Core copy is the reproducible target for this work.
 
 ## Product decisions
 
@@ -110,6 +110,145 @@ This is an audit finding, not yet a complete root-cause determination. The
 actual failing server copy, logs, launch configuration, and stop-gap diff must
 be compared with the pinned runtime to identify every missing component.
 
+### Reproduced import failure and current compatibility gap
+
+The failure is now reproduced against the explicitly authorized disposable
+`Core-Framework (copy)` target. The historical successful import receipt
+contained 3,578 map/configuration actions and no runtime compatibility action.
+Before the current branch changed planning order, a fresh import instead
+refused because the target advertised encoding version 1 while the export
+required version 3.
+
+The active branch can now plan and atomically install the server JAR, client
+JAR, adaptive runtime capability, map packages, and selected map configuration.
+A fresh project built from runtime provider
+`3ebe9ce753b5f42765c05ec1d2406202913d0cc4` applied 3,556 verified actions to
+the disposable target. The three compatibility artifacts matched the pinned
+runtime byte-for-byte, and the target was subsequently restored byte-for-byte
+from verified transaction and external backup evidence.
+
+That launch test found the next, more fundamental boundary. The target's normal
+`myworld.conf` remained active, so the new runtime logged that all layered
+authority/package settings were absent, loaded the legacy
+`Custom_Landscape.orsc` and legacy placements, and failed during legacy world
+population. The installed `server/world-builder-configs/primary.json` is an
+Editor-side selection descriptor; the server runtime does not read it as its
+launch configuration. Moreover, the current adaptive runtime profile is
+builder-only and requires isolated project evidence, while the other
+replacement profiles accept only hard-coded product packages. A generic,
+strict installed-package runtime profile plus a bounded target launch-config
+activation contract is therefore required. Replacing JARs alone cannot make a
+normal target use an arbitrary imported World Builder package.
+
+The next real-target test installed that profile and patched `server/myworld.conf`.
+The server then correctly logged that it skipped both legacy terrain and legacy
+base placements, proving that launch activation selected the imported package.
+Startup nevertheless failed closed on NPC definition 854. The replacement
+runtime JAR came from the independent generic runtime provider and therefore
+discarded target-specific Core behavior which conditionally loads that custom
+definition. The working and pre-fix Core source trees differ in only nine
+server runtime files and one client runtime file for the stop-gap, while the
+complete Core and generic-runtime trees differ much more broadly. Consequently,
+blindly replacing a customized target's complete JARs is not a valid general
+compatibility strategy. Import must preserve target-specific runtime behavior
+while installing the bounded layered-loader changes, or refuse before mutation.
+
+A preservation prototype has now crossed the cold-start boundary. The ten
+stop-gap source changes were applied to a temporary copy of the pre-fix Core
+source, augmented with the generic `world-builder-installed` profile, and built
+against the target's own libraries without modifying its source tree. Both the
+server and client staged builds succeeded. With the staged target-preserving
+JAR, the server retained all 862 target NPC definitions, activated the imported
+package, populated 3,749 NPC, 1,013 ground-item, 27,753 scenery, and 965 boundary
+placements, and reached its online TCP/WS state. The disposable target was then
+stopped and restored through reviewed transaction Undo.
+
+That prototype also proved that the packed Core activation contract uses the
+canonical package fingerprint as its content-address, while the current Editor
+planner installs under a distinct native-inventory digest. The two hashes are
+both deterministic but are not interchangeable. A supported-Core compatibility
+contract must select and verify the canonical fingerprint address expected by
+`WorldBuilderInstalledMapActivation`; generic package profiles may retain a
+different address only when their runtime explicitly defines it.
+
+A disposable live-test import has since completed through the reviewed Editor
+transaction path using the target-preserving staged artifacts and canonical
+package address. Its imported server cold-started successfully with the full
+placement counts above. The owner then connected the matching private client,
+authenticated, and confirmed the imported world was usable. Detection, project
+load, one saved map edit, import, server launch, and client launch have therefore
+all crossed the native live-test boundary. This also exposed an important
+packaging boundary:
+the target-preserving installed runtime and the generic adaptive authoring
+runtime are different products of the compatibility process. The former must
+not replace the project-local Editor runtime, because this target family does
+not implement the Editor-only `adaptive-world-builder` profile.
+
+### `Custom_Landscape.orsc` authority audit
+
+The imported target still contains byte-identical server and client
+`Custom_Landscape.orsc` archives with SHA-256
+`c48f9734f8faf027b9128c28dfcece468d3e84a5c1ed4b9a4452c2481392b6ee`
+and 1,771 packed sectors. Their presence does not make them the active server
+map. The installed server selects the content-addressed layered package and
+logs both `Skipping legacy terrain archives for installed World Builder package
+profile` and the corresponding suppression of legacy base placements.
+
+The ordinary player client has a different startup boundary. Before login and
+before the server can send native layered terrain, it still opens either
+`Custom_Landscape.orsc` or `Authentic_Landscape.orsc` and uses that file's MD5
+as its reported map identity. Only the isolated adaptive World Builder client
+profile can currently start with no packed landscape archive. Consequently,
+deleting both legacy files during import would break ordinary client startup
+even though the installed server no longer reads them. The existing migration
+retirement action is unsafe for this installed-runtime path until the player
+client receives an installed-package bootstrap profile.
+
+The current desktop question is also too weak. It is displayed whenever a
+layered target happens to contain a legacy file; it does not determine whether
+the archive is absent from, identical to, already incorporated into, or
+superseded by the layered authority. Selecting **Yes** on the disposable Core
+copy fails with `DEFINITION_MISMATCH` before terrain composition because the
+secondary packed conversion derives a different definition catalog. Forcing
+composition would be incorrect: exact conversion comparison shows that all
+1,771 legacy sectors already exist in the selected layered package, 1,758 are
+byte-equivalent, and 13 differ. The layered package additionally carries the
+reviewed level `-2` and level `+10` relocation sectors. Applying the legacy
+archive as an overlay would restore stale source-level terrain over those
+reviewed relocations. Selecting **No** works because it preserves the already
+complete layered authority.
+
+The replacement must be a one-time classification and supersession workflow,
+not another unconditional overlay prompt:
+
+1. Compare the exact legacy archive hash and converted sector inventory with
+   the selected layered package during read-only detection.
+2. If exact provenance or subset parity proves prior incorporation, silently
+   keep the layered package and record the legacy source as already handled.
+3. If sectors conflict, show their counts and require one explicit decision:
+   keep the current layered authority, apply the legacy sectors, or cancel.
+   Keeping the validated layered authority is the correct decision for the
+   disposable Core copy.
+4. Bind that decision, both legacy file hashes, and the selected layered
+   fingerprint into immutable project evidence and the later installed
+   receipt. Repeated detection must recognize that evidence and never ask the
+   same question again unless either side changes.
+5. Do not retire the physical archives until the installed player client can
+   bootstrap from a verified installed-package identity without opening a
+   packed archive. Once that runtime support exists, import may back up, remove,
+   and verify both exact legacy files as the final step.
+
+That replacement is now implemented on the active integration branch. Runtime
+provider `eac0e33bd5f09b6288be65a7665b6b282331560b` adds a strict installed-client
+profile whose verified package manifest becomes the pre-login map identity and
+whose native-only startup path never probes a legacy archive. Detection now
+compares converted legacy sectors to the selected layered package and records
+either incorporation or `keep-selected-layered-landscape` against both
+discovery fingerprints and both exact archive hashes. Import installs the
+matching client profile before transactionally retiring the two archived files;
+Undo retains exact restoration evidence. A fresh disposable-target candidate
+and owner live test remain the final gate.
+
 ## Faster working model
 
 Use four verification tiers:
@@ -132,19 +271,25 @@ gate before integration.
 
 ### 1. Capture the real failure and the stop-gap
 
-- [ ] Collect the stop-gap iteration's exact pushed commit, changed files,
-  tests, and known limitations without allowing it to overwrite later work.
-- [ ] Reproduce the current failure against a disposable copy of the same
+- [x] Record that the stop-gap was a manual Core-only repair, not a pushed
+  World Builder handoff to collect or integrate.
+- [x] Reproduce the current failure against a disposable copy of the same
   server layout and version that failed for the owner.
-- [ ] Record the exact symptom: server log, client log, selected configuration,
+- [x] Record the exact symptom: server log, selected configuration,
   installed map paths, runtime archives, capability evidence, startup command,
-  and first failing load operation.
+  and first failing load operation. Client connection evidence remains part of
+  the end-to-end gate.
 - [ ] Preserve a minimal sanitized fixture or deterministic fixture generator
   for that starting layout. Never commit a real server, map, credential,
   database, log, or user workspace.
 - [ ] Add a failing regression proving that the current import can claim
   success without producing a server that can load the new map.
-- [ ] Review which stop-gap changes are safe to retain, supersede, or discard.
+- [x] Compare the working and pre-fix Core copies to derive runtime loader,
+  terrain encoding, placement encoding, NPC override, activation, and launch
+  configuration evidence. Do not copy Core-specific source into the product.
+- [x] Prove that generic runtime replacement activates the imported package but
+  loses target-specific definition loading; record the first missing definition
+  (`NPC 854`) and restore the disposable target through reviewed Undo.
 
 Exit condition: one repeatable failure with evidence, not another inferred fix.
 
@@ -204,16 +349,31 @@ the remaining transaction safety mechanisms have unambiguous purposes.
 
 ### 4. Define complete target compatibility
 
-- [ ] Derive a versioned compatibility bill of materials from the exact pinned
+- [x] Derive the first compatibility bill of materials from the exact pinned
   runtime provider rather than from filenames observed in one target.
-- [ ] Identify every required server component: runtime archive, loader code,
-  capability descriptor, selected-map configuration fields, classpath/startup
-  integration, definition/configuration expectations, database/schema needs,
-  and any required support files.
-- [ ] Identify the corresponding client components: runtime archive, layered
-  loader, cache/assets, configuration, launch expectations, and protocol match.
+- [x] Identify the currently proven server components: runtime archive, loader
+  code, capability descriptor, selected-map configuration, target launch
+  configuration, definition compatibility, and startup/classpath mode.
+- [ ] Complete the server component contract for generated launch
+  configuration, supported startup modes, database/schema needs, and required
+  support files.
+- [x] Identify the corresponding client archive/protocol requirement and the
+  installed client package path.
+- [x] Connect the matching private client to the disposable imported server and
+  verify that the installed layered package activates after authentication.
+- [x] Add an installed-package client bootstrap contract so ordinary player
+  startup no longer opens or hashes `Custom_Landscape.orsc` before login.
+- [ ] Separate the overloaded `custom_landscape` feature flag from terrain
+  authority and unrelated combat-sprite presentation behavior.
+- [ ] Complete remaining client launch/configuration and cache/assets
+  requirements after the archive-free bootstrap path is proven.
 - [ ] Classify each component as replace, merge, generate, migrate, verify-only,
   or unsupported. Define ownership and backup behavior for every mutation.
+- [x] Prove that target-preserving staged server/client builds are viable using
+  the target source and libraries, without copying the complete target into the
+  product or replacing unrelated customized runtime behavior.
+- [x] Identify the packed-Core package-address contract as the canonical package
+  fingerprint rather than the Editor's newer native-inventory digest.
 - [ ] Define supported source layouts explicitly. Unknown or ambiguous layouts
   must fail with a precise report instead of receiving a partial installation.
 - [ ] Version the compatibility contract so future runtime changes cannot be
@@ -242,6 +402,15 @@ capable of loading an imported World Builder 2 map.
   precise recovery record; never report a map-only partial result as success.
 - [ ] Keep all testing and validation against disposable target copies. Do not
   mutate a real user server without separate explicit authorization.
+- [x] Replace the unconditional legacy-file question with exact
+  absent/equivalent/already-incorporated/conflicting classification.
+- [x] Record an immutable keep-layered/apply-legacy/cancel decision with both
+  legacy hashes and the selected package fingerprint.
+- [x] Persist successful supersession provenance so later detection does not
+  repeat the question when neither source has changed.
+- [x] Retain both packed archives while the installed player client still needs
+  them; permit verified retirement only after archive-free client bootstrap is
+  installed and proven.
 
 Exit condition: import is one atomic map-plus-compatibility operation, not a map
 copy followed by advice to repair the server manually.

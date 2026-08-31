@@ -49,16 +49,12 @@ class AdaptiveTransactionTest(unittest.TestCase):
             SOURCE_ROOT
             / "com/openrsc/worldbuilder/WorldBuilderAdaptiveMutationProfile.java"
         ).read_text(encoding="utf-8")
-        current_address = (
-            "String packageContentAddress = "
-            "export.packageValue.nativeInventorySha256;"
-        )
-        historical_address = (
-            "String packageContentAddress = "
-            "export.packageValue.fingerprintSha256;"
-        )
-        if legacy_source.count(current_address) < 1:
-            raise AssertionError("historical address fixture requires a prepare address")
+        current_address = """return PACKED_PROFILE.equals(profile)
+			? packageValue.fingerprintSha256
+			: packageValue.nativeInventorySha256;"""
+        historical_address = "return packageValue.fingerprintSha256;"
+        if legacy_source.count(current_address) != 1:
+            raise AssertionError("historical address fixture requires one address policy")
         legacy_source = legacy_source.replace(
             current_address, historical_address, 1
         )
@@ -971,9 +967,18 @@ public final class AdaptiveTransactionFailureHarness {
             self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
         if target_runtime_archives:
             (target / "server/core.jar").write_bytes(b"target server runtime\n")
-            client_root = target / "Client_Base"
-            if not client_root.is_dir():
-                client_root = target / "client"
+            (target / "server/myworld.conf").write_text(
+                "want_sync_scene_baseline: false\ncustom_landscape: true\n",
+                encoding="utf-8",
+            )
+            selected_configuration = json.loads(
+                (target / "server/world-builder-configs/primary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            client_root = target / Path(
+                selected_configuration["clientRuntimeRelativePath"]
+            ).parts[0]
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
@@ -1054,8 +1059,13 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             before_server = server.read_bytes()
             before_client = client.read_bytes()
-            project_server = project / "working/runtime/server/core.jar"
-            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
+            project_server = (
+                project / "working/runtime/server/world-builder-install/core.jar"
+            )
+            project_client = (
+                project
+                / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+            )
 
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1073,6 +1083,171 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
 
+    def test_import_bootstraps_runtime_capability_before_map_activation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), representation="packed", supported_encodings=(1,),
+                target_runtime_archives=True,
+            )
+            capability_path = target / "server/world-builder-capabilities.json"
+            before_capability = capability_path.read_bytes()
+
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            canonical_address = json.loads(
+                (export / "manifest.json").read_text(encoding="utf-8")
+            )["packageFingerprintSha256"]
+            server_map_change = next(
+                change for change in plan["configurationChanges"]
+                if change["key"] == "serverMapRelativePath"
+            )
+            self.assertEqual(
+                f"server/world-builder/packages/{canonical_address}/package",
+                server_map_change["afterValue"],
+            )
+            compatibility = {
+                action["role"]: action for action in plan["actions"]
+                if action["role"].startswith("runtime-compatibility-")
+            }
+            self.assertEqual(
+                {
+                    "runtime-compatibility-capability",
+                    "runtime-compatibility-client",
+                    "runtime-compatibility-client-profile",
+                    "runtime-compatibility-server",
+                    "runtime-compatibility-server-configuration",
+                },
+                set(compatibility),
+            )
+            self.assertEqual(
+                "server/conf/world-builder/installed-runtime-capability-v2.json",
+                compatibility["runtime-compatibility-capability"][
+                    "destinationRelativePath"
+                ],
+            )
+            self.assertEqual(
+                "client/world-builder-configs/installed-client.json",
+                compatibility["runtime-compatibility-client-profile"][
+                    "destinationRelativePath"
+                ],
+            )
+            self.assertEqual(
+                before_capability,
+                capability_path.read_bytes(),
+                "preview must not change target capability evidence",
+            )
+
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target, preview=preview,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            capability = json.loads(
+                (
+                    target
+                    / "server/conf/world-builder/installed-runtime-capability-v2.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
+            self.assertEqual(
+                "fixture-installed-server-v2",
+                capability["serverBuildId"],
+            )
+            self.assertEqual(
+                "fixture-installed-client-v2",
+                capability["clientBuildId"],
+            )
+            configuration = json.loads(
+                (target / "server/world-builder-configs/primary.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertEqual("layered", configuration["representation"])
+            self.assertTrue((target / configuration["serverMapRelativePath"]).is_dir())
+            self.assertTrue((target / configuration["clientMapRelativePath"]).is_dir())
+            client_profile = json.loads((
+                target / "client/world-builder-configs/installed-client.json"
+            ).read_text(encoding="utf-8"))
+            self.assertTrue(client_profile["active"])
+            self.assertEqual(
+                configuration["clientMapRelativePath"],
+                "client/" + client_profile["packageRelativePath"],
+            )
+
+            project_support.change_working_terrain(project)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            second_export = Path(json.loads(exported.stdout)["exportDirectory"])
+            second = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", second_export, "--target-root", target,
+            )
+            self.assertEqual(0, second.returncode, second.stderr)
+
+    def test_imported_packed_target_can_be_detected_and_adopted_from_nested_installation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-imported-redetection-") as temp:
+            base = Path(temp)
+            target, _, project, export = self.target_project(
+                base / "first", representation="packed",
+                target_runtime_archives=True,
+            )
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
+            installed_target = base / "installed-target"
+            shutil.copytree(
+                target, installed_target,
+                ignore=shutil.ignore_patterns("World Builder 2"),
+            )
+            selected_content_configuration = installed_target / "server/myworld.conf"
+            alternate_content_configuration = (
+                installed_target / "server/myworld-host.conf"
+            )
+            shutil.copy2(
+                selected_content_configuration, alternate_content_configuration
+            )
+            # Keep the installation below the server tree so its creation stage
+            # temporarily contains a second copy of the approved .conf evidence.
+            # Creation must verify the approved inventory, not rediscover its own
+            # project files as another target configuration.
+            installation = installed_target / "server/World Builder 2"
+            installation.mkdir()
+            runtime = project_support.make_runtime(base / "second")
+            discovery = self.run_cli(
+                "discover-adaptive", "--target-root", installed_target,
+                "--configuration-role", "server/myworld.conf",
+            )
+            self.assertEqual(0, discovery.returncode, discovery.stderr)
+            report = base / "installed-discovery.json"
+            report.write_text(discovery.stdout, encoding="utf-8")
+            created = self.run_cli(
+                "create-project",
+                "--installation-root", installation,
+                "--runtime-root", runtime,
+                "--target-root", installed_target,
+                "--discovery-report", report,
+                "--display-name", "Imported packed target",
+                "--port", "43894",
+                "--confirm", "CREATE",
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            reopened = self.run_cli(
+                "open-project",
+                "--installation-root", installation,
+                "--target-root", installed_target,
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual("ready-attached", json.loads(reopened.stdout)["state"])
+
     def test_existing_map_install_can_be_completed_with_runtime_compatibility(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-completion-") as temp:
             target, installation, project, export = self.target_project(Path(temp))
@@ -1088,6 +1263,10 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             server.write_bytes(b"incompatible installed server runtime\n")
             client.write_bytes(b"incompatible installed client runtime\n")
+            (target / "server/myworld.conf").write_text(
+                "want_sync_scene_baseline: false\ncustom_landscape: true\n",
+                encoding="utf-8",
+            )
 
             completed = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1095,11 +1274,17 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
             self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
+                (
+                    project
+                    / "working/runtime/server/world-builder-install/core.jar"
+                ).read_bytes(),
                 server.read_bytes(),
             )
             self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                (
+                    project
+                    / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+                ).read_bytes(),
                 client.read_bytes(),
             )
 
@@ -1161,6 +1346,10 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             server.write_bytes(b"incompatible installed server runtime\n")
             client.write_bytes(b"incompatible installed client runtime\n")
+            (target / "server/myworld.conf").write_text(
+                "want_sync_scene_baseline: false\ncustom_landscape: true\n",
+                encoding="utf-8",
+            )
 
             completed = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1168,11 +1357,17 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, completed.returncode, completed.stderr)
             self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
+                (
+                    project
+                    / "working/runtime/server/world-builder-install/core.jar"
+                ).read_bytes(),
                 server.read_bytes(),
             )
             self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                (
+                    project
+                    / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+                ).read_bytes(),
                 client.read_bytes(),
             )
 
@@ -1286,7 +1481,13 @@ public final class AdaptiveTransactionFailureHarness {
                 self.assertEqual(0, preview.returncode, preview.stderr)
                 preview_value = json.loads(preview.stdout)
                 self.assert_windows_safe_plan_paths(preview_value)
-                native_address = self.native_package_inventory_sha256(export / "package")
+                package_address = self.native_package_inventory_sha256(
+                    export / "package"
+                )
+                if representation == "packed":
+                    package_address = json.loads(
+                        (export / "manifest.json").read_text(encoding="utf-8")
+                    )["packageFingerprintSha256"]
                 configured_paths = {
                     change["afterValue"]
                     for change in preview_value["configurationChanges"]
@@ -1296,7 +1497,7 @@ public final class AdaptiveTransactionFailureHarness {
                 }
                 self.assertEqual(2, len(configured_paths))
                 self.assertTrue(all(
-                    f"/world-builder/packages/{native_address}/package" in path
+                    f"/world-builder/packages/{package_address}/package" in path
                     for path in configured_paths
                 ))
                 self.assertEqual(before, project_support.tree_bytes(target, installation))

@@ -49,6 +49,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"server/core.jar",
 			"server/plugins.jar",
 			"server/conf/world-builder/adaptive-runtime-capability-v2.json",
+			"server/conf/world-builder/installed-runtime-capability-v2.json",
 			"server/inc/sqlite/world_builder_seed.db",
 			"client/Open_RSC_Client.jar"));
 	private static final Set<String> ALLOWED_RUNTIME_ROLES =
@@ -263,8 +264,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		values.put("client_version", "10048");
 		values.put("member_world", "true");
 		values.put("based_map_data", "64");
-		values.put("want_myworld", "false");
-		values.put("custom_landscape", "false");
+		values.put("want_myworld", "true");
+		values.put("custom_landscape", "true");
 		values.put("want_custom_ui", "true");
 		values.put("side_menu_toggle", "true");
 		values.put("fog_toggle", "true");

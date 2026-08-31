@@ -38,7 +38,9 @@ final class WorldBuilderConfigWriter {
 		throws WorldBuilderDiscoveryException {
 		List<String> output = new ArrayList<String>(source.size() + overrides.size() + 2);
 		Set<String> replaced = new HashSet<String>();
+		boolean generatedCommentPresent = false;
 		for (String line : source) {
+			if (generatedComment.equals(line)) generatedCommentPresent = true;
 			Matcher matcher = CONFIG_LINE.matcher(line);
 			if (!matcher.matches() || !overrides.containsKey(matcher.group(2))) {
 				output.add(line);
@@ -51,8 +53,11 @@ final class WorldBuilderConfigWriter {
 			}
 			output.add(matcher.group(1) + key + ": " + overrides.get(key) + matcher.group(4));
 		}
-		output.add("");
-		output.add(generatedComment);
+		boolean missing = replaced.size() != overrides.size();
+		if (missing && !generatedCommentPresent) {
+			output.add("");
+			output.add(generatedComment);
+		}
 		for (Map.Entry<String, String> override : overrides.entrySet()) {
 			if (!replaced.contains(override.getKey())) {
 				output.add(override.getKey() + ": " + override.getValue());

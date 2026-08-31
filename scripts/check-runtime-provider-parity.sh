@@ -39,8 +39,11 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
+	server/conf/world-builder/installed-runtime-capability-v2.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
+	Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java \
+	Client_Base/src/orsc/WorldBuilderTerrainBootstrap.java \
 	server/src/com/openrsc/server/content/worldedit/AdaptiveWorldBuilderRuntimeIdentity.java \
 	server/src/com/openrsc/server/content/worldedit/AdaptiveWorldBuilderRuntimeSession.java \
 	server/src/com/openrsc/server/content/worldedit/AdaptiveWorldBuilderPackagePublisher.java; do
@@ -89,6 +92,43 @@ if elevation != {
     "atomicMultiTileBounds": True,
 }:
     raise SystemExit("FAIL: Adaptive runtime wide-elevation contract drifted")
+PY
+
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-runtime-capability-v2.json" <<'PY'
+import json
+import pathlib
+import sys
+
+capability = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected = {
+    "schemaVersion": 1,
+    "manifestType": "world-builder-installed-runtime-capability",
+    "capabilityId": "world-builder-installed-runtime-capability-v2",
+    "profileId": "world-builder-installed",
+    "loaderId": "generic-signed-layered-loader-v6-project-content-bundle-v3",
+    "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+    "packageSchemaId": "layered-world-package-v1",
+    "clientBootstrapId": "world-builder-installed-client-profile-v1",
+}
+for key, value in expected.items():
+    if capability.get(key) != value:
+        raise SystemExit(
+            f"FAIL: Installed runtime capability mismatch for {key}: "
+            f"expected {value!r}, found {capability.get(key)!r}"
+        )
+if capability.get("encodingVersions") != [1, 2, 3, 4]:
+    raise SystemExit("FAIL: Installed runtime encoding contract drifted")
+activation = capability.get("activation", {})
+if activation.get("builderOnly") is not False:
+    raise SystemExit("FAIL: Installed runtime must not require Builder mode")
+if (
+    not activation.get("replacesLegacyTerrain")
+    or not activation.get("replacesLegacyPlacements")
+    or not activation.get("replacesLegacyClientBootstrap")
+):
+    raise SystemExit(
+        "FAIL: Installed runtime must replace legacy map and client bootstrap authorities"
+    )
 PY
 
 client_version="$(sed -n \

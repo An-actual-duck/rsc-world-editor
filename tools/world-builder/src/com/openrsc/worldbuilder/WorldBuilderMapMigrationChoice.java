@@ -16,6 +16,8 @@ import java.util.Map;
  */
 final class WorldBuilderMapMigrationChoice {
 	private static final String OPERATION = "create-map-migration-choice";
+	static final String INCORPORATE = "incorporate-legacy-landscape";
+	static final String KEEP_LAYERED = "keep-selected-layered-landscape";
 	private static final String ZERO_HASH =
 		"0000000000000000000000000000000000000000000000000000000000000000";
 
@@ -32,7 +34,17 @@ final class WorldBuilderMapMigrationChoice {
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> selected = readReport(selectedTargetReportPath);
 		Map<String,Object> legacy = readReport(legacyPackedReportPath);
-		return create(selected, legacy, retirementRequested);
+		return create(selected, legacy, retirementRequested, INCORPORATE);
+	}
+
+	static WorldBuilderMapMigrationChoice keepLayered(
+		Path selectedTargetReportPath,
+		Path legacyPackedReportPath,
+		boolean retirementRequested)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> selected = readReport(selectedTargetReportPath);
+		Map<String,Object> legacy = readReport(legacyPackedReportPath);
+		return create(selected, legacy, retirementRequested, KEEP_LAYERED);
 	}
 
 	static WorldBuilderMapMigrationChoice create(
@@ -40,14 +52,37 @@ final class WorldBuilderMapMigrationChoice {
 		WorldBuilderAdaptiveDiscoveryReport legacyPackedReport,
 		boolean retirementRequested)
 		throws WorldBuilderContractException {
+		return create(selectedTargetReport, legacyPackedReport,
+			retirementRequested, INCORPORATE);
+	}
+
+	static WorldBuilderMapMigrationChoice keepLayered(
+		WorldBuilderAdaptiveDiscoveryReport selectedTargetReport,
+		WorldBuilderAdaptiveDiscoveryReport legacyPackedReport,
+		boolean retirementRequested)
+		throws WorldBuilderContractException {
+		return create(selectedTargetReport, legacyPackedReport,
+			retirementRequested, KEEP_LAYERED);
+	}
+
+	private static WorldBuilderMapMigrationChoice create(
+		WorldBuilderAdaptiveDiscoveryReport selectedTargetReport,
+		WorldBuilderAdaptiveDiscoveryReport legacyPackedReport,
+		boolean retirementRequested, String decision)
+		throws WorldBuilderContractException {
 		return create(parseReport(selectedTargetReport, "selected target"),
-			parseReport(legacyPackedReport, "legacy landscape"), retirementRequested);
+			parseReport(legacyPackedReport, "legacy landscape"),
+			retirementRequested, decision);
 	}
 
 	private static WorldBuilderMapMigrationChoice create(
 		Map<String,Object> selected, Map<String,Object> legacy,
-		boolean retirementRequested)
+		boolean retirementRequested, String decision)
 		throws WorldBuilderContractException {
+		if (!(INCORPORATE.equals(decision) || KEEP_LAYERED.equals(decision))) {
+			throw problem("The legacy-landscape decision is unsupported.",
+				"Choose either the selected layered authority or legacy incorporation.");
+		}
 
 		requireCompatibleRepresentation(selected, "layered", "selected target");
 		requireCompatibleRepresentation(legacy, "packed", "legacy landscape");
@@ -69,7 +104,7 @@ final class WorldBuilderMapMigrationChoice {
 		value.put("schemaVersion", Long.valueOf(1L));
 		value.put("manifestType", "world-builder-map-migration-choice");
 		value.put("toolVersion", WorldBuilderAdaptiveDiscoveryReport.TOOL_VERSION);
-		value.put("decision", "incorporate-legacy-landscape");
+		value.put("decision", decision);
 		value.put("selectedTargetDiscoveryFingerprintSha256", selectedFingerprint);
 		value.put("legacyPackedDiscoveryFingerprintSha256", legacyFingerprint);
 		value.put("selectedConfiguration", configuration(selected, "selected target"));
@@ -111,6 +146,14 @@ final class WorldBuilderMapMigrationChoice {
 
 	String fingerprintSha256() {
 		return (String)document.get("migrationChoiceFingerprintSha256");
+	}
+
+	boolean incorporatesLegacy() {
+		return INCORPORATE.equals(document.get("decision"));
+	}
+
+	String decision() {
+		return (String)document.get("decision");
 	}
 
 	private static Map<String,Object> readReport(Path path)

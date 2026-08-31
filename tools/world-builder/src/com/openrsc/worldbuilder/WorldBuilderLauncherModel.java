@@ -167,7 +167,7 @@ final class WorldBuilderLauncherModel {
 			if (!WorldBuilderPackedMigrationChoice.applies(selected.report)) return null;
 			WorldBuilderPackedMigrationChoice.create(selected.report, true);
 			return new LegacyMigrationPreview(selected.report,
-				Collections.<ConfigurationChoice>emptyList(), true);
+				Collections.<ConfigurationChoice>emptyList(), true, null);
 		}
 		if (!"layered".equals(selected.representation)) return null;
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(selected.source);
@@ -181,13 +181,16 @@ final class WorldBuilderLauncherModel {
 		if (!evidence) return null;
 		List<ConfigurationChoice> choices = legacyConfigurationChoices(target);
 		if (requestedConfiguration == null && choices.size() > 1) {
-			return new LegacyMigrationPreview(null, choices, false);
+			return new LegacyMigrationPreview(null, choices, false, null);
 		}
 		WorldBuilderAdaptiveDiscoveryReport legacy =
 			new WorldBuilderLegacyLandscapeDiscovery().discover(
 				selected.source, requestedConfiguration);
 		WorldBuilderMapMigrationChoice.create(selected.report, legacy, true);
-		return new LegacyMigrationPreview(legacy, choices, false);
+		WorldBuilderLegacyLandscapeAssessment assessment =
+			WorldBuilderLegacyLandscapeAssessment.inspect(
+				selected.source, selected.report, legacy);
+		return new LegacyMigrationPreview(legacy, choices, false, assessment);
 	}
 
 	private static List<ConfigurationChoice> legacyConfigurationChoices(
@@ -295,6 +298,35 @@ final class WorldBuilderLauncherModel {
 		String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
 		return createMigrated(selected, migration, displayName, itemVisualMappings, null);
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult createKeepLayered(
+		DiscoveryPreview selected, LegacyMigrationPreview migration,
+		String displayName, Path itemVisualMappings)
+		throws IOException, WorldBuilderContractException {
+		if (migration == null || migration.report == null
+			|| migration.primaryPacked || migration.assessment == null) {
+			throw new IOException(
+				"Layered landscape supersession requires one assessed legacy candidate.");
+		}
+		Path selectedReport = Files.createTempFile(
+			installation, ".desktop-selected-discovery-", ".json");
+		Path legacyReport = Files.createTempFile(
+			installation, ".desktop-legacy-discovery-", ".json");
+		try {
+			Files.write(selectedReport,
+				selected.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			Files.write(legacyReport,
+				migration.report.toJson().getBytes(StandardCharsets.UTF_8),
+				StandardOpenOption.TRUNCATE_EXISTING);
+			return new WorldBuilderAdaptiveProjectLifecycle().createKeepLayered(
+				installation, runtime, selected.source, selectedReport, legacyReport,
+				displayName, port, "CREATE", itemVisualMappings, true);
+		} finally {
+			Files.deleteIfExists(selectedReport);
+			Files.deleteIfExists(legacyReport);
+		}
 	}
 
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult createMigrated(
@@ -733,12 +765,15 @@ final class WorldBuilderLauncherModel {
 		final WorldBuilderAdaptiveDiscoveryReport report;
 		final List<ConfigurationChoice> configurationChoices;
 		final boolean primaryPacked;
+		final WorldBuilderLegacyLandscapeAssessment assessment;
 
 		LegacyMigrationPreview(WorldBuilderAdaptiveDiscoveryReport report,
-			List<ConfigurationChoice> configurationChoices, boolean primaryPacked) {
+			List<ConfigurationChoice> configurationChoices, boolean primaryPacked,
+			WorldBuilderLegacyLandscapeAssessment assessment) {
 			this.report = report;
 			this.configurationChoices = configurationChoices;
 			this.primaryPacked = primaryPacked;
+			this.assessment = assessment;
 		}
 
 		boolean needsConfigurationChoice() {

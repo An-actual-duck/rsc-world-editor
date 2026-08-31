@@ -224,8 +224,10 @@ final class WorldBuilderAdaptiveContracts {
 			"legacyConfiguration", "legacyTerrain", "retirementRequested",
 			"migrationChoiceFingerprintSha256");
 		identifier(root, "toolVersion", op);
-		if (!"incorporate-legacy-landscape".equals(string(root, "decision", op))) {
-			invalid(op, "Map migration choice does not select legacy-landscape incorporation.");
+		String decision = string(root, "decision", op);
+		if (!(WorldBuilderMapMigrationChoice.INCORPORATE.equals(decision)
+			|| WorldBuilderMapMigrationChoice.KEEP_LAYERED.equals(decision))) {
+			invalid(op, "Map migration choice has an unknown terrain-authority decision.");
 		}
 		String selectedDiscovery = hash(root,
 			"selectedTargetDiscoveryFingerprintSha256", op);

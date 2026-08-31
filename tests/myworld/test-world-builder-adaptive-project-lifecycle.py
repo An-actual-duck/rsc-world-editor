@@ -2306,7 +2306,8 @@ public final class FakeAdaptiveClient {
                 project / "working/runtime/server/world-builder.conf"
             ).read_text(encoding="utf-8")
             self.assertIn("server_bind_address: 127.0.0.1\n", isolated_config)
-            self.assertIn("custom_landscape: false\n", isolated_config)
+            self.assertIn("want_myworld: true\n", isolated_config)
+            self.assertIn("custom_landscape: true\n", isolated_config)
             for editor_presentation in (
                 "want_custom_ui: true\n",
                 "side_menu_toggle: true\n",

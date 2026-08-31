@@ -118,6 +118,24 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			new MigrationOrigin(legacy, choice), null, null);
 	}
 
+	ProjectResult createKeepLayered(Path requestedInstallRoot, Path requestedRuntimeRoot,
+		Path requestedTargetRoot, Path selectedTargetReportPath,
+		Path legacyPackedReportPath, String requestedDisplayName, int port,
+		String confirmation, Path itemVisualMappings, boolean retirementRequested)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> legacy = readContractMap(legacyPackedReportPath,
+			WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
+		requireDiscoveryFingerprint(legacy);
+		WorldBuilderMapMigrationChoice choice =
+			WorldBuilderMapMigrationChoice.keepLayered(
+				selectedTargetReportPath, legacyPackedReportPath,
+				retirementRequested);
+		return createInternal(requestedInstallRoot, requestedRuntimeRoot,
+			requestedTargetRoot, selectedTargetReportPath, requestedDisplayName, port,
+			confirmation, itemVisualMappings, false,
+			new MigrationOrigin(legacy, choice), null, null);
+	}
+
 	ProjectResult createPackedMigrated(Path requestedInstallRoot,
 		Path requestedRuntimeRoot, Path requestedTargetRoot, Path discoveryReportPath,
 		String requestedDisplayName, int port, String confirmation,
@@ -199,7 +217,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Map migration requires one compatible layered target and one compatible packed legacy candidate.",
 					"Run both read-only discovery passes again and review the incorporation choice.");
 			}
-			origin = "target-packed";
+			if (migration.choice.incorporatesLegacy()) origin = "target-packed";
 		}
 		if (packedMigration != null
 			&& (!"compatible".equals(status) || !"packed".equals(representation))) {
@@ -304,12 +322,31 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 						: WorldBuilderEmptyWorldGenerator.generate(
 							stage, runtimeSha256, sourceRuntime);
 				prepared = PreparedOrigin.empty(empty);
-			} else if (migration != null) {
+			} else if (migration != null && migration.choice.incorporatesLegacy()) {
 				prepared = prepareMigratedTargetOrigin(stage, target, report,
 					migration, sourceRuntime, itemVisualMappings);
 			} else {
 				prepared = prepareTargetOrigin(stage, target, report, stagedReport,
 					origin, sourceRuntime, itemVisualMappings);
+				if (migration != null) {
+					Path migrationRoot = stage.resolve("source/migration");
+					ensureRealDirectory(migrationRoot);
+					Path legacyReportPath = migrationRoot.resolve(
+						"discovery-report.json");
+					writeNew(legacyReportPath,
+						WorldBuilderJsonDocuments.pretty(migration.legacyReport)
+							.getBytes(StandardCharsets.UTF_8));
+					writePortableDiscoveryReport(
+						legacyReportPath, migration.legacyReport);
+					Path choicePath = migrationRoot.resolve("choice.json");
+					writeNew(choicePath, migration.choice.toJson()
+						.getBytes(StandardCharsets.UTF_8));
+					WorldBuilderAdaptiveContracts.read(
+						WorldBuilderAdaptiveContracts.Kind.MAP_MIGRATION_CHOICE,
+						choicePath);
+					prepared = PreparedOrigin.withMigration(
+						stage, prepared, migrationRoot);
+				}
 				if (packedMigration != null) {
 					Path migrationRoot = stage.resolve("source/migration");
 					ensureRealDirectory(migrationRoot);
@@ -328,7 +365,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);
-			requireFreshDiscovery(report, target);
+			requireFreshTargetEvidence(report, target);
 			if (migration != null) requireFreshMigration(migration, target);
 
 			copyTreeExact(stage.resolve(BASELINE_DIRECTORY),
@@ -388,7 +425,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					"Staged project identity changed during validation.",
 					"Discard the unpublished stage and retry.");
 			}
-			requireFreshDiscovery(report, target);
+			requireFreshTargetEvidence(report, target);
 			if (migration != null) requireFreshMigration(migration, target);
 			observe("before-project-publish", stage);
 			moveAtomicNew(stage, project);
@@ -436,6 +473,10 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
 		Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		// Project staging may live below the target root. Revalidate only the
+		// approved target evidence here so World Builder's own temporary project
+		// files cannot make read-only target discovery disagree with itself.
+		requireFreshTargetEvidence(report, target);
 		List<Evidence> evidence = evidence(report);
 		Path original = stage.resolve("source/original");
 		ensureRealDirectory(original);
@@ -465,7 +506,6 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				item.size, item.sha256);
 		}
 		requireExactOriginalTree(original, evidence);
-		requireFreshDiscovery(report, target);
 
 		WorldBuilderReadOnlyTarget copied = WorldBuilderReadOnlyTarget.open(original);
 		WorldBuilderTargetCapability capability;
@@ -2018,6 +2058,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	private static List<Evidence> evidence(Map<String,Object> report)
 		throws WorldBuilderContractException {
 		List<Evidence> result = new ArrayList<Evidence>();
+		if ("standalone".equals(string(report, "status"))) return result;
 		Set<String> paths = new HashSet<String>();
 		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
 		boolean fallback = isPackedFallbackReport(report);
@@ -2388,17 +2429,46 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if (!status.equals(fresh.status)
 			|| !string(report, "discoveryFingerprintSha256").equals(
 				fresh.fingerprintSha256())) {
+			String approvedFingerprint = string(
+				report, "discoveryFingerprintSha256");
 			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, "target-root",
-				"Target discovery no longer matches the approved creation report.",
+				"Target discovery no longer matches the approved creation report "
+					+ "(approved " + status + " " + approvedFingerprint
+					+ ", current " + fresh.status + " "
+					+ fresh.fingerprintSha256() + ").",
 				"Stop target changes, rediscover, and create a new project.");
+		}
+	}
+
+	private static void requireFreshTargetEvidence(Map<String,Object> report, Path target)
+		throws WorldBuilderContractException {
+		if (target == null) return;
+		WorldBuilderReadOnlyTarget live = WorldBuilderReadOnlyTarget.open(target);
+		for (Evidence item : evidence(report)) {
+			if (!item.present) {
+				if (live.exists(item.targetRelativePath)) throw problem(
+					WorldBuilderErrorCodes.TARGET_DRIFT, item.targetRelativePath,
+					"Approved absent target evidence became present during project creation.",
+					"Detect the server map again and review the changed target evidence.");
+				continue;
+			}
+			WorldBuilderReadOnlyTarget.FileState state = live.requiredState(
+				item.role, item.targetRelativePath);
+			if (item.size >= 0L && state.size != item.size
+				|| !item.sha256.equals(state.sha256)) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, item.targetRelativePath,
+				"Approved target evidence changed during project creation.",
+				"Detect the server map again and review the changed target evidence.");
 		}
 	}
 
 	static String rediscoveryRole(Map<String,Object> report)
 		throws WorldBuilderContractException {
 		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
+		Map<String,Object> capability = object(report.get("capability"), "capability");
 		if (bool(descriptor, "present")
-			&& "packed".equals(string(report, "representation"))) {
+			&& WorldBuilderPackedLayoutAdapter.ID.equals(
+				string(capability, "adapterId"))) {
 			String selectedContentPath = "";
 			for (Object raw : array(report.get("files"), "files")) {
 				Map<String,Object> file = object(raw, "discovery file");

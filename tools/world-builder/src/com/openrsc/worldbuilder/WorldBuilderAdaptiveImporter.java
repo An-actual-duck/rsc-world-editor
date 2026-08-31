@@ -309,9 +309,21 @@ final class WorldBuilderAdaptiveImporter {
 					observe("retirement-published", destination);
 					continue;
 				}
-				Path destination = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
-					target, action.destinationRelativePath,
-					"activation configuration");
+				Path destination = action.before.present
+					? WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+						target, action.destinationRelativePath,
+						"activation input")
+					: WorldBuilderAdaptiveMutationProfile.safeDestination(
+						target, action.destinationRelativePath);
+				if (!action.before.present) {
+					if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) throw problem(
+						WorldBuilderErrorCodes.TARGET_DRIFT,
+						action.destinationRelativePath, true,
+						"A planned compatibility destination appeared after preview.",
+						"Stop target updates and request a fresh import preview.");
+					ensureParentDirectories(
+						plan, destination.getParent(), createdDirectories);
+				}
 				Path temporary = destination.getParent().resolve("."
 					+ destination.getFileName() + ".stage-" + plan.transactionId());
 				staged.reserve(temporary);
@@ -325,11 +337,16 @@ final class WorldBuilderAdaptiveImporter {
 				observe("activation-staged", temporary);
 				observe("before-activation", destination);
 				verifyState(target, action.destinationRelativePath, action.before);
-				destination = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
-					target, action.destinationRelativePath,
-					"activation configuration at publication boundary");
-				moveAtomicReplacing(temporary, destination,
-					action.destinationRelativePath);
+				if (action.before.present) {
+					destination = WorldBuilderAdaptiveMutationProfile.safeExistingFile(
+						target, action.destinationRelativePath,
+						"activation input at publication boundary");
+					moveAtomicReplacing(temporary, destination,
+						action.destinationRelativePath);
+				} else {
+					moveAtomicNew(temporary, destination,
+						action.destinationRelativePath);
+				}
 				staged.forget(temporary);
 				forceFile(destination);
 				WorldBuilderAdaptiveDurability.forceDirectory(destination.getParent());

@@ -32,9 +32,13 @@ import java.nio.file.Paths;
 public final class MapMigrationChoiceHarness {
     public static void main(String[] arguments) throws Exception {
         try {
-            WorldBuilderMapMigrationChoice choice = WorldBuilderMapMigrationChoice.create(
-                Paths.get(arguments[0]), Paths.get(arguments[1]),
-                Boolean.parseBoolean(arguments[2]));
+            WorldBuilderMapMigrationChoice choice = "keep".equals(arguments[3])
+                ? WorldBuilderMapMigrationChoice.keepLayered(
+                    Paths.get(arguments[0]), Paths.get(arguments[1]),
+                    Boolean.parseBoolean(arguments[2]))
+                : WorldBuilderMapMigrationChoice.create(
+                    Paths.get(arguments[0]), Paths.get(arguments[1]),
+                    Boolean.parseBoolean(arguments[2]));
             System.out.print(choice.toJson());
         } catch (WorldBuilderContractException refusal) {
             System.err.println(refusal.code() + "|" + refusal.operation() + "|"
@@ -42,6 +46,27 @@ public final class MapMigrationChoiceHarness {
                 + refusal.getMessage());
             System.exit(3);
         }
+    }
+}
+"""
+
+ASSESSMENT_HARNESS = r"""
+package com.openrsc.worldbuilder;
+
+import java.nio.file.Paths;
+
+public final class LegacyLandscapeAssessmentHarness {
+    public static void main(String[] arguments) throws Exception {
+        WorldBuilderAdaptiveDiscoveryReport selected =
+            new WorldBuilderAdaptiveDiscovery().discover(
+                Paths.get(arguments[0]), arguments[1]);
+        WorldBuilderAdaptiveDiscoveryReport legacy =
+            new WorldBuilderLegacyLandscapeDiscovery().discover(
+                Paths.get(arguments[0]), null);
+        WorldBuilderLegacyLandscapeAssessment assessment =
+            WorldBuilderLegacyLandscapeAssessment.inspect(
+                Paths.get(arguments[0]), selected, legacy);
+        System.out.print(WorldBuilderJsonDocuments.pretty(assessment.document()));
     }
 }
 """
@@ -98,7 +123,8 @@ public final class ScriptedMigrationLauncherHarness {
                 return true;
             }
             @Override public boolean confirmLegacyLandscapeIncorporation() {
-                return true;
+                return arguments.length < 6
+                    || Boolean.parseBoolean(arguments[5]);
             }
             @Override public void showError(String title, String message) {
                 throw new AssertionError(title + ": " + message);
@@ -154,6 +180,10 @@ public final class LauncherMigrationTransactionHarness {
             || Files.exists(target.resolve(
                 "Client_Base/Cache/video/Custom_Landscape.orsc"))) {
             throw new AssertionError("legacy landscape was not retired");
+        }
+        if (!Files.isRegularFile(target.resolve(
+                "client/world-builder-configs/installed-client.json"))) {
+            throw new AssertionError("archive-free client profile was not installed");
         }
         WorldBuilderLauncherModel.PreparedUndo undo = model.prepareServerUndo(selected);
         System.out.println(model.applyServerUndo(undo));
@@ -323,6 +353,20 @@ class MapMigrationChoiceTest(unittest.TestCase):
             cwd=ROOT,
             capture_output=True,
         )
+        assessment_harness = (
+            cls.classes
+            / "harness/com/openrsc/worldbuilder/LegacyLandscapeAssessmentHarness.java"
+        )
+        assessment_harness.write_text(ASSESSMENT_HARNESS, encoding="utf-8")
+        subprocess.run(
+            [
+                "javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                "-d", str(cls.classes), str(assessment_harness),
+            ],
+            check=True,
+            cwd=ROOT,
+            capture_output=True,
+        )
 
     @classmethod
     def tearDownClass(cls) -> None:
@@ -336,7 +380,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.temp.cleanup()
 
     def run_choice(
-        self, selected: dict, legacy: dict, retirement: bool = True
+        self, selected: dict, legacy: dict, retirement: bool = True,
+        decision: str = "incorporate",
     ) -> tuple[subprocess.CompletedProcess[str], bytes, bytes]:
         selected_path = self.root / "selected.json"
         legacy_path = self.root / "legacy.json"
@@ -349,6 +394,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "java", "-cp", str(self.classes),
                 "com.openrsc.worldbuilder.MapMigrationChoiceHarness",
                 str(selected_path), str(legacy_path), str(retirement).lower(),
+                "keep" if decision == "keep" else "incorporate",
             ],
             cwd=ROOT,
             text=True,
@@ -356,11 +402,25 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         return result, selected_before, legacy_before
 
-    def legacy_target(self) -> Path:
+    def run_assessment(
+        self, target: Path, selected_role: str = "primary"
+    ) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.LegacyLandscapeAssessmentHarness",
+                str(target), selected_role,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+
+    def legacy_target(self, name: str = "fixture") -> Path:
         fixture = DISCOVERY.AdaptiveDiscoveryTest(
             methodName="test_narrow_legacy_fallback_probe_remains_read_only"
         )
-        return fixture.legacy_fixture(str(self.root / "fixture"))
+        return fixture.legacy_fixture(str(self.root / name))
 
     def run_legacy_discovery(
         self, target: Path, *extra: str
@@ -434,7 +494,9 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         return marker
 
-    def add_layered_authority(self, target: Path, catalog: dict) -> None:
+    def add_layered_authority(
+        self, target: Path, catalog: dict, world_space: str = "creator-space"
+    ) -> None:
         server_catalog = target / "server/evidence/definitions.json"
         client_catalog = target / "client/evidence/definitions.json"
         server_catalog.parent.mkdir(parents=True, exist_ok=True)
@@ -454,7 +516,10 @@ class MapMigrationChoiceTest(unittest.TestCase):
             methodName="test_descriptor_layered_map_is_generic_complete_and_read_only"
         )
         server_package = target / "server/maps/active"
-        fixture.write_package(server_package, terrain_seed=91, scenery_id=1)
+        fixture.write_package(
+            server_package, terrain_seed=91, scenery_id=1,
+            world_space=world_space,
+        )
         placements_path = server_package / "placements/creator/lp0.json"
         placements = json.loads(placements_path.read_text(encoding="utf-8"))
         placements["boundaries"][0]["boundaryId"] = 1
@@ -587,6 +652,124 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(second.returncode, 0, second.stderr)
         self.assertEqual(first.stdout, second.stdout)
 
+    def test_keep_layered_choice_binds_the_same_exact_evidence(self) -> None:
+        selected, legacy = reports()
+        result, selected_before, legacy_before = self.run_choice(
+            selected, legacy, decision="keep"
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        choice = json.loads(result.stdout)
+        self.assertEqual(
+            choice["decision"], "keep-selected-layered-landscape"
+        )
+        self.assertTrue(choice["retirementRequested"])
+        self.assertEqual(
+            choice["selectedTargetDiscoveryFingerprintSha256"],
+            selected["discoveryFingerprintSha256"],
+        )
+        self.assertEqual(
+            choice["legacyPackedDiscoveryFingerprintSha256"],
+            legacy["discoveryFingerprintSha256"],
+        )
+        self.assertEqual((self.root / "selected.json").read_bytes(), selected_before)
+        self.assertEqual((self.root / "legacy.json").read_bytes(), legacy_before)
+
+    def test_assessment_classifies_legacy_sectors_missing_from_layered_map(self) -> None:
+        target = self.legacy_target()
+        server_legacy = target / "server/conf/server/data/Custom_Landscape.orsc"
+        DISCOVERY.AdaptiveDiscoveryTest.write_archive(server_legacy)
+        shutil.copy2(
+            server_legacy,
+            target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+        )
+        fixture = DISCOVERY.AdaptiveDiscoveryTest(methodName="runTest")
+        catalog = fixture.definition_catalog()
+        catalog.update({
+            "boundaries": [1],
+            "scenery": [1],
+            "npcs": [1],
+            "groundItems": [7],
+        })
+        self.add_layered_authority(target, catalog)
+
+        before = DISCOVERY.AdaptiveDiscoveryTest.snapshot(target)
+        result = self.run_assessment(target)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(before, DISCOVERY.AdaptiveDiscoveryTest.snapshot(target))
+        assessment = json.loads(result.stdout)
+        self.assertEqual(assessment["status"], "incomplete")
+        self.assertEqual(assessment["legacySectorCount"], 1)
+        self.assertEqual(assessment["missingSectorCount"], 1)
+        self.assertEqual(assessment["layeredOnlySectorCount"], 1)
+        self.assertEqual(assessment["missingSectors"], ["global:0:0:0"])
+
+    def test_assessment_classifies_conflicting_and_equivalent_legacy_sectors(self) -> None:
+        fixture = DISCOVERY.AdaptiveDiscoveryTest(methodName="runTest")
+        catalog = fixture.definition_catalog()
+        catalog.update({
+            "boundaries": [1],
+            "scenery": [1],
+            "npcs": [1],
+            "groundItems": [7],
+        })
+        for equivalent in (False, True):
+            with self.subTest(equivalent=equivalent):
+                target = self.legacy_target(
+                    "equivalent" if equivalent else "conflicting"
+                )
+                server_legacy = (
+                    target / "server/conf/server/data/Custom_Landscape.orsc"
+                )
+                DISCOVERY.AdaptiveDiscoveryTest.write_archive(server_legacy)
+                shutil.copy2(
+                    server_legacy,
+                    target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+                )
+                self.add_layered_authority(target, catalog, world_space="global")
+                if equivalent:
+                    with zipfile.ZipFile(server_legacy) as archive:
+                        packed = archive.read("h0x48y37")
+                    converted = bytearray()
+                    for offset in range(0, len(packed), 10):
+                        tile = bytearray(packed[offset:offset + 10])
+                        tile[4], tile[5] = tile[5], tile[4]
+                        converted.extend(b"\x00")
+                        converted.extend(tile)
+                    for package in (
+                        target / "server/maps/active",
+                        target / "client/maps/active",
+                    ):
+                        terrain = package / "terrain/creator/lp0/xp0-yp0.raw"
+                        terrain.write_bytes(converted)
+                        manifest_path = package / "manifest.json"
+                        manifest = json.loads(
+                            manifest_path.read_text(encoding="utf-8")
+                        )
+                        manifest["terrainSectors"][0]["encoding"] = (
+                            "raw-layered-sector-v2-u16"
+                        )
+                        manifest["terrainSectors"][0]["sha256"] = hashlib.sha256(
+                            terrain.read_bytes()
+                        ).hexdigest()
+                        manifest_path.write_text(
+                            json.dumps(manifest, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
+                result = self.run_assessment(target)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                assessment = json.loads(result.stdout)
+                self.assertEqual(
+                    assessment["status"],
+                    "equivalent" if equivalent else "conflicting",
+                )
+                self.assertEqual(assessment["missingSectorCount"], 0)
+                self.assertEqual(
+                    assessment["equivalentSectorCount"], 1 if equivalent else 0
+                )
+                self.assertEqual(
+                    assessment["conflictingSectorCount"], 0 if equivalent else 1
+                )
+
     def test_active_layered_base_is_resolved_from_target_launch_metadata(self) -> None:
         target = self.root / "server root"
         target.mkdir()
@@ -701,8 +884,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
         packed_fixture = PACKED.PackedConversionTest(methodName="runTest")
         target = packed_fixture.fixture(base)
         discovery_fixture = DISCOVERY.AdaptiveDiscoveryTest(methodName="runTest")
-        discovery_fixture.add_packed_content(
-            target, base / "descriptor-packed-content"
+        packed_content = base / "descriptor-packed-content"
+        discovery_fixture.add_packed_content(target, packed_content)
+        shutil.copy2(
+            packed_content / "legacy-target/server/myworld.conf",
+            target / "server/myworld.conf",
         )
         capability_path = target / "server/world-builder-capabilities.json"
         capability = json.loads(capability_path.read_text(encoding="utf-8"))
@@ -734,7 +920,6 @@ class MapMigrationChoiceTest(unittest.TestCase):
         configuration_path.write_text(
             json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
         )
-
         installation = base / "World Builder 2"
         installation.mkdir()
         runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(base)
@@ -773,6 +958,22 @@ class MapMigrationChoiceTest(unittest.TestCase):
         ))["projectId"]
         target_after_creation = LIFECYCLE.tree_bytes(target)
         self.assertEqual(target_before, target_after_creation)
+
+        exported = self.run_cli("export-adaptive", "--project", project)
+        self.assertEqual(exported.returncode, 0, exported.stderr)
+        refused = self.run_cli(
+            "import-adaptive", "--project", project,
+            "--export", json.loads(exported.stdout)["exportDirectory"],
+            "--target-root", target,
+        )
+        self.assertEqual(refused.returncode, 3, refused.stderr)
+        self.assertIn("archive-free target client", refused.stderr)
+
+        (target / "server/core.jar").write_bytes(b"old target server runtime\n")
+        (target / "client/Open_RSC_Client.jar").write_bytes(
+            b"old target client runtime\n"
+        )
+        target_after_creation = LIFECYCLE.tree_bytes(target)
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
         transaction = subprocess.run(
@@ -969,6 +1170,10 @@ class MapMigrationChoiceTest(unittest.TestCase):
             ],
         )
         self.add_layered_authority(target, generated_catalog)
+        (target / "server/core.jar").write_bytes(b"old target server runtime\n")
+        (target / "client/Open_RSC_Client.jar").write_bytes(
+            b"old target client runtime\n"
+        )
 
         selected_report_path = self.root / "selected-layered.json"
         selected_discovery = self.run_cli(
@@ -987,6 +1192,40 @@ class MapMigrationChoiceTest(unittest.TestCase):
         secondary = json.loads(secondary_discovery.stdout)
         self.assertEqual(secondary["representation"], "packed")
         secondary_report_path.write_text(secondary_discovery.stdout, encoding="utf-8")
+
+        keep_installation = self.root / "Keep Layered World Builder 2"
+        keep_installation.mkdir()
+        keep_runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(
+            keep_installation
+        )
+        keep_marker = self.root / "keep-layered-project.txt"
+        kept = subprocess.run(
+            [
+                "java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.ScriptedMigrationLauncherHarness",
+                str(keep_installation), str(keep_runtime), str(target),
+                "43905", str(keep_marker), "false",
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+        )
+        self.assertEqual(kept.returncode, 0, kept.stderr)
+        kept_project = Path(keep_marker.read_text(encoding="utf-8"))
+        kept_manifest = json.loads(
+            (kept_project / "project.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(kept_manifest["origin"], "target-layered")
+        kept_choice = json.loads((
+            kept_project / "source/migration/choice.json"
+        ).read_text(encoding="utf-8"))
+        self.assertEqual(
+            kept_choice["decision"], "keep-selected-layered-landscape"
+        )
+        self.assertTrue(kept_choice["retirementRequested"])
+        self.assertFalse((
+            kept_project / "source/migration/input"
+        ).exists())
 
         installation = self.root / "World Builder 2"
         installation.mkdir()
@@ -1100,6 +1339,12 @@ class MapMigrationChoiceTest(unittest.TestCase):
             if action["role"].startswith("retire-legacy-landscape-")
         ]
         self.assertEqual(len(retirements), 2)
+        roles = [action["role"] for action in plan["actions"]]
+        client_profile_index = roles.index("runtime-compatibility-client-profile")
+        self.assertTrue(all(
+            client_profile_index < roles.index(action["role"])
+            for action in retirements
+        ))
         self.assertTrue(all(action["before"]["present"] for action in retirements))
         self.assertTrue(
             all(not action["after"]["present"] for action in retirements)

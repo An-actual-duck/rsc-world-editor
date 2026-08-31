@@ -15,7 +15,12 @@
     "schemaVersion": {"const": 1},
     "manifestType": {"const": "world-builder-map-migration-choice"},
     "toolVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
-    "decision": {"const": "incorporate-legacy-landscape"},
+    "decision": {
+      "enum": [
+        "incorporate-legacy-landscape",
+        "keep-selected-layered-landscape"
+      ]
+    },
     "selectedTargetDiscoveryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "legacyPackedDiscoveryFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "selectedConfiguration": {

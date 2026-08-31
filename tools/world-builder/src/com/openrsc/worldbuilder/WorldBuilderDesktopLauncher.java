@@ -174,6 +174,8 @@ final class WorldBuilderDesktopLauncher {
 			}
 			boolean incorporateLegacy = migration != null
 				&& scriptedUi.confirmLegacyLandscapeIncorporation();
+			boolean keepLayeredAuthority = migration != null
+				&& !migration.primaryPacked && !incorporateLegacy;
 			String displayName = scriptedUi.requestDisplayName(suggested);
 			if (displayName == null || displayName.trim().isEmpty()) return 0;
 			if (!scriptedUi.confirmCreation(
@@ -182,7 +184,9 @@ final class WorldBuilderDesktopLauncher {
 				preview.summary)) return 0;
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created = incorporateLegacy
 				? model.createMigrated(preview, migration, displayName.trim(), null)
-				: model.create(preview, displayName.trim());
+				: keepLayeredAuthority
+					? model.createKeepLayered(preview, migration, displayName.trim(), null)
+					: model.create(preview, displayName.trim());
 			return scriptedRunner.run(created.projectRoot);
 		} catch (Exception failure) {
 			try {
@@ -1056,8 +1060,10 @@ final class WorldBuilderDesktopLauncher {
 			boolean preferMostRecentlyModified) {
 			final WorldBuilderLauncherModel.LegacyMigrationPreview migration;
 			final Path layeredBasePackage;
+			final boolean keepLayeredAuthority;
 			if (detectedMigration != null) {
 				if (detectedMigration.primaryPacked) {
+					keepLayeredAuthority = false;
 					WorldBuilderLayeredBaseDiscovery.Discovery bases;
 					try {
 						bases = model.inspectLayeredBases(preview);
@@ -1102,22 +1108,42 @@ final class WorldBuilderDesktopLauncher {
 					}
 					migration = detectedMigration;
 				} else {
-					Object[] options = {"Yes", "No"};
-					int answer = JOptionPane.showOptionDialog(frame,
-						"Custom_Landscape file detected. Would you like to incorporate?\n\n"
-							+ "Yes applies those legacy terrain sectors over the selected layered "
-							+ "server map inside a new isolated project. The server and legacy "
-							+ "file remain unchanged. After editing, an explicit Import Map Changes "
-							+ "transaction will preview and back up any later retirement.",
-						"Custom_Landscape Detected", JOptionPane.DEFAULT_OPTION,
-						JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-					if (answer < 0) return;
-					migration = answer == 0 ? detectedMigration : null;
+					WorldBuilderLegacyLandscapeAssessment assessment =
+						detectedMigration.assessment;
+					if (assessment == null) {
+						showError("Custom_Landscape could not be compared with the layered map.", null);
+						return;
+					}
+					if (assessment.status
+						== WorldBuilderLegacyLandscapeAssessment.Status.EQUIVALENT) {
+						migration = detectedMigration;
+						keepLayeredAuthority = true;
+					} else {
+						Object[] options = {"Keep Current Layered Map", "Apply Legacy Sectors", "Cancel"};
+						String guidance = assessment.status
+							== WorldBuilderLegacyLandscapeAssessment.Status.CONFLICTING
+							? "Every legacy sector coordinate is represented, but byte comparison "
+								+ "cannot determine which conflicting copy is newer. Keeping the current "
+								+ "layered authority avoids replacing selected terrain and is the safer default."
+							: "Some legacy sectors are absent from the layered map. Review the "
+								+ "counts carefully before choosing which terrain authority to keep.";
+						int answer = JOptionPane.showOptionDialog(frame,
+							"Custom_Landscape was compared with the selected layered map.\n\n"
+								+ assessment.summary() + "\n\n" + guidance
+								+ "\n\nThis decision is recorded once. Import will back up and retire "
+								+ "the exact legacy files only after installing archive-free client startup.",
+							"Choose Terrain Authority", JOptionPane.DEFAULT_OPTION,
+							JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+						if (answer < 0 || answer == 2) return;
+						migration = detectedMigration;
+						keepLayeredAuthority = answer == 0;
+					}
 					layeredBasePackage = null;
 				}
 			} else {
 				migration = null;
 				layeredBasePackage = null;
+				keepLayeredAuthority = false;
 			}
 			WorldBuilderPortableProvider.Discovery providerDiscovery;
 			try {
@@ -1138,6 +1164,8 @@ final class WorldBuilderDesktopLauncher {
 				+ "\n\nThe map and required content are copied into an isolated project. "
 				+ "The server remains unchanged and no target JAR is executed."
 				+ (migration == null ? ""
+					: keepLayeredAuthority
+						? "\n\nCustom_Landscape: Keep the selected layered authority and record the legacy map as superseded."
 					: "\n\nCustom_Landscape: Incorporate into the isolated project."
 						+ (layeredBasePackage == null ? ""
 							: "\nLayered base: " + layeredBasePackage))
@@ -1227,7 +1255,7 @@ final class WorldBuilderDesktopLauncher {
 				return;
 			}
 			createPreviewedProject(preview, displayName, automaticMapping, guided[0],
-				migration, layeredBasePackage);
+				migration, layeredBasePackage, keepLayeredAuthority);
 		}
 
 		private static String customContentSummary(
@@ -1384,6 +1412,17 @@ final class WorldBuilderDesktopLauncher {
 			final WorldBuilderPortableProvider.GuidedSelection guidedProvider,
 			final WorldBuilderLauncherModel.LegacyMigrationPreview migration,
 			final Path layeredBasePackage) {
+			createPreviewedProject(preview, displayName, itemVisualMappings,
+				guidedProvider, migration, layeredBasePackage, false);
+		}
+
+		private void createPreviewedProject(
+			final WorldBuilderLauncherModel.DiscoveryPreview preview,
+			final String displayName, final Path itemVisualMappings,
+			final WorldBuilderPortableProvider.GuidedSelection guidedProvider,
+			final WorldBuilderLauncherModel.LegacyMigrationPreview migration,
+			final Path layeredBasePackage,
+			final boolean keepLayeredAuthority) {
 			runTask("Creating isolated project…",
 				new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run()
@@ -1395,8 +1434,11 @@ final class WorldBuilderDesktopLauncher {
 						}
 						return migration == null
 							? model.create(preview, displayName, mapping)
-							: model.createMigrated(preview, migration, displayName, mapping,
-								layeredBasePackage);
+							: keepLayeredAuthority
+								? model.createKeepLayered(
+									preview, migration, displayName, mapping)
+								: model.createMigrated(preview, migration, displayName, mapping,
+									layeredBasePackage);
 					}
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(
