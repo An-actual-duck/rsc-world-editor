@@ -58,6 +58,10 @@ server binary safely.
 ## Confirmed product decisions
 
 - The editor has one working representation: signed-layered map data.
+- Raw ground overlay `0` is the walkable blended base-color surface. Raw
+  overlay `255` is reserved for the matching non-walkable base-color surface;
+  both derive their appearance from each tile's ground color and blend across
+  their shared edges. Overlay `255` is not a `TileDef` reference.
 - Packed maps are converted as part of first-project preparation; users do not
   need to understand or choose an internal “packed project mode.”
 - An already compatible layered package is copied and adopted without

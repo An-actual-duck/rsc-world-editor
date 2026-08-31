@@ -1017,6 +1017,20 @@ public final class PackedConversionFailureHarness {
                         self.assertIn("definition", result.stderr.lower())
                     self.assertEqual(target_before, tree_bytes(target))
 
+    def test_blocking_base_color_does_not_require_tile_definition_254(self):
+        with tempfile.TemporaryDirectory(prefix="packed-blocking-base-color-") as temp:
+            base = Path(temp)
+            target = self.fixture(base / "fixture")
+            source, report, _ = self.discover_and_copy(target, base / "fixture")
+            server = source / "server/maps/active.orsc"
+            client = source / "client/maps/active.orsc"
+            write_archive(server, overlay=255)
+            shutil.copyfile(server, client)
+            self.refresh_report(source, report)
+
+            result = self.run_conversion(source, report, base / "output")
+            self.assertEqual(0, result.returncode, result.stderr)
+
     def test_isolation_existing_output_and_operational_data_are_preserved(self):
         with tempfile.TemporaryDirectory(prefix="packed-conversion-isolation-") as temp:
             base = Path(temp)

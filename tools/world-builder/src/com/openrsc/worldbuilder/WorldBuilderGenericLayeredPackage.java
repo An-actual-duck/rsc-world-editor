@@ -49,6 +49,7 @@ final class WorldBuilderGenericLayeredPackage {
 	final List<WorldBuilderReadOnlyTarget.FileState> files;
 	final List<Integer> terrainFloorDefinitionIds;
 	final List<Integer> terrainBoundaryDefinitionIds;
+	final boolean usesBlockingBaseColorOverlay;
 	private final Set<String> terrainCoverage;
 
 	private WorldBuilderGenericLayeredPackage(
@@ -74,6 +75,7 @@ final class WorldBuilderGenericLayeredPackage {
 		List<WorldBuilderReadOnlyTarget.FileState> files,
 		Set<Integer> terrainFloorDefinitionIds,
 		Set<Integer> terrainBoundaryDefinitionIds,
+		boolean usesBlockingBaseColorOverlay,
 		Set<String> terrainCoverage) {
 		this.packageId = packageId;
 		this.packageVersion = packageVersion;
@@ -103,6 +105,7 @@ final class WorldBuilderGenericLayeredPackage {
 			new ArrayList<Integer>(terrainFloorDefinitionIds));
 		this.terrainBoundaryDefinitionIds = Collections.unmodifiableList(
 			new ArrayList<Integer>(terrainBoundaryDefinitionIds));
+		this.usesBlockingBaseColorOverlay = usesBlockingBaseColorOverlay;
 		this.terrainCoverage = Collections.unmodifiableSet(
 			new HashSet<String>(terrainCoverage));
 	}
@@ -127,7 +130,8 @@ final class WorldBuilderGenericLayeredPackage {
 			boundaryCount, groundItemCount, npcCount, sceneryCount,
 			placementSemantics, placementIdentities, requiredEncodingVersions, files,
 			new TreeSet<Integer>(terrainFloorDefinitionIds),
-			new TreeSet<Integer>(terrainBoundaryDefinitionIds), terrainCoverage);
+			new TreeSet<Integer>(terrainBoundaryDefinitionIds),
+			usesBlockingBaseColorOverlay, terrainCoverage);
 	}
 
 	/** Definition IDs actually required by the validated effective package. */
@@ -234,6 +238,7 @@ final class WorldBuilderGenericLayeredPackage {
 		Set<String> terrainCoverage = new HashSet<String>();
 		Set<Integer> terrainFloorDefinitionIds = new TreeSet<Integer>();
 		Set<Integer> terrainBoundaryDefinitionIds = new TreeSet<Integer>();
+		boolean usesBlockingBaseColorOverlay = false;
 		Set<Integer> requiredEncodingVersions = new TreeSet<Integer>();
 		Integer initialLevel = null;
 		Integer initialX = null;
@@ -290,8 +295,9 @@ final class WorldBuilderGenericLayeredPackage {
 			try {
 				byte[] terrainBytes = Files.readAllBytes(target.requiredFile(targetPath));
 				WorldBuilderRawLayeredTerrainCodec.requireDecodable(terrainBytes, encoding);
-				collectTerrainDefinitionIds(terrainBytes, encoding,
-					terrainFloorDefinitionIds, terrainBoundaryDefinitionIds);
+				usesBlockingBaseColorOverlay |= collectTerrainDefinitionIds(
+					terrainBytes, encoding, terrainFloorDefinitionIds,
+					terrainBoundaryDefinitionIds);
 			} catch (IOException failure) {
 				throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, targetPath,
 					"Layered terrain changed while it was decoded.",
@@ -412,17 +418,22 @@ final class WorldBuilderGenericLayeredPackage {
 			npcs, scenery, placementSemantics, placementIdentities,
 			new ArrayList<Integer>(requiredEncodingVersions), files,
 			terrainFloorDefinitionIds, terrainBoundaryDefinitionIds,
-			terrainCoverage);
+			usesBlockingBaseColorOverlay, terrainCoverage);
 	}
 
-	private static void collectTerrainDefinitionIds(byte[] payload, String encoding,
+	static boolean collectTerrainDefinitionIds(byte[] payload, String encoding,
 		Set<Integer> floors, Set<Integer> boundaries) {
 		int tileBytes = WorldBuilderRawLayeredTerrainCodec.tileBytes(encoding);
 		int shift = WorldBuilderRawLayeredTerrainCodec.isWide(encoding) ? 1 : 0;
+		boolean blockingBaseColor = false;
 		for (int offset = 0; offset < payload.length; offset += tileBytes) {
 			int overlay = payload[offset + shift + 2] & 0xff;
+			blockingBaseColor |= WorldBuilderTerrainOverlay.isBlockingBaseColor(overlay);
 			int effectiveOverlay = overlay == 250 ? 2 : overlay;
-			if (effectiveOverlay > 0) floors.add(Integer.valueOf(effectiveOverlay - 1));
+			if (effectiveOverlay > 0
+				&& !WorldBuilderTerrainOverlay.isBlockingBaseColor(effectiveOverlay)) {
+				floors.add(Integer.valueOf(effectiveOverlay - 1));
+			}
 			int vertical = payload[offset + shift + 4] & 0xff;
 			int horizontal = payload[offset + shift + 5] & 0xff;
 			if (vertical > 0) boundaries.add(Integer.valueOf(vertical - 1));
@@ -434,6 +445,7 @@ final class WorldBuilderGenericLayeredPackage {
 				boundaries.add(Integer.valueOf(diagonal - 12001));
 			}
 		}
+		return blockingBaseColor;
 	}
 
 	private static PlacementCounts validatePlacements(

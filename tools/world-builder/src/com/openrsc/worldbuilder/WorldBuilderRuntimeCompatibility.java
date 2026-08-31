@@ -60,6 +60,10 @@ final class WorldBuilderRuntimeCompatibility {
 		List<Integer> preservedEncodingVersions =
 			preservedInstalledV1(target);
 		if (preservedEncodingVersions != null) {
+			if (packageValue.usesBlockingBaseColorOverlay) throw problem(
+				LEGACY_CAPABILITY_DESTINATION,
+				"The selected map uses blocking blended base-color terrain, but this preserved installed v1 runtime predates that overlay contract.",
+				"Import into a target that supports loader v7, or replace overlay 255 before importing to this preserved runtime.");
 			List<WorldBuilderAdaptiveMutationProfile.Action> preservedActions =
 				new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
 			appendServerConfiguration(target, packageValue, preservedActions);
@@ -83,6 +87,8 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
 			|| !"world-builder-installed".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "profileId"))
+			|| !"generic-signed-layered-loader-v7-blocking-base-color".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "loaderId"))
 			|| !"world-builder-installed-client-profile-v1".equals(
 				WorldBuilderAdaptiveExporter.string(
 					capability, "clientBootstrapId"))) {

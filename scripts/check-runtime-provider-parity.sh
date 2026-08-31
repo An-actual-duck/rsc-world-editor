@@ -105,7 +105,7 @@ expected = {
     "manifestType": "world-builder-installed-runtime-capability",
     "capabilityId": "world-builder-installed-runtime-capability-v2",
     "profileId": "world-builder-installed",
-    "loaderId": "generic-signed-layered-loader-v6-project-content-bundle-v3",
+    "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
     "packageSchemaId": "layered-world-package-v1",
     "clientBootstrapId": "world-builder-installed-client-profile-v1",

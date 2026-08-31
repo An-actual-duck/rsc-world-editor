@@ -1012,6 +1012,20 @@ public final class AdaptiveTransactionFailureHarness {
         declaration["sha256"] = hashlib.sha256(payload).hexdigest()
         project_support.write_json(manifest_path, manifest)
 
+    def set_fixture_ground_overlay(self, package: Path, overlay: int) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        declaration = manifest["terrainSectors"][0]
+        payload_path = package / declaration["path"]
+        payload = bytearray(payload_path.read_bytes())
+        overlay_offset = (
+            3 if declaration["encoding"] == "raw-layered-sector-v2-u16" else 2
+        )
+        payload[overlay_offset] = overlay
+        payload_path.write_bytes(payload)
+        declaration["sha256"] = hashlib.sha256(payload).hexdigest()
+        project_support.write_json(manifest_path, manifest)
+
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
         port_evidence=False, offline_evidence=None,
@@ -1215,6 +1229,33 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, repeated.returncode, repeated.stderr)
             for path, before in preserved.items():
                 self.assertEqual(before, path.read_bytes())
+
+    def test_import_refuses_blocking_base_color_with_preserved_v1_runtime(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-overlay-255-") as temp:
+            target, installation, project, _ = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                preserved_installed_v1=True,
+            )
+            self.set_fixture_ground_overlay(
+                project / "working/layered-world/package", 255
+            )
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            export = Path(json.loads(exported.stdout)["exportDirectory"])
+            target_before = project_support.tree_bytes(target, installation)
+
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("overlay 255", refused.stderr)
+            self.assertEqual(
+                target_before, project_support.tree_bytes(target, installation)
+            )
 
     def test_import_bootstraps_runtime_capability_before_map_activation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:

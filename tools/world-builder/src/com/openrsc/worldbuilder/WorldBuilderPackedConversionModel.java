@@ -740,6 +740,7 @@ final class WorldBuilderPackedConversionModel {
 			int overlay = layered[offset + 3] & 0xff;
 			int effectiveOverlay = overlay == 250 ? 2 : overlay;
 			if (effectiveOverlay > 0
+				&& !WorldBuilderTerrainOverlay.isBlockingBaseColor(effectiveOverlay)
 				&& !definitions.tiles.contains(Integer.valueOf(effectiveOverlay - 1))) {
 				throw definition(path, entry, tile, "tile", effectiveOverlay - 1);
 			}

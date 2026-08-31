@@ -8,7 +8,7 @@
 | Created | 2026-08-30 |
 | Product | World Builder 2 |
 | Immediate objective | Restore trustworthy server import and shorten development feedback loops |
-| Current published baseline | Editor `56cee9d29b7b208b57a12be336d034ca0aafe5ce`; runtime provider `eac0e33bd5f09b6288be65a7665b6b282331560b` |
+| Feature integration base | Editor `383134b5a49f2deb8d901a3f553a66e900c92db9`; adopted runtime provider `07e732608e60b76151c73edb3cdf95e049bddea8` |
 | Release state | `v0.7.0-alpha.50` published; development release gate closed |
 
 This document keeps the reliability work visible after the independent
@@ -279,6 +279,27 @@ to choose the smallest meaningful check during iteration, then retain the full
 gate before integration.
 
 ## Ordered task list
+
+### Current post-release feature: blocking blended base color
+
+- [x] Reserve raw ground overlay `255` outside the `TileDef` domain as the
+  non-walkable counterpart to overlay `0`.
+- [x] Keep overlay `255` visually driven by each tile's ground-color value and
+  include overlay `0` and `255` in one vertex-blending neighborhood so their
+  colors blend across either boundary.
+- [x] Apply full terrain collision in the server, native layered collision
+  plan, client scene, and live editor patch path without looking up TileDef
+  `254`.
+- [x] Expose a searchable **Non-Walkable Base Floor Color** entry in the editor
+  and retain overlay `255` in project-bound definition filters.
+- [x] Exclude overlay `255` from imported-package floor-definition
+  dependencies and packed-conversion definition validation.
+- [x] Version the installed runtime loader capability and refuse imports that
+  use overlay `255` with the preserved v1 loader.
+- [x] Publish the tested runtime revision, advance `runtime-provider.lock`, and
+  complete the Editor parity and full-suite gates.
+- [ ] Obtain native user validation of painting, mixed-edge blending,
+  collision, save/reload, and a repeated server import before the next release.
 
 ### 1. Capture the real failure and the stop-gap
 
