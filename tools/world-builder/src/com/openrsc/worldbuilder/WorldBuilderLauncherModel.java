@@ -558,23 +558,6 @@ final class WorldBuilderLauncherModel {
 			+ result.transactionId + "\nReceipt: " + result.receiptPath;
 	}
 
-	PreparedUndo prepareServerUndo(ProjectEntry entry)
-		throws IOException, WorldBuilderContractException {
-		if (entry == null) throw new IOException("Select one project before undoing an import.");
-		Path target = targetFor(entry);
-		WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
-		return new PreparedUndo(undo, undo.preview(entry.projectRoot, target), target);
-	}
-
-	String applyServerUndo(PreparedUndo prepared)
-		throws IOException, WorldBuilderContractException {
-		if (prepared == null) throw new IOException("Undo preview was not supplied.");
-		WorldBuilderAdaptiveUndo.UndoResult result =
-			prepared.undo.apply(prepared.preview, "UNDO");
-		return "The last map import was undone successfully.\n\nTransaction: "
-			+ result.transactionId + "\nReceipt: " + result.receiptPath;
-	}
-
 	PreparedRecovery prepareServerRecovery(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before recovery.");
@@ -716,23 +699,6 @@ final class WorldBuilderLauncherModel {
 		PreparedImport(WorldBuilderAdaptiveImporter importer,
 			WorldBuilderAdaptiveImporter.Preview preview, Path target) {
 			this.importer = importer;
-			this.preview = preview;
-			this.target = target;
-		}
-
-		String summary() {
-			return preview.humanSummary() + "\nServer target: " + target;
-		}
-	}
-
-	static final class PreparedUndo {
-		final WorldBuilderAdaptiveUndo undo;
-		final WorldBuilderAdaptiveUndo.Preview preview;
-		final Path target;
-
-		PreparedUndo(WorldBuilderAdaptiveUndo undo,
-			WorldBuilderAdaptiveUndo.Preview preview, Path target) {
-			this.undo = undo;
 			this.preview = preview;
 			this.target = target;
 		}

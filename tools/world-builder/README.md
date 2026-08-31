@@ -460,24 +460,10 @@ content-addressed server/client packages as a compatible layered target. A new
 project can therefore be created from the installed map without restoring or
 reconverting the retired packed source.
 
-Undo is also preview-first:
+Back up and verify the complete target server before importing. There is no
+end-user action to reverse a completed import.
 
-```bash
-java -jar output/world-builder-tools/world-builder-tools.jar undo-adaptive \
-  --project '/path/to/World Builder 2/projects/<uuid>' \
-  --target-root /path/to/server-root
-```
-
-Apply the reviewed undo with `--confirm UNDO`, the preview `transactionId`, and
-its `planFingerprintSha256`, or use `Undo Last Map Import` for the in-memory
-interactive flow. Undo requires the latest successful unreverted receipt,
-matching export and compiled plan, exact installed-after bytes, unchanged target
-lineage, valid backups, and fresh offline proof. Any changed or extra package
-path is listed and refused before a new backup or receipt is created. It
-deactivates/restores configuration before removing package content; rollback
-restores package content before reactivation.
-
-Every partial import/undo failure rolls back in safe reverse order and verifies
+Every partial import failure rolls back in safe reverse order and verifies
 the complete expected state. If that proof cannot complete, new transactions
 are blocked by `recovery-required`. Keep the target offline and use `Recover
 Map Transaction`, or preview/apply explicitly with:

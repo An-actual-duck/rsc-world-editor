@@ -421,8 +421,6 @@ require_manifest_paths() {
 		"Import Map Changes.cmd" \
 		"Recover Map Transaction.sh" \
 		"Recover Map Transaction.cmd" \
-		"Undo Last Map Import.sh" \
-		"Undo Last Map Import.cmd" \
 		"RUNTIME-ASSET-ALLOWLIST.txt" \
 		"builder-runtime/Client_Base/Open_RSC_Client.jar" \
 		"builder-runtime/server/core.jar" \
@@ -438,7 +436,8 @@ require_manifest_paths() {
 }
 
 validate_application_paths() {
-	local root="$1" manifest="$2" line relative source destination role
+	local root="$1" manifest="$2" allow_obsolete_undo="${3:-false}"
+	local line relative source destination role
 	local -A allowed=()
 	for relative in \
 		"ASSET-SOURCES.txt" "RUNTIME-PROVIDER-COMMIT.txt" \
@@ -448,7 +447,6 @@ validate_application_paths() {
 		"Recover Map Transaction.sh" "RELEASE-IDENTITY.json" \
 		"RUNTIME-ASSET-ALLOWLIST.txt" \
 		"SOURCE-COMMIT.txt" "Start World Builder.cmd" "Start World Builder.sh" \
-		"Undo Last Map Import.cmd" "Undo Last Map Import.sh" \
 		"Update World Builder.cmd" "Update World Builder.ps1" \
 		"Update World Builder.sh" "VERSION.txt" \
 		"builder-runtime/Client_Base/Open_RSC_Client.jar" \
@@ -457,6 +455,10 @@ validate_application_paths() {
 		"builder-runtime/launcher/world-builder-tools.jar"; do
 		allowed["$relative"]=1
 	done
+	if [[ "$allow_obsolete_undo" == true ]]; then
+		allowed["Undo Last Map Import.cmd"]=1
+		allowed["Undo Last Map Import.sh"]=1
+	fi
 	for relative in \
 		active-project-v1.schema.json \
 		adaptive-contract-definitions-v1.schema.json \
@@ -513,7 +515,6 @@ require_linux_executables() {
 		"Update World Builder.sh" \
 		"Import Map Changes.sh" \
 		"Recover Map Transaction.sh" \
-		"Undo Last Map Import.sh" \
 		"runtime/bin/java"; do
 		[[ -x "$root/$required" ]] \
 			|| fail "$label package file is not executable: $required"
@@ -667,7 +668,7 @@ validate_identity "$ROOT_DIR/RELEASE-IDENTITY.json" \
 verify_manifest_files "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" false \
 	|| fail "Installed World Builder 2 application manifest is missing or does not verify"
 require_manifest_paths "$ROOT_DIR/PACKAGE-MANIFEST.sha256" "Installed"
-validate_application_paths "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" \
+validate_application_paths "$ROOT_DIR" "$ROOT_DIR/PACKAGE-MANIFEST.sha256" true \
 	|| fail "Installed package manifest owns a path outside the content-neutral application allowlist"
 require_linux_executables "$ROOT_DIR" "Installed"
 

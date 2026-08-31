@@ -321,7 +321,6 @@ function Assert-RequiredManagedFiles(
         "Update World Builder.cmd", "Update World Builder.ps1",
         "Import Map Changes.sh", "Import Map Changes.cmd",
         "Recover Map Transaction.sh", "Recover Map Transaction.cmd",
-        "Undo Last Map Import.sh", "Undo Last Map Import.cmd",
         "RUNTIME-ASSET-ALLOWLIST.txt",
         "builder-runtime/Client_Base/Open_RSC_Client.jar",
         "builder-runtime/server/core.jar",
@@ -340,7 +339,8 @@ function Assert-RequiredManagedFiles(
 
 function Assert-ApplicationAllowlist(
     [string]$PackageRoot,
-    [object[]]$Records
+    [object[]]$Records,
+    [bool]$AllowObsoleteUndo = $false
 ) {
     $Allowed = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($Relative in @(
@@ -349,7 +349,7 @@ function Assert-ApplicationAllowlist(
         "PLAYER-ASSET-SOURCES.txt", "README.txt", "RELEASE-IDENTITY.json",
         "Recover Map Transaction.cmd", "Recover Map Transaction.sh",
         "RUNTIME-ASSET-ALLOWLIST.txt", "SOURCE-COMMIT.txt", "Start World Builder.cmd",
-        "Start World Builder.sh", "Undo Last Map Import.cmd", "Undo Last Map Import.sh",
+        "Start World Builder.sh",
         "Update World Builder.cmd", "Update World Builder.ps1", "Update World Builder.sh",
         "VERSION.txt", "builder-runtime/Client_Base/Open_RSC_Client.jar",
         "builder-runtime/server/core.jar", "builder-runtime/server/plugins.jar",
@@ -357,6 +357,10 @@ function Assert-ApplicationAllowlist(
         "builder-runtime/launcher/world-builder-tools.jar"
     )) {
         [void]$Allowed.Add($Relative)
+    }
+    if ($AllowObsoleteUndo) {
+        [void]$Allowed.Add("Undo Last Map Import.cmd")
+        [void]$Allowed.Add("Undo Last Map Import.sh")
     }
     foreach ($Schema in @(
         "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
@@ -515,7 +519,7 @@ if (
 $InstalledManifestPath = Join-Path $RootDir "PACKAGE-MANIFEST.sha256"
 $InstalledRecords = @(Read-PackageManifest $RootDir $InstalledManifestPath)
 Assert-RequiredManagedFiles $InstalledRecords "runtime/bin/java.exe"
-Assert-ApplicationAllowlist $RootDir $InstalledRecords
+Assert-ApplicationAllowlist $RootDir $InstalledRecords $true
 
 if ((Test-Path -LiteralPath $Workspace) -and -not (Test-Path -LiteralPath $ProjectRegistry)) {
     Fail-Update "this is a historical pre-adaptive World Builder 2 installation. Its workspace was preserved, but it cannot be relabelled or migrated automatically. Keep the complete installation for matching-version recovery and install adaptive World Builder 2 in a separate folder"

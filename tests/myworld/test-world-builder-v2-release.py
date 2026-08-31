@@ -1151,8 +1151,6 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         prefix + "Import Map Changes.cmd",
                         prefix + "Recover Map Transaction.sh",
                         prefix + "Recover Map Transaction.cmd",
-                        prefix + "Undo Last Map Import.sh",
-                        prefix + "Undo Last Map Import.cmd",
                         prefix + "README.txt",
                         prefix + "RELEASE-IDENTITY.json",
                         prefix + "PACKAGE-MANIFEST.sha256",
@@ -1359,8 +1357,6 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                         ("Import Map Changes.cmd", "import-active-adaptive"),
                         ("Recover Map Transaction.sh", "recover-active-adaptive"),
                         ("Recover Map Transaction.cmd", "recover-active-adaptive"),
-                        ("Undo Last Map Import.sh", "undo-active-adaptive"),
-                        ("Undo Last Map Import.cmd", "undo-active-adaptive"),
                     ):
                         script = archive.read(prefix + script_name).decode()
                         self.assertIn("project-registry.json", script)
@@ -1469,15 +1465,8 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
             self.assertIn(VERSION, import_call)
             self.assertIn(source_commit, import_call)
 
-            undone = subprocess.run(
-                [str(package / "Undo Last Map Import.sh")],
-                cwd=base,
-                env=environment,
-                text=True,
-                capture_output=True,
-            )
-            self.assertEqual(0, undone.returncode, undone.stdout + undone.stderr)
-            self.assertIn("undo-latest-import\n", calls.read_text(encoding="utf-8"))
+            self.assertFalse((package / "Undo Last Map Import.sh").exists())
+            self.assertFalse((package / "Undo Last Map Import.cmd").exists())
 
 
 if __name__ == "__main__":

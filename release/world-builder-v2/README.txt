@@ -129,8 +129,8 @@ AI validation uses automated launcher/runtime contracts only. The owner must
 perform and report the visual inspection; screenshots are not captured or
 judged by the release process.
 
-SAVE, IMPORT, RECOVERY, AND UNDO
---------------------------------
+SAVE, IMPORT, AND RECOVERY
+--------------------------
 
 Project save validates the complete working layered package and atomically
 updates its fingerprint. It never reads or writes the target. Source corruption,
@@ -145,6 +145,9 @@ and displays a JSON/plain-language preview with an actual transaction ID,
 server/client content-addressed destinations, configuration changes, backups,
 receipt, free-space requirement, and verification steps. Nothing is changed
 until you type IMPORT exactly.
+
+Back up the complete target server before Import and verify that backup can be
+restored. World Builder does not offer an action to reverse a completed import.
 
 Confirmed Import file-forces its exact plan, created-directory authority,
 activation content, and every verified backup, then forces their directory
@@ -162,20 +165,11 @@ Later Detect Server Map runs recognize that exact packed-profile installation
 as the active compatible layered map, so the edit/import/detect cycle does not
 fall back to the retired packed representation.
 
-Run "Undo Last Map Import" only while the target is offline. It previews the
-latest successful unreverted import and requires UNDO exactly. Any installed
-file that changed after import, including an extra package path, blocks Undo
-before a new backup, receipt, or target mutation. Successful Undo restores the
-original configuration and target inventory exactly. Configuration is
-deactivated/restored before package removal; rollback restores packages before
-reactivation.
-
 Later saved exports may be imported directly over the exact latest installed
 state. Before Import B, World Builder verifies Import A's complete server/client
-package trees, active configuration, receipt, plan, and export. Undo B restores
-A; another Undo restores the original pre-A target. Any drift or unrelated
-detached server is refused rather than guessed, and working project bytes are
-never rolled back by server Undo.
+package trees, active configuration, receipt, plan, and export. Any drift or
+unrelated detached server is refused rather than guessed, and working project
+bytes are never rolled back by a server import.
 
 A partial failure automatically rolls back and verifies the safe state. If the
 tool reports RECOVERY_REQUIRED, do not start the server or run another

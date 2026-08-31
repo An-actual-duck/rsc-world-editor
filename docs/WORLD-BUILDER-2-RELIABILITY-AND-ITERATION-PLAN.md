@@ -332,21 +332,21 @@ remains available.
 
 ### 3. Remove Undo Last Server Import
 
-- [ ] Freeze the exact intended boundary: remove only user-initiated reversal
+- [x] Freeze the exact intended boundary: remove only user-initiated reversal
   of a completed server import.
-- [ ] Remove the desktop button/menu, launcher-model action, adaptive CLI
+- [x] Remove the desktop button/menu, launcher-model action, adaptive CLI
   commands, Linux/Windows Undo launchers, package inputs, candidate inventory,
   updater expectations, and end-user instructions.
-- [ ] Remove `WorldBuilderAdaptiveUndo` and simplify import code that exists
-  solely to reconstruct and reverse a completed historical import.
+- [x] Keep `WorldBuilderAdaptiveUndo` internal because import chaining and
+  interrupted recovery reuse its verified historical-plan reconstruction.
 - [ ] Reassess chained-import receipt/address logic. Retain only evidence needed
   to verify the current installed state, recover an interrupted operation, or
   safely apply a later import.
-- [ ] Preserve automatic rollback when an import fails before completion.
-- [ ] Preserve explicit Recovery for a transaction interrupted in an uncertain
+- [x] Preserve automatic rollback when an import fails before completion.
+- [x] Preserve explicit Recovery for a transaction interrupted in an uncertain
   state, unless a replacement recovery design proves it unnecessary.
-- [ ] Preserve editor-session Undo/Redo and project-local Region Paste Undo.
-- [ ] Ensure the updater removes formerly managed Undo launcher files during
+- [x] Preserve editor-session Undo/Redo and project-local Region Paste Undo.
+- [x] Ensure the updater removes formerly managed Undo launcher files during
   upgrade without touching unknown or durable user files.
 - [ ] Replace Undo guidance with a prominent pre-import server-backup warning
   in the desktop flow, CLI preview, packaged README, and launch scripts.

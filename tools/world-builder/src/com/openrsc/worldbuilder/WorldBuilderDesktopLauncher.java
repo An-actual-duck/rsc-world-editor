@@ -292,7 +292,6 @@ final class WorldBuilderDesktopLauncher {
 		private final JButton empty = new JButton("Create New Project");
 		private final JButton installedSource = new JButton("Detect Server Map");
 		private final JButton importToServer = new JButton("Import Map to Server");
-		private final JButton undoServerImport = new JButton("Undo Last Server Import");
 		private final JButton restoreBackup = new JButton("Restore Project Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
@@ -341,9 +340,6 @@ final class WorldBuilderDesktopLauncher {
 			}));
 			file.add(menu("Import Selected Project Map Changes to Server…", new Runnable() {
 				@Override public void run() { importSelectedProject(); }
-			}));
-			file.add(menu("Undo Last Server Map Import…", new Runnable() {
-				@Override public void run() { undoSelectedProjectImport(); }
 			}));
 			file.add(new JSeparator());
 			file.add(menu("Exit", new Runnable() {
@@ -419,7 +415,6 @@ final class WorldBuilderDesktopLauncher {
 			empty.addActionListener(event -> createEmpty());
 			installedSource.addActionListener(event -> inspectInstalledSource());
 			importToServer.addActionListener(event -> importSelectedProject());
-			undoServerImport.addActionListener(event -> undoSelectedProjectImport());
 			restoreBackup.addActionListener(event -> openProjectBackups());
 			for (JButton primary : new JButton[] {empty, installedSource, open}) {
 				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
@@ -431,12 +426,9 @@ final class WorldBuilderDesktopLauncher {
 			open.setToolTipText("Open the selected project and continue editing.");
 			importToServer.setToolTipText(
 				"Preview, back up, and safely install the selected project's map into its server.");
-			undoServerImport.setToolTipText(
-				"Restore the server files saved by this project's last successful map import.");
 			restoreBackup.setToolTipText(
 				"Load an earlier backup into the selected project without changing its server.");
 			importToServer.setEnabled(false);
-			undoServerImport.setEnabled(false);
 			restoreBackup.setEnabled(false);
 
 			JPanel actions = new JPanel(new GridBagLayout());
@@ -463,8 +455,6 @@ final class WorldBuilderDesktopLauncher {
 			selectedAction.gridy = 0;
 			selectedProjectActions.add(importToServer, selectedAction);
 			selectedAction.gridx = 1;
-			selectedProjectActions.add(undoServerImport, selectedAction);
-			selectedAction.gridx = 2;
 			selectedProjectActions.add(restoreBackup, selectedAction);
 
 			JPanel actionRows = new JPanel();
@@ -529,7 +519,6 @@ final class WorldBuilderDesktopLauncher {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			open.setEnabled(!busy && entry != null);
 			importToServer.setEnabled(!busy && entry != null);
-			undoServerImport.setEnabled(!busy && entry != null);
 			restoreBackup.setEnabled(!busy && entry != null);
 			if (entry == null) return;
 			frame.getRootPane().setDefaultButton(open);
@@ -746,30 +735,6 @@ final class WorldBuilderDesktopLauncher {
 			}
 			return String.format(java.util.Locale.ROOT, "%.1f %s",
 				Double.valueOf(value), units[unit]);
-		}
-
-		private void undoSelectedProjectImport() {
-			final WorldBuilderLauncherModel.ProjectEntry entry =
-				selectedForServerAction("undo a server import");
-			if (entry == null) return;
-			runTask("Preparing an exact undo preview…",
-				new Task<WorldBuilderLauncherModel.PreparedUndo>() {
-					@Override public WorldBuilderLauncherModel.PreparedUndo run()
-						throws Exception { return model.prepareServerUndo(entry); }
-				}, new Success<WorldBuilderLauncherModel.PreparedUndo>() {
-					@Override public void accept(
-						final WorldBuilderLauncherModel.PreparedUndo prepared) {
-						if (!confirmTransaction("Undo Last Server Map Import",
-							"Undo Import", prepared.summary())) return;
-						runTask("Restoring the verified server backup…",
-							new Task<String>() {
-								@Override public String run() throws Exception {
-									return model.applyServerUndo(prepared);
-								}
-							}, transactionSuccess(entry.projectId,
-								"Server Import Undone"));
-					}
-				});
 		}
 
 		private void recoverSelectedProjectImport() {

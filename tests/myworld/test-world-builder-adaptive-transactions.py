@@ -116,9 +116,21 @@ public final class AdaptiveTransactionFailureHarness {
         final String operation = args[0];
         final String failures = args[1];
         final Path project = Paths.get(args[2]);
-        final Path target = Paths.get(args[3]);
+        final Path target = "-".equals(args[3]) ? null : Paths.get(args[3]);
         try {
-            if ("reserved-stage-copy".equals(operation)) {
+            if ("undo-preview".equals(operation)) {
+                WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+                System.out.print(undo.preview(project, target).toJson());
+            } else if ("undo-apply".equals(operation)) {
+                WorldBuilderAdaptiveUndo undo = new WorldBuilderAdaptiveUndo();
+                WorldBuilderAdaptiveUndo.Preview preview =
+                    undo.preview(project, target, failures);
+                if (!preview.planFingerprintSha256().equals(args[4])) {
+                    System.err.println("REVIEWED_PLAN_MISMATCH: undo preview fingerprint changed");
+                    System.exit(3);
+                }
+                System.out.print(undo.apply(preview, "UNDO").toJson());
+            } else if ("reserved-stage-copy".equals(operation)) {
                 Files.createDirectories(target);
                 Path source = target.resolve("source.bin");
                 Path stage = target.resolve("stage.bin");
@@ -559,6 +571,8 @@ public final class AdaptiveTransactionFailureHarness {
         cls.compile_temp.cleanup()
 
     def run_cli(self, *args):
+        if args and args[0] == "undo-adaptive":
+            return self.run_internal_undo_cli(*args[1:])
         return subprocess.run(
             ["java", "-cp", str(self.classes), MAIN_CLASS, *map(str, args)],
             cwd=ROOT,
@@ -588,6 +602,17 @@ public final class AdaptiveTransactionFailureHarness {
         )
 
     def run_reviewed_apply(self, command, confirmation, *args, preview=None):
+        if command == "undo-adaptive":
+            if preview is None:
+                preview = self.run_internal_undo_cli(*args)
+                self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            return self.run_internal_undo_cli(
+                *args,
+                "--confirm", confirmation,
+                "--transaction-id", plan["transactionId"],
+                "--plan-sha256", plan["planFingerprintSha256"],
+            )
         if preview is None:
             preview = self.run_cli(command, *args)
             self.assertEqual(0, preview.returncode, preview.stderr)
@@ -620,6 +645,8 @@ public final class AdaptiveTransactionFailureHarness {
         )
 
     def run_cli_with_properties(self, properties, *args):
+        if args and args[0] == "undo-adaptive":
+            return self.run_internal_undo_cli(*args[1:], properties=properties)
         return subprocess.run(
             [
                 "java",
@@ -633,6 +660,43 @@ public final class AdaptiveTransactionFailureHarness {
             text=True,
             capture_output=True,
         )
+
+    def run_internal_undo_cli(self, *args, properties=None):
+        options = {}
+        index = 0
+        while index < len(args):
+            option = str(args[index])
+            if option not in {
+                "--project", "--target-root", "--confirm",
+                "--transaction-id", "--plan-sha256",
+            } or option in options or index + 1 >= len(args):
+                return subprocess.CompletedProcess(
+                    args, 2, "", "invalid internal undo test arguments"
+                )
+            options[option] = str(args[index + 1])
+            index += 2
+        if "--project" not in options:
+            return subprocess.CompletedProcess(args, 2, "", "missing project")
+        confirmation = options.get("--confirm")
+        reviewed = ("--transaction-id", "--plan-sha256")
+        if confirmation is None and any(option in options for option in reviewed):
+            return subprocess.CompletedProcess(args, 2, "", "incomplete reviewed plan")
+        if confirmation is not None and (
+            confirmation != "UNDO" or not all(option in options for option in reviewed)
+        ):
+            return subprocess.CompletedProcess(args, 2, "", "invalid confirmation")
+        operation = "undo-apply" if confirmation is not None else "undo-preview"
+        value = options.get("--transaction-id", "preview")
+        command = [
+            "java",
+            *[f"-D{key}={item}" for key, item in (properties or {}).items()],
+            "-cp", str(self.classes),
+            "com.openrsc.worldbuilder.AdaptiveTransactionFailureHarness",
+            operation, value, options["--project"], options.get("--target-root", "-"),
+        ]
+        if confirmation is not None:
+            command.append(options["--plan-sha256"])
+        return subprocess.run(command, cwd=ROOT, text=True, capture_output=True)
 
     def run_cli_input(self, input_value, *args):
         return subprocess.run(
@@ -1895,7 +1959,7 @@ public final class AdaptiveTransactionFailureHarness {
             forbidden_target = base / "must-not-be-created"
             receipts_before = project_support.tree_bytes(project / "receipts")
             backups_before = project_support.tree_bytes(project / "backups")
-            for command in ("import-adaptive", "undo-adaptive", "recover-adaptive"):
+            for command in ("import-adaptive", "recover-adaptive"):
                 arguments = [command, "--project", project]
                 if command == "import-adaptive":
                     arguments.extend(["--export", first_value["exportDirectory"]])
@@ -2496,15 +2560,13 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual("", undo_mismatch.stdout)
             self.assertEqual(installed, project_support.tree_bytes(target, installation))
             self.assertEqual(installed_artifacts, self.transaction_artifacts(project))
-            for response in ("undo\n", " UNDO\n", "UNDO \n", "\n", ""):
-                refused = self.run_cli_input(
-                    response, "undo-active-adaptive", "--installation-root", installation
-                )
-                self.assertEqual(0, refused.returncode, refused.stderr)
-                self.assertEqual("", refused.stdout)
-                self.assertIn("cancelled", refused.stderr.lower())
-                self.assertEqual(installed, project_support.tree_bytes(target, installation))
-                self.assertEqual(installed_artifacts, self.transaction_artifacts(project))
+            removed = self.run_cli_input(
+                "UNDO\n", "undo-active-adaptive", "--installation-root", installation
+            )
+            self.assertEqual(2, removed.returncode, removed.stderr)
+            self.assertIn("Unsupported World Builder command", removed.stderr)
+            self.assertEqual(installed, project_support.tree_bytes(target, installation))
+            self.assertEqual(installed_artifacts, self.transaction_artifacts(project))
 
             failed = self.run_failure(
                 "undo", "undo-after-0000,undo-rollback-before-0006", project, target
@@ -2656,7 +2718,6 @@ public final class AdaptiveTransactionFailureHarness {
 
         for name, command in (
             ("Import Map Changes.cmd", "import-active-adaptive"),
-            ("Undo Last Map Import.cmd", "undo-active-adaptive"),
             ("Recover Map Transaction.cmd", "recover-active-adaptive"),
         ):
             text = (ROOT / "release/world-builder-v2" / name).read_text(
@@ -2669,6 +2730,9 @@ public final class AdaptiveTransactionFailureHarness {
                 r"(?s)^\s*if errorlevel 1 goto failed\s*exit /b 0",
                 name,
             )
+        self.assertFalse(
+            (ROOT / "release/world-builder-v2/Undo Last Map Import.cmd").exists()
+        )
 
         atomic_source = (
             ROOT

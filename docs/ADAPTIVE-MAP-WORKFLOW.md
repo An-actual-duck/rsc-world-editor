@@ -239,7 +239,7 @@ Edit / save / close / reopen (project only)
 Export -> Import preview -> administrator confirms IMPORT
         |
         v
-Install server/client map + config -> verify -> receipt -> optional UNDO
+Install server/client map + config -> verify -> receipt
 ```
 
 The normal path SHOULD require only one confirmation before creating the
@@ -327,7 +327,7 @@ projected through the desktop GUI without creating a second mutation path. It:
 6. backs up every affected file and records expected absence;
 7. installs the package and related data, changes activation/configuration
    last, and verifies both server and client selections;
-8. writes a durable receipt and supports exact `UNDO`; and
+8. writes a durable receipt for verification and later compatible imports; and
 9. reminds the administrator which client/map identity must be distributed to
    players.
 
@@ -336,7 +336,7 @@ The approved post-release GUI and migration extension is specified in
 History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). A migrated
 `Custom_Landscape.orsc` may be retired only by a compiled capability-gated
 mutation profile after exact conversion, package installation, verified
-backup, and safe activation. Undo restores its exact bytes and configuration;
+backup, and safe activation. Automatic failure rollback restores its exact bytes and configuration;
 file-name detection alone never authorizes removal.
 
 An exact installed v1 target capability deliberately defers that retirement:
@@ -371,8 +371,6 @@ server-root-or-ordinary-parent/
     Start World Builder.cmd
     Import Map Changes.sh
     Import Map Changes.cmd
-    Undo Last Map Import.sh
-    Undo Last Map Import.cmd
     builder-runtime/                  # replaceable, content-neutral application
     launcher/
     projects/                         # durable creator state
@@ -689,9 +687,10 @@ checked-in packed v1 schema or the current layered receipt mode. It records:
 - verification results; and
 - recovery or reverted-transaction identity.
 
-Undo requires exact `UNDO` confirmation, a successful unreverted receipt, the
-same target lineage, valid backups, offline evidence, and exact installed-after
-hashes. A changed path blocks undo. There is no force option.
+Completed imports have no end-user Undo action. Administrators must make and
+verify a complete server backup before importing. Receipts and import backups
+remain transaction evidence for automatic failure rollback, interrupted
+recovery, and safe validation of later imports.
 
 ## Algorithms
 
@@ -1255,7 +1254,7 @@ roll back only the managed application. A historical-only pre-adaptive install
 is preserved and refused with side-by-side installation guidance. The adaptive
 `RELEASE-READY` marker remains deliberately absent.
 
-### Phase 6 — generic export, install, recovery, and undo
+### Phase 6 — generic export, install, and recovery
 
 Implementation status: complete in this repository. Export locks and verifies
 one UUID project, publishes a unique complete deterministic layered export,
@@ -1266,20 +1265,20 @@ project/export/source lineage and all declared offline evidence, creates
 verified project-owned backups and a durable receipt, stages content-addressed
 server/client packages, activates configuration last, and verifies both
 selections. Reverse rollback, explicit `RECOVER`, successful-receipt-authorized
-`UNDO`, extra/changed-path refusal, and exact pre-import-lineage verification are
+extra/changed-path refusal and exact pre-import-lineage verification are
 covered with temporary layered and packed-origin fixtures. Successive imports
 form a verified chain: the exact active package/configuration becomes the next
-transaction's before-state, and Undo restores one generation. Linux and Windows
-packages expose Import, Recover, and Undo launchers. Standalone origin refuses
-all three target operations before target resolution or lock acquisition.
+transaction's before-state. Linux and Windows packages expose Import and Recover
+launchers. Standalone origin refuses both target operations before target
+resolution or lock acquisition.
 
-Direct `import-adaptive`, `undo-adaptive`, and `recover-adaptive` use an exact
+Direct `import-adaptive` and `recover-adaptive` use an exact
 two-call review protocol. Preview stdout is one plan JSON document. Apply must
 repeat `--confirm`, the emitted `--transaction-id`, and the emitted
 `--plan-sha256`; it independently recompiles that identity and emits one result
 JSON document only. The active packaged commands deliberately expose no
 noninteractive `--confirm` shortcut: they retain one in-memory plan before
-reading literal, untrimmed `IMPORT`, `UNDO`, or `RECOVER` input.
+reading literal, untrimmed `IMPORT` or `RECOVER` input.
 
 Phase 6 lock and durable-authority reads reject links, hard links, case aliases,
 identity replacement, and transaction-ID collisions. The opened project-lock

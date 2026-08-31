@@ -198,14 +198,6 @@ public final class LauncherMigrationTransactionHarness {
                 throw new AssertionError("archive-free client profile was not installed");
             }
         }
-        WorldBuilderLauncherModel.PreparedUndo undo = model.prepareServerUndo(selected);
-        System.out.println(model.applyServerUndo(undo));
-        if (!Files.isRegularFile(target.resolve(
-                "server/conf/server/data/Custom_Landscape.orsc"))
-            || !Files.isRegularFile(target.resolve(
-                "Client_Base/Cache/video/Custom_Landscape.orsc"))) {
-            throw new AssertionError("legacy landscape was not restored");
-        }
     }
 }
 """
@@ -1006,6 +998,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
+        server_runtime_before = (target / "server/core.jar").read_bytes()
+        client_runtime_before = (target / "client/Open_RSC_Client.jar").read_bytes()
         transaction = subprocess.run(
             [
                 "java", "-cp", str(self.classes),
@@ -1018,7 +1012,13 @@ class MapMigrationChoiceTest(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
-        self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
+        self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
+        self.assertEqual(server_runtime_before, (target / "server/core.jar").read_bytes())
+        self.assertEqual(
+            client_runtime_before, (target / "client/Open_RSC_Client.jar").read_bytes()
+        )
+        self.assertTrue(server_legacy.is_file())
+        self.assertTrue(client_legacy.is_file())
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         self.assertEqual(0, len([
             action for action in plan["actions"]
@@ -1352,7 +1352,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
 
         # The explicit migration decision becomes target mutation authority only
         # through the normal previewed import transaction. Both legacy files are
-        # backed up, retired after layered activation, and restored by exact undo.
+        # backed up and retired after layered activation.
         target_bytes_before_import = LIFECYCLE.tree_bytes(target)
         project_id = manifest["projectId"]
         plan_path = self.root / "launcher-import-plan.json"
@@ -1369,7 +1369,6 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
         self.assertIn("Map changes were imported successfully", transaction.stdout)
-        self.assertIn("last map import was undone successfully", transaction.stdout)
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
         retirements = [
             action for action in plan["actions"]
@@ -1393,7 +1392,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 hashlib.sha256(backup.read_bytes()).hexdigest(),
                 action["before"]["sha256"],
             )
-        self.assertEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
+        self.assertNotEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
 
 
 if __name__ == "__main__":

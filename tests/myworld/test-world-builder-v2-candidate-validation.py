@@ -159,8 +159,6 @@ TOP_FILES = (
     "SOURCE-COMMIT.txt",
     "Start World Builder.cmd",
     "Start World Builder.sh",
-    "Undo Last Map Import.cmd",
-    "Undo Last Map Import.sh",
     "Update World Builder.cmd",
     "Update World Builder.ps1",
     "Update World Builder.sh",
@@ -368,8 +366,6 @@ class CandidateFixture:
             "release/world-builder-v2/Import Map Changes.sh": b"fixture\n",
             "release/world-builder-v2/Recover Map Transaction.cmd": b"fixture\n",
             "release/world-builder-v2/Recover Map Transaction.sh": b"fixture\n",
-            "release/world-builder-v2/Undo Last Map Import.cmd": b"fixture\n",
-            "release/world-builder-v2/Undo Last Map Import.sh": b"fixture\n",
             "release/world-builder-v2/world-builder-runtime.conf": RUNTIME_CONFIGURATION,
             "release/world-builder-v2/README.txt": (
                 b"World Builder @VERSION@ from @SOURCE_COMMIT@\n"
@@ -463,7 +459,6 @@ class CandidateFixture:
             "Import Map Changes.sh",
             "Recover Map Transaction.sh",
             "Start World Builder.sh",
-            "Undo Last Map Import.sh",
             "Update World Builder.sh",
         ):
             files[launcher] = (b"fixture\n", 0o755)

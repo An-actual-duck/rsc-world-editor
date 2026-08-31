@@ -249,8 +249,6 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "Import Map Changes.cmd": "@exit /b 0\r\n",
             "Recover Map Transaction.sh": "#!/usr/bin/env bash\nexit 0\n",
             "Recover Map Transaction.cmd": "@exit /b 0\r\n",
-            "Undo Last Map Import.sh": "#!/usr/bin/env bash\nexit 0\n",
-            "Undo Last Map Import.cmd": "@exit /b 0\r\n",
             "builder-runtime/Client_Base/Open_RSC_Client.jar": "client\n",
             "builder-runtime/server/core.jar": "server\n",
             "builder-runtime/server/plugins.jar": "plugins\n",
@@ -261,6 +259,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "runtime/bin/java": f"#!/usr/bin/env bash\nexit {compatibility_exit}\n",
             "runtime/bin/java.exe": "runtime\n",
         }
+        if application.startswith("old"):
+            required_payloads.update({
+                "Undo Last Map Import.sh": "#!/usr/bin/env bash\nexit 0\n",
+                "Undo Last Map Import.cmd": "@exit /b 0\r\n",
+            })
         for relative, contents in required_payloads.items():
             path = package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -275,7 +278,6 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         for relative in (
             "Import Map Changes.sh",
             "Recover Map Transaction.sh",
-            "Undo Last Map Import.sh",
             "runtime/bin/java",
         ):
             (package / relative).chmod(0o755)
@@ -493,6 +495,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             (self.install / "README.txt").read_text(encoding="utf-8"),
         )
         self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
+        self.assertFalse((self.install / "Undo Last Map Import.sh").exists())
+        self.assertFalse((self.install / "Undo Last Map Import.cmd").exists())
         shell_updater = UPDATER.read_text(encoding="utf-8")
         windows_updater = WINDOWS_UPDATER.read_text(encoding="utf-8")
         for schema in sorted(SCHEMA_ROOT.glob("*.schema.json")):
@@ -879,6 +883,8 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertEqual("v0.1.1", (self.install / "VERSION.txt").read_text().strip())
         self.assertEqual("new application\n", (self.install / "README.txt").read_text())
         self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
+        self.assertFalse((self.install / "Undo Last Map Import.sh").exists())
+        self.assertFalse((self.install / "Undo Last Map Import.cmd").exists())
         self.assert_durable_state_unchanged()
 
     @unittest.skipUnless(POWERSHELL, "set WORLD_BUILDER_PWSH to test PowerShell")

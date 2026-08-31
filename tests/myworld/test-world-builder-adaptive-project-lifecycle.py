@@ -2403,13 +2403,12 @@ public final class FakeAdaptiveClient {
             self.assertEqual(before_target, tree_bytes(target))
             self.assertEqual(source_before, tree_bytes(project / "source"))
 
-            for command in ("import-active-adaptive", "undo-active-adaptive"):
-                refused_active = self.run_cli(
-                    command, "--installation-root", installation
-                )
-                self.assertEqual(3, refused_active.returncode)
-                self.assertIn("NO_TARGET", refused_active.stderr)
-                self.assertEqual(before_target, tree_bytes(target))
+            refused_active = self.run_cli(
+                "import-active-adaptive", "--installation-root", installation
+            )
+            self.assertEqual(3, refused_active.returncode)
+            self.assertIn("NO_TARGET", refused_active.stderr)
+            self.assertEqual(before_target, tree_bytes(target))
             working_before_native = json.loads(
                 (project / "project.json").read_text(encoding="utf-8")
             )["fingerprints"]["workingSha256"]
@@ -4802,11 +4801,11 @@ public final class UpgradeNpcPlacements {
             self.assertIn("Import cancelled", import_preview.stderr)
             self.assertEqual(target_before, tree_bytes(target, installation))
 
-            undo_without_import = self.run_cli(
+            removed_undo = self.run_cli(
                 "undo-active-adaptive", "--installation-root", installation
             )
-            self.assertEqual(3, undo_without_import.returncode)
-            self.assertIn("no successful unreverted", undo_without_import.stderr.lower())
+            self.assertEqual(2, removed_undo.returncode)
+            self.assertIn("Unsupported World Builder command", removed_undo.stderr)
             self.assertEqual(target_before, tree_bytes(target, installation))
 
             portable = base / "portable-copy"
@@ -7678,17 +7677,26 @@ public final class UpgradeNpcPlacements {
         self.assertEqual(3, launcher_source.count("actions.add("))
         self.assertIn("Selected Project Actions", launcher_source)
         self.assertIn('new JButton("Import Map to Server")', launcher_source)
-        self.assertIn('new JButton("Undo Last Server Import")', launcher_source)
+        self.assertNotIn('new JButton("Undo Last Server Import")', launcher_source)
         self.assertIn('new JButton("Restore Project Backup")', launcher_source)
         self.assertIn("selectedProjectActions.add(importToServer", launcher_source)
-        self.assertIn("selectedProjectActions.add(undoServerImport", launcher_source)
+        self.assertNotIn("selectedProjectActions.add(undoServerImport", launcher_source)
         self.assertIn("selectedProjectActions.add(restoreBackup", launcher_source)
         self.assertIn("importToServer.addActionListener", launcher_source)
-        self.assertIn("undoServerImport.addActionListener", launcher_source)
+        self.assertNotIn("undoServerImport.addActionListener", launcher_source)
         self.assertIn("restoreBackup.addActionListener", launcher_source)
-        self.assertIn("Restore the server files saved by this project's last successful map import",
-                      launcher_source)
+        self.assertNotIn("Undo Last Server Map Import", launcher_source)
         self.assertIn("without changing its server", launcher_source)
+        model_source = (
+            SOURCE_ROOT / "com/openrsc/worldbuilder/WorldBuilderLauncherModel.java"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("PreparedUndo", model_source)
+        self.assertNotIn("prepareServerUndo", model_source)
+        cli_source = (
+            SOURCE_ROOT / "com/openrsc/worldbuilder/WorldBuilderCli.java"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn('"undo-adaptive".equals(args[0])', cli_source)
+        self.assertNotIn('"undo-active-adaptive".equals(args[0])', cli_source)
         self.assertIn("Object[] message = advanced", launcher_source)
         self.assertIn("Detected Server Content Options…", launcher_source)
         self.assertIn("Select Another Supported Source…", launcher_source)

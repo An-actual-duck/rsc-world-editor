@@ -262,15 +262,13 @@ action on the main launcher as well as a File-menu recovery path. The GUI:
 6. requests final confirmation only after displaying that plan;
 7. applies the exact in-memory plan through the existing transaction engine;
 8. shows the verified receipt and installed client/map identity; and
-9. offers the appropriate Undo or Recovery next action.
+9. offers Recovery when an interrupted transaction requires it.
 
-The main selected-project actions keep **Undo Last Server Import** separate
-from **Restore Project Backup**. Undo uses the successful server-import receipt
-and its exact target backup; project restore changes only the Editor's isolated
-working world and never reverses a server import. A later export can be imported
-directly when the latest installed package and active configuration still match
-the prior receipt exactly. The new receipt records that installed generation as
-its before-state, so repeated Undo steps walk backward through the import chain.
+**Restore Project Backup** changes only the Editor's isolated working world and
+never reverses a server import. Completed server imports have no end-user Undo
+action; administrators must make and verify a complete server backup before
+import. A later export can be imported directly when the latest installed
+package and active configuration still match the prior receipt exactly.
 
 After a successful packed-to-layered installation, Detect Server Map validates
 the content-addressed server/client package pair through the same immutable
@@ -292,7 +290,7 @@ adapter and target capability prove all of the following:
 - the new layered package is valid at both bounded destinations;
 - the activated configuration selects the layered loader as sole authority;
 - no selected server/client configuration still consumes the legacy files;
-- all affected files fit the existing backup, receipt, rollback, and undo
+- all affected files fit the existing backup, receipt, and rollback
   model; and
 - the target is offline under the normal lease.
 
@@ -300,20 +298,18 @@ Retirement is never an unrecorded deletion. Exact original bytes are copied to
 verified project-owned transaction backups before mutation. Package content is
 installed and verified before activation; activation changes occur in the
 adapter's safe order; retirement is verified and receipt-bound. Failure
-restores the complete before-state. Undo restores both archives and their prior
-configuration exactly.
+restores the complete before-state.
 
 When capability evidence is incomplete, import keeps the legacy archives and
 explains why. File presence alone does not duplicate terrain once the layered
 loader is sole authority, so safety takes precedence over cosmetic cleanup.
 
-### Undo and recovery
+### Recovery
 
-The GUI exposes **Undo Last Server Import…** for the newest successful
-unreverted transaction and **Recover Interrupted Server Import…** when a pending
-receipt blocks normal work. Both project the existing exact transaction engine.
+The GUI exposes **Recover Interrupted Server Import…** when a pending receipt
+blocks normal work. It projects the existing exact transaction engine.
 Changed-after, missing-backup, target-lineage, online-target, and receipt
-failures remain blockers. There is no force button.
+failures remain blockers. There is no force button or completed-import Undo.
 
 The standalone scripts remain available for headless recovery. GUI integration
 is an additional safe interface, not removal of the recovery escape hatch.
