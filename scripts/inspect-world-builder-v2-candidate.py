@@ -1648,7 +1648,7 @@ def main(arguments: Iterable[str]) -> int:
             "owner-native-layered-edit-save-reopen",
             "owner-native-standalone-edit-save-reopen",
             "owner-software-and-opengl-visual-review",
-            "disposable-target-import-undo-recovery",
+            "disposable-target-import-recovery-repeatability",
             "manager-candidate-acceptance",
         ],
     }
