@@ -1333,6 +1333,52 @@ public final class AdaptiveTransactionFailureHarness {
             for path, before in preserved.items():
                 self.assertEqual(before, path.read_bytes())
 
+    def test_import_accepts_custom_runtime_transition_from_v1_to_v2(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-v2-") as temp:
+            target, _, project, _ = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                preserved_installed_v1=True,
+            )
+            server = target / "server/core.jar"
+            client = target / "client/Open_RSC_Client.jar"
+            if not client.is_file():
+                client = target / "Client_Base/Open_RSC_Client.jar"
+            server.write_bytes(b"custom target loader-v7 server runtime\n")
+            client.write_bytes(b"custom target loader-v7 client runtime\n")
+            capability = (
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v2.json"
+            )
+            project_support.write_json(
+                capability, project_support.installed_v2_capability()
+            )
+
+            self.set_fixture_ground_overlay(
+                project / "working/layered-world/package", 255
+            )
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            export = Path(json.loads(exported.stdout)["exportDirectory"])
+
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            compatibility_roles = {
+                action["role"] for action in json.loads(preview.stdout)["actions"]
+                if action["role"].startswith("runtime-compatibility-")
+            }
+            self.assertEqual(
+                {
+                    "runtime-compatibility-client-profile",
+                    "runtime-compatibility-server-configuration",
+                },
+                compatibility_roles,
+            )
+
     def test_import_bootstraps_runtime_capability_before_map_activation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:
             target, installation, project, export = self.target_project(
