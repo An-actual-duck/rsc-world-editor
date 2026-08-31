@@ -444,9 +444,11 @@ java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
 ```
 
 The apply call independently recompiles that exact identity before creating
-transaction artifacts and emits exactly one result JSON document. The packaged
-`Import Map Changes` launcher accepts no command-line confirmation shortcut: it
-keeps one reviewed plan in memory and requires literal, untrimmed `IMPORT` input.
+transaction artifacts and emits exactly one result JSON document. The desktop
+**Upgrade Server and Import Map** action keeps one reviewed plan in memory and
+requires one explicit confirmation after showing its complete summary. The
+packaged `Import Map Changes` scripts retain literal, untrimmed `IMPORT` input
+for command-line and recovery use.
 
 Import reacquires the project and all target offline evidence, rediscovers the
 same adapter/capability/source lineage, rejects drift, writes verified project-

@@ -481,6 +481,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			boolean server = "runtime-compatibility-server".equals(role);
 			boolean client = "runtime-compatibility-client".equals(role);
 			boolean capability = "runtime-compatibility-capability".equals(role);
+			boolean legacyCapabilityRetirement =
+				"runtime-compatibility-legacy-capability-retirement".equals(role);
 			boolean serverConfiguration =
 				"runtime-compatibility-server-configuration".equals(role);
 			boolean clientProfile =
@@ -495,6 +497,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 					: capability
 						? WorldBuilderRuntimeCompatibility.CAPABILITY_DESTINATION
 							.equals(destination)
+						: legacyCapabilityRetirement
+							? WorldBuilderRuntimeCompatibility.LEGACY_CAPABILITY_DESTINATION
+								.equals(destination)
 						: serverConfiguration && WorldBuilderRuntimeCompatibility
 							.CONFIGURATION_DESTINATION.equals(destination)
 							|| clientProfile && (("Client_Base/"
@@ -504,13 +509,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination));
 			String sourceRelative = server
-				? "working/runtime/server/world-builder-install/core.jar"
+				? "working/runtime/server/core.jar"
 				: client
-					? "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+					? "working/runtime/client/Open_RSC_Client.jar"
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
-			String contentRelative = "package/activation/" + role
-				+ (capability || clientProfile ? ".json"
-					: serverConfiguration ? ".conf" : ".jar");
+			String contentRelative = legacyCapabilityRetirement ? ""
+				: "package/activation/" + role
+					+ (capability || clientProfile ? ".json"
+						: serverConfiguration ? ".conf" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			String backupRelative = before.present
@@ -528,6 +534,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			FileState after = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("after"), "after"));
+			if (legacyCapabilityRetirement) {
+				if (!before.present || after.present) throw problem(
+					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+					"backups/" + transactionId + "/mutation-plan.json",
+					"Legacy runtime capability retirement state is malformed.",
+					"Retain the project and restore its exact transaction evidence.");
+				actions.add(new Action(role, destination, before, after, "",
+					backupRelative, true, null));
+				continue;
+			}
 			Path source = serverConfiguration || clientProfile
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
@@ -2164,10 +2180,18 @@ final class WorldBuilderAdaptiveMutationProfile {
 
 		String humanSummary() {
 			int retiredLegacyFiles = 0;
+			int managedRuntimeActions = 0;
 			for (Action action : actions) {
 				if (action.role.startsWith("retire-legacy-landscape-")
 					&& action.before.present && !action.after.present) {
 					retiredLegacyFiles++;
+				}
+				if ("runtime-compatibility-server".equals(action.role)
+					|| "runtime-compatibility-client".equals(action.role)
+					|| "runtime-compatibility-capability".equals(action.role)
+					|| "runtime-compatibility-legacy-capability-retirement".equals(
+						action.role)) {
+					managedRuntimeActions++;
 				}
 			}
 			StringBuilder value = new StringBuilder(4096);
@@ -2181,10 +2205,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append("Activation configuration: ")
 				.append(configuration.relativePath).append('\n')
 				.append("Affected files: ").append(actions.size()).append('\n');
+			if (managedRuntimeActions > 0) {
+				value.append("Managed runtime: upgrade to the current World Builder "
+					+ "server/client contract (target-owned content and data stay in place)\n");
+			}
 			if (retiredLegacyFiles > 0) {
 				value.append("Legacy Custom_Landscape retirement: ")
 					.append(retiredLegacyFiles)
-					.append(" exact files (backed up; Undo restores them)\n");
+					.append(" exact files (backed up for recovery)\n");
 			}
 			value
 				.append("Backup: projects/").append(project.projectId).append("/backups/")

@@ -93,7 +93,9 @@ these results:
 - an ambiguous, malformed, partially recognized, or unsupported server stops
   with a compatibility report and no project or target change.
 
-Review the GUI summary and confirm before the first project is published.
+Review the GUI summary and confirm before the first project is published. A
+created project opens in the editor automatically; there is no redundant
+second "Open now?" prompt.
 When matching server/client Custom_Landscape.orsc files are the selected packed
 map or coexist with a compatible layered target, the launcher asks whether to
 incorporate them. Yes converts exact verified packed terrain and records guarded
@@ -138,13 +140,14 @@ unsaved manifest drift, linked runtime state, or concurrent project operations
 fail closed.
 
 Close World Builder and stop the private target server completely before
-installing. Run "Import Map Changes.sh" on Linux or "Import Map Changes.cmd"
-on Windows. It exports the active saved project, revalidates the immutable
-source and exact target capability, acquires every advertised offline signal,
-and displays a JSON/plain-language preview with an actual transaction ID,
-server/client content-addressed destinations, configuration changes, backups,
-receipt, free-space requirement, and verification steps. Nothing is changed
-until you type IMPORT exactly.
+installing. Select the project and choose "Upgrade Server and Import Map". It
+exports the active saved project, revalidates the immutable source and target,
+acquires every advertised offline signal, and displays one readable preview
+with an actual transaction ID, managed server/client runtime changes,
+content-addressed map destinations, configuration changes, backups, receipt,
+free-space requirement, and verification steps. Nothing is changed until you
+confirm that complete plan. The packaged Import Map Changes scripts provide
+the equivalent command-line path and require typing IMPORT exactly.
 
 Back up the complete target server before Import and verify that backup can be
 restored. World Builder does not offer an action to reverse a completed import.
@@ -154,11 +157,13 @@ activation content, and every verified backup, then forces their directory
 entries before publishing and forcing the pending receipt. A filesystem/Java
 provider that cannot provide that ordering is refused before transaction
 artifacts or target mutation. Import publishes verified server and client
-package content first. If the target server core or client archive differs from
-the exact runtime pinned inside this project, Import previews, backs up, and
-atomically replaces those two bounded archives before activating the selected
-configuration. Plugins, definitions, databases, and unrelated target files are
-not replaced. Import then verifies every changed byte and both package
+package content first. Import treats the runtime pinned inside the project as
+the one current managed runtime contract. If the target server core, client
+archive, or installed runtime capability differs, Import previews, backs up,
+and atomically replaces those bounded components before activating the selected
+configuration. It also retires superseded World Builder runtime capability
+evidence. Plugins, definitions, databases, and unrelated target files are not
+replaced. Import then verifies every changed byte and both package
 selections. Before restarting, distribute the exact reported client/map
 identity to every player.
 Later Detect Server Map runs recognize that exact packed-profile installation

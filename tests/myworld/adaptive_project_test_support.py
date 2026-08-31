@@ -153,6 +153,7 @@ def installed_v2_capability() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-installed-runtime-capability",
         "capabilityId": "world-builder-installed-runtime-capability-v2",
+        "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-v2",
         "clientBuildId": "fixture-installed-client-v2",
@@ -182,6 +183,56 @@ def installed_v2_capability() -> dict:
             "requiredBooleanKeys": [],
             "requiredStringKeys": [],
         },
+    }
+
+
+def managed_runtime_bundle() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-managed-runtime-bundle",
+        "bundleId": "world-builder-managed-runtime-current",
+        "runtimeContractId": "world-builder-installed-loader-v7",
+        "profileId": "world-builder-installed",
+        "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
+        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+        "clientBootstrapId": "world-builder-installed-client-profile-v1",
+        "components": [
+            {
+                "role": "server-runtime",
+                "sourceRelativePath": "server/core.jar",
+                "destinationKind": "target-root",
+                "destinationRelativePath": "server/core.jar",
+                "replacementPolicy": "replace-with-verified-backup",
+            },
+            {
+                "role": "client-runtime",
+                "sourceRelativePath": "client/Open_RSC_Client.jar",
+                "destinationKind": "selected-client-root",
+                "destinationRelativePath": "Open_RSC_Client.jar",
+                "replacementPolicy": "replace-with-verified-backup",
+            },
+            {
+                "role": "runtime-capability",
+                "sourceRelativePath": (
+                    "server/conf/world-builder/installed-runtime-capability-v2.json"
+                ),
+                "destinationKind": "target-root",
+                "destinationRelativePath": (
+                    "server/conf/world-builder/installed-runtime-capability-v2.json"
+                ),
+                "replacementPolicy": "replace-with-verified-backup",
+            },
+        ],
+        "legacyCapabilityPaths": [
+            "server/conf/world-builder/installed-runtime-capability-v1.json"
+        ],
+        "preservedTargetState": [
+            "server configuration values not owned by World Builder",
+            "server plugins and game content",
+            "definitions and custom assets",
+            "databases and player data",
+            "credentials, keys, logs, and backups",
+        ],
     }
 
 
@@ -272,13 +323,9 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         server / "conf/world-builder/installed-runtime-capability-v2.json",
         installed_v2_capability(),
     )
-    (server / "world-builder-install").mkdir(parents=True, exist_ok=True)
-    (client / "world-builder-install").mkdir(parents=True, exist_ok=True)
-    (server / "world-builder-install/core.jar").write_bytes(
-        b"installed server runtime\n"
-    )
-    (client / "world-builder-install/Open_RSC_Client.jar").write_bytes(
-        b"installed client runtime\n"
+    write_json(
+        server / "conf/world-builder/managed-runtime-bundle.json",
+        managed_runtime_bundle(),
     )
     for name in REQUIRED_LANGUAGE_BUNDLES:
         path = server / "conf/server/languages" / name

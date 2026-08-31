@@ -291,7 +291,8 @@ final class WorldBuilderDesktopLauncher {
 		private final JButton open = new JButton("Continue Working on Selected Project");
 		private final JButton empty = new JButton("Create New Project");
 		private final JButton installedSource = new JButton("Detect Server Map");
-		private final JButton importToServer = new JButton("Import Map to Server");
+		private final JButton importToServer =
+			new JButton("Upgrade Server and Import Map");
 		private final JButton restoreBackup = new JButton("Restore Project Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
@@ -535,7 +536,9 @@ final class WorldBuilderDesktopLauncher {
 						+ entry.configurationSha256.substring(0, 12) : "")
 				+ "\n\nOpening validates the complete project before starting its private "
 				+ "client and server. Editing remains isolated here until you explicitly "
-				+ "run the separate Import Map Changes action.\n\n"
+				+ "run Upgrade Server and Import Map. That action backs up the target, "
+				+ "installs the current managed runtime when needed, and activates the "
+				+ "edited map in one transaction.\n\n"
 				+ "This project is a fixed imported snapshot; it is never silently mixed "
 				+ "with newer server files. If the server map has changed, use Detect "
 				+ "Server Map to create a fresh isolated project.");
@@ -563,15 +566,16 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderLauncherModel.PreparedImport>() {
 					@Override public void accept(
 						final WorldBuilderLauncherModel.PreparedImport prepared) {
-						if (!confirmTransaction("Import Map Changes to Server",
-							"Import Map Changes", prepared.summary())) return;
-						runTask("Backing up the server and importing the reviewed map…",
+						if (!confirmTransaction("Upgrade Server and Import Map",
+							"Upgrade and Import", prepared.summary())) return;
+						runTask("Backing up the server, applying its managed runtime, and "
+							+ "importing the reviewed map…",
 							new Task<String>() {
 								@Override public String run() throws Exception {
 									return model.applyServerImport(prepared);
 								}
 							}, transactionSuccess(entry.projectId,
-								"Map Import Complete"));
+								"Server Upgrade and Map Import Complete"));
 					}
 				});
 		}
@@ -1417,20 +1421,15 @@ final class WorldBuilderDesktopLauncher {
 						String materialWarning =
 							WorldBuilderTerrainMaterialProvider.projectWarningSummary(
 								created.projectRoot);
-						int choice = JOptionPane.showConfirmDialog(frame,
-							"Project created safely at:\n" + created.projectRoot
-								+ "\n\nThe source was not changed."
-								+ (npcWarning == null ? "" : npcWarning)
-								+ (sceneryWarning == null ? "" : sceneryWarning)
-								+ (materialWarning == null ? "" : materialWarning)
-								+ "\n\nOpen this project now?",
-							"Project Ready", JOptionPane.YES_NO_OPTION,
-							JOptionPane.INFORMATION_MESSAGE);
-						if (choice == JOptionPane.YES_OPTION) {
-							launchProject(created.projectId,
-								"standalone-empty".equals(created.origin)
-									? null : preview.source);
-						} else refreshProjects(created.projectId);
+						String warnings = (npcWarning == null ? "" : npcWarning)
+							+ (sceneryWarning == null ? "" : sceneryWarning)
+							+ (materialWarning == null ? "" : materialWarning);
+						status.setText(warnings.isEmpty()
+							? "Project created; opening the editor…"
+							: "Project created with provider warnings; opening the editor…");
+						launchProject(created.projectId,
+							"standalone-empty".equals(created.origin)
+								? null : preview.source);
 					}
 				});
 		}

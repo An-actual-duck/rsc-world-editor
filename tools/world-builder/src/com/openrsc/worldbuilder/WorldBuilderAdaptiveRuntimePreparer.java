@@ -50,6 +50,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"server/plugins.jar",
 			"server/conf/world-builder/adaptive-runtime-capability-v2.json",
 			"server/conf/world-builder/installed-runtime-capability-v2.json",
+			"server/conf/world-builder/managed-runtime-bundle.json",
 			"server/inc/sqlite/world_builder_seed.db",
 			"client/Open_RSC_Client.jar"));
 	private static final Set<String> ALLOWED_RUNTIME_ROLES =

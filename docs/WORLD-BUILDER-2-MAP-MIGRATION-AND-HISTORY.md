@@ -25,10 +25,10 @@ A typical creator should be able to:
 3. answer a simple legacy-landscape migration question when applicable;
 4. create and edit one isolated layered project;
 5. export its complete layered map without using a terminal;
-6. install it through **Import Map Changes to Server** in the same desktop
-   application;
-7. recover or undo an interrupted/completed target import through that GUI;
-   and
+6. install it through **Upgrade Server and Import Map** in the same desktop
+   application, allowing that one transaction to bring the target to the
+   current managed runtime contract; and
+7. recover an interrupted target import through that GUI; and
 8. browse and restore earlier project revisions without understanding package
    paths or map encodings.
 
@@ -244,21 +244,21 @@ weaken the canonical complete package.
 This action is distinct from region `.wbr` export. Region export shares a
 selection; complete map export publishes the entire selected project's world.
 
-## Import, undo, and recovery in the GUI
+## Import, upgrade, and recovery in the GUI
 
-### Import Map Changes to Server
+### Upgrade Server and Import Map
 
 The existing adaptive transaction engine is exposed inside the desktop
 application rather than reimplemented in Swing. The selected project must be
-closed before import. **Import Map to Server** is a visible selected-project
+closed before import. **Upgrade Server and Import Map** is a visible selected-project
 action on the main launcher as well as a File-menu recovery path. The GUI:
 
 1. exports or selects the exact current complete project export;
 2. rediscovers the attached target and rejects drift;
 3. acquires every required offline signal;
 4. displays a readable summary with expandable exact plan details;
-5. identifies package installation, configuration activation, backups, and any
-   proposed legacy retirement separately;
+5. identifies the managed runtime upgrade, package installation, configuration
+   activation, backups, and any proposed legacy retirement separately;
 6. requests final confirmation only after displaying that plan;
 7. applies the exact in-memory plan through the existing transaction engine;
 8. shows the verified receipt and installed client/map identity; and
@@ -405,7 +405,7 @@ The target remains untouched until a later explicit Import.
 ### Increment 2 — complete export and target transactions in the GUI
 
 - Add selected-project **Export Complete Map Package…**.
-- Add **Import Map Changes to Server…** through the existing engine.
+- Add **Upgrade Server and Import Map…** through the existing engine.
 - Add readable and expandable transaction previews.
 - Add GUI Undo and Recovery while retaining the scripts.
 - Add capability-gated, recoverable legacy retirement to the mutation plan.

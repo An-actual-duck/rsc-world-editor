@@ -40,6 +40,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	server/conf/world-builder/installed-runtime-capability-v2.json \
+	server/conf/world-builder/managed-runtime-bundle.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
 	Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java \
@@ -104,6 +105,7 @@ expected = {
     "schemaVersion": 1,
     "manifestType": "world-builder-installed-runtime-capability",
     "capabilityId": "world-builder-installed-runtime-capability-v2",
+    "managedRuntimeBundleId": "world-builder-managed-runtime-current",
     "profileId": "world-builder-installed",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -129,6 +131,60 @@ if (
     raise SystemExit(
         "FAIL: Installed runtime must replace legacy map and client bootstrap authorities"
     )
+PY
+
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/managed-runtime-bundle.json" <<'PY'
+import json
+import pathlib
+import sys
+
+bundle = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+expected_identity = {
+    "schemaVersion": 1,
+    "manifestType": "world-builder-managed-runtime-bundle",
+    "bundleId": "world-builder-managed-runtime-current",
+    "runtimeContractId": "world-builder-installed-loader-v7",
+    "profileId": "world-builder-installed",
+    "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
+    "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+    "clientBootstrapId": "world-builder-installed-client-profile-v1",
+}
+for key, value in expected_identity.items():
+    if bundle.get(key) != value:
+        raise SystemExit(
+            f"FAIL: Managed runtime bundle mismatch for {key}: "
+            f"expected {value!r}, found {bundle.get(key)!r}"
+        )
+expected_components = [
+    ("server-runtime", "server/core.jar", "target-root", "server/core.jar"),
+    (
+        "client-runtime",
+        "client/Open_RSC_Client.jar",
+        "selected-client-root",
+        "Open_RSC_Client.jar",
+    ),
+    (
+        "runtime-capability",
+        "server/conf/world-builder/installed-runtime-capability-v2.json",
+        "target-root",
+        "server/conf/world-builder/installed-runtime-capability-v2.json",
+    ),
+]
+components = bundle.get("components")
+if not isinstance(components, list) or len(components) != len(expected_components):
+    raise SystemExit("FAIL: Managed runtime bundle component count drifted")
+for component, expected in zip(components, expected_components):
+    actual = tuple(component.get(key) for key in (
+        "role", "sourceRelativePath", "destinationKind", "destinationRelativePath"
+    ))
+    if actual != expected or component.get("replacementPolicy") != "replace-with-verified-backup":
+        raise SystemExit(
+            f"FAIL: Managed runtime bundle component drifted: {actual!r}"
+        )
+if bundle.get("legacyCapabilityPaths") != [
+    "server/conf/world-builder/installed-runtime-capability-v1.json"
+]:
+    raise SystemExit("FAIL: Managed runtime legacy retirement set drifted")
 PY
 
 client_version="$(sed -n \

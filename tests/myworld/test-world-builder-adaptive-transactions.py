@@ -1151,13 +1151,8 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             before_server = server.read_bytes()
             before_client = client.read_bytes()
-            project_server = (
-                project / "working/runtime/server/world-builder-install/core.jar"
-            )
-            project_client = (
-                project
-                / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
-            )
+            project_server = project / "working/runtime/server/core.jar"
+            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1175,8 +1170,8 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
 
-    def test_import_preserves_installed_v1_runtime_across_repeated_map_updates(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-preserve-") as temp:
+    def test_import_upgrades_installed_v1_runtime_across_repeated_map_updates(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
             target, _, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True,
                 preserved_installed_v1=True,
@@ -1189,11 +1184,15 @@ public final class AdaptiveTransactionFailureHarness {
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v1.json"
             )
-            preserved = {
-                server: server.read_bytes(),
-                client: client.read_bytes(),
-                capability: capability.read_bytes(),
-            }
+            unrelated = target / "server/plugins/custom-game-content.jar"
+            unrelated.parent.mkdir(parents=True, exist_ok=True)
+            unrelated.write_bytes(b"target-owned game content\n")
+            project_server = project / "working/runtime/server/core.jar"
+            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
+            project_capability = (
+                project
+                / "working/runtime/server/conf/world-builder/installed-runtime-capability-v2.json"
+            )
 
             preview = self.run_cli(
                 "import-adaptive", "--project", project, "--export", export,
@@ -1205,7 +1204,14 @@ public final class AdaptiveTransactionFailureHarness {
                 if action["role"].startswith("runtime-compatibility-")
             }
             self.assertEqual(
-                {"runtime-compatibility-server-configuration"},
+                {
+                    "runtime-compatibility-capability",
+                    "runtime-compatibility-client",
+                    "runtime-compatibility-client-profile",
+                    "runtime-compatibility-legacy-capability-retirement",
+                    "runtime-compatibility-server",
+                    "runtime-compatibility-server-configuration",
+                },
                 compatibility_roles,
             )
             imported = self.run_reviewed_apply(
@@ -1213,15 +1219,18 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            for path, before in preserved.items():
-                self.assertEqual(before, path.read_bytes())
-            self.assertFalse((
+            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertFalse(capability.exists())
+            installed_v2 = (
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v2.json"
-            ).exists())
-            self.assertFalse((
-                client.parent / "world-builder-configs/installed-client.json"
-            ).exists())
+            )
+            self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
+            self.assertTrue(
+                (client.parent / "world-builder-configs/installed-client.json").is_file()
+            )
+            self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
 
             project_support.change_working_terrain(project)
             saved = self.run_cli("save-project", "--project", project)
@@ -1234,10 +1243,12 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            for path, before in preserved.items():
-                self.assertEqual(before, path.read_bytes())
+            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
+            self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
 
-    def test_import_refuses_blocking_base_color_with_preserved_v1_runtime(self):
+    def test_import_upgrades_v1_runtime_for_blocking_base_color(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-overlay-255-") as temp:
             target, installation, project, _ = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -1251,21 +1262,26 @@ public final class AdaptiveTransactionFailureHarness {
             exported = self.run_cli("export-adaptive", "--project", project)
             self.assertEqual(0, exported.returncode, exported.stderr)
             export = Path(json.loads(exported.stdout)["exportDirectory"])
-            target_before = project_support.tree_bytes(target, installation)
-
-            refused = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
             )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
-            self.assertIn("overlay 255", refused.stderr)
+            self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(
-                target_before, project_support.tree_bytes(target, installation)
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                (target / "server/core.jar").read_bytes(),
             )
+            self.assertFalse((
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v1.json"
+            ).exists())
+            self.assertTrue((
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v2.json"
+            ).is_file())
 
-    def test_import_preserves_custom_installed_v2_runtime_with_blocking_base_color(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v2-preserve-") as temp:
+    def test_import_replaces_drifted_v2_runtime_with_current_bundle(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v2-upgrade-") as temp:
             target, _, project, _ = self.target_project(
                 Path(temp), target_runtime_archives=True,
                 preserved_installed_v1=True,
@@ -1279,11 +1295,8 @@ public final class AdaptiveTransactionFailureHarness {
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v2.json"
             )
-            preserved = {
-                server: server.read_bytes(),
-                client: client.read_bytes(),
-                capability: capability.read_bytes(),
-            }
+            project_server = project / "working/runtime/server/core.jar"
+            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
             self.set_fixture_ground_overlay(
                 project / "working/layered-world/package", 255
@@ -1305,7 +1318,10 @@ public final class AdaptiveTransactionFailureHarness {
             }
             self.assertEqual(
                 {
+                    "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-legacy-capability-retirement",
+                    "runtime-compatibility-server",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1316,8 +1332,12 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            for path, before in preserved.items():
-                self.assertEqual(before, path.read_bytes())
+            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(
+                project_support.installed_v2_capability(),
+                json.loads(capability.read_text(encoding="utf-8")),
+            )
 
             project_support.change_working_terrain(project)
             saved = self.run_cli("save-project", "--project", project)
@@ -1330,8 +1350,8 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            for path, before in preserved.items():
-                self.assertEqual(before, path.read_bytes())
+            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(project_client.read_bytes(), client.read_bytes())
 
     def test_import_accepts_custom_runtime_transition_from_v1_to_v2(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-v2-") as temp:
@@ -1373,7 +1393,10 @@ public final class AdaptiveTransactionFailureHarness {
             }
             self.assertEqual(
                 {
+                    "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-legacy-capability-retirement",
+                    "runtime-compatibility-server",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1572,14 +1595,14 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/server/world-builder-install/core.jar"
+                    / "working/runtime/server/core.jar"
                 ).read_bytes(),
                 server.read_bytes(),
             )
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+                    / "working/runtime/client/Open_RSC_Client.jar"
                 ).read_bytes(),
                 client.read_bytes(),
             )
@@ -1655,14 +1678,14 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/server/world-builder-install/core.jar"
+                    / "working/runtime/server/core.jar"
                 ).read_bytes(),
                 server.read_bytes(),
             )
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/client/world-builder-install/Open_RSC_Client.jar"
+                    / "working/runtime/client/Open_RSC_Client.jar"
                 ).read_bytes(),
                 client.read_bytes(),
             )

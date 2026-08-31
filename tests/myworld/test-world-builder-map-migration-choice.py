@@ -883,7 +883,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)["retirementRequested"])
 
-    def test_primary_packed_choice_preserves_installed_v1_runtime_and_archives(self) -> None:
+    def test_primary_packed_choice_upgrades_installed_v1_runtime_and_preserves_map_choice(self) -> None:
         base = self.root / "primary-packed-retirement"
         base.mkdir()
         packed_fixture = PACKED.PackedConversionTest(methodName="runTest")
@@ -985,27 +985,38 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(preview.returncode, 0, preview.stderr)
         preview_plan = json.loads(preview.stdout)
         self.assertEqual(
-            {"runtime-compatibility-server-configuration"},
+            {
+                "runtime-compatibility-capability",
+                "runtime-compatibility-client",
+                "runtime-compatibility-client-profile",
+                "runtime-compatibility-legacy-capability-retirement",
+                "runtime-compatibility-server",
+                "runtime-compatibility-server-configuration",
+            },
             {
                 action["role"] for action in preview_plan["actions"]
                 if action["role"].startswith("runtime-compatibility-")
             },
         )
-        self.assertFalse(any(
+        self.assertTrue(any(
             action["role"].startswith("retire-legacy-landscape-")
             for action in preview_plan["actions"]
         ))
         self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
-        server_runtime_before = (target / "server/core.jar").read_bytes()
-        client_runtime_before = (target / "client/Open_RSC_Client.jar").read_bytes()
+        project_server_runtime = (
+            project / "working/runtime/server/core.jar"
+        ).read_bytes()
+        project_client_runtime = (
+            project / "working/runtime/client/Open_RSC_Client.jar"
+        ).read_bytes()
         transaction = subprocess.run(
             [
                 "java", "-cp", str(self.classes),
                 "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
                 str(installation), str(runtime), str(target), project_id,
-                "43904", str(plan_path), "preserve",
+                "43904", str(plan_path),
             ],
             cwd=ROOT,
             text=True,
@@ -1013,19 +1024,33 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
         self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
-        self.assertEqual(server_runtime_before, (target / "server/core.jar").read_bytes())
+        self.assertEqual(project_server_runtime, (target / "server/core.jar").read_bytes())
         self.assertEqual(
-            client_runtime_before, (target / "client/Open_RSC_Client.jar").read_bytes()
+            project_client_runtime,
+            (target / "client/Open_RSC_Client.jar").read_bytes(),
         )
-        self.assertTrue(server_legacy.is_file())
-        self.assertTrue(client_legacy.is_file())
+        self.assertFalse((
+            target / "server/conf/world-builder/installed-runtime-capability-v1.json"
+        ).exists())
+        self.assertTrue((
+            target / "server/conf/world-builder/installed-runtime-capability-v2.json"
+        ).is_file())
+        self.assertFalse(server_legacy.exists())
+        self.assertFalse(client_legacy.exists())
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        self.assertEqual(0, len([
+        self.assertEqual(2, len([
             action for action in plan["actions"]
             if action["role"].startswith("retire-legacy-landscape-")
         ]))
         self.assertEqual(
-            {"runtime-compatibility-server-configuration"},
+            {
+                "runtime-compatibility-capability",
+                "runtime-compatibility-client",
+                "runtime-compatibility-client-profile",
+                "runtime-compatibility-legacy-capability-retirement",
+                "runtime-compatibility-server",
+                "runtime-compatibility-server-configuration",
+            },
             {
                 action["role"] for action in plan["actions"]
                 if action["role"].startswith("runtime-compatibility-")

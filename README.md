@@ -97,19 +97,18 @@ The adaptive v2 product contract is:
    isolated project. A production adaptive archive supplies no map, world, or
    static placements of its own.
 4. Edit, save, close, and reopen only the project copy under World Builder.
-5. Change the target only by running the explicit previewed, backed-up,
-   verified import transaction. Import installs the exact pinned compatible
-   server/client runtime archives when the target's archives differ, as well as
-   the map packages and activation; every replaced archive is backed up and
-   verified before restart.
-6. Use the exact previewed Undo transaction to restore an unchanged imported
-   target, or keep the target offline and use Recovery if an interrupted
-   rollback is explicitly reported. Standalone empty projects have no target
-   transaction path.
+5. Change the target only with **Upgrade Server and Import Map**. Its one
+   confirmation covers an explicit previewed, backed-up, verified transaction
+   that installs the current managed server/client runtime when needed, retires
+   superseded runtime capability evidence, and activates the edited map.
+6. Keep the target offline and use Recovery if an interrupted rollback is
+   explicitly reported. Administrators must make and verify a complete server
+   backup before import; there is no end-user Undo action. Standalone empty
+   projects have no target transaction path.
 7. Later saved exports may be imported directly over the project's exact latest
    installed state. Each import verifies that complete server/client package and
-   active configuration as its before-state; Undo then steps back one import at
-   a time without changing the Editor's later working bytes.
+   active configuration as its before-state without changing the Editor's later
+   working bytes.
 
 ## Development
 
