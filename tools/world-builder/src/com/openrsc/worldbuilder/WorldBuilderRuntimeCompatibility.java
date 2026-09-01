@@ -29,10 +29,15 @@ final class WorldBuilderRuntimeCompatibility {
 	static final String BUILD_DESTINATION = "server/build.xml";
 	static final String CLIENT_PROFILE_NAME =
 		"world-builder-configs/installed-client.json";
+	private static final String CLIENT_BUILD_NAME = "build.xml";
 	private static final String BUILD_GUARD_PROPERTY =
 		"world.builder.installed.runtime";
 	private static final String BUILD_GUARD_CAPABILITY =
 		"conf/world-builder/installed-runtime-capability-v2.json";
+	private static final String CLIENT_BUILD_GUARD_PROPERTY =
+		"world.builder.installed.client";
+	private static final String CLIENT_BUILD_GUARD_PROFILE =
+		"world-builder-configs/installed-client.json";
 	private static final String MANAGED_SERVER_DESTINATION =
 		"server/world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final String MANAGED_SERVER_BUILD_PATH =
@@ -42,6 +47,8 @@ final class WorldBuilderRuntimeCompatibility {
 	private static final Pattern AVAILABLE_TAG = Pattern.compile("<available\\b[^>]*>");
 	private static final Pattern COMPILE_CORE_NAME = Pattern.compile(
 		"\\bname\\s*=\\s*(['\"]?)compile_core\\1(?:\\s|/?>|$)");
+	private static final Pattern COMPILE_CLIENT_NAME = Pattern.compile(
+		"\\bname\\s*=\\s*(['\"]?)compile\\1(?:\\s|/?>|$)");
 	private static final Pattern UNLESS_ATTRIBUTE = Pattern.compile(
 		"\\bunless\\s*=");
 	private static final String SERVER_DESTINATION = "server/core.jar";
@@ -164,6 +171,7 @@ final class WorldBuilderRuntimeCompatibility {
 		appendServerBuildOverlay(target, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
+		appendClientBuildOverlay(target, clientDestination, actions);
 		return new Upgrade(encodingVersions, actions, true);
 	}
 
@@ -422,6 +430,112 @@ final class WorldBuilderRuntimeCompatibility {
 			before, after, transactionContent("server-build-overlay", ".xml"),
 			"backups/{transaction}/before/" + BUILD_DESTINATION,
 			true, afterBytes));
+	}
+
+	private static void appendClientBuildOverlay(
+		Path target, String clientRuntimeDestination,
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		String clientRoot = clientRuntimeDestination.substring(
+			0, clientRuntimeDestination.indexOf('/'));
+		String destination = clientRoot + "/" + CLIENT_BUILD_NAME;
+		Path destinationPath = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, destination);
+		if (!Files.exists(destinationPath, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!Files.isRegularFile(destinationPath, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(destinationPath)) {
+			throw problem(destination,
+				"Target client build file is not a safe regular file.",
+				"Restore the target client layout and retry Import.");
+		}
+		byte[] beforeBytes = Files.readAllBytes(destinationPath);
+		String original = new String(beforeBytes, StandardCharsets.UTF_8);
+		if (!java.util.Arrays.equals(beforeBytes,
+				original.getBytes(StandardCharsets.UTF_8))) {
+			throw problem(destination,
+				"Target client build file is not valid UTF-8.",
+				"Convert " + destination + " to UTF-8 and retry Import.");
+		}
+		byte[] afterBytes = renderClientBuildOverlay(original, destination)
+			.getBytes(StandardCharsets.UTF_8);
+		WorldBuilderAdaptiveMutationProfile.FileState before =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				beforeBytes.length, WorldBuilderHashes.sha256(beforeBytes));
+		WorldBuilderAdaptiveMutationProfile.FileState after =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				afterBytes.length, WorldBuilderHashes.sha256(afterBytes));
+		if (before.size == after.size && before.sha256.equals(after.sha256)) return;
+		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
+			"runtime-compatibility-client-build-overlay", destination,
+			before, after, transactionContent("client-build-overlay", ".xml"),
+			"backups/{transaction}/before/" + destination,
+			true, afterBytes));
+	}
+
+	static String renderClientBuildOverlay(String original, String destination)
+		throws WorldBuilderContractException {
+		Matcher project = PROJECT_TAG.matcher(original);
+		if (!project.find() || project.find()) throw clientBuildProblem(destination,
+			"Target client build file does not contain one unambiguous project element.");
+
+		Matcher targets = TARGET_TAG.matcher(original);
+		String compileTag = null;
+		int compileCount = 0;
+		while (targets.find()) {
+			String tag = targets.group();
+			if (!COMPILE_CLIENT_NAME.matcher(tag).find()) continue;
+			compileCount++;
+			if (compileCount == 1) compileTag = tag;
+		}
+		if (compileCount != 1 || compileTag == null) throw clientBuildProblem(
+			destination,
+			"Target client build file does not contain one unambiguous compile target.");
+
+		boolean targetGuarded = Pattern.compile("\\bunless\\s*=\\s*(['\"]?)"
+			+ Pattern.quote(CLIENT_BUILD_GUARD_PROPERTY) + "\\1(?:\\s|>)")
+			.matcher(compileTag).find();
+		int guardDeclarations = 0;
+		Matcher available = AVAILABLE_TAG.matcher(original);
+		while (available.find()) {
+			String tag = available.group();
+			if (attributeEquals(tag, "file", CLIENT_BUILD_GUARD_PROFILE)
+				&& attributeEquals(tag, "property", CLIENT_BUILD_GUARD_PROPERTY)) {
+				guardDeclarations++;
+			}
+		}
+		boolean profileNamed = original.contains(CLIENT_BUILD_GUARD_PROFILE);
+		boolean propertyNamed = original.contains(CLIENT_BUILD_GUARD_PROPERTY);
+		if (targetGuarded || guardDeclarations != 0 || profileNamed || propertyNamed) {
+			if (targetGuarded && guardDeclarations == 1) return original;
+			throw clientBuildProblem(destination,
+				"Target client build file contains a partial or conflicting installed-client guard.");
+		}
+		if (UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw clientBuildProblem(
+			destination,
+			"Target client compile target already has an unrelated conditional guard.");
+		if (compileTag.endsWith("/>")) throw clientBuildProblem(destination,
+			"Target client compile target cannot be self-closing.");
+
+		String guardedCompileTag = compileTag.substring(0, compileTag.length() - 1)
+			+ " unless=\"" + CLIENT_BUILD_GUARD_PROPERTY + "\">";
+		String guarded = original.replace(compileTag, guardedCompileTag);
+		Matcher guardedProject = PROJECT_TAG.matcher(guarded);
+		if (!guardedProject.find()) throw clientBuildProblem(destination,
+			"Target client build project element changed during guard installation.");
+		String newline = original.contains("\r\n") ? "\r\n" : "\n";
+		String insertion = newline
+			+ "    <!-- Preserve the verified World Builder client runtime during target launches. -->"
+			+ newline + "    <available file=\"" + CLIENT_BUILD_GUARD_PROFILE
+			+ "\" property=\"" + CLIENT_BUILD_GUARD_PROPERTY + "\"/>";
+		return guarded.substring(0, guardedProject.end()) + insertion
+			+ guarded.substring(guardedProject.end());
+	}
+
+	private static WorldBuilderContractException clientBuildProblem(
+		String destination, String message) {
+		return problem(destination, message,
+			"Restore an unmodified " + destination
+				+ " with one compile target and retry Import.");
 	}
 
 	static String renderServerBuildOverlay(String original)

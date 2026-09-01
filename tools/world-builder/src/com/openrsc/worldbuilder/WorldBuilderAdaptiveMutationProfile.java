@@ -495,6 +495,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-server-build-overlay".equals(role);
 			boolean clientProfile =
 				"runtime-compatibility-client-profile".equals(role);
+			boolean clientBuildOverlay =
+				"runtime-compatibility-client-build-overlay".equals(role);
 			String destination = WorldBuilderAdaptiveExporter.string(
 				value, "destinationRelativePath");
 			boolean destinationAllowed = server
@@ -525,7 +527,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 								.equals(destination)
 								|| ("client/"
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
-								.equals(destination));
+								.equals(destination))
+							|| clientBuildOverlay && ("Client_Base/build.xml".equals(
+								destination) || "client/build.xml".equals(destination));
 			String sourceRelative = server
 				? "working/runtime/server/core.jar"
 				: serverOverlay
@@ -537,7 +541,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				: "package/activation/" + role
 					+ (capability || clientProfile ? ".json"
 						: serverConfiguration ? ".conf"
-							: serverBuildGuard || serverBuildOverlay ? ".xml" : ".jar");
+							: serverBuildGuard || serverBuildOverlay || clientBuildOverlay
+								? ".xml" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			String backupRelative = before.present
@@ -566,9 +571,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 				continue;
 			}
 			Path source = serverConfiguration || serverBuildGuard
-				|| serverBuildOverlay || clientProfile
+				|| serverBuildOverlay || clientProfile || clientBuildOverlay
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
+						: clientBuildOverlay ? "installed client build overlay"
 						: serverBuildGuard ? "installed server build guard"
 							: serverBuildOverlay ? "installed server build overlay"
 							: "installed server launch configuration")

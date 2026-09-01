@@ -1038,6 +1038,7 @@ public final class AdaptiveTransactionFailureHarness {
         preserved_installed_v1=False,
         preserved_installed_v2=False,
         target_build_file=False,
+        target_client_build_file=False,
         alpha58_build_guard=False,
         alpha59_managed_first=False,
     ):
@@ -1066,6 +1067,24 @@ public final class AdaptiveTransactionFailureHarness {
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
+            if target_client_build_file:
+                (client_root / "build.xml").write_text(
+                    """<project name="target-client" default="compile-and-run" basedir=".">
+    <target name="compile">
+        <delete file="Open_RSC_Client.jar"/>
+        <echo file="Open_RSC_Client.jar" message="legacy client source rebuild"/>
+    </target>
+    <target name="runclient">
+        <java jar="Open_RSC_Client.jar" fork="true"/>
+    </target>
+    <target name="compile-and-run">
+        <antcall target="compile"/>
+        <antcall target="runclient"/>
+    </target>
+</project>
+""",
+                    encoding="utf-8",
+                )
             if target_build_file:
                 build_text = """<project name="target-server" default="compile-and-run" basedir=".">
     <target name="compile_core">
@@ -1204,6 +1223,7 @@ public final class AdaptiveTransactionFailureHarness {
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
             target, installation, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True, target_build_file=True,
+                target_client_build_file=True,
                 alpha58_build_guard=True, alpha59_managed_first=True,
             )
             server = target / "server/core.jar"
@@ -1214,6 +1234,8 @@ public final class AdaptiveTransactionFailureHarness {
             before_client = client.read_bytes()
             build_file = target / "server/build.xml"
             before_build = build_file.read_bytes()
+            client_build_file = client.parent / "build.xml"
+            before_client_build = client_build_file.read_bytes()
             legacy_overlay = (
                 target / "server/lib/world-builder-managed-runtime.jar"
             )
@@ -1239,6 +1261,23 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(project_server.read_bytes(), overlay.read_bytes())
             self.assertFalse(legacy_overlay.exists())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            client_build_root = ET.parse(client_build_file).getroot()
+            client_compile = client_build_root.find("./target[@name='compile']")
+            self.assertIsNotNone(client_compile)
+            self.assertEqual(
+                "world.builder.installed.client",
+                client_compile.attrib.get("unless"),
+            )
+            client_guard = client_build_root.find("./available")
+            self.assertIsNotNone(client_guard)
+            self.assertEqual(
+                "world-builder-configs/installed-client.json",
+                client_guard.attrib.get("file"),
+            )
+            self.assertEqual(
+                "world.builder.installed.client",
+                client_guard.attrib.get("property"),
+            )
             build_root = ET.parse(build_file).getroot()
             compile_core = build_root.find("./target[@name='compile_core']")
             self.assertIsNotNone(compile_core)
@@ -1278,6 +1317,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_build, build_file.read_bytes())
+            self.assertEqual(before_client_build, client_build_file.read_bytes())
             self.assertFalse(overlay.exists())
             self.assertEqual(before_legacy_overlay, legacy_overlay.read_bytes())
 
@@ -1287,6 +1327,7 @@ public final class AdaptiveTransactionFailureHarness {
                 Path(temp), target_runtime_archives=True,
                 preserved_installed_v1=True,
                 target_build_file=True,
+                target_client_build_file=True,
             )
             server = target / "server/core.jar"
             client = target / "client/Open_RSC_Client.jar"
@@ -1322,6 +1363,7 @@ public final class AdaptiveTransactionFailureHarness {
                 {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client",
+                    "runtime-compatibility-client-build-overlay",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
@@ -1351,6 +1393,14 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             guarded_build = (target / "server/build.xml").read_bytes()
+            guarded_client_build = (client.parent / "build.xml").read_bytes()
+            client_build_root = ET.fromstring(guarded_client_build)
+            self.assertEqual(
+                "world.builder.installed.client",
+                client_build_root.find("./target[@name='compile']").attrib.get(
+                    "unless"
+                ),
+            )
             self.assertTrue(
                 (client.parent / "world-builder-configs/installed-client.json").is_file()
             )
@@ -1371,6 +1421,10 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
+            self.assertEqual(
+                guarded_client_build,
+                (client.parent / "build.xml").read_bytes(),
+            )
             self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
 
     def test_import_upgrades_v1_runtime_for_blocking_base_color(self):
