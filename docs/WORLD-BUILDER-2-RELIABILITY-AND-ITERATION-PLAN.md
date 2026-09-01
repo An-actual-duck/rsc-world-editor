@@ -263,6 +263,18 @@ and inserts one bounded native-login guard into the customized
 replacement, and semantic edit is included in the reviewed transaction,
 backed up, verified, recoverable, and stable on repeat import. The obsolete v1
 source-upgrade manifest is no longer shipped.
+
+The first live test of that migration proved the server upgrade and exposed a
+missing client dependency contract: three installed sources use `org.json`,
+while the historical target client compiles and packages only JARs from
+`PC_Client/lib`. The current source-upgrade manifest therefore installs the
+exact pinned `json-20190722.jar` into that client-owned directory as part of the
+same transaction. Import also rewrites the recognized client compile target to
+build `Open_RSC_Client.jar.world-builder-new` and move it over the active JAR
+only after compilation and packaging succeed. A failed compile consequently
+retains the last verified client executable. A previously upgraded target whose
+old build already removed the client JAR is an explicit repairable state after
+fresh detection; no manual JAR restoration is required.
 5. Do not retire the physical archives until the installed player client can
    bootstrap from a verified installed-package identity without opening a
    packed archive. Once that runtime support exists, import may back up, remove,

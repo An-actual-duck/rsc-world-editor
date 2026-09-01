@@ -40,7 +40,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	server/conf/world-builder/installed-runtime-capability-v2.json \
-	server/conf/world-builder/installed-client-source-upgrade-v2.json \
+	server/conf/world-builder/installed-client-source-upgrade-v3.json \
 	server/conf/world-builder/managed-runtime-bundle.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
@@ -139,9 +139,9 @@ if (
         "FAIL: Installed runtime must replace legacy map and client bootstrap authorities"
     )
 if capability.get("clientSourceUpgrade") != {
-    "upgradeId": "world-builder-installed-client-source-upgrade-v2",
-    "manifestRelativePath": "server/conf/world-builder/installed-client-source-upgrade-v2.json",
-    "buildPolicy": "compile-target-client-before-run",
+    "upgradeId": "world-builder-installed-client-source-upgrade-v3",
+    "manifestRelativePath": "server/conf/world-builder/installed-client-source-upgrade-v3.json",
+    "buildPolicy": "atomic-compile-target-client-before-run",
 }:
     raise SystemExit("FAIL: Installed client source-upgrade contract drifted")
 PY
@@ -156,7 +156,7 @@ expected_identity = {
     "schemaVersion": 1,
     "manifestType": "world-builder-managed-runtime-bundle",
     "bundleId": "world-builder-managed-runtime-current",
-    "runtimeContractId": "world-builder-installed-loader-v9",
+    "runtimeContractId": "world-builder-installed-loader-v10",
     "profileId": "world-builder-installed",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -177,7 +177,7 @@ expected_components = [
     ),
     (
         "client-source-upgrade",
-        "server/conf/world-builder/installed-client-source-upgrade-v2.json",
+        "server/conf/world-builder/installed-client-source-upgrade-v3.json",
         "selected-client-root",
         "src",
     ),
@@ -213,7 +213,7 @@ if "target-owned gameplay" not in boundary:
     raise SystemExit("FAIL: Managed runtime server upgrade boundary drifted")
 PY
 
-python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-client-source-upgrade-v2.json" "$RUNTIME_PROVIDER_ROOT" <<'PY'
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-client-source-upgrade-v3.json" "$RUNTIME_PROVIDER_ROOT" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -221,7 +221,7 @@ import sys
 
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 root = pathlib.Path(sys.argv[2])
-if manifest.get("schemaVersion") != 2 or manifest.get("upgradeId") != "world-builder-installed-client-source-upgrade-v2":
+if manifest.get("schemaVersion") != 3 or manifest.get("upgradeId") != "world-builder-installed-client-source-upgrade-v3":
     raise SystemExit("FAIL: Installed client source-upgrade identity drifted")
 source_files = manifest.get("sourceFiles", [])
 if len(source_files) != 9:
@@ -245,6 +245,21 @@ if manifest.get("semanticTransforms") != [{
     "destinationRelativePath": "src/orsc/mudclient.java",
 }]:
     raise SystemExit("FAIL: Installed client semantic transform drifted")
+dependencies = manifest.get("dependencies")
+if not isinstance(dependencies, list) or len(dependencies) != 1:
+    raise SystemExit("FAIL: Installed client dependency set drifted")
+dependency = dependencies[0]
+dependency_source = root / dependency.get("sourceRelativePath", "")
+if (
+    dependency.get("destinationRelativePath") != "PC_Client/lib/json-20190722.jar"
+    or dependency.get("replacementPolicy") != "add-or-exact"
+    or not dependency_source.is_file()
+    or hashlib.sha256(dependency_source.read_bytes()).hexdigest()
+       != dependency.get("sha256")
+):
+    raise SystemExit("FAIL: Installed client JSON dependency drifted")
+if manifest.get("buildPolicy") != "atomic-compile-target-client-before-run":
+    raise SystemExit("FAIL: Installed client build policy drifted")
 PY
 
 client_version="$(sed -n \

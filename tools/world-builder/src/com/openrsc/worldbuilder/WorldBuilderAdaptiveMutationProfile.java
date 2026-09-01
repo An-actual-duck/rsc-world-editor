@@ -497,6 +497,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-client-profile".equals(role);
 			boolean clientBuildOverlay =
 				"runtime-compatibility-client-build-overlay".equals(role);
+			boolean clientJsonDependency =
+				WorldBuilderInstalledClientSourceUpgrade.JSON_ROLE.equals(role);
 			boolean clientSourceProfile =
 				"runtime-compatibility-client-source-profile".equals(role);
 			boolean clientSourceBootstrap =
@@ -543,6 +545,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 								.equals(destination))
 							|| clientBuildOverlay && ("Client_Base/build.xml".equals(
 								destination) || "client/build.xml".equals(destination))
+							|| clientJsonDependency && WorldBuilderInstalledClientSourceUpgrade
+								.JSON_DESTINATION.equals(destination)
 							|| clientSourceProfile && ("Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java"
 								.equals(destination) || "client/src/orsc/WorldBuilderInstalledClientProfile.java"
 								.equals(destination))
@@ -616,11 +620,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			Path source = serverConfiguration || serverBuildGuard
 				|| serverBuildOverlay || clientProfile || clientBuildOverlay
+				|| clientJsonDependency
 				|| clientSourceProfile || clientSourceBootstrap || clientSourceUpgrade
 				|| clientSourceTransform
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
 						: clientBuildOverlay ? "installed client build overlay"
+						: clientJsonDependency ? "installed client JSON dependency"
 						: clientSourceProfile || clientSourceBootstrap || clientSourceUpgrade
 							? "installed client bootstrap source"
 						: clientSourceTransform ? "installed client transformed source"

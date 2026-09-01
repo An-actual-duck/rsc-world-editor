@@ -94,7 +94,7 @@ server/conf/server/words.list	server/conf/server/words.list	runtime-configuratio
 server/conf/server/wordsJag.txt	server/conf/server/wordsJag.txt	runtime-configuration
 server/conf/world-builder/adaptive-runtime-capability-v2.json	server/conf/world-builder/adaptive-runtime-capability-v2.json	runtime-capability
 server/conf/world-builder/installed-runtime-capability-v2.json	server/conf/world-builder/installed-runtime-capability-v2.json	runtime-capability
-server/conf/world-builder/installed-client-source-upgrade-v2.json	server/conf/world-builder/installed-client-source-upgrade-v2.json	runtime-capability
+server/conf/world-builder/installed-client-source-upgrade-v3.json	server/conf/world-builder/installed-client-source-upgrade-v3.json	runtime-capability
 server/conf/world-builder/managed-runtime-bundle.json	server/conf/world-builder/managed-runtime-bundle.json	runtime-capability
 server/world-builder-runtime/world-builder-managed-runtime.jar	server/world-builder-runtime/world-builder-managed-runtime.jar	server-runtime-upgrade
 Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java	Client_Base/world-builder-source/orsc/AdaptiveWorldBuilderClientSession.java	client-source-upgrade

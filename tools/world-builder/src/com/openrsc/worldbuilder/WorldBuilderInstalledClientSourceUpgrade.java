@@ -13,8 +13,14 @@ import java.util.regex.Pattern;
 /** Applies the bounded installed-client bootstrap while preserving target content. */
 final class WorldBuilderInstalledClientSourceUpgrade {
 	static final String SOURCE =
-		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v2.json";
-	static final String ID = "world-builder-installed-client-source-upgrade-v2";
+		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v3.json";
+	static final String ID = "world-builder-installed-client-source-upgrade-v3";
+	private static final String JSON_SOURCE =
+		"server/lib/json-20190722.jar";
+	static final String JSON_DESTINATION =
+		"PC_Client/lib/json-20190722.jar";
+	static final String JSON_ROLE =
+		"runtime-compatibility-client-json-dependency";
 	private static final String SOURCE_ROLE_PREFIX =
 		"runtime-compatibility-client-source-upgrade";
 	private static final String[] SOURCE_PATHS = {
@@ -76,19 +82,72 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		} catch (WorldBuilderDiscoveryException invalid) {
 			throw problem(SOURCE, "Installed client source upgrade is malformed.");
 		}
-		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 2L
+		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 3L
 			|| !"world-builder-installed-client-source-upgrade".equals(
 				WorldBuilderAdaptiveExporter.string(manifest, "manifestType"))
 			|| !ID.equals(WorldBuilderAdaptiveExporter.string(manifest, "upgradeId"))
 			|| !"world-builder-installed-client-profile-v1".equals(
 				WorldBuilderAdaptiveExporter.string(manifest, "clientBootstrapId"))
-			|| !"compile-target-client-before-run".equals(
+			|| !"atomic-compile-target-client-before-run".equals(
 				WorldBuilderAdaptiveExporter.string(manifest, "buildPolicy"))) {
 			throw problem(SOURCE,
 				"Installed client source upgrade identity is unsupported.");
 		}
 		appendSourceFiles(project, target, clientRoot, manifest, actions);
+		appendDependencies(project, target, manifest, actions);
 		appendTransforms(target, clientRoot, manifest, actions);
+	}
+
+	private static void appendDependencies(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		Path target, Map<String,Object> manifest,
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		List<?> dependencies = WorldBuilderAdaptiveExporter.array(
+			manifest.get("dependencies"), "dependencies");
+		if (dependencies.size() != 1) throw problem(SOURCE,
+			"Installed client dependency set is unsupported.");
+		Map<String,Object> dependency = WorldBuilderAdaptiveExporter.object(
+			dependencies.get(0), "dependency");
+		String source = WorldBuilderAdaptiveExporter.string(
+			dependency, "sourceRelativePath");
+		String destination = WorldBuilderAdaptiveExporter.string(
+			dependency, "destinationRelativePath");
+		String expectedHash = WorldBuilderAdaptiveExporter.string(
+			dependency, "sha256");
+		if (!JSON_SOURCE.equals(source) || !JSON_DESTINATION.equals(destination)
+			|| !"add-or-exact".equals(WorldBuilderAdaptiveExporter.string(
+				dependency, "replacementPolicy"))
+			|| !expectedHash.matches("[0-9a-f]{64}")) {
+			throw problem(SOURCE,
+				"Installed client dependency set is unsupported.");
+		}
+		Path verifiedSource = WorldBuilderAdaptiveExporter.requireFile(
+			project.projectRoot, "working/runtime/" + source,
+			"installed client dependency");
+		if (!expectedHash.equals(WorldBuilderHashes.sha256(verifiedSource))) {
+			throw problem("working/runtime/" + source,
+				"Installed client dependency hash does not match its manifest.");
+		}
+		Path targetDependency = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, destination);
+		if (Files.exists(targetDependency, LinkOption.NOFOLLOW_LINKS)) {
+			if (!Files.isRegularFile(targetDependency, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(targetDependency)) {
+				throw sourceProblem(destination,
+					"Target client dependency destination is unsafe.",
+					"Restore a regular target dependency file and retry Import.");
+			}
+			if (expectedHash.equals(WorldBuilderHashes.sha256(targetDependency))) return;
+			throw sourceProblem(destination,
+				"Target contains a different JSON dependency at the managed client boundary.",
+				"Preserve that dependency separately or restore the supported pinned dependency before Import.");
+		}
+		WorldBuilderRuntimeCompatibility.appendReplacement(
+			project, target, JSON_ROLE, destination,
+			"working/runtime/" + source,
+			WorldBuilderRuntimeCompatibility.transactionContent(
+				"client-json-dependency", ".jar"), actions);
 	}
 
 	private static void appendSourceFiles(

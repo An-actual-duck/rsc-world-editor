@@ -156,7 +156,7 @@ def installed_v2_capability() -> dict:
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-upgrade-v6",
-        "clientBuildId": "fixture-installed-client-source-v4",
+        "clientBuildId": "fixture-installed-client-source-v5",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -176,11 +176,11 @@ def installed_v2_capability() -> dict:
             ],
         },
         "clientSourceUpgrade": {
-            "upgradeId": "world-builder-installed-client-source-upgrade-v2",
+            "upgradeId": "world-builder-installed-client-source-upgrade-v3",
             "manifestRelativePath": (
-                "server/conf/world-builder/installed-client-source-upgrade-v2.json"
+                "server/conf/world-builder/installed-client-source-upgrade-v3.json"
             ),
-            "buildPolicy": "compile-target-client-before-run",
+            "buildPolicy": "atomic-compile-target-client-before-run",
         },
         "activation": {
             "runtimeProfile": "world-builder-installed",
@@ -201,7 +201,7 @@ def managed_runtime_bundle() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-managed-runtime-bundle",
         "bundleId": "world-builder-managed-runtime-current",
-        "runtimeContractId": "world-builder-installed-loader-v9",
+        "runtimeContractId": "world-builder-installed-loader-v10",
         "profileId": "world-builder-installed",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -221,7 +221,7 @@ def managed_runtime_bundle() -> dict:
             {
                 "role": "client-source-upgrade",
                 "sourceRelativePath": (
-                    "server/conf/world-builder/installed-client-source-upgrade-v2.json"
+                    "server/conf/world-builder/installed-client-source-upgrade-v3.json"
                 ),
                 "destinationKind": "selected-client-root",
                 "destinationRelativePath": "src",
@@ -325,6 +325,7 @@ FIXTURE_CLIENT_SOURCES = (
         b"package orsc.graphics.three;\npublic final class World { boolean historicalLayeredTerrain; }\n",
     ),
 )
+FIXTURE_JSON_DEPENDENCY = b"fixture pinned JSON dependency\n"
 
 
 def installed_client_source_roles() -> set[str]:
@@ -347,18 +348,26 @@ def installed_client_source_upgrade() -> dict:
             entry["supportedBeforeSha256"] = [hashlib.sha256(historical).hexdigest()]
         source_files.append(entry)
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "manifestType": "world-builder-installed-client-source-upgrade",
-        "upgradeId": "world-builder-installed-client-source-upgrade-v2",
+        "upgradeId": "world-builder-installed-client-source-upgrade-v3",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "sourceFiles": source_files,
+        "dependencies": [
+            {
+                "sourceRelativePath": "server/lib/json-20190722.jar",
+                "destinationRelativePath": "PC_Client/lib/json-20190722.jar",
+                "sha256": hashlib.sha256(FIXTURE_JSON_DEPENDENCY).hexdigest(),
+                "replacementPolicy": "add-or-exact",
+            }
+        ],
         "semanticTransforms": [
             {
                 "transformId": "world-builder-installed-login-world-bootstrap-v2",
                 "destinationRelativePath": "src/orsc/mudclient.java",
             },
         ],
-        "buildPolicy": "compile-target-client-before-run",
+        "buildPolicy": "atomic-compile-target-client-before-run",
         "preservedTargetAuthorities": [
             "client protocol version",
             "entity definitions and advertised limits",
@@ -459,9 +468,12 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         managed_runtime_bundle(),
     )
     write_json(
-        server / "conf/world-builder/installed-client-source-upgrade-v2.json",
+        server / "conf/world-builder/installed-client-source-upgrade-v3.json",
         installed_client_source_upgrade(),
     )
+    json_dependency = server / "lib/json-20190722.jar"
+    json_dependency.parent.mkdir(parents=True, exist_ok=True)
+    json_dependency.write_bytes(FIXTURE_JSON_DEPENDENCY)
     for source, _, current, _, _ in FIXTURE_CLIENT_SOURCES:
         path = client / Path(source).relative_to("client")
         path.parent.mkdir(parents=True, exist_ok=True)

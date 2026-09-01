@@ -80,8 +80,8 @@ final class WorldBuilderRuntimeCompatibility {
 			return new Upgrade(targetCapability.encodingVersions,
 				Collections.<WorldBuilderAdaptiveMutationProfile.Action>emptyList(), false);
 		}
-		if (!serverPresent || !clientPresent) throw problem(
-			serverPresent ? clientDestination : SERVER_DESTINATION,
+		if (!serverPresent) throw problem(
+			SERVER_DESTINATION,
 			"Managed runtime upgrade found only one target runtime archive.",
 			"Restore the complete server and client runtime pair, then retry Import.");
 		Path capabilitySource = WorldBuilderAdaptiveExporter.requireFile(
@@ -135,10 +135,10 @@ final class WorldBuilderRuntimeCompatibility {
 			|| !WorldBuilderInstalledClientSourceUpgrade.ID.equals(
 				WorldBuilderAdaptiveExporter.string(
 				clientSourceUpgrade, "upgradeId"))
-			|| !"server/conf/world-builder/installed-client-source-upgrade-v2.json"
+			|| !"server/conf/world-builder/installed-client-source-upgrade-v3.json"
 				.equals(WorldBuilderAdaptiveExporter.string(
 					clientSourceUpgrade, "manifestRelativePath"))
-			|| !"compile-target-client-before-run".equals(
+			|| !"atomic-compile-target-client-before-run".equals(
 				WorldBuilderAdaptiveExporter.string(clientSourceUpgrade, "buildPolicy"))
 			|| clientNames.size() != 2
 			|| !"Client_Base/Open_RSC_Client.jar".equals(clientNames.get(0))
@@ -160,6 +160,13 @@ final class WorldBuilderRuntimeCompatibility {
 				"Restore the exact verified project runtime.");
 		}
 		verifyBundle(project, capability);
+		if (!clientPresent && !"world-builder-installed-runtime-capability-v2"
+			.equals(targetCapability.capabilityId)
+			&& !hasManagedRepairCapability(target)) {
+			throw problem(clientDestination,
+				"Target client archive is missing outside a recognized managed-runtime repair state.",
+				"Restore the target client archive or detect the previously upgraded target again.");
+		}
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
@@ -182,6 +189,23 @@ final class WorldBuilderRuntimeCompatibility {
 		return new Upgrade(encodingVersions, actions, true);
 	}
 
+	private static boolean hasManagedRepairCapability(Path target)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, CAPABILITY_DESTINATION);
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) return false;
+		try {
+			Map<String,Object> capability = WorldBuilderJsonDocuments.readObject(path);
+			return "world-builder-installed-runtime-capability-v2".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
+				&& "world-builder-installed".equals(
+					WorldBuilderAdaptiveExporter.string(capability, "profileId"));
+		} catch (WorldBuilderDiscoveryException invalid) {
+			return false;
+		}
+	}
+
 	private static void verifyBundle(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Map<String,Object> capability)
@@ -200,7 +224,7 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(bundle, "manifestType"))
 			|| !BUNDLE_ID.equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "bundleId"))
-			|| !"world-builder-installed-loader-v9".equals(
+			|| !"world-builder-installed-loader-v10".equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "runtimeContractId"))
 			|| !BUNDLE_ID.equals(WorldBuilderAdaptiveExporter.string(
 				capability, "managedRuntimeBundleId"))
@@ -219,7 +243,7 @@ final class WorldBuilderRuntimeCompatibility {
 				"server/world-builder-runtime/world-builder-managed-runtime.jar",
 				"target-root", MANAGED_SERVER_DESTINATION)
 			|| !componentMatches(components.get(1), "client-source-upgrade",
-				"server/conf/world-builder/installed-client-source-upgrade-v2.json",
+				"server/conf/world-builder/installed-client-source-upgrade-v3.json",
 				"selected-client-root", "src",
 				"semantic-upgrade-with-verified-backup")
 			|| !componentMatches(components.get(2), "runtime-capability",
@@ -521,33 +545,96 @@ final class WorldBuilderRuntimeCompatibility {
 		}
 		boolean profileNamed = original.contains(CLIENT_BUILD_GUARD_PROFILE);
 		boolean propertyNamed = original.contains(CLIENT_BUILD_GUARD_PROPERTY);
+		String working = original;
 		if (targetGuarded || guardDeclarations != 0 || profileNamed || propertyNamed) {
 			if (!targetGuarded || guardDeclarations != 1) throw clientBuildProblem(
 				destination,
 				"Target client build file contains a partial or conflicting installed-client guard.");
-			String restored = original.replaceFirst(
+			working = working.replaceFirst(
 				"\\s+unless\\s*=\\s*(['\"])"
 					+ Pattern.quote(CLIENT_BUILD_GUARD_PROPERTY) + "\\1", "");
-			restored = restored.replaceFirst(
+			working = working.replaceFirst(
 				"(?m)^[ \\t]*<!-- Preserve the verified World Builder client runtime during target launches\\. -->\\r?\\n", "");
-			restored = restored.replaceFirst(
+			working = working.replaceFirst(
 				"(?m)^[ \\t]*<available\\s+file=\""
 					+ Pattern.quote(CLIENT_BUILD_GUARD_PROFILE)
 					+ "\"\\s+property=\"" + Pattern.quote(CLIENT_BUILD_GUARD_PROPERTY)
 					+ "\"/>\\r?\\n?", "");
-			if (restored.contains(CLIENT_BUILD_GUARD_PROFILE)
-				|| restored.contains(CLIENT_BUILD_GUARD_PROPERTY)) {
+			if (working.contains(CLIENT_BUILD_GUARD_PROFILE)
+				|| working.contains(CLIENT_BUILD_GUARD_PROPERTY)) {
 				throw clientBuildProblem(destination,
 					"Target client build guard could not be retired completely.");
 			}
-			return restored;
-		}
-		if (UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw clientBuildProblem(
+		} else if (UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw clientBuildProblem(
 			destination,
 			"Target client compile target has an unrelated conditional guard and cannot prove compilation before launch.");
 		if (compileTag.endsWith("/>")) throw clientBuildProblem(destination,
 			"Target client compile target cannot be self-closing.");
-		return original;
+
+		Pattern compileTargetPattern = Pattern.compile(
+			"(?s)<target\\b(?=[^>]*\\bname\\s*=\\s*(['\"])compile\\1)[^>]*>.*?</target>");
+		Matcher compileTarget = compileTargetPattern.matcher(working);
+		if (!compileTarget.find()) throw clientBuildProblem(destination,
+			"Target client compile target body is missing.");
+		String block = compileTarget.group();
+		int blockStart = compileTarget.start();
+		int blockEnd = compileTarget.end();
+		if (compileTarget.find()) throw clientBuildProblem(destination,
+			"Target client build file contains multiple compile target bodies.");
+		Pattern primaryDelete = Pattern.compile(
+			"<delete\\b(?=[^>]*\\bfile\\s*=\\s*(['\"])\\$\\{jar\\}\\1)[^>]*/>");
+		Pattern stagedDelete = Pattern.compile(
+			"<delete\\b(?=[^>]*\\bfile\\s*=\\s*(['\"])\\$\\{jar\\}\\.world-builder-new\\1)[^>]*/>");
+		Pattern primaryDestination = Pattern.compile(
+			"\\bdestfile\\s*=\\s*(['\"])\\$\\{jar\\}\\1");
+		Pattern stagedDestination = Pattern.compile(
+			"\\bdestfile\\s*=\\s*(['\"])\\$\\{jar\\}\\.world-builder-new\\1");
+		Pattern stagedMove = Pattern.compile(
+			"<move\\b(?=[^>]*\\bfile\\s*=\\s*(['\"])\\$\\{jar\\}\\.world-builder-new\\1)"
+				+ "(?=[^>]*\\btofile\\s*=\\s*(['\"])\\$\\{jar\\}\\2)[^>]*/>");
+		int stagedEvidence = patternCount(stagedDelete, block)
+			+ patternCount(stagedDestination, block) + patternCount(stagedMove, block);
+		if (stagedEvidence != 0) {
+			if (stagedEvidence != 3 || patternCount(primaryDelete, block) != 0
+				|| patternCount(stagedDelete, block) != 1
+				|| patternCount(stagedDestination, block) != 1
+				|| patternCount(stagedMove, block) != 1) {
+				throw clientBuildProblem(destination,
+					"Target client build contains a partial atomic archive replacement.");
+			}
+			return working;
+		}
+		if (patternCount(primaryDelete, block) != 1
+			|| patternCount(primaryDestination, block) != 1
+			|| literalCount(block, "</jar>") != 1) {
+			throw clientBuildProblem(destination,
+				"Target client compile target does not match the supported archive boundary.");
+		}
+		String upgraded = primaryDelete.matcher(block).replaceFirst(
+			"<delete file=\"\\${jar}.world-builder-new\"/>");
+		upgraded = primaryDestination.matcher(upgraded).replaceFirst(
+			"destfile=\"\\${jar}.world-builder-new\"");
+		String newline = working.contains("\r\n") ? "\r\n" : "\n";
+		int jarEnd = upgraded.indexOf("</jar>") + "</jar>".length();
+		upgraded = upgraded.substring(0, jarEnd) + newline
+			+ "        <move file=\"${jar}.world-builder-new\" tofile=\"${jar}\"/>"
+			+ upgraded.substring(jarEnd);
+		return working.substring(0, blockStart) + upgraded
+			+ working.substring(blockEnd);
+	}
+
+	private static int patternCount(Pattern pattern, String value) {
+		int count = 0;
+		Matcher matcher = pattern.matcher(value);
+		while (matcher.find()) count++;
+		return count;
+	}
+
+	private static int literalCount(String value, String needle) {
+		int count = 0;
+		for (int index = 0; (index = value.indexOf(needle, index)) >= 0;
+			index += needle.length()) count++;
+		return count;
 	}
 
 	private static WorldBuilderContractException clientBuildProblem(

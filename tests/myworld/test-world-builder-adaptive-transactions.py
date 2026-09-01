@@ -1084,6 +1084,7 @@ public final class mudclient {
         preserved_installed_v2=False,
         target_build_file=False,
         target_client_build_file=False,
+        missing_client_runtime=False,
         alpha58_build_guard=False,
         alpha59_managed_first=False,
     ):
@@ -1112,13 +1113,23 @@ public final class mudclient {
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
+            if missing_client_runtime:
+                (client_root / "Open_RSC_Client.jar").unlink()
             self.add_client_upgrade_source(client_root)
             if target_client_build_file:
+                (target / "PC_Client/lib").mkdir(parents=True, exist_ok=True)
                 (client_root / "build.xml").write_text(
                     """<project name="target-client" default="compile-and-run" basedir=".">
+    <property name="build" location="build"/>
+    <property name="lib" location="../PC_Client/lib"/>
+    <property name="jar" location="Open_RSC_Client.jar"/>
     <target name="compile">
-        <delete file="Open_RSC_Client.jar"/>
-        <echo file="Open_RSC_Client.jar" message="legacy client source rebuild"/>
+        <delete file="${jar}"/>
+        <delete dir="${build}"/>
+        <mkdir dir="${build}"/>
+        <jar basedir="${build}" destfile="${jar}">
+            <zipgroupfileset dir="${lib}" includes="**/*.jar"/>
+        </jar>
     </target>
     <target name="runclient">
         <java jar="Open_RSC_Client.jar" fork="true"/>
@@ -1289,6 +1300,8 @@ public final class mudclient {
             before_world = world_source.read_bytes()
             before_mudclient = mudclient_source.read_bytes()
             before_config = config_source.read_bytes()
+            client_json_dependency = target / "PC_Client/lib/json-20190722.jar"
+            self.assertFalse(client_json_dependency.exists())
             upgrade_sources = {
                 destination: client.parent / destination
                 for _, destination, _, _, _ in project_support.FIXTURE_CLIENT_SOURCES
@@ -1323,6 +1336,10 @@ public final class mudclient {
             self.assertFalse(legacy_overlay.exists())
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_config, config_source.read_bytes())
+            self.assertEqual(
+                (project / "working/runtime/server/lib/json-20190722.jar").read_bytes(),
+                client_json_dependency.read_bytes(),
+            )
             for _, destination, current, _, _ in (
                 project_support.FIXTURE_CLIENT_SOURCES
             ):
@@ -1340,6 +1357,19 @@ public final class mudclient {
             self.assertIsNotNone(client_compile)
             self.assertNotIn("unless", client_compile.attrib)
             self.assertIsNone(client_build_root.find("./available"))
+            self.assertIsNone(client_compile.find("./delete[@file='${jar}']"))
+            self.assertIsNotNone(
+                client_compile.find("./delete[@file='${jar}.world-builder-new']")
+            )
+            self.assertEqual(
+                "${jar}.world-builder-new",
+                client_compile.find("./jar").attrib.get("destfile"),
+            )
+            self.assertIsNotNone(
+                client_compile.find(
+                    "./move[@file='${jar}.world-builder-new'][@tofile='${jar}']"
+                )
+            )
             build_root = ET.parse(build_file).getroot()
             compile_core = build_root.find("./target[@name='compile_core']")
             self.assertIsNotNone(compile_core)
@@ -1383,6 +1413,7 @@ public final class mudclient {
             self.assertEqual(before_config, config_source.read_bytes())
             self.assertEqual(before_world, world_source.read_bytes())
             self.assertEqual(before_mudclient, mudclient_source.read_bytes())
+            self.assertFalse(client_json_dependency.exists())
             for destination, path in upgrade_sources.items():
                 if destination in before_upgrade_sources:
                     self.assertEqual(before_upgrade_sources[destination], path.read_bytes())
@@ -1446,6 +1477,7 @@ public final class mudclient {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client-build-overlay",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-json-dependency",
                     "runtime-compatibility-client-source-login-transform",
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
@@ -1508,6 +1540,58 @@ public final class mudclient {
                 (client.parent / "build.xml").read_bytes(),
             )
             self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
+
+    def test_import_repairs_managed_target_after_failed_client_compile(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-client-repair-") as temp:
+            target, _, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                preserved_installed_v2=True, target_client_build_file=True,
+                missing_client_runtime=True,
+            )
+            client_root = target / "client"
+            if not client_root.is_dir():
+                client_root = target / "Client_Base"
+            client = client_root / "Open_RSC_Client.jar"
+            self.assertFalse(client.exists())
+
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertFalse(
+                client.exists(),
+                "Import prepares the repair; the normal client launch performs the build",
+            )
+            self.assertEqual(
+                project_support.FIXTURE_JSON_DEPENDENCY,
+                (target / "PC_Client/lib/json-20190722.jar").read_bytes(),
+            )
+            compile_target = ET.parse(client_root / "build.xml").getroot().find(
+                "./target[@name='compile']"
+            )
+            self.assertIsNone(compile_target.find("./delete[@file='${jar}']"))
+            self.assertIsNotNone(
+                compile_target.find("./delete[@file='${jar}.world-builder-new']")
+            )
+
+    def test_import_rejects_unrecognized_client_json_dependency(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-client-json-drift-") as temp:
+            target, _, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                target_client_build_file=True,
+            )
+            dependency = target / "PC_Client/lib/json-20190722.jar"
+            dependency.write_bytes(b"target-specific incompatible JSON library\n")
+            before = project_support.tree_bytes(target)
+
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, preview.returncode)
+            self.assertIn("different JSON dependency", preview.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target))
 
     def test_import_upgrades_v1_runtime_for_blocking_base_color(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-overlay-255-") as temp:
@@ -1589,6 +1673,7 @@ public final class mudclient {
             self.assertEqual(
                 {
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-json-dependency",
                     "runtime-compatibility-client-source-login-transform",
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
@@ -1672,6 +1757,7 @@ public final class mudclient {
             self.assertEqual(
                 {
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-json-dependency",
                     "runtime-compatibility-client-source-login-transform",
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
@@ -1715,6 +1801,7 @@ public final class mudclient {
                 {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-json-dependency",
                     "runtime-compatibility-client-source-login-transform",
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-server-upgrade",
@@ -1757,7 +1844,7 @@ public final class mudclient {
                 capability["serverBuildId"],
             )
             self.assertEqual(
-                "fixture-installed-client-source-v4",
+                "fixture-installed-client-source-v5",
                 capability["clientBuildId"],
             )
             configuration = json.loads(

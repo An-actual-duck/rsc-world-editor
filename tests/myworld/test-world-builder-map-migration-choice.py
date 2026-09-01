@@ -1031,6 +1031,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             {
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
+                "runtime-compatibility-client-json-dependency",
                 "runtime-compatibility-client-source-login-transform",
                 *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
@@ -1095,6 +1096,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             {
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
+                "runtime-compatibility-client-json-dependency",
                 "runtime-compatibility-client-source-login-transform",
                 *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
