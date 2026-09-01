@@ -26,6 +26,39 @@ LIFECYCLE_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-adaptive-p
 PACKED_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-packed-conversion.py"
 ZERO_HASH = "0" * 64
 
+
+def add_client_upgrade_source(client_root: Path) -> None:
+    source = client_root / "src/orsc"
+    (source / "graphics/three").mkdir(parents=True, exist_ok=True)
+    (source / "Config.java").write_text(
+        "package orsc; public final class Config { "
+        "public static final int CLIENT_VERSION = 10052; }\n",
+        encoding="utf-8",
+    )
+    (source / "graphics/three/World.java").write_text(
+        """package orsc.graphics.three;
+import orsc.WorldBuilderClientProfile;
+public final class World {
+    boolean terrain() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean archive() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean upper() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    String identity() { return WorldBuilderClientProfile.current()
+        .strictAdaptiveMapIdentity(); }
+}
+""",
+        encoding="utf-8",
+    )
+    (source / "mudclient.java").write_text(
+        """package orsc;
+public final class mudclient {
+    private static boolean shouldRenderLegacyLoginWorld() {
+        return !WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+    }
+}
+""",
+        encoding="utf-8",
+    )
+
 HARNESS = r"""
 package com.openrsc.worldbuilder;
 
@@ -931,6 +964,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
         (target / "client/Open_RSC_Client.jar").write_bytes(
             b"target-specific v1 client runtime\n"
         )
+        add_client_upgrade_source(target / "client")
         project_support.write_json(
             target
             / "server/conf/world-builder/installed-runtime-capability-v1.json",
@@ -987,8 +1021,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(
             {
                 "runtime-compatibility-capability",
-                "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
+                "runtime-compatibility-client-source-bootstrap",
+                "runtime-compatibility-client-source-profile",
+                "runtime-compatibility-client-source-login-transform",
+                "runtime-compatibility-client-source-world-transform",
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",
@@ -1009,9 +1046,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             project
             / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
         ).read_bytes()
-        project_client_runtime = (
-            project / "working/runtime/client/Open_RSC_Client.jar"
-        ).read_bytes()
+        target_client_runtime = (target / "client/Open_RSC_Client.jar").read_bytes()
         transaction = subprocess.run(
             [
                 "java", "-cp", str(self.classes),
@@ -1033,7 +1068,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             ).read_bytes(),
         )
         self.assertEqual(
-            project_client_runtime,
+            target_client_runtime,
             (target / "client/Open_RSC_Client.jar").read_bytes(),
         )
         self.assertFalse((
@@ -1052,8 +1087,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(
             {
                 "runtime-compatibility-capability",
-                "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
+                "runtime-compatibility-client-source-bootstrap",
+                "runtime-compatibility-client-source-profile",
+                "runtime-compatibility-client-source-login-transform",
+                "runtime-compatibility-client-source-world-transform",
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",
@@ -1243,6 +1281,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
         (target / "client/Open_RSC_Client.jar").write_bytes(
             b"old target client runtime\n"
         )
+        add_client_upgrade_source(target / "client")
 
         selected_report_path = self.root / "selected-layered.json"
         selected_discovery = self.run_cli(

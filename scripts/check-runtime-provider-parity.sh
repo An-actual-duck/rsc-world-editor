@@ -40,6 +40,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	server/conf/world-builder/installed-runtime-capability-v2.json \
+	server/conf/world-builder/installed-client-source-upgrade-v1.json \
 	server/conf/world-builder/managed-runtime-bundle.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
@@ -131,6 +132,12 @@ if (
     raise SystemExit(
         "FAIL: Installed runtime must replace legacy map and client bootstrap authorities"
     )
+if capability.get("clientSourceUpgrade") != {
+    "upgradeId": "world-builder-installed-client-source-upgrade-v1",
+    "manifestRelativePath": "server/conf/world-builder/installed-client-source-upgrade-v1.json",
+    "buildPolicy": "compile-target-client-before-run",
+}:
+    raise SystemExit("FAIL: Installed client source-upgrade contract drifted")
 PY
 
 python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/managed-runtime-bundle.json" <<'PY'
@@ -143,7 +150,7 @@ expected_identity = {
     "schemaVersion": 1,
     "manifestType": "world-builder-managed-runtime-bundle",
     "bundleId": "world-builder-managed-runtime-current",
-    "runtimeContractId": "world-builder-installed-loader-v7",
+    "runtimeContractId": "world-builder-installed-loader-v8",
     "profileId": "world-builder-installed",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -163,10 +170,10 @@ expected_components = [
         "server/world-builder-runtime/world-builder-managed-runtime.jar",
     ),
     (
-        "client-runtime",
-        "client/Open_RSC_Client.jar",
+        "client-source-upgrade",
+        "server/conf/world-builder/installed-client-source-upgrade-v1.json",
         "selected-client-root",
-        "Open_RSC_Client.jar",
+        "src",
     ),
     (
         "runtime-capability",
@@ -182,7 +189,12 @@ for component, expected in zip(components, expected_components):
     actual = tuple(component.get(key) for key in (
         "role", "sourceRelativePath", "destinationKind", "destinationRelativePath"
     ))
-    if actual != expected or component.get("replacementPolicy") != "replace-with-verified-backup":
+    policy = (
+        "semantic-upgrade-with-verified-backup"
+        if component.get("role") == "client-source-upgrade"
+        else "replace-with-verified-backup"
+    )
+    if actual != expected or component.get("replacementPolicy") != policy:
         raise SystemExit(
             f"FAIL: Managed runtime bundle component drifted: {actual!r}"
         )
@@ -193,6 +205,23 @@ if bundle.get("legacyCapabilityPaths") != [
 boundary = " ".join(bundle.get("serverUpgradeBoundary", []))
 if "target-owned gameplay" not in boundary:
     raise SystemExit("FAIL: Managed runtime server upgrade boundary drifted")
+PY
+
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-client-source-upgrade-v1.json" "$RUNTIME_PROVIDER_ROOT" <<'PY'
+import hashlib
+import json
+import pathlib
+import sys
+
+manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
+root = pathlib.Path(sys.argv[2])
+if manifest.get("upgradeId") != "world-builder-installed-client-source-upgrade-v1":
+    raise SystemExit("FAIL: Installed client source-upgrade identity drifted")
+for entry in manifest.get("sourceFiles", []):
+    relative = entry.get("destinationRelativePath", "")
+    source = root / "Client_Base" / relative
+    if not source.is_file() or hashlib.sha256(source.read_bytes()).hexdigest() != entry.get("sha256"):
+        raise SystemExit(f"FAIL: Installed client source-upgrade hash drifted: {relative}")
 PY
 
 client_version="$(sed -n \

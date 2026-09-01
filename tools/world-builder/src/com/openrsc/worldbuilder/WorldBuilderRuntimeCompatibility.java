@@ -54,8 +54,6 @@ final class WorldBuilderRuntimeCompatibility {
 	private static final String SERVER_DESTINATION = "server/core.jar";
 	private static final String SERVER_SOURCE =
 		"working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar";
-	private static final String CLIENT_SOURCE =
-		"working/runtime/client/Open_RSC_Client.jar";
 	private static final String BUNDLE_ID =
 		"world-builder-managed-runtime-current";
 
@@ -103,6 +101,8 @@ final class WorldBuilderRuntimeCompatibility {
 			capability.get("activation"), "activation");
 		Map<String,Object> runtimeArchives = WorldBuilderAdaptiveExporter.object(
 			capability.get("runtimeArchives"), "runtimeArchives");
+		Map<String,Object> clientSourceUpgrade = WorldBuilderAdaptiveExporter.object(
+			capability.get("clientSourceUpgrade"), "clientSourceUpgrade");
 		List<?> clientNames = WorldBuilderAdaptiveExporter.array(
 			runtimeArchives.get("clientNames"), "clientNames");
 		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
@@ -132,6 +132,14 @@ final class WorldBuilderRuntimeCompatibility {
 					runtimeArchives, "serverRelativePath"))
 			|| !SERVER_DESTINATION.equals(WorldBuilderAdaptiveExporter.string(
 				runtimeArchives, "targetFallbackRelativePath"))
+			|| !WorldBuilderInstalledClientSourceUpgrade.ID.equals(
+				WorldBuilderAdaptiveExporter.string(
+				clientSourceUpgrade, "upgradeId"))
+			|| !"server/conf/world-builder/installed-client-source-upgrade-v1.json"
+				.equals(WorldBuilderAdaptiveExporter.string(
+					clientSourceUpgrade, "manifestRelativePath"))
+			|| !"compile-target-client-before-run".equals(
+				WorldBuilderAdaptiveExporter.string(clientSourceUpgrade, "buildPolicy"))
 			|| clientNames.size() != 2
 			|| !"Client_Base/Open_RSC_Client.jar".equals(clientNames.get(0))
 			|| !"client/Open_RSC_Client.jar".equals(clientNames.get(1))
@@ -160,18 +168,17 @@ final class WorldBuilderRuntimeCompatibility {
 			transactionContent("server-upgrade", ".jar"),
 			actions);
 		appendLegacyOverlayRetirement(target, actions);
-		appendReplacement(project, target, "runtime-compatibility-client",
-			clientDestination, CLIENT_SOURCE, transactionContent("client", ".jar"),
-			actions);
+		WorldBuilderInstalledClientSourceUpgrade.append(project, target,
+			compiledClientRoot(configuration), actions);
 		appendReplacement(project, target, "runtime-compatibility-capability",
 			CAPABILITY_DESTINATION, CAPABILITY_SOURCE,
 			transactionContent("capability", ".json"), actions);
 		appendLegacyCapabilityRetirement(target, actions);
 		appendServerConfiguration(target, packageValue, actions);
 		appendServerBuildOverlay(target, actions);
+		appendClientBuildOverlay(target, clientDestination, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
-		appendClientBuildOverlay(target, clientDestination, actions);
 		return new Upgrade(encodingVersions, actions, true);
 	}
 
@@ -193,7 +200,7 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(bundle, "manifestType"))
 			|| !BUNDLE_ID.equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "bundleId"))
-			|| !"world-builder-installed-loader-v7".equals(
+			|| !"world-builder-installed-loader-v8".equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "runtimeContractId"))
 			|| !BUNDLE_ID.equals(WorldBuilderAdaptiveExporter.string(
 				capability, "managedRuntimeBundleId"))
@@ -211,12 +218,14 @@ final class WorldBuilderRuntimeCompatibility {
 			|| !componentMatches(components.get(0), "server-runtime-upgrade",
 				"server/world-builder-runtime/world-builder-managed-runtime.jar",
 				"target-root", MANAGED_SERVER_DESTINATION)
-			|| !componentMatches(components.get(1), "client-runtime",
-				"client/Open_RSC_Client.jar", "selected-client-root",
-				"Open_RSC_Client.jar")
+			|| !componentMatches(components.get(1), "client-source-upgrade",
+				"server/conf/world-builder/installed-client-source-upgrade-v1.json",
+				"selected-client-root", "src",
+				"semantic-upgrade-with-verified-backup")
 			|| !componentMatches(components.get(2), "runtime-capability",
 				"server/conf/world-builder/installed-runtime-capability-v2.json",
-				"target-root", CAPABILITY_DESTINATION)) {
+				"target-root", CAPABILITY_DESTINATION,
+				"replace-with-verified-backup")) {
 			throw problem(BUNDLE_SOURCE,
 				"Managed runtime bundle component set is unsupported.",
 				"Restore the exact verified project runtime.");
@@ -248,6 +257,13 @@ final class WorldBuilderRuntimeCompatibility {
 	private static boolean componentMatches(Object raw, String role, String source,
 		String destinationKind, String destination)
 		throws WorldBuilderContractException {
+		return componentMatches(raw, role, source, destinationKind, destination,
+			"replace-with-verified-backup");
+	}
+
+	private static boolean componentMatches(Object raw, String role, String source,
+		String destinationKind, String destination, String replacementPolicy)
+		throws WorldBuilderContractException {
 		Map<String,Object> component = WorldBuilderAdaptiveExporter.object(raw, "component");
 		return role.equals(WorldBuilderAdaptiveExporter.string(component, "role"))
 			&& source.equals(WorldBuilderAdaptiveExporter.string(
@@ -256,7 +272,7 @@ final class WorldBuilderRuntimeCompatibility {
 				component, "destinationKind"))
 			&& destination.equals(WorldBuilderAdaptiveExporter.string(
 				component, "destinationRelativePath"))
-			&& "replace-with-verified-backup".equals(
+			&& replacementPolicy.equals(
 				WorldBuilderAdaptiveExporter.string(component, "replacementPolicy"));
 	}
 
@@ -506,36 +522,39 @@ final class WorldBuilderRuntimeCompatibility {
 		boolean profileNamed = original.contains(CLIENT_BUILD_GUARD_PROFILE);
 		boolean propertyNamed = original.contains(CLIENT_BUILD_GUARD_PROPERTY);
 		if (targetGuarded || guardDeclarations != 0 || profileNamed || propertyNamed) {
-			if (targetGuarded && guardDeclarations == 1) return original;
-			throw clientBuildProblem(destination,
+			if (!targetGuarded || guardDeclarations != 1) throw clientBuildProblem(
+				destination,
 				"Target client build file contains a partial or conflicting installed-client guard.");
+			String restored = original.replaceFirst(
+				"\\s+unless\\s*=\\s*(['\"])"
+					+ Pattern.quote(CLIENT_BUILD_GUARD_PROPERTY) + "\\1", "");
+			restored = restored.replaceFirst(
+				"(?m)^[ \\t]*<!-- Preserve the verified World Builder client runtime during target launches\\. -->\\r?\\n", "");
+			restored = restored.replaceFirst(
+				"(?m)^[ \\t]*<available\\s+file=\""
+					+ Pattern.quote(CLIENT_BUILD_GUARD_PROFILE)
+					+ "\"\\s+property=\"" + Pattern.quote(CLIENT_BUILD_GUARD_PROPERTY)
+					+ "\"/>\\r?\\n?", "");
+			if (restored.contains(CLIENT_BUILD_GUARD_PROFILE)
+				|| restored.contains(CLIENT_BUILD_GUARD_PROPERTY)) {
+				throw clientBuildProblem(destination,
+					"Target client build guard could not be retired completely.");
+			}
+			return restored;
 		}
 		if (UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw clientBuildProblem(
 			destination,
-			"Target client compile target already has an unrelated conditional guard.");
+			"Target client compile target has an unrelated conditional guard and cannot prove compilation before launch.");
 		if (compileTag.endsWith("/>")) throw clientBuildProblem(destination,
 			"Target client compile target cannot be self-closing.");
-
-		String guardedCompileTag = compileTag.substring(0, compileTag.length() - 1)
-			+ " unless=\"" + CLIENT_BUILD_GUARD_PROPERTY + "\">";
-		String guarded = original.replace(compileTag, guardedCompileTag);
-		Matcher guardedProject = PROJECT_TAG.matcher(guarded);
-		if (!guardedProject.find()) throw clientBuildProblem(destination,
-			"Target client build project element changed during guard installation.");
-		String newline = original.contains("\r\n") ? "\r\n" : "\n";
-		String insertion = newline
-			+ "    <!-- Preserve the verified World Builder client runtime during target launches. -->"
-			+ newline + "    <available file=\"" + CLIENT_BUILD_GUARD_PROFILE
-			+ "\" property=\"" + CLIENT_BUILD_GUARD_PROPERTY + "\"/>";
-		return guarded.substring(0, guardedProject.end()) + insertion
-			+ guarded.substring(guardedProject.end());
+		return original;
 	}
 
 	private static WorldBuilderContractException clientBuildProblem(
 		String destination, String message) {
 		return problem(destination, message,
 			"Restore an unmodified " + destination
-				+ " with one compile target and retry Import.");
+				+ " whose compile target runs before launch, then retry Import.");
 	}
 
 	static String renderServerBuildOverlay(String original)
@@ -770,7 +789,7 @@ final class WorldBuilderRuntimeCompatibility {
 			true, null));
 	}
 
-	private static void appendReplacement(
+	static void appendReplacement(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, String role, String destination, String source,
 		String content, List<WorldBuilderAdaptiveMutationProfile.Action> actions)
@@ -817,7 +836,7 @@ final class WorldBuilderRuntimeCompatibility {
 		return result;
 	}
 
-	private static String transactionContent(String component, String suffix) {
+	static String transactionContent(String component, String suffix) {
 		return "package/activation/runtime-compatibility-" + component + suffix;
 	}
 
@@ -847,7 +866,7 @@ final class WorldBuilderRuntimeCompatibility {
 			"Restore the exact selected target configuration.");
 	}
 
-	private static WorldBuilderContractException problem(
+	static WorldBuilderContractException problem(
 		String source, String message, String nextStep) {
 		return new WorldBuilderContractException(
 			WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,

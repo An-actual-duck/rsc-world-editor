@@ -12,6 +12,8 @@ Client_Base/Cache/video/Custom_Sprites.osar	Client_Base/Cache/video/Custom_Sprit
 Client_Base/Cache/video/library.orsc	Client_Base/Cache/video/library.orsc	default-render-catalog
 Client_Base/Cache/video/models.orsc	Client_Base/Cache/video/models.orsc	default-render-catalog
 Client_Base/Cache/video/spritepacks/Menus.osar	Client_Base/Cache/video/spritepacks/Menus.osar	default-render-catalog
+Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java	Client_Base/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java	client-source-upgrade
+Client_Base/src/orsc/WorldBuilderTerrainBootstrap.java	Client_Base/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java	client-source-upgrade
 server/lib/commons-codec-1.14.jar	server/lib/commons-codec-1.14.jar	runtime-library
 server/lib/commons-compress-1.18.jar	server/lib/commons-compress-1.18.jar	runtime-library
 server/lib/commons-lang-2.6.jar	server/lib/commons-lang-2.6.jar	runtime-library
@@ -94,6 +96,7 @@ server/conf/server/words.list	server/conf/server/words.list	runtime-configuratio
 server/conf/server/wordsJag.txt	server/conf/server/wordsJag.txt	runtime-configuration
 server/conf/world-builder/adaptive-runtime-capability-v2.json	server/conf/world-builder/adaptive-runtime-capability-v2.json	runtime-capability
 server/conf/world-builder/installed-runtime-capability-v2.json	server/conf/world-builder/installed-runtime-capability-v2.json	runtime-capability
+server/conf/world-builder/installed-client-source-upgrade-v1.json	server/conf/world-builder/installed-client-source-upgrade-v1.json	runtime-capability
 server/conf/world-builder/managed-runtime-bundle.json	server/conf/world-builder/managed-runtime-bundle.json	runtime-capability
 server/world-builder-runtime/world-builder-managed-runtime.jar	server/world-builder-runtime/world-builder-managed-runtime.jar	server-runtime-upgrade
 server/database/sql_queries.xsd	server/database/sql_queries.xsd	runtime-database-contract

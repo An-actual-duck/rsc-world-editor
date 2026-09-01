@@ -57,6 +57,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static final Set<String> ALLOWED_RUNTIME_ROLES =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"builder-database-seed",
+			"client-source-upgrade",
 			"client-template",
 			"default-definition-catalog",
 			"default-render-catalog",

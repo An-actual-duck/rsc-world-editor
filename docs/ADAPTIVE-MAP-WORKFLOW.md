@@ -322,9 +322,9 @@ projected through the desktop GUI without creating a second mutation path. It:
 
 1. verifies the project's source, conversion, working package, and export;
 2. rediscovers the target and rejects drift;
-3. verifies the target capability and either preserves an exact recognized
-   target-specific installed v1 runtime or installs the project's exact pinned
-   compatible server/client runtime archives when the target archives differ;
+3. verifies the target capability, installs the pinned content-neutral server
+   runtime, and applies the bounded installed-client source/bootstrap upgrade
+   without replacing the target client's version, definitions, or assets;
 4. shows exact runtime replacements, server/client package destinations, and
    configuration changes;
 5. requires the administrator to confirm `IMPORT`;
@@ -357,12 +357,14 @@ projects retain their recorded port; recreating a project is required to adopt
 a newly selected pair.
 
 Import MAY install adapter-approved map packages, client map data, bounded
-configuration, and the exact server/client runtime archives carried by the
-validated project. Runtime replacement is limited to the compiled server core
-and client archive destinations, is previewed and backed up like every other
-activation, and never changes plugins, definitions, databases, or unrelated
-target files. An older map-only transaction may be completed in place only when
-the active server/client map packages exactly match the selected export.
+configuration, the content-neutral managed server runtime, and the verified
+installed-client bootstrap sources carried by the validated project. The
+client upgrade uses exact semantic source transformations and leaves the target
+client archive, protocol version, definitions, custom behavior, and assets
+authoritative; its normal build must compile those sources before launch.
+Every changed source is previewed and backed up like other activation state.
+An older map-only transaction may be completed in place only when the active
+server/client map packages exactly match the selected export.
 
 ## Installation and project directories
 

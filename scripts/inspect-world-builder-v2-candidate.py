@@ -184,6 +184,7 @@ STRUCTURED_WORLD_ENCODINGS = {
     "legacy-packed-orsc-v1",
 }
 ALLOWED_RUNTIME_ROLES = {
+    "client-source-upgrade",
     "builder-database-seed",
     "client-template",
     "default-definition-catalog",

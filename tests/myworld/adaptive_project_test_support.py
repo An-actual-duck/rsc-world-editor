@@ -156,7 +156,7 @@ def installed_v2_capability() -> dict:
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-upgrade-v6",
-        "clientBuildId": "fixture-installed-client-v2",
+        "clientBuildId": "fixture-installed-client-source-v3",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -174,6 +174,13 @@ def installed_v2_capability() -> dict:
                 "Client_Base/Open_RSC_Client.jar",
                 "client/Open_RSC_Client.jar",
             ],
+        },
+        "clientSourceUpgrade": {
+            "upgradeId": "world-builder-installed-client-source-upgrade-v1",
+            "manifestRelativePath": (
+                "server/conf/world-builder/installed-client-source-upgrade-v1.json"
+            ),
+            "buildPolicy": "compile-target-client-before-run",
         },
         "activation": {
             "runtimeProfile": "world-builder-installed",
@@ -194,7 +201,7 @@ def managed_runtime_bundle() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-managed-runtime-bundle",
         "bundleId": "world-builder-managed-runtime-current",
-        "runtimeContractId": "world-builder-installed-loader-v7",
+        "runtimeContractId": "world-builder-installed-loader-v8",
         "profileId": "world-builder-installed",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -212,11 +219,13 @@ def managed_runtime_bundle() -> dict:
                 "replacementPolicy": "replace-with-verified-backup",
             },
             {
-                "role": "client-runtime",
-                "sourceRelativePath": "client/Open_RSC_Client.jar",
+                "role": "client-source-upgrade",
+                "sourceRelativePath": (
+                    "server/conf/world-builder/installed-client-source-upgrade-v1.json"
+                ),
                 "destinationKind": "selected-client-root",
-                "destinationRelativePath": "Open_RSC_Client.jar",
-                "replacementPolicy": "replace-with-verified-backup",
+                "destinationRelativePath": "src",
+                "replacementPolicy": "semantic-upgrade-with-verified-backup",
             },
             {
                 "role": "runtime-capability",
@@ -243,6 +252,59 @@ def managed_runtime_bundle() -> dict:
         "serverUpgradeBoundary": [
             "World Builder map loading, signed layered coordinates, placements, collision, and protocol integration",
             "target-owned gameplay, plugins, definitions, database implementations, and third-party libraries remain authoritative",
+        ],
+        "clientUpgradeBoundary": [
+            "target client protocol version and definitions remain authoritative",
+            "the target client is compiled by its normal build before launch",
+        ],
+    }
+
+
+FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE = b"package orsc;\npublic final class WorldBuilderInstalledClientProfile {}\n"
+FIXTURE_TERRAIN_BOOTSTRAP_SOURCE = b"package orsc;\npublic final class WorldBuilderTerrainBootstrap {}\n"
+
+
+def installed_client_source_upgrade() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-installed-client-source-upgrade",
+        "upgradeId": "world-builder-installed-client-source-upgrade-v1",
+        "clientBootstrapId": "world-builder-installed-client-profile-v1",
+        "sourceFiles": [
+            {
+                "sourceRelativePath": (
+                    "client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java"
+                ),
+                "destinationRelativePath": (
+                    "src/orsc/WorldBuilderInstalledClientProfile.java"
+                ),
+                "sha256": hashlib.sha256(
+                    FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE
+                ).hexdigest(),
+            },
+            {
+                "sourceRelativePath": (
+                    "client/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java"
+                ),
+                "destinationRelativePath": "src/orsc/WorldBuilderTerrainBootstrap.java",
+                "sha256": hashlib.sha256(FIXTURE_TERRAIN_BOOTSTRAP_SOURCE).hexdigest(),
+            },
+        ],
+        "semanticTransforms": [
+            {
+                "transformId": "world-builder-installed-terrain-bootstrap-v1",
+                "destinationRelativePath": "src/orsc/graphics/three/World.java",
+            },
+            {
+                "transformId": "world-builder-installed-login-world-bootstrap-v1",
+                "destinationRelativePath": "src/orsc/mudclient.java",
+            },
+        ],
+        "buildPolicy": "compile-target-client-before-run",
+        "preservedTargetAuthorities": [
+            "client protocol version",
+            "entity definitions and advertised limits",
+            "custom client behavior and assets",
         ],
     }
 
@@ -337,6 +399,18 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
     write_json(
         server / "conf/world-builder/managed-runtime-bundle.json",
         managed_runtime_bundle(),
+    )
+    write_json(
+        server / "conf/world-builder/installed-client-source-upgrade-v1.json",
+        installed_client_source_upgrade(),
+    )
+    source_root = client / "world-builder-source/orsc"
+    source_root.mkdir(parents=True, exist_ok=True)
+    (source_root / "WorldBuilderInstalledClientProfile.java").write_bytes(
+        FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE
+    )
+    (source_root / "WorldBuilderTerrainBootstrap.java").write_bytes(
+        FIXTURE_TERRAIN_BOOTSTRAP_SOURCE
     )
     for name in REQUIRED_LANGUAGE_BUNDLES:
         path = server / "conf/server/languages" / name

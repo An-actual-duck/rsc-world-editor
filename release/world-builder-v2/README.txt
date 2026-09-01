@@ -182,11 +182,14 @@ transaction. Keep the complete project/backups/receipts and run "Recover Map
 Transaction"; review its exact plan and type RECOVER. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
-There is no force option. Runtime installation is limited to the exact pinned
-server core and client archives and uses the same preview, backup, rollback,
-receipt, and verification transaction as map activation. Standalone projects
-can save and export, but Import, Undo, and Recovery return NO_TARGET before
-resolving, accessing, or locking any target path.
+There is no force option. Runtime installation uses the exact pinned
+content-neutral server runtime plus a bounded client source/bootstrap upgrade.
+It preserves the target client's protocol version, definitions, advertised
+limits, custom behavior, and assets, then allows the target's normal build to
+compile the combined client before launch. Source changes use the same preview,
+backup, rollback, receipt, and verification transaction as map activation.
+Standalone projects can save and export, but Import, Undo, and Recovery return
+NO_TARGET before resolving, accessing, or locking any target path.
 
 HISTORICAL V2 ALPHA
 -------------------

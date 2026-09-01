@@ -245,16 +245,14 @@ uses the same project decision and repeats the map update without replacing
 the preserved runtime. Generic targets that receive the proven v2
 archive-free client bootstrap retain the guarded retirement path.
 
-The blocking blended base-color contract advances that installed loader from
-v6 to v7. A customized v1 runtime cannot interpret raw overlay `255`, and map
-import must not solve that by replacing its complete server/client archives
-with the generic provider build. The target maintainer must integrate the
-bounded v7 terrain changes into the target's own runtime once and publish the
-standard installed v2 capability beside those archives. Import recognizes that
-v2 capability as a preservation contract: it keeps the target-specific JARs,
-updates only the map activation configuration and installed-client profile,
-and supports subsequent edited-map imports without repeating the runtime
-upgrade.
+The blocking blended base-color contract advances the installed loader from v6
+to v7. Import now installs the content-neutral managed server runtime and a
+bounded client source upgrade instead of replacing the complete customized
+client archive with the generic provider build. The upgrade adds the verified
+archive-free bootstrap and transforms the existing native terrain selection
+points while preserving the target's protocol version, definitions, advertised
+limits, custom behavior, and assets. The target's normal client build compiles
+that combined result before launch; repeated edited-map imports reuse it.
 5. Do not retire the physical archives until the installed player client can
    bootstrap from a verified installed-package identity without opening a
    packed archive. Once that runtime support exists, import may back up, remove,

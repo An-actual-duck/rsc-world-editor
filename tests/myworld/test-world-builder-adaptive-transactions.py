@@ -1027,6 +1027,39 @@ public final class AdaptiveTransactionFailureHarness {
         declaration["sha256"] = hashlib.sha256(payload).hexdigest()
         project_support.write_json(manifest_path, manifest)
 
+    @staticmethod
+    def add_client_upgrade_source(client_root):
+        source = client_root / "src/orsc"
+        (source / "graphics/three").mkdir(parents=True, exist_ok=True)
+        (source / "Config.java").write_text(
+            "package orsc; public final class Config { "
+            "public static final int CLIENT_VERSION = 10052; }\n",
+            encoding="utf-8",
+        )
+        (source / "graphics/three/World.java").write_text(
+            """package orsc.graphics.three;
+import orsc.WorldBuilderClientProfile;
+public final class World {
+    boolean terrain() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean archive() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean upper() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    String identity() { return WorldBuilderClientProfile.current()
+        .strictAdaptiveMapIdentity(); }
+}
+""",
+            encoding="utf-8",
+        )
+        (source / "mudclient.java").write_text(
+            """package orsc;
+public final class mudclient {
+    private static boolean shouldRenderLegacyLoginWorld() {
+        return !WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+    }
+}
+""",
+            encoding="utf-8",
+        )
+
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
         port_evidence=False, offline_evidence=None,
@@ -1067,6 +1100,7 @@ public final class AdaptiveTransactionFailureHarness {
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
+            self.add_client_upgrade_source(client_root)
             if target_client_build_file:
                 (client_root / "build.xml").write_text(
                     """<project name="target-client" default="compile-and-run" basedir=".">
@@ -1219,7 +1253,7 @@ public final class AdaptiveTransactionFailureHarness {
         export = Path(json.loads(exported.stdout)["exportDirectory"])
         return target, installation, project, export
 
-    def test_import_installs_matching_runtime_archives_and_undo_restores_them(self):
+    def test_import_installs_content_neutral_runtime_and_undo_restores_sources(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
             target, installation, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True, target_build_file=True,
@@ -1236,6 +1270,19 @@ public final class AdaptiveTransactionFailureHarness {
             before_build = build_file.read_bytes()
             client_build_file = client.parent / "build.xml"
             before_client_build = client_build_file.read_bytes()
+            client_source = client.parent / "src/orsc"
+            world_source = client_source / "graphics/three/World.java"
+            mudclient_source = client_source / "mudclient.java"
+            config_source = client_source / "Config.java"
+            before_world = world_source.read_bytes()
+            before_mudclient = mudclient_source.read_bytes()
+            before_config = config_source.read_bytes()
+            installed_profile_source = (
+                client_source / "WorldBuilderInstalledClientProfile.java"
+            )
+            terrain_bootstrap_source = (
+                client_source / "WorldBuilderTerrainBootstrap.java"
+            )
             legacy_overlay = (
                 target / "server/lib/world-builder-managed-runtime.jar"
             )
@@ -1246,7 +1293,14 @@ public final class AdaptiveTransactionFailureHarness {
                 project
                 / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
             )
-            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
+            project_profile_source = (
+                project
+                / "working/runtime/client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java"
+            )
+            project_bootstrap_source = (
+                project
+                / "working/runtime/client/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java"
+            )
 
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1260,24 +1314,33 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(project_server.read_bytes(), overlay.read_bytes())
             self.assertFalse(legacy_overlay.exists())
-            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(before_client, client.read_bytes())
+            self.assertEqual(before_config, config_source.read_bytes())
+            self.assertEqual(
+                project_profile_source.read_bytes(), installed_profile_source.read_bytes()
+            )
+            self.assertEqual(
+                project_bootstrap_source.read_bytes(), terrain_bootstrap_source.read_bytes()
+            )
+            self.assertEqual(
+                3,
+                world_source.read_text(encoding="utf-8").count(
+                    "WorldBuilderTerrainBootstrap.isNativeOnly()"
+                ),
+            )
+            self.assertIn(
+                "WorldBuilderTerrainBootstrap.mapIdentity()",
+                world_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "return !WorldBuilderTerrainBootstrap.isNativeOnly();",
+                mudclient_source.read_text(encoding="utf-8"),
+            )
             client_build_root = ET.parse(client_build_file).getroot()
             client_compile = client_build_root.find("./target[@name='compile']")
             self.assertIsNotNone(client_compile)
-            self.assertEqual(
-                "world.builder.installed.client",
-                client_compile.attrib.get("unless"),
-            )
-            client_guard = client_build_root.find("./available")
-            self.assertIsNotNone(client_guard)
-            self.assertEqual(
-                "world-builder-configs/installed-client.json",
-                client_guard.attrib.get("file"),
-            )
-            self.assertEqual(
-                "world.builder.installed.client",
-                client_guard.attrib.get("property"),
-            )
+            self.assertNotIn("unless", client_compile.attrib)
+            self.assertIsNone(client_build_root.find("./available"))
             build_root = ET.parse(build_file).getroot()
             compile_core = build_root.find("./target[@name='compile_core']")
             self.assertIsNotNone(compile_core)
@@ -1318,6 +1381,11 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_build, build_file.read_bytes())
             self.assertEqual(before_client_build, client_build_file.read_bytes())
+            self.assertEqual(before_config, config_source.read_bytes())
+            self.assertEqual(before_world, world_source.read_bytes())
+            self.assertEqual(before_mudclient, mudclient_source.read_bytes())
+            self.assertFalse(installed_profile_source.exists())
+            self.assertFalse(terrain_bootstrap_source.exists())
             self.assertFalse(overlay.exists())
             self.assertEqual(before_legacy_overlay, legacy_overlay.read_bytes())
 
@@ -1344,11 +1412,23 @@ public final class AdaptiveTransactionFailureHarness {
                 project
                 / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
             )
-            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
             project_capability = (
                 project
                 / "working/runtime/server/conf/world-builder/installed-runtime-capability-v2.json"
             )
+            client_build_file = client.parent / "build.xml"
+            unguarded_client_build = client_build_file.read_text(encoding="utf-8")
+            guarded_client_build = unguarded_client_build.replace(
+                '<project name="target-client" default="compile-and-run" basedir=".">',
+                '<project name="target-client" default="compile-and-run" basedir=".">\n'
+                '    <!-- Preserve the verified World Builder client runtime during target launches. -->\n'
+                '    <available file="world-builder-configs/installed-client.json" '
+                'property="world.builder.installed.client"/>',
+            ).replace(
+                '<target name="compile">',
+                '<target name="compile" unless="world.builder.installed.client">',
+            )
+            client_build_file.write_text(guarded_client_build, encoding="utf-8")
 
             preview = self.run_cli(
                 "import-adaptive", "--project", project, "--export", export,
@@ -1362,9 +1442,12 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 {
                     "runtime-compatibility-capability",
-                    "runtime-compatibility-client",
                     "runtime-compatibility-client-build-overlay",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-source-bootstrap",
+                    "runtime-compatibility-client-source-profile",
+                    "runtime-compatibility-client-source-login-transform",
+                    "runtime-compatibility-client-source-world-transform",
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-build-overlay",
@@ -1385,7 +1468,7 @@ public final class AdaptiveTransactionFailureHarness {
                     / "server/world-builder-runtime/world-builder-managed-runtime.jar"
                 ).read_bytes(),
             )
-            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(b"target client runtime\n", client.read_bytes())
             self.assertFalse(capability.exists())
             installed_v2 = (
                 target
@@ -1393,14 +1476,13 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             guarded_build = (target / "server/build.xml").read_bytes()
-            guarded_client_build = (client.parent / "build.xml").read_bytes()
-            client_build_root = ET.fromstring(guarded_client_build)
-            self.assertEqual(
-                "world.builder.installed.client",
-                client_build_root.find("./target[@name='compile']").attrib.get(
-                    "unless"
-                ),
+            upgraded_client_build = client_build_file.read_bytes()
+            client_build_root = ET.fromstring(upgraded_client_build)
+            self.assertNotIn(
+                "unless",
+                client_build_root.find("./target[@name='compile']").attrib,
             )
+            self.assertIsNone(client_build_root.find("./available"))
             self.assertTrue(
                 (client.parent / "world-builder-configs/installed-client.json").is_file()
             )
@@ -1418,11 +1500,11 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
             self.assertEqual(b"target server runtime\n", server.read_bytes())
-            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(b"target client runtime\n", client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
             self.assertEqual(
-                guarded_client_build,
+                upgraded_client_build,
                 (client.parent / "build.xml").read_bytes(),
             )
             self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
@@ -1484,7 +1566,7 @@ public final class AdaptiveTransactionFailureHarness {
                 project
                 / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
             )
-            project_client = project / "working/runtime/client/Open_RSC_Client.jar"
+            before_client = client.read_bytes()
 
             self.set_fixture_ground_overlay(
                 project / "working/layered-world/package", 255
@@ -1506,8 +1588,11 @@ public final class AdaptiveTransactionFailureHarness {
             }
             self.assertEqual(
                 {
-                    "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-source-bootstrap",
+                    "runtime-compatibility-client-source-profile",
+                    "runtime-compatibility-client-source-login-transform",
+                    "runtime-compatibility-client-source-world-transform",
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
@@ -1528,7 +1613,7 @@ public final class AdaptiveTransactionFailureHarness {
                     / "server/world-builder-runtime/world-builder-managed-runtime.jar"
                 ).read_bytes(),
             )
-            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(
                 project_support.installed_v2_capability(),
                 json.loads(capability.read_text(encoding="utf-8")),
@@ -1546,7 +1631,7 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
             self.assertNotEqual(project_server.read_bytes(), server.read_bytes())
-            self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            self.assertEqual(before_client, client.read_bytes())
 
     def test_import_accepts_custom_runtime_transition_from_v1_to_v2(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-v2-") as temp:
@@ -1588,8 +1673,11 @@ public final class AdaptiveTransactionFailureHarness {
             }
             self.assertEqual(
                 {
-                    "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-source-bootstrap",
+                    "runtime-compatibility-client-source-profile",
+                    "runtime-compatibility-client-source-login-transform",
+                    "runtime-compatibility-client-source-world-transform",
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
@@ -1630,8 +1718,11 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 {
                     "runtime-compatibility-capability",
-                    "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
+                    "runtime-compatibility-client-source-bootstrap",
+                    "runtime-compatibility-client-source-profile",
+                    "runtime-compatibility-client-source-login-transform",
+                    "runtime-compatibility-client-source-world-transform",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
                 },
@@ -1672,7 +1763,7 @@ public final class AdaptiveTransactionFailureHarness {
                 capability["serverBuildId"],
             )
             self.assertEqual(
-                "fixture-installed-client-v2",
+                "fixture-installed-client-source-v3",
                 capability["clientBuildId"],
             )
             configuration = json.loads(
@@ -1777,6 +1868,7 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             server.write_bytes(b"incompatible installed server runtime\n")
             client.write_bytes(b"incompatible installed client runtime\n")
+            self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(
                 "want_sync_scene_baseline: false\ncustom_landscape: true\n",
                 encoding="utf-8",
@@ -1798,11 +1890,7 @@ public final class AdaptiveTransactionFailureHarness {
                 ).read_bytes(),
             )
             self.assertEqual(
-                (
-                    project
-                    / "working/runtime/client/Open_RSC_Client.jar"
-                ).read_bytes(),
-                client.read_bytes(),
+                b"incompatible installed client runtime\n", client.read_bytes()
             )
 
             repeated = self.run_cli(
@@ -1863,6 +1951,7 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             server.write_bytes(b"incompatible installed server runtime\n")
             client.write_bytes(b"incompatible installed client runtime\n")
+            self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(
                 "want_sync_scene_baseline: false\ncustom_landscape: true\n",
                 encoding="utf-8",
@@ -1884,11 +1973,7 @@ public final class AdaptiveTransactionFailureHarness {
                 ).read_bytes(),
             )
             self.assertEqual(
-                (
-                    project
-                    / "working/runtime/client/Open_RSC_Client.jar"
-                ).read_bytes(),
-                client.read_bytes(),
+                b"incompatible installed client runtime\n", client.read_bytes()
             )
 
     def standalone_project(self, base: Path):

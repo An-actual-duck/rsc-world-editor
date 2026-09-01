@@ -497,6 +497,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-client-profile".equals(role);
 			boolean clientBuildOverlay =
 				"runtime-compatibility-client-build-overlay".equals(role);
+			boolean clientSourceProfile =
+				"runtime-compatibility-client-source-profile".equals(role);
+			boolean clientSourceBootstrap =
+				"runtime-compatibility-client-source-bootstrap".equals(role);
+			boolean clientSourceWorldTransform =
+				"runtime-compatibility-client-source-world-transform".equals(role);
+			boolean clientSourceLoginTransform =
+				"runtime-compatibility-client-source-login-transform".equals(role);
+			boolean clientSourceTransform = clientSourceWorldTransform
+				|| clientSourceLoginTransform;
 			String destination = WorldBuilderAdaptiveExporter.string(
 				value, "destinationRelativePath");
 			boolean destinationAllowed = server
@@ -529,7 +539,19 @@ final class WorldBuilderAdaptiveMutationProfile {
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination))
 							|| clientBuildOverlay && ("Client_Base/build.xml".equals(
-								destination) || "client/build.xml".equals(destination));
+								destination) || "client/build.xml".equals(destination))
+							|| clientSourceProfile && ("Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java"
+								.equals(destination) || "client/src/orsc/WorldBuilderInstalledClientProfile.java"
+								.equals(destination))
+							|| clientSourceBootstrap && ("Client_Base/src/orsc/WorldBuilderTerrainBootstrap.java"
+								.equals(destination) || "client/src/orsc/WorldBuilderTerrainBootstrap.java"
+								.equals(destination))
+							|| clientSourceWorldTransform && ("Client_Base/src/orsc/graphics/three/World.java"
+								.equals(destination) || "client/src/orsc/graphics/three/World.java"
+								.equals(destination))
+							|| clientSourceLoginTransform && ("Client_Base/src/orsc/mudclient.java"
+								.equals(destination) || "client/src/orsc/mudclient.java"
+								.equals(destination));
 			String sourceRelative = server
 				? "working/runtime/server/core.jar"
 				: serverOverlay
@@ -537,12 +559,22 @@ final class WorldBuilderAdaptiveMutationProfile {
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
-			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement ? ""
-				: "package/activation/" + role
-					+ (capability || clientProfile ? ".json"
-						: serverConfiguration ? ".conf"
-							: serverBuildGuard || serverBuildOverlay || clientBuildOverlay
-								? ".xml" : ".jar");
+			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement
+				? ""
+				: clientSourceProfile
+					? "package/activation/runtime-compatibility-client-source-0.java"
+					: clientSourceBootstrap
+						? "package/activation/runtime-compatibility-client-source-1.java"
+						: clientSourceTransform
+							? "package/activation/runtime-compatibility-client-source-"
+								+ (destination.endsWith("/World.java")
+									? "world-builder-installed-terrain-bootstrap-v1.java"
+									: "world-builder-installed-login-world-bootstrap-v1.java")
+							: "package/activation/" + role
+								+ (capability || clientProfile ? ".json"
+									: serverConfiguration ? ".conf"
+										: serverBuildGuard || serverBuildOverlay
+											|| clientBuildOverlay ? ".xml" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			String backupRelative = before.present
@@ -572,9 +604,13 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			Path source = serverConfiguration || serverBuildGuard
 				|| serverBuildOverlay || clientProfile || clientBuildOverlay
+				|| clientSourceProfile || clientSourceBootstrap || clientSourceTransform
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
 						: clientBuildOverlay ? "installed client build overlay"
+						: clientSourceProfile || clientSourceBootstrap
+							? "installed client bootstrap source"
+						: clientSourceTransform ? "installed client transformed source"
 						: serverBuildGuard ? "installed server build guard"
 							: serverBuildOverlay ? "installed server build overlay"
 							: "installed server launch configuration")
@@ -2219,6 +2255,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				if ("runtime-compatibility-server".equals(action.role)
 					|| "runtime-compatibility-server-upgrade".equals(action.role)
 					|| "runtime-compatibility-client".equals(action.role)
+					|| action.role.startsWith(
+						"runtime-compatibility-client-source-")
 					|| "runtime-compatibility-capability".equals(action.role)
 					|| "runtime-compatibility-legacy-capability-retirement".equals(
 						action.role)

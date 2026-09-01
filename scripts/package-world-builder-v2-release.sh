@@ -369,6 +369,7 @@ import sys
 core = pathlib.Path(sys.argv[1]).resolve()
 allowlist = pathlib.Path(sys.argv[2])
 allowed_roles = {
+    "client-source-upgrade",
     "runtime-audio", "client-template", "default-render-catalog",
     "runtime-library", "runtime-configuration", "default-definition-catalog",
     "runtime-capability", "runtime-database-contract", "builder-database-seed",
