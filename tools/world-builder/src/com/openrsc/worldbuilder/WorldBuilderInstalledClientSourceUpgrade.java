@@ -15,6 +15,25 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 	static final String SOURCE =
 		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v1.json";
 	static final String ID = "world-builder-installed-client-source-upgrade-v1";
+	private static final Pattern PROFILE_IMPORT = Pattern.compile(
+		"(?m)^[\\t ]*import\\s+orsc\\.WorldBuilderClientProfile\\s*;[\\t ]*$");
+	private static final Pattern TERRAIN_BOOTSTRAP_IMPORT = Pattern.compile(
+		"(?m)^[\\t ]*import\\s+orsc\\.WorldBuilderTerrainBootstrap\\s*;[\\t ]*$");
+	private static final Pattern PROFILE_NATIVE_ONLY = profileCall(
+		"isStrictAdaptiveTerrain");
+	private static final Pattern BOOTSTRAP_NATIVE_ONLY = bootstrapCall(
+		"isNativeOnly");
+	private static final Pattern PROFILE_MAP_IDENTITY = profileCall(
+		"strictAdaptiveMapIdentity");
+	private static final Pattern BOOTSTRAP_MAP_IDENTITY = bootstrapCall(
+		"mapIdentity");
+	private static final Pattern PROFILE_LOGIN_WORLD = Pattern.compile(
+		"return\\s*!\\s*WorldBuilderClientProfile\\s*\\.\\s*current\\s*"
+			+ "\\(\\s*\\)\\s*\\.\\s*isStrictAdaptiveTerrain\\s*"
+			+ "\\(\\s*\\)\\s*;");
+	private static final Pattern BOOTSTRAP_LOGIN_WORLD = Pattern.compile(
+		"return\\s*!\\s*WorldBuilderTerrainBootstrap\\s*\\.\\s*"
+			+ "isNativeOnly\\s*\\(\\s*\\)\\s*;");
 
 	private WorldBuilderInstalledClientSourceUpgrade() {
 	}
@@ -169,61 +188,80 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 
 	static String renderTerrainBootstrap(String original, String destination)
 		throws WorldBuilderContractException {
-		String oldCondition =
-			"WorldBuilderClientProfile.current().isStrictAdaptiveTerrain()";
-		String newCondition = "WorldBuilderTerrainBootstrap.isNativeOnly()";
-		int oldCount = occurrences(original, oldCondition);
-		int newCount = occurrences(original, newCondition);
-		boolean hasImport = original.contains(
-			"import orsc.WorldBuilderTerrainBootstrap;");
-		if (oldCount == 0 && newCount == 3 && hasImport) return original;
-		if (oldCount != 3 || newCount != 0 || hasImport) throw sourceProblem(
+		int oldCount = occurrences(PROFILE_NATIVE_ONLY, original);
+		int newCount = occurrences(BOOTSTRAP_NATIVE_ONLY, original);
+		int profileImportCount = occurrences(PROFILE_IMPORT, original);
+		int bootstrapImportCount = occurrences(TERRAIN_BOOTSTRAP_IMPORT, original);
+		int oldIdentityCount = occurrences(PROFILE_MAP_IDENTITY, original);
+		int newIdentityCount = occurrences(BOOTSTRAP_MAP_IDENTITY, original);
+		if (oldCount + newCount < 3
+			|| profileImportCount != 1
+			|| bootstrapImportCount > 1
+			|| oldIdentityCount + newIdentityCount != 1) throw sourceProblem(
 			destination,
 			"Target World.java does not match the supported native terrain bootstrap boundary.",
 			"Restore the target client source or integrate the installed terrain bootstrap once.");
-		String profileImport = "import orsc.WorldBuilderClientProfile;";
-		if (occurrences(original, profileImport) != 1) throw sourceProblem(destination,
-			"Target World.java has no unambiguous World Builder client profile import.",
-			"Restore the target client source and retry Import.");
 		String newline = original.contains("\r\n") ? "\r\n" : "\n";
-		String rendered = original.replace(profileImport,
-			profileImport + newline + "import orsc.WorldBuilderTerrainBootstrap;");
-		rendered = rendered.replace(oldCondition, newCondition);
-		Pattern identity = Pattern.compile(
-			"WorldBuilderClientProfile\\.current\\(\\)\\s*"
-				+ "\\.strictAdaptiveMapIdentity\\(\\)");
-		Matcher matcher = identity.matcher(rendered);
-		if (!matcher.find()) throw sourceProblem(destination,
-			"Target World.java has no installed-package map identity upgrade point.",
-			"Restore the target client source and retry Import.");
-		rendered = matcher.replaceFirst("WorldBuilderTerrainBootstrap.mapIdentity()");
-		if (identity.matcher(rendered).find()) throw sourceProblem(destination,
-			"Target World.java has ambiguous installed-package map identity upgrade points.",
-			"Restore the target client source and retry Import.");
+		String rendered = original;
+		if (bootstrapImportCount == 0) {
+			Matcher profileImport = PROFILE_IMPORT.matcher(rendered);
+			if (!profileImport.find()) throw sourceProblem(destination,
+				"Target World.java has no unambiguous World Builder client profile import.",
+				"Restore the target client source and retry Import.");
+			rendered = profileImport.replaceFirst(
+				Matcher.quoteReplacement(profileImport.group()
+					+ newline + "import orsc.WorldBuilderTerrainBootstrap;"));
+		}
+		rendered = PROFILE_NATIVE_ONLY.matcher(rendered).replaceAll(
+			"WorldBuilderTerrainBootstrap.isNativeOnly()");
+		rendered = PROFILE_MAP_IDENTITY.matcher(rendered).replaceAll(
+			"WorldBuilderTerrainBootstrap.mapIdentity()");
+		if (occurrences(PROFILE_NATIVE_ONLY, rendered) != 0
+			|| occurrences(BOOTSTRAP_NATIVE_ONLY, rendered) != oldCount + newCount
+			|| occurrences(TERRAIN_BOOTSTRAP_IMPORT, rendered) != 1
+			|| occurrences(PROFILE_MAP_IDENTITY, rendered) != 0
+			|| occurrences(BOOTSTRAP_MAP_IDENTITY, rendered) != 1) {
+			throw sourceProblem(destination,
+				"Target World.java terrain bootstrap upgrade was not exact.",
+				"Restore the target client source and retry Import.");
+		}
 		return rendered;
 	}
 
 	static String renderLoginWorldBootstrap(String original, String destination)
 		throws WorldBuilderContractException {
-		String oldValue =
-			"return !WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();";
-		String newValue = "return !WorldBuilderTerrainBootstrap.isNativeOnly();";
-		int oldCount = occurrences(original, oldValue);
-		int newCount = occurrences(original, newValue);
-		if (oldCount == 0 && newCount == 1) return original;
-		if (oldCount != 1 || newCount != 0) throw sourceProblem(destination,
+		int oldCount = occurrences(PROFILE_LOGIN_WORLD, original);
+		int newCount = occurrences(BOOTSTRAP_LOGIN_WORLD, original);
+		if (oldCount + newCount != 1) throw sourceProblem(destination,
 			"Target mudclient.java does not match the supported login-world bootstrap boundary.",
 			"Restore the target client source or integrate the installed login bootstrap once.");
-		return original.replace(oldValue, newValue);
+		String rendered = PROFILE_LOGIN_WORLD.matcher(original).replaceAll(
+			"return !WorldBuilderTerrainBootstrap.isNativeOnly();");
+		if (occurrences(PROFILE_LOGIN_WORLD, rendered) != 0
+			|| occurrences(BOOTSTRAP_LOGIN_WORLD, rendered) != 1) {
+			throw sourceProblem(destination,
+				"Target mudclient.java login bootstrap upgrade was not exact.",
+				"Restore the target client source and retry Import.");
+		}
+		return rendered;
 	}
 
-	private static int occurrences(String value, String needle) {
+	private static Pattern profileCall(String method) {
+		return Pattern.compile(
+			"WorldBuilderClientProfile\\s*\\.\\s*current\\s*\\(\\s*\\)\\s*"
+				+ "\\.\\s*" + method + "\\s*\\(\\s*\\)");
+	}
+
+	private static Pattern bootstrapCall(String method) {
+		return Pattern.compile(
+			"WorldBuilderTerrainBootstrap\\s*\\.\\s*" + method
+				+ "\\s*\\(\\s*\\)");
+	}
+
+	private static int occurrences(Pattern pattern, String value) {
 		int count = 0;
-		int offset = 0;
-		while ((offset = value.indexOf(needle, offset)) >= 0) {
-			count++;
-			offset += needle.length();
-		}
+		Matcher matcher = pattern.matcher(value);
+		while (matcher.find()) count++;
 		return count;
 	}
 

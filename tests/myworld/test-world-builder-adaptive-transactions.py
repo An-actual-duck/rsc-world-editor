@@ -1041,8 +1041,11 @@ public final class AdaptiveTransactionFailureHarness {
 import orsc.WorldBuilderClientProfile;
 public final class World {
     boolean terrain() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    boolean archive() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean archive() { return WorldBuilderClientProfile
+        .current()
+        .isStrictAdaptiveTerrain(); }
     boolean upper() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
+    boolean targetExtension() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
     String identity() { return WorldBuilderClientProfile.current()
         .strictAdaptiveMapIdentity(); }
 }
@@ -1052,8 +1055,16 @@ public final class World {
         (source / "mudclient.java").write_text(
             """package orsc;
 public final class mudclient {
+    static boolean fatalAdaptiveFailure() {
+        return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+    }
     private static boolean shouldRenderLegacyLoginWorld() {
-        return !WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+        return !WorldBuilderClientProfile
+            .current()
+            .isStrictAdaptiveTerrain();
+    }
+    static boolean logAdaptiveReadiness() {
+        return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
     }
 }
 """,
@@ -1323,7 +1334,7 @@ public final class mudclient {
                 project_bootstrap_source.read_bytes(), terrain_bootstrap_source.read_bytes()
             )
             self.assertEqual(
-                3,
+                4,
                 world_source.read_text(encoding="utf-8").count(
                     "WorldBuilderTerrainBootstrap.isNativeOnly()"
                 ),
