@@ -481,30 +481,46 @@ final class WorldBuilderRuntimeCompatibility {
 		if (pluginTarget.find()) throw buildGuardProblem(
 			"Target server build file does not contain one unambiguous compile_plugins target.");
 		String managedEntry = "<pathelement location=\"lib/world-builder-managed-runtime.jar\"/>";
-		int managedIndex = block.indexOf(managedEntry);
-		if (managedIndex >= 0) {
-			if (block.indexOf(managedEntry, managedIndex + 1) >= 0) throw buildGuardProblem(
-				"Target compile_plugins classpath repeats the managed runtime overlay.");
-			return working;
-		}
 		Matcher coreEntry = Pattern.compile(
 			"<pathelement\\s+location=\"(?:core\\.jar|\\$\\{jar\\})\"\\s*/>")
 			.matcher(block);
 		if (!coreEntry.find()) throw buildGuardProblem(
 			"Target compile_plugins classpath has no unambiguous target core entry.");
 		int coreEntryStart = coreEntry.start();
+		int coreEntryEnd = coreEntry.end();
 		if (coreEntry.find()) throw buildGuardProblem(
 			"Target compile_plugins classpath has no unambiguous target core entry.");
+		int managedIndex = block.indexOf(managedEntry);
+		if (managedIndex >= 0) {
+			if (block.indexOf(managedEntry, managedIndex + 1) >= 0) throw buildGuardProblem(
+				"Target compile_plugins classpath repeats the managed runtime overlay.");
+			if (managedIndex > coreEntryStart) return working;
+			int absoluteManagedStart = pluginTargetStart + managedIndex;
+			int suffixStart = absoluteManagedStart + managedEntry.length();
+			if (working.startsWith("\r\n", suffixStart)) {
+				suffixStart += 2;
+			} else if (working.startsWith("\n", suffixStart)) {
+				suffixStart++;
+			}
+			while (suffixStart < working.length()) {
+				char character = working.charAt(suffixStart);
+				if (character != ' ' && character != '\t') break;
+				suffixStart++;
+			}
+			return renderServerBuildOverlay(
+				working.substring(0, absoluteManagedStart) + working.substring(suffixStart));
+		}
 		if (!working.contains("<pathelement location=\"${lib}/*\"/>")
 			|| !working.contains("<pathelement path=\"${jar}/\"/>")) {
 			throw buildGuardProblem(
 				"Target runserver classpath cannot load the managed runtime overlay before core.jar.");
 		}
 		int absoluteCoreStart = pluginTargetStart + coreEntryStart;
+		int absoluteCoreEnd = pluginTargetStart + coreEntryEnd;
 		String indent = lineIndent(working, absoluteCoreStart);
 		String newline = working.contains("\r\n") ? "\r\n" : "\n";
-		return working.substring(0, absoluteCoreStart) + managedEntry + newline + indent
-			+ working.substring(absoluteCoreStart);
+		return working.substring(0, absoluteCoreEnd) + newline + indent + managedEntry
+			+ working.substring(absoluteCoreEnd);
 	}
 
 	private static boolean attributeEquals(

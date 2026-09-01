@@ -1039,6 +1039,7 @@ public final class AdaptiveTransactionFailureHarness {
         preserved_installed_v2=False,
         target_build_file=False,
         alpha58_build_guard=False,
+        alpha59_managed_first=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1101,6 +1102,13 @@ public final class AdaptiveTransactionFailureHarness {
                         "property=\"world.builder.installed.runtime\"/>\n"
                         "    <target name=\"compile_core\" "
                         "unless=\"world.builder.installed.runtime\">",
+                        1,
+                    )
+                if alpha59_managed_first:
+                    build_text = build_text.replace(
+                        '                <pathelement location="core.jar"/>',
+                        '                <pathelement location="lib/world-builder-managed-runtime.jar"/>\n'
+                        '                <pathelement location="core.jar"/>',
                         1,
                     )
                 (target / "server/build.xml").write_text(
@@ -1188,7 +1196,7 @@ public final class AdaptiveTransactionFailureHarness {
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
             target, installation, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True, target_build_file=True,
-                alpha58_build_guard=True,
+                alpha58_build_guard=True, alpha59_managed_first=True,
             )
             server = target / "server/core.jar"
             client = target / "client/Open_RSC_Client.jar"
@@ -1218,7 +1226,7 @@ public final class AdaptiveTransactionFailureHarness {
                 "./target[@name='compile_plugins']/javac/classpath/pathelement"
             )
             self.assertEqual(
-                ["lib/world-builder-managed-runtime.jar", "core.jar"],
+                ["core.jar", "lib/world-builder-managed-runtime.jar"],
                 [entry.attrib.get("location") for entry in plugin_entries],
             )
             self.assertIsNotNone(compile_core.find("./delete"))

@@ -308,9 +308,11 @@ fundamentally to achieve that result.
   reviewed transaction.
 - [x] Install the managed server as a classpath-first runtime overlay while
   retaining and rebuilding the target's own `server/core.jar`. Compile target
-  plugins against both layers so target-only APIs and game customization stay
-  available. Back up and restore the exact original `server/build.xml` through
-  the import transaction.
+  plugins against the target core first and the managed overlay second so
+  target-only APIs and game customization stay authoritative during the build;
+  keep the managed overlay first at launch so the upgraded map loader stays
+  authoritative at runtime. Back up and restore the exact original
+  `server/build.xml` through the import transaction.
 - [ ] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.
