@@ -501,6 +501,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-client-source-profile".equals(role);
 			boolean clientSourceBootstrap =
 				"runtime-compatibility-client-source-bootstrap".equals(role);
+			int clientSourceUpgradeIndex =
+				WorldBuilderInstalledClientSourceUpgrade.sourceIndexForRole(role);
+			boolean clientSourceUpgrade = clientSourceUpgradeIndex >= 0;
 			boolean clientSourceWorldTransform =
 				"runtime-compatibility-client-source-world-transform".equals(role);
 			boolean clientSourceLoginTransform =
@@ -546,6 +549,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 							|| clientSourceBootstrap && ("Client_Base/src/orsc/WorldBuilderTerrainBootstrap.java"
 								.equals(destination) || "client/src/orsc/WorldBuilderTerrainBootstrap.java"
 								.equals(destination))
+							|| clientSourceUpgrade
+								&& WorldBuilderInstalledClientSourceUpgrade.sourceIndex(destination)
+									== clientSourceUpgradeIndex
 							|| clientSourceWorldTransform && ("Client_Base/src/orsc/graphics/three/World.java"
 								.equals(destination) || "client/src/orsc/graphics/three/World.java"
 								.equals(destination))
@@ -561,6 +567,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
 			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement
 				? ""
+				: clientSourceUpgrade
+					? "package/activation/runtime-compatibility-client-source-"
+						+ clientSourceUpgradeIndex
+						+ ".java"
 				: clientSourceProfile
 					? "package/activation/runtime-compatibility-client-source-0.java"
 					: clientSourceBootstrap
@@ -569,7 +579,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 							? "package/activation/runtime-compatibility-client-source-"
 								+ (destination.endsWith("/World.java")
 									? "world-builder-installed-terrain-bootstrap-v1.java"
-									: "world-builder-installed-login-world-bootstrap-v1.java")
+									: destination.endsWith("/mudclient.java")
+										? "world-builder-installed-login-world-bootstrap-v2.java"
+										: "world-builder-installed-login-world-bootstrap-v1.java")
 							: "package/activation/" + role
 								+ (capability || clientProfile ? ".json"
 									: serverConfiguration ? ".conf"
@@ -604,11 +616,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			Path source = serverConfiguration || serverBuildGuard
 				|| serverBuildOverlay || clientProfile || clientBuildOverlay
-				|| clientSourceProfile || clientSourceBootstrap || clientSourceTransform
+				|| clientSourceProfile || clientSourceBootstrap || clientSourceUpgrade
+				|| clientSourceTransform
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
 						: clientBuildOverlay ? "installed client build overlay"
-						: clientSourceProfile || clientSourceBootstrap
+						: clientSourceProfile || clientSourceBootstrap || clientSourceUpgrade
 							? "installed client bootstrap source"
 						: clientSourceTransform ? "installed client transformed source"
 						: serverBuildGuard ? "installed server build guard"

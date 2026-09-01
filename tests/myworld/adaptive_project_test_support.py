@@ -156,7 +156,7 @@ def installed_v2_capability() -> dict:
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-upgrade-v6",
-        "clientBuildId": "fixture-installed-client-source-v3",
+        "clientBuildId": "fixture-installed-client-source-v4",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -176,9 +176,9 @@ def installed_v2_capability() -> dict:
             ],
         },
         "clientSourceUpgrade": {
-            "upgradeId": "world-builder-installed-client-source-upgrade-v1",
+            "upgradeId": "world-builder-installed-client-source-upgrade-v2",
             "manifestRelativePath": (
-                "server/conf/world-builder/installed-client-source-upgrade-v1.json"
+                "server/conf/world-builder/installed-client-source-upgrade-v2.json"
             ),
             "buildPolicy": "compile-target-client-before-run",
         },
@@ -201,7 +201,7 @@ def managed_runtime_bundle() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-managed-runtime-bundle",
         "bundleId": "world-builder-managed-runtime-current",
-        "runtimeContractId": "world-builder-installed-loader-v8",
+        "runtimeContractId": "world-builder-installed-loader-v9",
         "profileId": "world-builder-installed",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -221,7 +221,7 @@ def managed_runtime_bundle() -> dict:
             {
                 "role": "client-source-upgrade",
                 "sourceRelativePath": (
-                    "server/conf/world-builder/installed-client-source-upgrade-v1.json"
+                    "server/conf/world-builder/installed-client-source-upgrade-v2.json"
                 ),
                 "destinationKind": "selected-client-root",
                 "destinationRelativePath": "src",
@@ -260,43 +260,101 @@ def managed_runtime_bundle() -> dict:
     }
 
 
-FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE = b"package orsc;\npublic final class WorldBuilderInstalledClientProfile {}\n"
-FIXTURE_TERRAIN_BOOTSTRAP_SOURCE = b"package orsc;\npublic final class WorldBuilderTerrainBootstrap {}\n"
+FIXTURE_CLIENT_SOURCES = (
+    (
+        "client/world-builder-source/orsc/AdaptiveWorldBuilderClientSession.java",
+        "src/orsc/AdaptiveWorldBuilderClientSession.java",
+        b"package orsc;\npublic final class AdaptiveWorldBuilderClientSession {}\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/orsc/ProjectContentBundle.java",
+        "src/orsc/ProjectContentBundle.java",
+        b"package orsc;\npublic final class ProjectContentBundle {}\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/orsc/ProjectNpcAnimationRegistry.java",
+        "src/orsc/ProjectNpcAnimationRegistry.java",
+        b"package orsc;\npublic final class ProjectNpcAnimationRegistry {}\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/com/openrsc/client/model/Tile.java",
+        "src/com/openrsc/client/model/Tile.java",
+        b"package com.openrsc.client.model;\npublic final class Tile { boolean blockingBaseColor; }\n",
+        "replace-supported-historical",
+        b"package com.openrsc.client.model;\npublic final class Tile { int targetTileExtension; }\n",
+    ),
+    (
+        "client/world-builder-source/orsc/WorldBuilderClientProfile.java",
+        "src/orsc/WorldBuilderClientProfile.java",
+        b"package orsc;\npublic final class WorldBuilderClientProfile { boolean strictAdaptiveTerrain; }\n",
+        "replace-supported-historical",
+        b"package orsc;\npublic final class WorldBuilderClientProfile { boolean layeredTerrainDraft; }\n",
+    ),
+    (
+        "client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java",
+        "src/orsc/WorldBuilderInstalledClientProfile.java",
+        b"package orsc;\npublic final class WorldBuilderInstalledClientProfile {}\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java",
+        "src/orsc/WorldBuilderTerrainBootstrap.java",
+        b"package orsc;\npublic final class WorldBuilderTerrainBootstrap { static boolean isNativeOnly() { return true; } }\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/orsc/WorldBuilderTerrainOverlay.java",
+        "src/orsc/WorldBuilderTerrainOverlay.java",
+        b"package orsc;\npublic final class WorldBuilderTerrainOverlay {}\n",
+        "add-or-exact",
+        None,
+    ),
+    (
+        "client/world-builder-source/orsc/graphics/three/World.java",
+        "src/orsc/graphics/three/World.java",
+        b"package orsc.graphics.three;\npublic final class World { boolean currentNativeTerrain; }\n",
+        "replace-supported-historical",
+        b"package orsc.graphics.three;\npublic final class World { boolean historicalLayeredTerrain; }\n",
+    ),
+)
+
+
+def installed_client_source_roles() -> set[str]:
+    return {
+        f"runtime-compatibility-client-source-upgrade-{index}"
+        for index in range(len(FIXTURE_CLIENT_SOURCES))
+    }
 
 
 def installed_client_source_upgrade() -> dict:
+    source_files = []
+    for source, destination, current, policy, historical in FIXTURE_CLIENT_SOURCES:
+        entry = {
+            "sourceRelativePath": source,
+            "destinationRelativePath": destination,
+            "sha256": hashlib.sha256(current).hexdigest(),
+            "replacementPolicy": policy,
+        }
+        if historical is not None:
+            entry["supportedBeforeSha256"] = [hashlib.sha256(historical).hexdigest()]
+        source_files.append(entry)
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "manifestType": "world-builder-installed-client-source-upgrade",
-        "upgradeId": "world-builder-installed-client-source-upgrade-v1",
+        "upgradeId": "world-builder-installed-client-source-upgrade-v2",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
-        "sourceFiles": [
-            {
-                "sourceRelativePath": (
-                    "client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java"
-                ),
-                "destinationRelativePath": (
-                    "src/orsc/WorldBuilderInstalledClientProfile.java"
-                ),
-                "sha256": hashlib.sha256(
-                    FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE
-                ).hexdigest(),
-            },
-            {
-                "sourceRelativePath": (
-                    "client/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java"
-                ),
-                "destinationRelativePath": "src/orsc/WorldBuilderTerrainBootstrap.java",
-                "sha256": hashlib.sha256(FIXTURE_TERRAIN_BOOTSTRAP_SOURCE).hexdigest(),
-            },
-        ],
+        "sourceFiles": source_files,
         "semanticTransforms": [
             {
-                "transformId": "world-builder-installed-terrain-bootstrap-v1",
-                "destinationRelativePath": "src/orsc/graphics/three/World.java",
-            },
-            {
-                "transformId": "world-builder-installed-login-world-bootstrap-v1",
+                "transformId": "world-builder-installed-login-world-bootstrap-v2",
                 "destinationRelativePath": "src/orsc/mudclient.java",
             },
         ],
@@ -401,17 +459,13 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         managed_runtime_bundle(),
     )
     write_json(
-        server / "conf/world-builder/installed-client-source-upgrade-v1.json",
+        server / "conf/world-builder/installed-client-source-upgrade-v2.json",
         installed_client_source_upgrade(),
     )
-    source_root = client / "world-builder-source/orsc"
-    source_root.mkdir(parents=True, exist_ok=True)
-    (source_root / "WorldBuilderInstalledClientProfile.java").write_bytes(
-        FIXTURE_INSTALLED_CLIENT_PROFILE_SOURCE
-    )
-    (source_root / "WorldBuilderTerrainBootstrap.java").write_bytes(
-        FIXTURE_TERRAIN_BOOTSTRAP_SOURCE
-    )
+    for source, _, current, _, _ in FIXTURE_CLIENT_SOURCES:
+        path = client / Path(source).relative_to("client")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(current)
     for name in REQUIRED_LANGUAGE_BUNDLES:
         path = server / "conf/server/languages" / name
         path.parent.mkdir(parents=True, exist_ok=True)

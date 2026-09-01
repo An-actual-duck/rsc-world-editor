@@ -30,29 +30,38 @@ ZERO_HASH = "0" * 64
 def add_client_upgrade_source(client_root: Path) -> None:
     source = client_root / "src/orsc"
     (source / "graphics/three").mkdir(parents=True, exist_ok=True)
+    (client_root / "src/com/openrsc/client/model").mkdir(
+        parents=True, exist_ok=True
+    )
     (source / "Config.java").write_text(
         "package orsc; public final class Config { "
         "public static final int CLIENT_VERSION = 10052; }\n",
         encoding="utf-8",
     )
-    (source / "graphics/three/World.java").write_text(
-        """package orsc.graphics.three;
-import orsc.WorldBuilderClientProfile;
-public final class World {
-    boolean terrain() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    boolean archive() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    boolean upper() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    String identity() { return WorldBuilderClientProfile.current()
-        .strictAdaptiveMapIdentity(); }
-}
-""",
-        encoding="utf-8",
-    )
+    for _, destination, _, policy, historical in project_support.FIXTURE_CLIENT_SOURCES:
+        if policy != "replace-supported-historical":
+            continue
+        path = client_root / destination
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(historical)
     (source / "mudclient.java").write_text(
         """package orsc;
 public final class mudclient {
-    private static boolean shouldRenderLegacyLoginWorld() {
-        return !WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+    private void renderLoginScreenViewports(int tick) {
+        try {
+            if (!worldComponentsLoaded) loadWorldComponents();
+        } catch (RuntimeException failure) {
+            throw failure;
+        }
+    }
+    private boolean worldComponentsLoaded;
+    private void loadWorldComponents() {}
+    private Surface getSurface() { return null; }
+    private int getGameWidth() { return 512; }
+    private int halfGameHeight() { return 192; }
+    static final class Surface {
+        void blackScreen(boolean full) {}
+        void storeSpriteVert(int index, int x, int y, int width, int height) {}
     }
 }
 """,
@@ -1022,10 +1031,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
             {
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
-                "runtime-compatibility-client-source-bootstrap",
-                "runtime-compatibility-client-source-profile",
                 "runtime-compatibility-client-source-login-transform",
-                "runtime-compatibility-client-source-world-transform",
+                *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",
@@ -1088,10 +1095,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
             {
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
-                "runtime-compatibility-client-source-bootstrap",
-                "runtime-compatibility-client-source-profile",
                 "runtime-compatibility-client-source-login-transform",
-                "runtime-compatibility-client-source-world-transform",
+                *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",

@@ -253,6 +253,16 @@ archive-free bootstrap and transforms the existing native terrain selection
 points while preserving the target's protocol version, definitions, advertised
 limits, custom behavior, and assets. The target's normal client build compiles
 that combined result before launch; repeated edited-map imports reuse it.
+
+The client upgrade is now a versioned one-way source migration rather than a
+fragile search for one recent hook shape. Import installs six missing runtime
+components, replaces `Tile.java`, `WorldBuilderClientProfile.java`, and
+`World.java` only when their hashes identify the supported historical revision,
+and inserts one bounded native-login guard into the customized
+`mudclient.java`. Unknown collisions fail before mutation. Every addition,
+replacement, and semantic edit is included in the reviewed transaction,
+backed up, verified, recoverable, and stable on repeat import. The obsolete v1
+source-upgrade manifest is no longer shipped.
 5. Do not retire the physical archives until the installed player client can
    bootstrap from a verified installed-package identity without opening a
    packed archive. Once that runtime support exists, import may back up, remove,
@@ -313,7 +323,7 @@ fundamentally to achieve that result.
   library wildcards cannot change that precedence, and retire the earlier
   in-library overlay transactionally. Back up and restore the exact original
   `server/build.xml` through the import transaction.
-- [ ] Replace installed-v1 preservation with a bounded one-way migration and
+- [x] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.
 - [ ] Keep old project/map readers only where needed to migrate authored data

@@ -1031,41 +1031,42 @@ public final class AdaptiveTransactionFailureHarness {
     def add_client_upgrade_source(client_root):
         source = client_root / "src/orsc"
         (source / "graphics/three").mkdir(parents=True, exist_ok=True)
+        (client_root / "src/com/openrsc/client/model").mkdir(
+            parents=True, exist_ok=True
+        )
         (source / "Config.java").write_text(
             "package orsc; public final class Config { "
             "public static final int CLIENT_VERSION = 10052; }\n",
             encoding="utf-8",
         )
-        (source / "graphics/three/World.java").write_text(
-            """package orsc.graphics.three;
-import orsc.WorldBuilderClientProfile;
-public final class World {
-    boolean terrain() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    boolean archive() { return WorldBuilderClientProfile
-        .current()
-        .isStrictAdaptiveTerrain(); }
-    boolean upper() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    boolean targetExtension() { return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain(); }
-    String identity() { return WorldBuilderClientProfile.current()
-        .strictAdaptiveMapIdentity(); }
-}
-""",
-            encoding="utf-8",
-        )
+        for _, destination, _, policy, historical in (
+            project_support.FIXTURE_CLIENT_SOURCES
+        ):
+            if policy != "replace-supported-historical":
+                continue
+            path = client_root / destination
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(historical)
         (source / "mudclient.java").write_text(
             """package orsc;
 public final class mudclient {
-    static boolean fatalAdaptiveFailure() {
-        return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
+    private void renderLoginScreenViewports(int tick) {
+        try {
+            if (!worldComponentsLoaded) loadWorldComponents();
+        } catch (RuntimeException failure) {
+            throw failure;
+        }
     }
-    private static boolean shouldRenderLegacyLoginWorld() {
-        return !WorldBuilderClientProfile
-            .current()
-            .isStrictAdaptiveTerrain();
+    private boolean worldComponentsLoaded;
+    private void loadWorldComponents() {}
+    private Surface getSurface() { return null; }
+    private int getGameWidth() { return 512; }
+    private int halfGameHeight() { return 192; }
+    static final class Surface {
+        void blackScreen(boolean full) {}
+        void storeSpriteVert(int index, int x, int y, int width, int height) {}
     }
-    static boolean logAdaptiveReadiness() {
-        return WorldBuilderClientProfile.current().isStrictAdaptiveTerrain();
-    }
+    static boolean targetSpecificBehavior() { return true; }
 }
 """,
             encoding="utf-8",
@@ -1288,12 +1289,15 @@ public final class mudclient {
             before_world = world_source.read_bytes()
             before_mudclient = mudclient_source.read_bytes()
             before_config = config_source.read_bytes()
-            installed_profile_source = (
-                client_source / "WorldBuilderInstalledClientProfile.java"
-            )
-            terrain_bootstrap_source = (
-                client_source / "WorldBuilderTerrainBootstrap.java"
-            )
+            upgrade_sources = {
+                destination: client.parent / destination
+                for _, destination, _, _, _ in project_support.FIXTURE_CLIENT_SOURCES
+            }
+            before_upgrade_sources = {
+                destination: path.read_bytes()
+                for destination, path in upgrade_sources.items()
+                if path.exists()
+            }
             legacy_overlay = (
                 target / "server/lib/world-builder-managed-runtime.jar"
             )
@@ -1303,14 +1307,6 @@ public final class mudclient {
             project_server = (
                 project
                 / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
-            )
-            project_profile_source = (
-                project
-                / "working/runtime/client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java"
-            )
-            project_bootstrap_source = (
-                project
-                / "working/runtime/client/world-builder-source/orsc/WorldBuilderTerrainBootstrap.java"
             )
 
             imported = self.run_reviewed_apply(
@@ -1327,24 +1323,16 @@ public final class mudclient {
             self.assertFalse(legacy_overlay.exists())
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_config, config_source.read_bytes())
-            self.assertEqual(
-                project_profile_source.read_bytes(), installed_profile_source.read_bytes()
-            )
-            self.assertEqual(
-                project_bootstrap_source.read_bytes(), terrain_bootstrap_source.read_bytes()
-            )
-            self.assertEqual(
-                4,
-                world_source.read_text(encoding="utf-8").count(
-                    "WorldBuilderTerrainBootstrap.isNativeOnly()"
-                ),
+            for _, destination, current, _, _ in (
+                project_support.FIXTURE_CLIENT_SOURCES
+            ):
+                self.assertEqual(current, upgrade_sources[destination].read_bytes())
+            self.assertIn(
+                "if (WorldBuilderTerrainBootstrap.isNativeOnly()) {",
+                mudclient_source.read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "WorldBuilderTerrainBootstrap.mapIdentity()",
-                world_source.read_text(encoding="utf-8"),
-            )
-            self.assertIn(
-                "return !WorldBuilderTerrainBootstrap.isNativeOnly();",
+                "targetSpecificBehavior",
                 mudclient_source.read_text(encoding="utf-8"),
             )
             client_build_root = ET.parse(client_build_file).getroot()
@@ -1395,8 +1383,11 @@ public final class mudclient {
             self.assertEqual(before_config, config_source.read_bytes())
             self.assertEqual(before_world, world_source.read_bytes())
             self.assertEqual(before_mudclient, mudclient_source.read_bytes())
-            self.assertFalse(installed_profile_source.exists())
-            self.assertFalse(terrain_bootstrap_source.exists())
+            for destination, path in upgrade_sources.items():
+                if destination in before_upgrade_sources:
+                    self.assertEqual(before_upgrade_sources[destination], path.read_bytes())
+                else:
+                    self.assertFalse(path.exists())
             self.assertFalse(overlay.exists())
             self.assertEqual(before_legacy_overlay, legacy_overlay.read_bytes())
 
@@ -1455,10 +1446,8 @@ public final class mudclient {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client-build-overlay",
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-client-source-bootstrap",
-                    "runtime-compatibility-client-source-profile",
                     "runtime-compatibility-client-source-login-transform",
-                    "runtime-compatibility-client-source-world-transform",
+                    *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-build-overlay",
@@ -1600,10 +1589,8 @@ public final class mudclient {
             self.assertEqual(
                 {
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-client-source-bootstrap",
-                    "runtime-compatibility-client-source-profile",
                     "runtime-compatibility-client-source-login-transform",
-                    "runtime-compatibility-client-source-world-transform",
+                    *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
@@ -1685,10 +1672,8 @@ public final class mudclient {
             self.assertEqual(
                 {
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-client-source-bootstrap",
-                    "runtime-compatibility-client-source-profile",
                     "runtime-compatibility-client-source-login-transform",
-                    "runtime-compatibility-client-source-world-transform",
+                    *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
@@ -1730,10 +1715,8 @@ public final class mudclient {
                 {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-client-source-bootstrap",
-                    "runtime-compatibility-client-source-profile",
                     "runtime-compatibility-client-source-login-transform",
-                    "runtime-compatibility-client-source-world-transform",
+                    *project_support.installed_client_source_roles(),
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
                 },
@@ -1774,7 +1757,7 @@ public final class mudclient {
                 capability["serverBuildId"],
             )
             self.assertEqual(
-                "fixture-installed-client-source-v3",
+                "fixture-installed-client-source-v4",
                 capability["clientBuildId"],
             )
             configuration = json.loads(
