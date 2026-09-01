@@ -116,6 +116,12 @@ final class WorldBuilderProjectContentBundle {
 			validateFile(target.requiredFile(sourceSpec.targetPath), sourceSpec);
 			result.add(state);
 		}
+		int supplementalIndex = 0;
+		for (String relative : WorldBuilderSupplementalNpcDefinitions.inspect(
+			target, layout)) {
+			result.add(target.requiredState(
+				"server-definition.npc.supplemental." + (++supplementalIndex), relative));
+		}
 		for (String selectedPatch : composition.selectedPatchPaths()) {
 			boolean alreadyInventoried = false;
 			for (WorldBuilderReadOnlyTarget.FileState state : result) {
@@ -201,6 +207,8 @@ final class WorldBuilderProjectContentBundle {
 				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
 		WorldBuilderDefinitionComposition.Profile composition =
 			WorldBuilderDefinitionComposition.inspect(copied, sourceLayout);
+		boolean supplementalNpcs = WorldBuilderSupplementalNpcDefinitions
+			.hasSupplemental(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
 			"target-adopted-content-v2", sourceLayout, composition);
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
@@ -277,9 +285,12 @@ final class WorldBuilderProjectContentBundle {
 				&& "definition.scenery".equals(spec.role)) {
 				Files.write(destination, sceneryMigration.definitionsOverride);
 				overridden = true;
-			} else if (npcMigration.changed()
-				&& "definition.npc.custom".equals(spec.role)) {
-				Files.write(destination, npcMigration.customDefinitions);
+			} else if ("definition.npc.custom".equals(spec.role)
+				&& (npcMigration.changed() || supplementalNpcs)) {
+				Files.write(destination, npcMigration.changed()
+					? npcMigration.customDefinitions
+					: WorldBuilderSupplementalNpcDefinitions.mergedCustomJson(
+						copiedTarget, sourceLayout));
 				overridden = true;
 			} else if (materialMigration.changed()
 				&& "asset.sprite.custom".equals(spec.role)) {
@@ -618,7 +629,10 @@ final class WorldBuilderProjectContentBundle {
 		List<Object> scenery = range(sceneryCount(root, layout));
 		Set<Integer> npcIds = new TreeSet<Integer>();
 		int appendedNpcCount = jsonCount(root, "definition.npc.base", layout, "npcs")
-			+ jsonCount(root, "definition.npc.custom", layout, "npcs");
+			+ (layout == null
+				? jsonCount(root, "definition.npc.custom", null, "npcs")
+				: WorldBuilderSupplementalNpcDefinitions
+					.mergedCustomRows(root, layout).size());
 		for (int id = 0; id < appendedNpcCount; id++) npcIds.add(Integer.valueOf(id));
 		if (composition == null || composition.wantMyWorld) {
 			npcIds.addAll(jsonIds(root, "definition.npc.world", layout, "npcs"));

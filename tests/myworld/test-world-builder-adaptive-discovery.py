@@ -1627,6 +1627,25 @@ public final class AdaptiveDiscoveryDriftHarness {
                     self.assertEqual(expected_code, report["issues"][0]["code"])
                 self.assertEqual(before, self.snapshot(root))
 
+    def test_supplemental_npc_catalogs_are_inventoried_read_only(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-supplemental-npcs-") as temp:
+            root = self.legacy_fixture(temp)
+            supplemental = root / "server/conf/server/defs/MonsterSlayerNpcDefs.json"
+            write_json(supplemental, {
+                "npcs": [{"id": 3, "name": "Supplemental NPC"}],
+            })
+            before = self.snapshot(root)
+
+            result = self.run_discovery(root)
+
+            self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+            report = json.loads(result.stdout)
+            record = next(item for item in report["files"]
+                if item["relativePath"].endswith("MonsterSlayerNpcDefs.json"))
+            self.assertEqual("server-definition.npc.supplemental.1", record["role"])
+            self.assertTrue(record["present"])
+            self.assertEqual(before, self.snapshot(root))
+
     def test_missing_item_visual_evidence_is_inventoried_read_only_for_staged_migration(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-visual-migration-discovery-") as temp:
             root = self.legacy_fixture(temp)

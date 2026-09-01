@@ -371,6 +371,28 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 self.assertEqual("NPC_DEFINITION_PLACEHOLDER",
                                  report["warnings"][0]["code"])
 
+    def test_supplemental_append_catalogs_are_merged_before_provider_gaps(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-supplemental-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ZetaNpcDefs.json", {
+                "npcs": [definition(2, "Zeta supplemental")],
+            })
+            write_json(definitions / "AlphaNpcDefs.json", {
+                "npcs": [definition(1, "Alpha supplemental")],
+            })
+
+            custom, report = self.consume_effective(
+                target, selected, base / "stage", [3]
+            )
+
+            self.assertEqual(
+                ["Alpha supplemental", "Zeta supplemental", "[Missing NPC 3]"],
+                [row["name"] for row in custom["npcs"]],
+            )
+            self.assertEqual([3], [row["npcId"] for row in report["warnings"]])
+
     def test_consumes_catalog_without_integer_only_overlay_reparse(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-derived-catalog-") as temp:
             base = Path(temp)

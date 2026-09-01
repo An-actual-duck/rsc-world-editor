@@ -6118,6 +6118,49 @@ public final class UpgradeNpcPlacements {
                 self.assertEqual("ignored", ignored_orphan["disposition"])
                 self.assertEqual("inactive-profile", ignored_orphan["reason"])
 
+    def test_supplemental_npc_catalogs_are_sealed_into_project_custom_registry(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-supplemental-npcs-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "VisualTestNpcDefs.json", {
+                "npcs": [{"id": 4, "name": "Visual supplemental"}],
+            })
+            write_json(definitions / "MonsterSlayerNpcDefs.json", {
+                "npcs": [{"id": 3, "name": "Monster supplemental"}],
+            })
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Supplemental NPC definitions", 43844,
+            )
+
+            self.assertEqual(0, created.returncode, created.stdout + created.stderr)
+            project = Path(summary["projectRoot"])
+            custom = json.loads((
+                project / "source/content-bundle/files/server/conf/server/defs/"
+                "NpcDefsCustom.json"
+            ).read_text(encoding="utf-8"))["npcs"]
+            self.assertEqual("custom-appended", custom[0]["name"])
+            self.assertEqual("Monster supplemental", custom[1]["name"])
+            self.assertEqual("Visual supplemental", custom[2]["name"])
+            self.assertEqual(target_before, tree_bytes(target))
+
     def test_active_definition_overlay_cannot_repeat_an_id(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-active-overlay-") as temp:
             base = Path(temp)

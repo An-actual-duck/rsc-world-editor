@@ -95,10 +95,11 @@ final class WorldBuilderNpcDefinitionProvider {
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> base = definitionDocument(copiedTarget,
 			"server/conf/server/defs/NpcDefs.json", "npcs");
-		Map<String,Object> custom = definitionDocument(copiedTarget,
-			"server/conf/server/defs/NpcDefsCustom.json", "npcs");
 		List<Object> baseRows = array(base.get("npcs"), "NpcDefs.json");
-		List<Object> customRows = array(custom.get("npcs"), "NpcDefsCustom.json");
+		WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(
+			WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
+		List<Object> customRows = WorldBuilderSupplementalNpcDefinitions
+			.mergedCustomRows(copiedTarget, layout);
 		int appendedCount = baseRows.size() + customRows.size();
 		if (appendedCount < 1) throw problem("server/conf/server/defs/NpcDefs.json",
 			"Target NPC definitions contain no sequential base record.");
