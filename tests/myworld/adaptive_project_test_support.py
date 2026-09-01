@@ -156,7 +156,7 @@ def installed_v2_capability() -> dict:
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-upgrade-v6",
-        "clientBuildId": "fixture-installed-client-source-v5",
+        "clientBuildId": "fixture-installed-client-source-v6",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -176,9 +176,9 @@ def installed_v2_capability() -> dict:
             ],
         },
         "clientSourceUpgrade": {
-            "upgradeId": "world-builder-installed-client-source-upgrade-v3",
+            "upgradeId": "world-builder-installed-client-source-upgrade-v4",
             "manifestRelativePath": (
-                "server/conf/world-builder/installed-client-source-upgrade-v3.json"
+                "server/conf/world-builder/installed-client-source-upgrade-v4.json"
             ),
             "buildPolicy": "atomic-compile-target-client-before-run",
         },
@@ -201,7 +201,7 @@ def managed_runtime_bundle() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-managed-runtime-bundle",
         "bundleId": "world-builder-managed-runtime-current",
-        "runtimeContractId": "world-builder-installed-loader-v10",
+        "runtimeContractId": "world-builder-installed-loader-v11",
         "profileId": "world-builder-installed",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -221,7 +221,7 @@ def managed_runtime_bundle() -> dict:
             {
                 "role": "client-source-upgrade",
                 "sourceRelativePath": (
-                    "server/conf/world-builder/installed-client-source-upgrade-v3.json"
+                    "server/conf/world-builder/installed-client-source-upgrade-v4.json"
                 ),
                 "destinationKind": "selected-client-root",
                 "destinationRelativePath": "src",
@@ -326,12 +326,36 @@ FIXTURE_CLIENT_SOURCES = (
     ),
 )
 FIXTURE_JSON_DEPENDENCY = b"fixture pinned JSON dependency\n"
+LEGACY_NATIVE_CHUNK_SOURCE = b"""package orsc;
+public final class NativeLayeredTerrainChunk {
+    int targetSpecificChunkState;
+    void materialize(byte[] tileBytes, int offset, com.openrsc.client.model.Tile tile) {
+        tile.groundElevation = tileBytes[offset++];
+    }
+}
+"""
+LEGACY_NATIVE_SNAPSHOT_SOURCE = b"""package orsc;
+public final class NativeLayeredTerrainSnapshot {
+    int targetSpecificSnapshotState;
+    void materialize(int elevation, com.openrsc.client.model.Tile tile) {
+        tile.groundElevation = (byte) elevation;
+    }
+}
+"""
 
 
 def installed_client_source_roles() -> set[str]:
     return {
         f"runtime-compatibility-client-source-upgrade-{index}"
         for index in range(len(FIXTURE_CLIENT_SOURCES))
+    }
+
+
+def installed_client_transform_roles() -> set[str]:
+    return {
+        "runtime-compatibility-client-source-login-transform",
+        "runtime-compatibility-client-source-native-chunk-elevation-transform",
+        "runtime-compatibility-client-source-native-uniform-elevation-transform",
     }
 
 
@@ -348,9 +372,9 @@ def installed_client_source_upgrade() -> dict:
             entry["supportedBeforeSha256"] = [hashlib.sha256(historical).hexdigest()]
         source_files.append(entry)
     return {
-        "schemaVersion": 3,
+        "schemaVersion": 4,
         "manifestType": "world-builder-installed-client-source-upgrade",
-        "upgradeId": "world-builder-installed-client-source-upgrade-v3",
+        "upgradeId": "world-builder-installed-client-source-upgrade-v4",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "sourceFiles": source_files,
         "dependencies": [
@@ -365,6 +389,14 @@ def installed_client_source_upgrade() -> dict:
             {
                 "transformId": "world-builder-installed-login-world-bootstrap-v2",
                 "destinationRelativePath": "src/orsc/mudclient.java",
+            },
+            {
+                "transformId": "world-builder-unsigned-native-chunk-elevation-v1",
+                "destinationRelativePath": "src/orsc/NativeLayeredTerrainChunk.java",
+            },
+            {
+                "transformId": "world-builder-unsigned-uniform-elevation-v1",
+                "destinationRelativePath": "src/orsc/NativeLayeredTerrainSnapshot.java",
             },
         ],
         "buildPolicy": "atomic-compile-target-client-before-run",
@@ -468,7 +500,7 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         managed_runtime_bundle(),
     )
     write_json(
-        server / "conf/world-builder/installed-client-source-upgrade-v3.json",
+        server / "conf/world-builder/installed-client-source-upgrade-v4.json",
         installed_client_source_upgrade(),
     )
     json_dependency = server / "lib/json-20190722.jar"

@@ -543,6 +543,17 @@ testing of a fresh candidate remains in section 6 before release.
 Exit condition: automated and native evidence demonstrate that a representative
 previously incompatible server becomes runnable with the imported map.
 
+Owner checkpoint (2026-09-01): Alpha.69 successfully installed, built, started,
+connected, and authenticated the private server/client pair. Native terrain then
+exposed a signed-byte materialization defect on elevations 128..255. The runtime
+provider was already correct, but installed-client upgrade v3 had left the
+target's older `NativeLayeredTerrainChunk` and `NativeLayeredTerrainSnapshot`
+assignments untouched. Upgrade v4 now applies two bounded, repeatable semantic
+transforms so Import promotes legacy elevation bytes to unsigned `Tile` ints
+without replacing either complete target class. Boundary-value runtime tests,
+transactional import/undo/repeat tests, and owner visual retesting gate the next
+candidate.
+
 ### 7. Integrate and release deliberately
 
 - [x] Review the complete Editor diff and any independent runtime-provider diff

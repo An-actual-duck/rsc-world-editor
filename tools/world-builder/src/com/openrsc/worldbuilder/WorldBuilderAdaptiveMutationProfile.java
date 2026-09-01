@@ -508,10 +508,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 			boolean clientSourceUpgrade = clientSourceUpgradeIndex >= 0;
 			boolean clientSourceWorldTransform =
 				"runtime-compatibility-client-source-world-transform".equals(role);
-			boolean clientSourceLoginTransform =
-				"runtime-compatibility-client-source-login-transform".equals(role);
+			int clientSourceSemanticTransformIndex =
+				WorldBuilderInstalledClientSourceUpgrade.transformIndexForRole(role);
+			boolean clientSourceSemanticTransform =
+				clientSourceSemanticTransformIndex >= 0;
 			boolean clientSourceTransform = clientSourceWorldTransform
-				|| clientSourceLoginTransform;
+				|| clientSourceSemanticTransform;
 			String destination = WorldBuilderAdaptiveExporter.string(
 				value, "destinationRelativePath");
 			boolean destinationAllowed = server
@@ -559,9 +561,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 							|| clientSourceWorldTransform && ("Client_Base/src/orsc/graphics/three/World.java"
 								.equals(destination) || "client/src/orsc/graphics/three/World.java"
 								.equals(destination))
-							|| clientSourceLoginTransform && ("Client_Base/src/orsc/mudclient.java"
-								.equals(destination) || "client/src/orsc/mudclient.java"
-								.equals(destination));
+							|| clientSourceSemanticTransform
+								&& WorldBuilderInstalledClientSourceUpgrade.transformIndex(
+									destination) == clientSourceSemanticTransformIndex;
 			String sourceRelative = server
 				? "working/runtime/server/core.jar"
 				: serverOverlay
@@ -581,10 +583,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 						? "package/activation/runtime-compatibility-client-source-1.java"
 						: clientSourceTransform
 							? "package/activation/runtime-compatibility-client-source-"
-								+ (destination.endsWith("/World.java")
-									? "world-builder-installed-terrain-bootstrap-v1.java"
-									: destination.endsWith("/mudclient.java")
-										? "world-builder-installed-login-world-bootstrap-v2.java"
+								+ (clientSourceSemanticTransform
+									? WorldBuilderInstalledClientSourceUpgrade.transformId(
+										clientSourceSemanticTransformIndex) + ".java"
+									: destination.endsWith("/World.java")
+										? "world-builder-installed-terrain-bootstrap-v1.java"
 										: "world-builder-installed-login-world-bootstrap-v1.java")
 							: "package/activation/" + role
 								+ (capability || clientProfile ? ".json"

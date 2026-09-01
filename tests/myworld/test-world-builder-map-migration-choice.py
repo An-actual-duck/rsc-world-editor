@@ -67,6 +67,12 @@ public final class mudclient {
 """,
         encoding="utf-8",
     )
+    (source / "NativeLayeredTerrainChunk.java").write_bytes(
+        project_support.LEGACY_NATIVE_CHUNK_SOURCE
+    )
+    (source / "NativeLayeredTerrainSnapshot.java").write_bytes(
+        project_support.LEGACY_NATIVE_SNAPSHOT_SOURCE
+    )
 
 HARNESS = r"""
 package com.openrsc.worldbuilder;
@@ -1032,7 +1038,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-client-json-dependency",
-                "runtime-compatibility-client-source-login-transform",
+                *project_support.installed_client_transform_roles(),
                 *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",
@@ -1097,7 +1103,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-client-json-dependency",
-                "runtime-compatibility-client-source-login-transform",
+                *project_support.installed_client_transform_roles(),
                 *project_support.installed_client_source_roles(),
                 "runtime-compatibility-legacy-capability-retirement",
                 "runtime-compatibility-server-upgrade",

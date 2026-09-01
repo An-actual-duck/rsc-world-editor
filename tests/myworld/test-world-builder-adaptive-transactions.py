@@ -1071,6 +1071,12 @@ public final class mudclient {
 """,
             encoding="utf-8",
         )
+        (source / "NativeLayeredTerrainChunk.java").write_bytes(
+            project_support.LEGACY_NATIVE_CHUNK_SOURCE
+        )
+        (source / "NativeLayeredTerrainSnapshot.java").write_bytes(
+            project_support.LEGACY_NATIVE_SNAPSHOT_SOURCE
+        )
 
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
@@ -1296,9 +1302,13 @@ public final class mudclient {
             client_source = client.parent / "src/orsc"
             world_source = client_source / "graphics/three/World.java"
             mudclient_source = client_source / "mudclient.java"
+            native_chunk_source = client_source / "NativeLayeredTerrainChunk.java"
+            native_snapshot_source = client_source / "NativeLayeredTerrainSnapshot.java"
             config_source = client_source / "Config.java"
             before_world = world_source.read_bytes()
             before_mudclient = mudclient_source.read_bytes()
+            before_native_chunk = native_chunk_source.read_bytes()
+            before_native_snapshot = native_snapshot_source.read_bytes()
             before_config = config_source.read_bytes()
             client_json_dependency = target / "PC_Client/lib/json-20190722.jar"
             self.assertFalse(client_json_dependency.exists())
@@ -1351,6 +1361,22 @@ public final class mudclient {
             self.assertIn(
                 "targetSpecificBehavior",
                 mudclient_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "tile.groundElevation = tileBytes[offset++] & 0xff;",
+                native_chunk_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "targetSpecificChunkState",
+                native_chunk_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "tile.groundElevation = elevation;",
+                native_snapshot_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "targetSpecificSnapshotState",
+                native_snapshot_source.read_text(encoding="utf-8"),
             )
             client_build_root = ET.parse(client_build_file).getroot()
             client_compile = client_build_root.find("./target[@name='compile']")
@@ -1413,6 +1439,10 @@ public final class mudclient {
             self.assertEqual(before_config, config_source.read_bytes())
             self.assertEqual(before_world, world_source.read_bytes())
             self.assertEqual(before_mudclient, mudclient_source.read_bytes())
+            self.assertEqual(before_native_chunk, native_chunk_source.read_bytes())
+            self.assertEqual(
+                before_native_snapshot, native_snapshot_source.read_bytes()
+            )
             self.assertFalse(client_json_dependency.exists())
             for destination, path in upgrade_sources.items():
                 if destination in before_upgrade_sources:
@@ -1478,7 +1508,7 @@ public final class mudclient {
                     "runtime-compatibility-client-build-overlay",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-client-json-dependency",
-                    "runtime-compatibility-client-source-login-transform",
+                    *project_support.installed_client_transform_roles(),
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
@@ -1593,6 +1623,33 @@ public final class mudclient {
             self.assertIn("different JSON dependency", preview.stderr)
             self.assertEqual(before, project_support.tree_bytes(target))
 
+    def test_import_rejects_ambiguous_native_elevation_transform(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-client-elevation-drift-") as temp:
+            target, _, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                target_client_build_file=True,
+            )
+            client_root = target / "client"
+            if not client_root.is_dir():
+                client_root = target / "Client_Base"
+            chunk = client_root / "src/orsc/NativeLayeredTerrainChunk.java"
+            source = chunk.read_text(encoding="utf-8")
+            source = source.replace(
+                "        tile.groundElevation = tileBytes[offset++];\n",
+                "        tile.groundElevation = tileBytes[offset++];\n"
+                "        tile.groundElevation = tileBytes[offset++];\n",
+            )
+            chunk.write_text(source, encoding="utf-8")
+            before = project_support.tree_bytes(target)
+
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, preview.returncode)
+            self.assertIn("elevation materialization boundary", preview.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target))
+
     def test_import_upgrades_v1_runtime_for_blocking_base_color(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-overlay-255-") as temp:
             target, installation, project, _ = self.target_project(
@@ -1674,7 +1731,7 @@ public final class mudclient {
                 {
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-client-json-dependency",
-                    "runtime-compatibility-client-source-login-transform",
+                    *project_support.installed_client_transform_roles(),
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
@@ -1758,7 +1815,7 @@ public final class mudclient {
                 {
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-client-json-dependency",
-                    "runtime-compatibility-client-source-login-transform",
+                    *project_support.installed_client_transform_roles(),
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server-upgrade",
@@ -1802,7 +1859,7 @@ public final class mudclient {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-client-json-dependency",
-                    "runtime-compatibility-client-source-login-transform",
+                    *project_support.installed_client_transform_roles(),
                     *project_support.installed_client_source_roles(),
                     "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
@@ -1844,7 +1901,7 @@ public final class mudclient {
                 capability["serverBuildId"],
             )
             self.assertEqual(
-                "fixture-installed-client-source-v5",
+                "fixture-installed-client-source-v6",
                 capability["clientBuildId"],
             )
             configuration = json.loads(

@@ -40,7 +40,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	server/conf/world-builder/installed-runtime-capability-v2.json \
-	server/conf/world-builder/installed-client-source-upgrade-v3.json \
+	server/conf/world-builder/installed-client-source-upgrade-v4.json \
 	server/conf/world-builder/managed-runtime-bundle.json \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
@@ -139,8 +139,8 @@ if (
         "FAIL: Installed runtime must replace legacy map and client bootstrap authorities"
     )
 if capability.get("clientSourceUpgrade") != {
-    "upgradeId": "world-builder-installed-client-source-upgrade-v3",
-    "manifestRelativePath": "server/conf/world-builder/installed-client-source-upgrade-v3.json",
+    "upgradeId": "world-builder-installed-client-source-upgrade-v4",
+    "manifestRelativePath": "server/conf/world-builder/installed-client-source-upgrade-v4.json",
     "buildPolicy": "atomic-compile-target-client-before-run",
 }:
     raise SystemExit("FAIL: Installed client source-upgrade contract drifted")
@@ -156,7 +156,7 @@ expected_identity = {
     "schemaVersion": 1,
     "manifestType": "world-builder-managed-runtime-bundle",
     "bundleId": "world-builder-managed-runtime-current",
-    "runtimeContractId": "world-builder-installed-loader-v10",
+    "runtimeContractId": "world-builder-installed-loader-v11",
     "profileId": "world-builder-installed",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -177,7 +177,7 @@ expected_components = [
     ),
     (
         "client-source-upgrade",
-        "server/conf/world-builder/installed-client-source-upgrade-v3.json",
+        "server/conf/world-builder/installed-client-source-upgrade-v4.json",
         "selected-client-root",
         "src",
     ),
@@ -213,7 +213,7 @@ if "target-owned gameplay" not in boundary:
     raise SystemExit("FAIL: Managed runtime server upgrade boundary drifted")
 PY
 
-python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-client-source-upgrade-v3.json" "$RUNTIME_PROVIDER_ROOT" <<'PY'
+python3 - "$RUNTIME_PROVIDER_ROOT/server/conf/world-builder/installed-client-source-upgrade-v4.json" "$RUNTIME_PROVIDER_ROOT" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -221,7 +221,7 @@ import sys
 
 manifest = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 root = pathlib.Path(sys.argv[2])
-if manifest.get("schemaVersion") != 3 or manifest.get("upgradeId") != "world-builder-installed-client-source-upgrade-v3":
+if manifest.get("schemaVersion") != 4 or manifest.get("upgradeId") != "world-builder-installed-client-source-upgrade-v4":
     raise SystemExit("FAIL: Installed client source-upgrade identity drifted")
 source_files = manifest.get("sourceFiles", [])
 if len(source_files) != 9:
@@ -240,10 +240,20 @@ for entry in source_files:
             raise SystemExit(f"FAIL: Historical client source boundary drifted: {relative}")
     elif before is not None:
         raise SystemExit(f"FAIL: Additive client source boundary drifted: {relative}")
-if manifest.get("semanticTransforms") != [{
-    "transformId": "world-builder-installed-login-world-bootstrap-v2",
-    "destinationRelativePath": "src/orsc/mudclient.java",
-}]:
+if manifest.get("semanticTransforms") != [
+    {
+        "transformId": "world-builder-installed-login-world-bootstrap-v2",
+        "destinationRelativePath": "src/orsc/mudclient.java",
+    },
+    {
+        "transformId": "world-builder-unsigned-native-chunk-elevation-v1",
+        "destinationRelativePath": "src/orsc/NativeLayeredTerrainChunk.java",
+    },
+    {
+        "transformId": "world-builder-unsigned-uniform-elevation-v1",
+        "destinationRelativePath": "src/orsc/NativeLayeredTerrainSnapshot.java",
+    },
+]:
     raise SystemExit("FAIL: Installed client semantic transform drifted")
 dependencies = manifest.get("dependencies")
 if not isinstance(dependencies, list) or len(dependencies) != 1:

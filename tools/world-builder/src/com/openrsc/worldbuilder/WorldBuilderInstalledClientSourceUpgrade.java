@@ -13,8 +13,8 @@ import java.util.regex.Pattern;
 /** Applies the bounded installed-client bootstrap while preserving target content. */
 final class WorldBuilderInstalledClientSourceUpgrade {
 	static final String SOURCE =
-		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v3.json";
-	static final String ID = "world-builder-installed-client-source-upgrade-v3";
+		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v4.json";
+	static final String ID = "world-builder-installed-client-source-upgrade-v4";
 	private static final String JSON_SOURCE =
 		"server/lib/json-20190722.jar";
 	static final String JSON_DESTINATION =
@@ -51,6 +51,21 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		"add-or-exact", "add-or-exact", "add-or-exact",
 		"replace-supported-historical"
 	};
+	private static final String[] TRANSFORM_IDS = {
+		"world-builder-installed-login-world-bootstrap-v2",
+		"world-builder-unsigned-native-chunk-elevation-v1",
+		"world-builder-unsigned-uniform-elevation-v1"
+	};
+	private static final String[] TRANSFORM_PATHS = {
+		"src/orsc/mudclient.java",
+		"src/orsc/NativeLayeredTerrainChunk.java",
+		"src/orsc/NativeLayeredTerrainSnapshot.java"
+	};
+	private static final String[] TRANSFORM_ROLES = {
+		"runtime-compatibility-client-source-login-transform",
+		"runtime-compatibility-client-source-native-chunk-elevation-transform",
+		"runtime-compatibility-client-source-native-uniform-elevation-transform"
+	};
 	private static final Pattern PROFILE_LOGIN_WORLD = Pattern.compile(
 		"return\\s*!\\s*WorldBuilderClientProfile\\s*\\.\\s*current\\s*"
 			+ "\\(\\s*\\)\\s*\\.\\s*isStrictAdaptiveTerrain\\s*"
@@ -65,6 +80,22 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		"(?m)^([\\t ]*private\\s+void\\s+renderLoginScreenViewports\\s*"
 			+ "\\(\\s*int\\s+[A-Za-z_$][A-Za-z0-9_$]*\\s*\\)\\s*\\{"
 			+ "[\\t ]*\\r?\\n[\\t ]*try\\s*\\{)");
+
+	private static final Pattern LEGACY_CHUNK_ELEVATION = Pattern.compile(
+		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
+			+ "tileBytes\\s*\\[\\s*offset\\s*\\+\\+\\s*\\]\\s*;");
+	private static final Pattern UNSIGNED_CHUNK_ELEVATION = Pattern.compile(
+		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
+			+ "tileBytes\\s*\\[\\s*offset\\s*\\+\\+\\s*\\]\\s*"
+			+ "&\\s*0xff\\s*;");
+	private static final Pattern WIDE_CHUNK_ELEVATION = Pattern.compile(
+		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
+			+ "tileWireBytes\\s*==\\s*WIDE_TILE_WIRE_BYTES\\s*\\?");
+	private static final Pattern LEGACY_UNIFORM_ELEVATION = Pattern.compile(
+		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
+			+ "\\(\\s*byte\\s*\\)\\s*elevation\\s*;");
+	private static final Pattern UNSIGNED_UNIFORM_ELEVATION = Pattern.compile(
+		"tile\\s*\\.\\s*groundElevation\\s*=\\s*elevation\\s*;");
 
 	private WorldBuilderInstalledClientSourceUpgrade() {
 	}
@@ -82,7 +113,7 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		} catch (WorldBuilderDiscoveryException invalid) {
 			throw problem(SOURCE, "Installed client source upgrade is malformed.");
 		}
-		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 3L
+		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 4L
 			|| !"world-builder-installed-client-source-upgrade".equals(
 				WorldBuilderAdaptiveExporter.string(manifest, "manifestType"))
 			|| !ID.equals(WorldBuilderAdaptiveExporter.string(manifest, "upgradeId"))
@@ -233,25 +264,25 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		throws IOException, WorldBuilderContractException {
 		List<?> transforms = WorldBuilderAdaptiveExporter.array(
 			manifest.get("semanticTransforms"), "semanticTransforms");
-		String transformId = "world-builder-installed-login-world-bootstrap-v2";
-		String transformPath = "src/orsc/mudclient.java";
-		if (transforms.size() != 1) throw problem(SOURCE,
+		if (transforms.size() != TRANSFORM_IDS.length) throw problem(SOURCE,
 			"Installed client semantic transform set is unsupported.");
-		Map<String,Object> entry = WorldBuilderAdaptiveExporter.object(
-			transforms.get(0), "semanticTransform");
-		if (!transformId.equals(
-				WorldBuilderAdaptiveExporter.string(entry, "transformId"))
-			|| !transformPath.equals(WorldBuilderAdaptiveExporter.string(
-				entry, "destinationRelativePath"))) {
-			throw problem(SOURCE,
-				"Installed client semantic transform set is unsupported.");
+		for (int index = 0; index < TRANSFORM_IDS.length; index++) {
+			Map<String,Object> entry = WorldBuilderAdaptiveExporter.object(
+				transforms.get(index), "semanticTransform");
+			if (!TRANSFORM_IDS[index].equals(
+					WorldBuilderAdaptiveExporter.string(entry, "transformId"))
+				|| !TRANSFORM_PATHS[index].equals(WorldBuilderAdaptiveExporter.string(
+					entry, "destinationRelativePath"))) {
+				throw problem(SOURCE,
+					"Installed client semantic transform set is unsupported.");
+			}
+			appendTransform(target, clientRoot + "/" + TRANSFORM_PATHS[index],
+				index, actions);
 		}
-		appendTransform(target, clientRoot + "/" + transformPath,
-			transformId, actions);
 	}
 
 	private static void appendTransform(
-		Path target, String destination, String transformId,
+		Path target, String destination, int transformIndex,
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(
@@ -270,7 +301,11 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 				"Target client source is not valid UTF-8.",
 				"Convert " + destination + " to UTF-8 and retry Import.");
 		}
-		String rendered = renderLoginWorldBootstrap(original, destination);
+		String rendered = transformIndex == 0
+			? renderLoginWorldBootstrap(original, destination)
+			: transformIndex == 1
+				? renderUnsignedChunkElevation(original, destination)
+				: renderUnsignedUniformElevation(original, destination);
 		byte[] afterBytes = rendered.getBytes(StandardCharsets.UTF_8);
 		WorldBuilderAdaptiveMutationProfile.FileState before =
 			WorldBuilderAdaptiveMutationProfile.FileState.present(
@@ -280,10 +315,50 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 				afterBytes.length, WorldBuilderHashes.sha256(afterBytes));
 		if (before.size == after.size && before.sha256.equals(after.sha256)) return;
 		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
-			"runtime-compatibility-client-source-login-transform", destination,
+			TRANSFORM_ROLES[transformIndex], destination,
 			before, after, WorldBuilderRuntimeCompatibility.transactionContent(
-				"client-source-" + transformId, ".java"),
+				"client-source-" + TRANSFORM_IDS[transformIndex], ".java"),
 			"backups/{transaction}/before/" + destination, true, afterBytes));
+	}
+
+	static String renderUnsignedChunkElevation(String original, String destination)
+		throws WorldBuilderContractException {
+		int legacy = occurrences(LEGACY_CHUNK_ELEVATION, original);
+		int unsigned = occurrences(UNSIGNED_CHUNK_ELEVATION, original);
+		int wide = occurrences(WIDE_CHUNK_ELEVATION, original);
+		if (legacy == 0 && unsigned + wide == 1) return original;
+		if (legacy != 1 || unsigned != 0 || wide != 0) throw sourceProblem(
+			destination,
+			"Target NativeLayeredTerrainChunk.java does not match the supported elevation materialization boundary.",
+			"Restore the recognized target client source and retry Import.");
+		String rendered = LEGACY_CHUNK_ELEVATION.matcher(original).replaceFirst(
+			"tile.groundElevation = tileBytes[offset++] & 0xff;");
+		if (occurrences(LEGACY_CHUNK_ELEVATION, rendered) != 0
+			|| occurrences(UNSIGNED_CHUNK_ELEVATION, rendered) != 1) {
+			throw sourceProblem(destination,
+				"Target native chunk elevation upgrade was not exact.",
+				"Restore the recognized target client source and retry Import.");
+		}
+		return rendered;
+	}
+
+	static String renderUnsignedUniformElevation(String original, String destination)
+		throws WorldBuilderContractException {
+		int legacy = occurrences(LEGACY_UNIFORM_ELEVATION, original);
+		int unsigned = occurrences(UNSIGNED_UNIFORM_ELEVATION, original);
+		if (legacy == 0 && unsigned == 1) return original;
+		if (legacy != 1 || unsigned != 0) throw sourceProblem(destination,
+			"Target NativeLayeredTerrainSnapshot.java does not match the supported uniform elevation materialization boundary.",
+			"Restore the recognized target client source and retry Import.");
+		String rendered = LEGACY_UNIFORM_ELEVATION.matcher(original).replaceFirst(
+			"tile.groundElevation = elevation;");
+		if (occurrences(LEGACY_UNIFORM_ELEVATION, rendered) != 0
+			|| occurrences(UNSIGNED_UNIFORM_ELEVATION, rendered) != 1) {
+			throw sourceProblem(destination,
+				"Target uniform elevation upgrade was not exact.",
+				"Restore the recognized target client source and retry Import.");
+		}
+		return rendered;
 	}
 
 	static String renderLoginWorldBootstrap(String original, String destination)
@@ -361,6 +436,25 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		} catch (NumberFormatException invalid) {
 			return -1;
 		}
+	}
+
+	static int transformIndexForRole(String role) {
+		for (int index = 0; index < TRANSFORM_ROLES.length; index++) {
+			if (TRANSFORM_ROLES[index].equals(role)) return index;
+		}
+		return -1;
+	}
+
+	static int transformIndex(String destination) {
+		for (int index = 0; index < TRANSFORM_PATHS.length; index++) {
+			if (destination.endsWith("/" + TRANSFORM_PATHS[index])) return index;
+		}
+		return -1;
+	}
+
+	static String transformId(int index) {
+		return index >= 0 && index < TRANSFORM_IDS.length
+			? TRANSFORM_IDS[index] : "";
 	}
 
 	private static WorldBuilderContractException problem(

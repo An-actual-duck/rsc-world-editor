@@ -135,7 +135,7 @@ final class WorldBuilderRuntimeCompatibility {
 			|| !WorldBuilderInstalledClientSourceUpgrade.ID.equals(
 				WorldBuilderAdaptiveExporter.string(
 				clientSourceUpgrade, "upgradeId"))
-			|| !"server/conf/world-builder/installed-client-source-upgrade-v3.json"
+			|| !"server/conf/world-builder/installed-client-source-upgrade-v4.json"
 				.equals(WorldBuilderAdaptiveExporter.string(
 					clientSourceUpgrade, "manifestRelativePath"))
 			|| !"atomic-compile-target-client-before-run".equals(
@@ -224,7 +224,7 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(bundle, "manifestType"))
 			|| !BUNDLE_ID.equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "bundleId"))
-			|| !"world-builder-installed-loader-v10".equals(
+			|| !"world-builder-installed-loader-v11".equals(
 				WorldBuilderAdaptiveExporter.string(bundle, "runtimeContractId"))
 			|| !BUNDLE_ID.equals(WorldBuilderAdaptiveExporter.string(
 				capability, "managedRuntimeBundleId"))
@@ -243,7 +243,7 @@ final class WorldBuilderRuntimeCompatibility {
 				"server/world-builder-runtime/world-builder-managed-runtime.jar",
 				"target-root", MANAGED_SERVER_DESTINATION)
 			|| !componentMatches(components.get(1), "client-source-upgrade",
-				"server/conf/world-builder/installed-client-source-upgrade-v3.json",
+				"server/conf/world-builder/installed-client-source-upgrade-v4.json",
 				"selected-client-root", "src",
 				"semantic-upgrade-with-verified-backup")
 			|| !componentMatches(components.get(2), "runtime-capability",
