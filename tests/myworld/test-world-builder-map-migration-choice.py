@@ -1026,7 +1026,10 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
         self.assertEqual(
             project_server_runtime,
-            (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+            (
+                target
+                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+            ).read_bytes(),
         )
         self.assertEqual(
             project_client_runtime,

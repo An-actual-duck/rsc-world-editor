@@ -1087,6 +1087,14 @@ public final class AdaptiveTransactionFailureHarness {
             </classpath>
         </java>
     </target>
+    <target name="runserverzgc">
+        <java classname="com.openrsc.server.Server">
+            <classpath>
+                <pathelement location="${lib}/*"/>
+                <pathelement path="${jar}/"/>
+            </classpath>
+        </java>
+    </target>
     <target name="compile-and-run">
         <antcall target="compile_core"/>
         <antcall target="compile_plugins"/>
@@ -1206,6 +1214,12 @@ public final class AdaptiveTransactionFailureHarness {
             before_client = client.read_bytes()
             build_file = target / "server/build.xml"
             before_build = build_file.read_bytes()
+            legacy_overlay = (
+                target / "server/lib/world-builder-managed-runtime.jar"
+            )
+            legacy_overlay.parent.mkdir(parents=True, exist_ok=True)
+            legacy_overlay.write_bytes(b"alpha.59 managed runtime\n")
+            before_legacy_overlay = legacy_overlay.read_bytes()
             project_server = project / "working/runtime/server/core.jar"
             project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
@@ -1215,8 +1229,12 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(before_server, server.read_bytes())
-            overlay = target / "server/lib/world-builder-managed-runtime.jar"
+            overlay = (
+                target
+                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+            )
             self.assertEqual(project_server.read_bytes(), overlay.read_bytes())
+            self.assertFalse(legacy_overlay.exists())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             build_root = ET.parse(build_file).getroot()
             compile_core = build_root.find("./target[@name='compile_core']")
@@ -1226,9 +1244,27 @@ public final class AdaptiveTransactionFailureHarness {
                 "./target[@name='compile_plugins']/javac/classpath/pathelement"
             )
             self.assertEqual(
-                ["core.jar", "lib/world-builder-managed-runtime.jar"],
+                [
+                    "core.jar",
+                    "world-builder-runtime/world-builder-managed-runtime.jar",
+                ],
                 [entry.attrib.get("location") for entry in plugin_entries],
             )
+            for target_name in ("runserver", "runserverzgc"):
+                runtime_entries = build_root.findall(
+                    f"./target[@name='{target_name}']/java/classpath/pathelement"
+                )
+                self.assertEqual(
+                    [
+                        "world-builder-runtime/world-builder-managed-runtime.jar",
+                        "${lib}/*",
+                        "${jar}/",
+                    ],
+                    [
+                        entry.attrib.get("location", entry.attrib.get("path"))
+                        for entry in runtime_entries
+                    ],
+                )
             self.assertIsNotNone(compile_core.find("./delete"))
 
             undone = self.run_reviewed_apply(
@@ -1240,6 +1276,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_build, build_file.read_bytes())
             self.assertFalse(overlay.exists())
+            self.assertEqual(before_legacy_overlay, legacy_overlay.read_bytes())
 
     def test_import_upgrades_installed_v1_runtime_across_repeated_map_updates(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
@@ -1295,7 +1332,10 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(b"target server runtime\n", server.read_bytes())
             self.assertEqual(
                 project_server.read_bytes(),
-                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+                (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
             )
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertFalse(capability.exists())
@@ -1348,7 +1388,10 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(
                 (project / "working/runtime/server/core.jar").read_bytes(),
-                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+                (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
             )
             self.assertFalse((
                 target
@@ -1414,7 +1457,10 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertNotEqual(project_server.read_bytes(), server.read_bytes())
             self.assertEqual(
                 project_server.read_bytes(),
-                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+                (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
             )
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertEqual(
@@ -1556,7 +1602,7 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
             self.assertEqual(
-                "fixture-installed-server-overlay-v3",
+                "fixture-installed-server-overlay-v4",
                 capability["serverBuildId"],
             )
             self.assertEqual(
@@ -1680,7 +1726,10 @@ public final class AdaptiveTransactionFailureHarness {
                     project
                     / "working/runtime/server/core.jar"
                 ).read_bytes(),
-                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+                (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
             )
             self.assertEqual(
                 (
@@ -1763,7 +1812,10 @@ public final class AdaptiveTransactionFailureHarness {
                     project
                     / "working/runtime/server/core.jar"
                 ).read_bytes(),
-                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+                (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
             )
             self.assertEqual(
                 (

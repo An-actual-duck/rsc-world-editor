@@ -156,7 +156,12 @@ for key, value in expected_identity.items():
             f"expected {value!r}, found {bundle.get(key)!r}"
         )
 expected_components = [
-    ("server-runtime", "server/core.jar", "target-root", "server/core.jar"),
+    (
+        "server-runtime-overlay",
+        "server/core.jar",
+        "target-root",
+        "server/world-builder-runtime/world-builder-managed-runtime.jar",
+    ),
     (
         "client-runtime",
         "client/Open_RSC_Client.jar",

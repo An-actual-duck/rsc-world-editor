@@ -155,7 +155,7 @@ def installed_v2_capability() -> dict:
         "capabilityId": "world-builder-installed-runtime-capability-v2",
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
-        "serverBuildId": "fixture-installed-server-overlay-v3",
+        "serverBuildId": "fixture-installed-server-overlay-v4",
         "clientBuildId": "fixture-installed-client-v2",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
@@ -166,7 +166,9 @@ def installed_v2_capability() -> dict:
         "encodingVersions": [1, 2, 3, 4],
         "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
         "runtimeArchives": {
-            "serverRelativePath": "server/lib/world-builder-managed-runtime.jar",
+            "serverRelativePath": (
+                "server/world-builder-runtime/world-builder-managed-runtime.jar"
+            ),
             "targetFallbackRelativePath": "server/core.jar",
             "clientNames": [
                 "Client_Base/Open_RSC_Client.jar",
@@ -203,7 +205,7 @@ def managed_runtime_bundle() -> dict:
                 "sourceRelativePath": "server/core.jar",
                 "destinationKind": "target-root",
                 "destinationRelativePath": (
-                    "server/lib/world-builder-managed-runtime.jar"
+                    "server/world-builder-runtime/world-builder-managed-runtime.jar"
                 ),
                 "replacementPolicy": "replace-with-verified-backup",
             },

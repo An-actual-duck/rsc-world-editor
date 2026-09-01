@@ -19,6 +19,8 @@ final class WorldBuilderRuntimeCompatibility {
 		"server/conf/world-builder/installed-runtime-capability-v2.json";
 	static final String LEGACY_CAPABILITY_DESTINATION =
 		"server/conf/world-builder/installed-runtime-capability-v1.json";
+	static final String LEGACY_MANAGED_SERVER_DESTINATION =
+		"server/lib/world-builder-managed-runtime.jar";
 	static final String CAPABILITY_SOURCE =
 		"working/runtime/server/conf/world-builder/installed-runtime-capability-v2.json";
 	static final String BUNDLE_SOURCE =
@@ -32,7 +34,9 @@ final class WorldBuilderRuntimeCompatibility {
 	private static final String BUILD_GUARD_CAPABILITY =
 		"conf/world-builder/installed-runtime-capability-v2.json";
 	private static final String MANAGED_SERVER_DESTINATION =
-		"server/lib/world-builder-managed-runtime.jar";
+		"server/world-builder-runtime/world-builder-managed-runtime.jar";
+	private static final String MANAGED_SERVER_BUILD_PATH =
+		"world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final Pattern PROJECT_TAG = Pattern.compile("<project\\b[^>]*>");
 	private static final Pattern TARGET_TAG = Pattern.compile("<target\\b[^>]*>");
 	private static final Pattern AVAILABLE_TAG = Pattern.compile("<available\\b[^>]*>");
@@ -148,6 +152,7 @@ final class WorldBuilderRuntimeCompatibility {
 			MANAGED_SERVER_DESTINATION, SERVER_SOURCE,
 			transactionContent("server-overlay", ".jar"),
 			actions);
+		appendLegacyOverlayRetirement(target, actions);
 		appendReplacement(project, target, "runtime-compatibility-client",
 			clientDestination, CLIENT_SOURCE, transactionContent("client", ".jar"),
 			actions);
@@ -478,9 +483,18 @@ final class WorldBuilderRuntimeCompatibility {
 			"Target server build file does not contain one unambiguous compile_plugins target.");
 		String block = pluginTarget.group();
 		int pluginTargetStart = pluginTarget.start();
+		int pluginTargetEnd = pluginTarget.end();
 		if (pluginTarget.find()) throw buildGuardProblem(
 			"Target server build file does not contain one unambiguous compile_plugins target.");
-		String managedEntry = "<pathelement location=\"lib/world-builder-managed-runtime.jar\"/>";
+		String legacyManagedEntry =
+			"<pathelement location=\"lib/world-builder-managed-runtime.jar\"/>";
+		String managedEntry = "<pathelement location=\""
+			+ MANAGED_SERVER_BUILD_PATH + "\"/>";
+		if (repeatedEntry(block, legacyManagedEntry)
+			|| repeatedEntry(block, managedEntry)) throw buildGuardProblem(
+			"Target compile_plugins classpath repeats a managed runtime overlay.");
+		block = removeEntryLine(block, legacyManagedEntry);
+		block = removeEntryLine(block, managedEntry);
 		Matcher coreEntry = Pattern.compile(
 			"<pathelement\\s+location=\"(?:core\\.jar|\\$\\{jar\\})\"\\s*/>")
 			.matcher(block);
@@ -490,37 +504,85 @@ final class WorldBuilderRuntimeCompatibility {
 		int coreEntryEnd = coreEntry.end();
 		if (coreEntry.find()) throw buildGuardProblem(
 			"Target compile_plugins classpath has no unambiguous target core entry.");
-		int managedIndex = block.indexOf(managedEntry);
-		if (managedIndex >= 0) {
-			if (block.indexOf(managedEntry, managedIndex + 1) >= 0) throw buildGuardProblem(
-				"Target compile_plugins classpath repeats the managed runtime overlay.");
-			if (managedIndex > coreEntryStart) return working;
-			int absoluteManagedStart = pluginTargetStart + managedIndex;
-			int suffixStart = absoluteManagedStart + managedEntry.length();
-			if (working.startsWith("\r\n", suffixStart)) {
-				suffixStart += 2;
-			} else if (working.startsWith("\n", suffixStart)) {
-				suffixStart++;
-			}
-			while (suffixStart < working.length()) {
-				char character = working.charAt(suffixStart);
-				if (character != ' ' && character != '\t') break;
-				suffixStart++;
-			}
-			return renderServerBuildOverlay(
-				working.substring(0, absoluteManagedStart) + working.substring(suffixStart));
-		}
-		if (!working.contains("<pathelement location=\"${lib}/*\"/>")
-			|| !working.contains("<pathelement path=\"${jar}/\"/>")) {
-			throw buildGuardProblem(
-				"Target runserver classpath cannot load the managed runtime overlay before core.jar.");
-		}
-		int absoluteCoreStart = pluginTargetStart + coreEntryStart;
-		int absoluteCoreEnd = pluginTargetStart + coreEntryEnd;
-		String indent = lineIndent(working, absoluteCoreStart);
 		String newline = working.contains("\r\n") ? "\r\n" : "\n";
-		return working.substring(0, absoluteCoreEnd) + newline + indent + managedEntry
-			+ working.substring(absoluteCoreEnd);
+		String indent = lineIndent(block, coreEntryStart);
+		block = block.substring(0, coreEntryEnd) + newline + indent + managedEntry
+			+ block.substring(coreEntryEnd);
+		working = working.substring(0, pluginTargetStart) + block
+			+ working.substring(pluginTargetEnd);
+		working = renderRunTargetOverlay(working, "runserver", true);
+		return renderRunTargetOverlay(working, "runserverzgc", false);
+	}
+
+	private static String renderRunTargetOverlay(
+		String original, String targetName, boolean required)
+		throws WorldBuilderContractException {
+		Pattern targetPattern = Pattern.compile(
+			"(?s)<target\\b(?=[^>]*\\bname\\s*=\\s*(['\"])"
+				+ Pattern.quote(targetName) + "\\1)[^>]*>.*?</target>");
+		Matcher target = targetPattern.matcher(original);
+		if (!target.find()) {
+			if (required) throw buildGuardProblem(
+				"Target server build file does not contain one unambiguous "
+					+ targetName + " target.");
+			return original;
+		}
+		String block = target.group();
+		int targetStart = target.start();
+		int targetEnd = target.end();
+		if (target.find()) throw buildGuardProblem(
+			"Target server build file does not contain one unambiguous "
+				+ targetName + " target.");
+		String legacyManagedEntry =
+			"<pathelement location=\"lib/world-builder-managed-runtime.jar\"/>";
+		String managedEntry = "<pathelement location=\""
+			+ MANAGED_SERVER_BUILD_PATH + "\"/>";
+		if (repeatedEntry(block, legacyManagedEntry)
+			|| repeatedEntry(block, managedEntry)) throw buildGuardProblem(
+			"Target " + targetName + " classpath repeats a managed runtime overlay.");
+		block = removeEntryLine(block, legacyManagedEntry);
+		block = removeEntryLine(block, managedEntry);
+		String libraryEntry = "<pathelement location=\"${lib}/*\"/>";
+		String targetCoreEntry = "<pathelement path=\"${jar}/\"/>";
+		int libraryIndex = block.indexOf(libraryEntry);
+		int targetCoreIndex = block.indexOf(targetCoreEntry);
+		if (libraryIndex < 0 || targetCoreIndex < 0) {
+			if (!required) return original;
+			throw buildGuardProblem(
+				"Target " + targetName
+					+ " classpath cannot isolate the managed runtime before core.jar.");
+		}
+		if (block.indexOf(libraryEntry, libraryIndex + 1) >= 0
+			|| block.indexOf(targetCoreEntry, targetCoreIndex + 1) >= 0
+			|| libraryIndex > targetCoreIndex) throw buildGuardProblem(
+			"Target " + targetName
+				+ " classpath cannot isolate the managed runtime before core.jar.");
+		String newline = original.contains("\r\n") ? "\r\n" : "\n";
+		String indent = lineIndent(block, libraryIndex);
+		block = block.substring(0, libraryIndex) + managedEntry + newline + indent
+			+ block.substring(libraryIndex);
+		return original.substring(0, targetStart) + block + original.substring(targetEnd);
+	}
+
+	private static boolean repeatedEntry(String value, String entry) {
+		int first = value.indexOf(entry);
+		return first >= 0 && value.indexOf(entry, first + 1) >= 0;
+	}
+
+	private static String removeEntryLine(String value, String entry) {
+		int entryStart = value.indexOf(entry);
+		if (entryStart < 0) return value;
+		int entryEnd = entryStart + entry.length();
+		int lineStart = value.lastIndexOf('\n', Math.max(0, entryStart - 1));
+		lineStart = lineStart < 0 ? 0 : lineStart + 1;
+		int lineEnd = value.indexOf('\n', entryEnd);
+		int contentEnd = lineEnd < 0 ? value.length() : lineEnd;
+		if (value.substring(lineStart, entryStart).trim().isEmpty()
+			&& value.substring(entryEnd, contentEnd).trim().isEmpty()) {
+			return value.substring(0, lineStart)
+				+ value.substring(lineEnd < 0 ? contentEnd : lineEnd + 1);
+		}
+		return value.substring(0, entryStart) + value.substring(entryEnd);
 	}
 
 	private static boolean attributeEquals(
@@ -567,6 +629,29 @@ final class WorldBuilderRuntimeCompatibility {
 			LEGACY_CAPABILITY_DESTINATION, before,
 			WorldBuilderAdaptiveMutationProfile.FileState.absent(), "",
 			"backups/{transaction}/before/" + LEGACY_CAPABILITY_DESTINATION,
+			true, null));
+	}
+
+	private static void appendLegacyOverlayRetirement(
+		Path target, List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, LEGACY_MANAGED_SERVER_DESTINATION);
+		if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(destination)) {
+			throw problem(LEGACY_MANAGED_SERVER_DESTINATION,
+				"Legacy managed runtime overlay is not a safe regular file.",
+				"Restore the target runtime layout, then retry Import.");
+		}
+		WorldBuilderAdaptiveMutationProfile.FileState before =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				Files.size(destination), WorldBuilderHashes.sha256(destination));
+		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
+			"runtime-compatibility-legacy-overlay-retirement",
+			LEGACY_MANAGED_SERVER_DESTINATION, before,
+			WorldBuilderAdaptiveMutationProfile.FileState.absent(), "",
+			"backups/{transaction}/before/" + LEGACY_MANAGED_SERVER_DESTINATION,
 			true, null));
 	}
 

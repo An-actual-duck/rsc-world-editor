@@ -485,6 +485,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			boolean capability = "runtime-compatibility-capability".equals(role);
 			boolean legacyCapabilityRetirement =
 				"runtime-compatibility-legacy-capability-retirement".equals(role);
+			boolean legacyOverlayRetirement =
+				"runtime-compatibility-legacy-overlay-retirement".equals(role);
 			boolean serverConfiguration =
 				"runtime-compatibility-server-configuration".equals(role);
 			boolean serverBuildGuard =
@@ -498,7 +500,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			boolean destinationAllowed = server
 				? "server/core.jar".equals(destination)
 				: serverOverlay
-					? "server/lib/world-builder-managed-runtime.jar".equals(destination)
+					? "server/world-builder-runtime/world-builder-managed-runtime.jar"
+						.equals(destination)
 				: client
 					? "Client_Base/Open_RSC_Client.jar".equals(destination)
 						|| "client/Open_RSC_Client.jar".equals(destination)
@@ -507,6 +510,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 							.equals(destination)
 						: legacyCapabilityRetirement
 							? WorldBuilderRuntimeCompatibility.LEGACY_CAPABILITY_DESTINATION
+								.equals(destination)
+						: legacyOverlayRetirement
+							? WorldBuilderRuntimeCompatibility.LEGACY_MANAGED_SERVER_DESTINATION
 								.equals(destination)
 						: serverConfiguration && WorldBuilderRuntimeCompatibility
 							.CONFIGURATION_DESTINATION.equals(destination)
@@ -525,7 +531,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
-			String contentRelative = legacyCapabilityRetirement ? ""
+			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement ? ""
 				: "package/activation/" + role
 					+ (capability || clientProfile ? ".json"
 						: serverConfiguration ? ".conf"
@@ -547,7 +553,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			FileState after = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("after"), "after"));
-			if (legacyCapabilityRetirement) {
+			if (legacyCapabilityRetirement || legacyOverlayRetirement) {
 				if (!before.present || after.present) throw problem(
 					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 					"backups/" + transactionId + "/mutation-plan.json",
@@ -2203,9 +2209,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 					retiredLegacyFiles++;
 				}
 				if ("runtime-compatibility-server".equals(action.role)
+					|| "runtime-compatibility-server-overlay".equals(action.role)
 					|| "runtime-compatibility-client".equals(action.role)
 					|| "runtime-compatibility-capability".equals(action.role)
 					|| "runtime-compatibility-legacy-capability-retirement".equals(
+						action.role)
+					|| "runtime-compatibility-legacy-overlay-retirement".equals(
 						action.role)) {
 					managedRuntimeActions++;
 				}
