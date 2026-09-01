@@ -492,10 +492,10 @@ public final class WorldBuilderProcessSupervisor {
 			"-Xms512m",
 			"-Xmx2g",
 			// The Builder's primary renderer owns its own LWJGL context. Avoid also
-			// enabling Java2D's OpenGL pipeline. Start in a bounded window so an
-			// editor session cannot silently occupy an unseen fullscreen surface.
+			// enabling Java2D's OpenGL pipeline. Window visibility is verified by the
+			// client-ready handshake below, so retain the expected fullscreen surface.
 			"-Dsun.java2d.opengl=false",
-			"-Dspoiledmilk.openglWindowMode=windowed",
+			"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
 			"-Dspoiledmilk.openglVsync=true",
 			"-Dopenrsc.worldBuilderMode=true",
 			"-Dopenrsc.worldBuilderHost=127.0.0.1",
@@ -943,7 +943,7 @@ public final class WorldBuilderProcessSupervisor {
 				javaExecutable(),
 				"-Xms512m", "-Xmx2g",
 				"-Dsun.java2d.opengl=false",
-				"-Dspoiledmilk.openglWindowMode=windowed",
+				"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
 				"-Dspoiledmilk.openglVsync=true",
 				property("spoiledmilk.clientLog",
 					project.resolve("logs/client-runtime.log")),

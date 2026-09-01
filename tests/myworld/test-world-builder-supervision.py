@@ -88,8 +88,11 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
                                 workspace, port);
                             require(realClient.contains("-Dsun.java2d.opengl=false"),
                                 "Builder must not start a second Java2D OpenGL pipeline");
-                            require(realClient.contains("-Dspoiledmilk.openglWindowMode=windowed"),
-                                "Builder must start in a recoverable bounded window");
+                            require(realClient.contains(
+                                "-Dspoiledmilk.openglWindowMode=borderless-fullscreen"),
+                                "Builder must start with borderless fullscreen presentation");
+                            require(!realClient.contains("-Dspoiledmilk.openglWindowMode=windowed"),
+                                "Builder must not regress to windowed presentation");
                             require(realClient.contains("-Dspoiledmilk.openglVsync=true"),
                                 "Builder must start with vsync enabled");
                             require(realClient.contains("-Dopenrsc.worldBuilderClientReadyFile="
