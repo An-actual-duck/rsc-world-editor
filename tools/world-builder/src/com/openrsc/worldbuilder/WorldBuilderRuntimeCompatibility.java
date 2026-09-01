@@ -46,7 +46,7 @@ final class WorldBuilderRuntimeCompatibility {
 		"\\bunless\\s*=");
 	private static final String SERVER_DESTINATION = "server/core.jar";
 	private static final String SERVER_SOURCE =
-		"working/runtime/server/core.jar";
+		"working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final String CLIENT_SOURCE =
 		"working/runtime/client/Open_RSC_Client.jar";
 	private static final String BUNDLE_ID =
@@ -148,9 +148,9 @@ final class WorldBuilderRuntimeCompatibility {
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
-		appendReplacement(project, target, "runtime-compatibility-server-overlay",
+		appendReplacement(project, target, "runtime-compatibility-server-upgrade",
 			MANAGED_SERVER_DESTINATION, SERVER_SOURCE,
-			transactionContent("server-overlay", ".jar"),
+			transactionContent("server-upgrade", ".jar"),
 			actions);
 		appendLegacyOverlayRetirement(target, actions);
 		appendReplacement(project, target, "runtime-compatibility-client",
@@ -200,8 +200,9 @@ final class WorldBuilderRuntimeCompatibility {
 		List<?> components = WorldBuilderAdaptiveExporter.array(
 			bundle.get("components"), "components");
 		if (components.size() != 3
-			|| !componentMatches(components.get(0), "server-runtime-overlay",
-				"server/core.jar", "target-root", MANAGED_SERVER_DESTINATION)
+			|| !componentMatches(components.get(0), "server-runtime-upgrade",
+				"server/world-builder-runtime/world-builder-managed-runtime.jar",
+				"target-root", MANAGED_SERVER_DESTINATION)
 			|| !componentMatches(components.get(1), "client-runtime",
 				"client/Open_RSC_Client.jar", "selected-client-root",
 				"Open_RSC_Client.jar")

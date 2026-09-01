@@ -480,7 +480,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			if (!role.startsWith("runtime-compatibility-")) continue;
 			boolean server = "runtime-compatibility-server".equals(role);
 			boolean serverOverlay =
-				"runtime-compatibility-server-overlay".equals(role);
+				"runtime-compatibility-server-upgrade".equals(role);
 			boolean client = "runtime-compatibility-client".equals(role);
 			boolean capability = "runtime-compatibility-capability".equals(role);
 			boolean legacyCapabilityRetirement =
@@ -526,8 +526,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 								|| ("client/"
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination));
-			String sourceRelative = server || serverOverlay
+			String sourceRelative = server
 				? "working/runtime/server/core.jar"
+				: serverOverlay
+					? "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
@@ -2209,7 +2211,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 					retiredLegacyFiles++;
 				}
 				if ("runtime-compatibility-server".equals(action.role)
-					|| "runtime-compatibility-server-overlay".equals(action.role)
+					|| "runtime-compatibility-server-upgrade".equals(action.role)
 					|| "runtime-compatibility-client".equals(action.role)
 					|| "runtime-compatibility-capability".equals(action.role)
 					|| "runtime-compatibility-legacy-capability-retirement".equals(

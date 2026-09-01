@@ -990,7 +990,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server-overlay",
+                "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",
             },
             {
@@ -1006,7 +1006,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
         project_server_runtime = (
-            project / "working/runtime/server/core.jar"
+            project
+            / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
         ).read_bytes()
         project_client_runtime = (
             project / "working/runtime/client/Open_RSC_Client.jar"
@@ -1054,7 +1055,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server-overlay",
+                "runtime-compatibility-server-upgrade",
                 "runtime-compatibility-server-configuration",
             },
             {

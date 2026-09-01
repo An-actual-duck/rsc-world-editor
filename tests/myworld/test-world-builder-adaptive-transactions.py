@@ -1220,7 +1220,10 @@ public final class AdaptiveTransactionFailureHarness {
             legacy_overlay.parent.mkdir(parents=True, exist_ok=True)
             legacy_overlay.write_bytes(b"alpha.59 managed runtime\n")
             before_legacy_overlay = legacy_overlay.read_bytes()
-            project_server = project / "working/runtime/server/core.jar"
+            project_server = (
+                project
+                / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
+            )
             project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
             imported = self.run_reviewed_apply(
@@ -1296,7 +1299,10 @@ public final class AdaptiveTransactionFailureHarness {
             unrelated = target / "server/plugins/custom-game-content.jar"
             unrelated.parent.mkdir(parents=True, exist_ok=True)
             unrelated.write_bytes(b"target-owned game content\n")
-            project_server = project / "working/runtime/server/core.jar"
+            project_server = (
+                project
+                / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
+            )
             project_client = project / "working/runtime/client/Open_RSC_Client.jar"
             project_capability = (
                 project
@@ -1318,7 +1324,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server-overlay",
+                    "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-build-overlay",
                     "runtime-compatibility-server-configuration",
                 },
@@ -1387,7 +1393,10 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
+                (
+                    project
+                    / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ).read_bytes(),
                 (
                     target
                     / "server/world-builder-runtime/world-builder-managed-runtime.jar"
@@ -1417,7 +1426,10 @@ public final class AdaptiveTransactionFailureHarness {
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v2.json"
             )
-            project_server = project / "working/runtime/server/core.jar"
+            project_server = (
+                project
+                / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
+            )
             project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
             self.set_fixture_ground_overlay(
@@ -1443,7 +1455,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server-overlay",
+                    "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1525,7 +1537,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server-overlay",
+                    "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1566,7 +1578,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-server-overlay",
+                    "runtime-compatibility-server-upgrade",
                     "runtime-compatibility-server-configuration",
                 },
                 set(compatibility),
@@ -1602,7 +1614,7 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
             self.assertEqual(
-                "fixture-installed-server-overlay-v4",
+                "fixture-installed-server-upgrade-v6",
                 capability["serverBuildId"],
             )
             self.assertEqual(
@@ -1724,7 +1736,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/server/core.jar"
+                    / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
                 ).read_bytes(),
                 (
                     target
@@ -1810,7 +1822,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(
                 (
                     project
-                    / "working/runtime/server/core.jar"
+                    / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
                 ).read_bytes(),
                 (
                     target

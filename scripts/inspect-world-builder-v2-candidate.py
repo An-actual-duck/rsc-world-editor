@@ -193,6 +193,7 @@ ALLOWED_RUNTIME_ROLES = {
     "runtime-configuration",
     "runtime-database-contract",
     "runtime-library",
+    "server-runtime-upgrade",
 }
 REQUIRED_NATIVE_RUNTIME_RECORDS = {
     (

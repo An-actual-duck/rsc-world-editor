@@ -48,6 +48,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Collections.unmodifiableList(Arrays.asList(
 			"server/core.jar",
 			"server/plugins.jar",
+			"server/world-builder-runtime/world-builder-managed-runtime.jar",
 			"server/conf/world-builder/adaptive-runtime-capability-v2.json",
 			"server/conf/world-builder/installed-runtime-capability-v2.json",
 			"server/conf/world-builder/managed-runtime-bundle.json",
@@ -63,7 +64,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"runtime-capability",
 			"runtime-configuration",
 			"runtime-database-contract",
-			"runtime-library")));
+			"runtime-library",
+			"server-runtime-upgrade")));
 	private static final Set<String> EMPTY_RUNTIME_ASSET_PATHS =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/conf/server/languages/CustomMessages_en_UK_female.properties",

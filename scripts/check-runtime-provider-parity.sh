@@ -157,8 +157,8 @@ for key, value in expected_identity.items():
         )
 expected_components = [
     (
-        "server-runtime-overlay",
-        "server/core.jar",
+        "server-runtime-upgrade",
+        "server/world-builder-runtime/world-builder-managed-runtime.jar",
         "target-root",
         "server/world-builder-runtime/world-builder-managed-runtime.jar",
     ),
@@ -190,6 +190,9 @@ if bundle.get("legacyCapabilityPaths") != [
     "server/conf/world-builder/installed-runtime-capability-v1.json"
 ]:
     raise SystemExit("FAIL: Managed runtime legacy retirement set drifted")
+boundary = " ".join(bundle.get("serverUpgradeBoundary", []))
+if "target-owned gameplay" not in boundary:
+    raise SystemExit("FAIL: Managed runtime server upgrade boundary drifted")
 PY
 
 client_version="$(sed -n \

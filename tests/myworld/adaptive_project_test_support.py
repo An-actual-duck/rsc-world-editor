@@ -155,7 +155,7 @@ def installed_v2_capability() -> dict:
         "capabilityId": "world-builder-installed-runtime-capability-v2",
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
-        "serverBuildId": "fixture-installed-server-overlay-v4",
+        "serverBuildId": "fixture-installed-server-upgrade-v6",
         "clientBuildId": "fixture-installed-client-v2",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
@@ -201,8 +201,10 @@ def managed_runtime_bundle() -> dict:
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "components": [
             {
-                "role": "server-runtime-overlay",
-                "sourceRelativePath": "server/core.jar",
+                "role": "server-runtime-upgrade",
+                "sourceRelativePath": (
+                    "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                ),
                 "destinationKind": "target-root",
                 "destinationRelativePath": (
                     "server/world-builder-runtime/world-builder-managed-runtime.jar"
@@ -237,6 +239,10 @@ def managed_runtime_bundle() -> dict:
             "definitions and custom assets",
             "databases and player data",
             "credentials, keys, logs, and backups",
+        ],
+        "serverUpgradeBoundary": [
+            "World Builder map loading, signed layered coordinates, placements, collision, and protocol integration",
+            "target-owned gameplay, plugins, definitions, database implementations, and third-party libraries remain authoritative",
         ],
     }
 
