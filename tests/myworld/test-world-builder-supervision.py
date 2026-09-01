@@ -88,10 +88,16 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
                                 workspace, port);
                             require(realClient.contains("-Dsun.java2d.opengl=false"),
                                 "Builder must not start a second Java2D OpenGL pipeline");
-                            require(realClient.contains("-Dspoiledmilk.openglWindowMode=borderless-fullscreen"),
-                                "Builder must start with borderless presentation");
+                            require(realClient.contains("-Dspoiledmilk.openglWindowMode=windowed"),
+                                "Builder must start in a recoverable bounded window");
                             require(realClient.contains("-Dspoiledmilk.openglVsync=true"),
                                 "Builder must start with vsync enabled");
+                            require(realClient.contains("-Dopenrsc.worldBuilderClientReadyFile="
+                                    + workspace.resolve("run/client.ready")),
+                                "Builder client window-readiness handshake");
+                            require(realClient.contains("-Dopenrsc.worldBuilderWorkspaceRoot="
+                                    + workspace),
+                                "Builder client readiness confinement root");
                             require(!realClient.contains("-Dsun.java2d.opengl=true"),
                                 "unsafe Java2D OpenGL launch flag");
                             require(WorldBuilderProcessSupervisor.readPreparedPort(workspace) == port,
@@ -126,6 +132,30 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
                                 }
                                 require(refused, "concurrent workspace lock");
                             }
+
+                            List<String> hiddenClient = command(
+                                classes, "FakeHiddenClient", workspace, port);
+                            boolean hiddenRefused = false;
+                            long hiddenStarted = System.nanoTime();
+                            try {
+                                supervisor.superviseWithCommands(
+                                    workspace, port, server, hiddenClient, 300L);
+                            } catch (WorldBuilderDiscoveryException expected) {
+                                hiddenRefused = expected.getMessage().contains(
+                                    "did not open an editor window");
+                            }
+                            long hiddenElapsedMillis = java.util.concurrent.TimeUnit.NANOSECONDS
+                                .toMillis(System.nanoTime() - hiddenStarted);
+                            require(hiddenRefused,
+                                "living client without a visible-window signal must fail");
+                            require(hiddenElapsedMillis < 12000L,
+                                "invisible client cleanup must remain bounded");
+                            require(!Files.exists(workspace.resolve("run/server.pid")),
+                                "timed-out server pid cleanup");
+                            require(!Files.exists(workspace.resolve("run/client.pid")),
+                                "timed-out client pid cleanup");
+                            require(!Files.exists(workspace.resolve("run/client.ready")),
+                                "timed-out client readiness cleanup");
                             System.out.println("supervision-ok");
                         }
 
@@ -155,7 +185,24 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
 
                         public static final class FakeClient {
                             public static void main(String[] args) throws Exception {
+                                Path workspace = Paths.get(args[0]);
+                                Files.write(workspace.resolve("run/client.ready"),
+                                    "visible\\n".getBytes(StandardCharsets.US_ASCII));
                                 Thread.sleep(350L);
+                            }
+                        }
+
+                        public static final class FakeHiddenClient {
+                            public static void main(String[] args) throws Exception {
+                                Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+                                    @Override public void run() {
+                                        try {
+                                            Thread.sleep(30000L);
+                                        } catch (InterruptedException ignored) {
+                                        }
+                                    }
+                                }));
+                                while (true) Thread.sleep(1000L);
                             }
                         }
                     }

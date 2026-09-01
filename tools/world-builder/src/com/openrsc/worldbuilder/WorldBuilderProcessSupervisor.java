@@ -30,6 +30,9 @@ import java.util.regex.Pattern;
 public final class WorldBuilderProcessSupervisor {
 	private static final long DEFAULT_READY_TIMEOUT_MILLIS = 60_000L;
 	private static final long SHUTDOWN_TIMEOUT_MILLIS = 20_000L;
+	private static final long PROCESS_STOP_TIMEOUT_MILLIS = 5_000L;
+	private static final String CLIENT_READY_PROPERTY =
+		"openrsc.worldBuilderClientReadyFile";
 	private static final Pattern SOURCE_FINGERPRINT = Pattern.compile(
 		"\\\"sourceFingerprintSha256\\\"\\s*:\\s*\\\"([0-9a-f]{64})\\\"");
 	private static final Pattern RUNTIME_PORT = Pattern.compile(
@@ -318,12 +321,14 @@ public final class WorldBuilderProcessSupervisor {
 		Path control = layout.control;
 		Path ready = control.resolve("ready");
 		Path shutdown = control.resolve("shutdown.request");
+		Path clientReady = run.resolve("client.ready");
 		Path credential = layout.credential;
 		Files.createDirectories(run);
 		Files.createDirectories(logs);
 		Files.createDirectories(control);
 		Files.deleteIfExists(ready);
 		Files.deleteIfExists(shutdown);
+		Files.deleteIfExists(clientReady);
 		if (regionBridge != null) regionBridge.reset();
 
 		Path serverLog = logs.resolve("server.log");
@@ -342,6 +347,7 @@ public final class WorldBuilderProcessSupervisor {
 				for (Process process : active) {
 					if (process != null && process.isAlive()) {
 						process.destroy();
+						if (process.isAlive()) destroyForcibly(process);
 					}
 				}
 			}
@@ -358,6 +364,8 @@ public final class WorldBuilderProcessSupervisor {
 
 			active[1] = startProcess(clientCommand, layout.client, clientLog);
 			writePid(run.resolve("client.pid"), active[1]);
+			waitForClientReady(active[0], active[1], clientReady,
+				readyTimeoutMillis);
 			while (active[1].isAlive() && active[0].isAlive()) {
 				if (regionBridge != null) regionBridge.poll();
 				Thread.sleep(200L);
@@ -365,42 +373,55 @@ public final class WorldBuilderProcessSupervisor {
 			serverFailedFirst = !active[0].isAlive() && active[1].isAlive();
 			if (serverFailedFirst) {
 				serverExit = active[0].exitValue();
-				active[1].destroy();
-				if (!active[1].waitFor(5L, TimeUnit.SECONDS)) {
-					destroyForcibly(active[1]);
+				if (!stopProcess(active[1], PROCESS_STOP_TIMEOUT_MILLIS)) {
+					throw new IOException(
+						"World Builder could not stop its client after the private server exited.");
 				}
 			}
 			clientExit = active[1].waitFor();
 			requestShutdown(shutdown);
 			if (active[0].isAlive() && !active[0].waitFor(SHUTDOWN_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
-				active[0].destroy();
-				if (!active[0].waitFor(5L, TimeUnit.SECONDS)) {
-					destroyForcibly(active[0]);
+				if (!stopProcess(active[0], PROCESS_STOP_TIMEOUT_MILLIS)) {
+					throw new IOException(
+						"World Builder could not stop its private server after the client closed.");
 				}
 			}
 			serverExit = active[0].waitFor();
 			return serverFailedFirst || serverExit != 0 ? 5 : clientExit;
 		} finally {
-			if (active[1] != null && active[1].isAlive()) {
-				active[1].destroy();
-			}
+			boolean clientStopped = active[1] == null || !active[1].isAlive()
+				|| stopProcess(active[1], PROCESS_STOP_TIMEOUT_MILLIS);
 			if (active[0] != null && active[0].isAlive()) {
 				try {
 					requestShutdown(shutdown);
-					if (!active[0].waitFor(5L, TimeUnit.SECONDS)) {
-						active[0].destroy();
+					if (!active[0].waitFor(PROCESS_STOP_TIMEOUT_MILLIS,
+						TimeUnit.MILLISECONDS)) {
+						stopProcess(active[0], PROCESS_STOP_TIMEOUT_MILLIS);
 					}
 				} catch (Exception ignored) {
-					active[0].destroy();
+					stopProcess(active[0], PROCESS_STOP_TIMEOUT_MILLIS);
 				}
 			}
-			Files.deleteIfExists(run.resolve("server.pid"));
-			Files.deleteIfExists(run.resolve("client.pid"));
+			boolean serverStopped = active[0] == null || !active[0].isAlive();
+			if (clientStopped) Files.deleteIfExists(run.resolve("client.pid"));
+			if (serverStopped) Files.deleteIfExists(run.resolve("server.pid"));
 			Files.deleteIfExists(ready);
+			Files.deleteIfExists(clientReady);
+			if (clientExit < 0 && active[1] != null && !active[1].isAlive()) {
+				clientExit = active[1].exitValue();
+			}
+			if (serverExit < 0 && active[0] != null && !active[0].isAlive()) {
+				serverExit = active[0].exitValue();
+			}
 			writeLastRun(run.resolve("last-run.json"), serverExit, clientExit, serverFailedFirst);
 			try {
 				Runtime.getRuntime().removeShutdownHook(shutdownHook);
 			} catch (IllegalStateException ignored) {
+			}
+			if (!clientStopped || !serverStopped) {
+				throw new IOException(
+					"World Builder could not stop every private editor process. "
+						+ "The retained PID file identifies the process that still needs attention.");
 			}
 		}
 	}
@@ -471,18 +492,20 @@ public final class WorldBuilderProcessSupervisor {
 			"-Xms512m",
 			"-Xmx2g",
 			// The Builder's primary renderer owns its own LWJGL context. Avoid also
-			// enabling Java2D's OpenGL pipeline. Start in the same borderless/vsynced
-			// presentation used by the normal client while retaining the in-game
-			// window-mode toggle for users who prefer a bounded window.
+			// enabling Java2D's OpenGL pipeline. Start in a bounded window so an
+			// editor session cannot silently occupy an unseen fullscreen surface.
 			"-Dsun.java2d.opengl=false",
-			"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
+			"-Dspoiledmilk.openglWindowMode=windowed",
 			"-Dspoiledmilk.openglVsync=true",
 			"-Dopenrsc.worldBuilderMode=true",
 			"-Dopenrsc.worldBuilderHost=127.0.0.1",
 			"-Dopenrsc.worldBuilderPort=" + port,
 			"-Dopenrsc.worldBuilderCredentialFile=" + credential,
+			"-Dopenrsc.worldBuilderWorkspaceRoot=" + workspace,
 			"-Dopenrsc.worldBuilderProjectName=" + projectName,
-			"-Dopenrsc.worldBuilderSourceRevision=" + sourceRevision));
+			"-Dopenrsc.worldBuilderSourceRevision=" + sourceRevision,
+			"-D" + CLIENT_READY_PROPERTY + "="
+				+ workspace.resolve("run/client.ready")));
 		if (layered != null) {
 			command.add("-Dopenrsc.worldBuilderLayeredReview=true");
 			command.add("-Dopenrsc.worldBuilderLayeredTerrainDraft="
@@ -594,6 +617,34 @@ public final class WorldBuilderProcessSupervisor {
 			"World Builder server did not become ready within " + timeoutMillis + "ms.");
 	}
 
+	private static void waitForClientReady(Process server, Process client,
+		Path ready, long timeoutMillis)
+		throws IOException, WorldBuilderDiscoveryException, InterruptedException {
+		long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(timeoutMillis);
+		while (System.nanoTime() < deadline) {
+			if (Files.isRegularFile(ready, LinkOption.NOFOLLOW_LINKS)
+				&& !Files.isSymbolicLink(ready)) {
+				return;
+			}
+			if (!client.isAlive()) {
+				throw new WorldBuilderDiscoveryException(
+					"World Builder client exited before its editor window opened (exit "
+						+ client.exitValue() + "). Review logs/client.log and "
+						+ "logs/client-runtime.log for details.");
+			}
+			if (!server.isAlive()) {
+				throw new WorldBuilderDiscoveryException(
+					"World Builder private server exited while the editor window was opening "
+						+ "(exit " + server.exitValue() + "). Review logs/server.log.");
+			}
+			Thread.sleep(100L);
+		}
+		throw new WorldBuilderDiscoveryException(
+			"World Builder client remained running but did not open an editor window within "
+				+ timeoutMillis + "ms. Its private client and server were stopped automatically. "
+				+ "Review logs/client.log and logs/client-runtime.log for details.");
+	}
+
 	private static boolean loopbackPortAcceptsConnections(int port) {
 		try (Socket socket = new Socket()) {
 			socket.connect(new InetSocketAddress("127.0.0.1", port), 250);
@@ -653,6 +704,15 @@ public final class WorldBuilderProcessSupervisor {
 		} catch (Exception ignored) {
 			process.destroy();
 		}
+	}
+
+	private static boolean stopProcess(Process process, long timeoutMillis)
+		throws InterruptedException {
+		if (process == null || !process.isAlive()) return true;
+		process.destroy();
+		if (process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS)) return true;
+		destroyForcibly(process);
+		return process.waitFor(timeoutMillis, TimeUnit.MILLISECONDS);
 	}
 
 	private static void writeLastRun(Path destination, int serverExit, int clientExit,
@@ -883,7 +943,7 @@ public final class WorldBuilderProcessSupervisor {
 				javaExecutable(),
 				"-Xms512m", "-Xmx2g",
 				"-Dsun.java2d.opengl=false",
-				"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
+				"-Dspoiledmilk.openglWindowMode=windowed",
 				"-Dspoiledmilk.openglVsync=true",
 				property("spoiledmilk.clientLog",
 					project.resolve("logs/client-runtime.log")),
@@ -915,6 +975,7 @@ public final class WorldBuilderProcessSupervisor {
 				property("openrsc.worldBuilderContentAssetSha256", contentAssetSha256),
 				property("openrsc.worldBuilderContentItemVisualSha256",
 					contentItemVisualSha256),
+				property(CLIENT_READY_PROPERTY, project.resolve("run/client.ready")),
 				"-jar", "Open_RSC_Client.jar");
 		}
 

@@ -700,6 +700,13 @@ public final class AdaptiveProjectSupervisorHarness {
                 "-Dspoiledmilk.clientLog="
                     + project.resolve("logs/client-runtime.log")),
                 "client runtime log confinement");
+            require(contains(productionClient,
+                "-Dspoiledmilk.openglWindowMode=windowed"),
+                "client recoverable bounded window");
+            require(contains(productionClient,
+                "-Dopenrsc.worldBuilderClientReadyFile="
+                    + project.resolve("run/client.ready")),
+                "client visible-window readiness handshake");
         }
 
         List<String> server = command(classes, "FakeServer", project, port);
@@ -847,6 +854,8 @@ public final class AdaptiveProjectSupervisorHarness {
         }
         require(!Files.exists(project.resolve(
             "run/world-builder/ready")), "ready cleanup");
+        require(!Files.exists(project.resolve("run/client.ready")),
+            "client readiness cleanup");
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             "bounded run receipt");
         System.out.println("adaptive-supervision-ok");
@@ -866,6 +875,8 @@ public final class AdaptiveProjectSupervisorHarness {
         require(!Files.exists(project.resolve("run/client.pid")), label + " client PID");
         require(!Files.exists(project.resolve("run/world-builder/ready")),
             label + " ready cleanup");
+        require(!Files.exists(project.resolve("run/client.ready")),
+            label + " client readiness cleanup");
         require(Files.isRegularFile(project.resolve("run/last-run.json")),
             label + " run receipt");
         require(Arrays.equals(manifestBefore,
@@ -915,6 +926,8 @@ public final class AdaptiveProjectSupervisorHarness {
         public static void main(String[] args) throws Exception {
             Path project = Paths.get(args[0]);
             Path client = project.resolve("working/runtime/client");
+            Files.write(project.resolve("run/client.ready"),
+                "visible\n".getBytes(StandardCharsets.US_ASCII));
             Files.write(client.resolve("clientSettings.conf"),
                 "generated=true\n".getBytes(StandardCharsets.UTF_8));
             if (args.length > 2 && ("mutate".equals(args[2])
@@ -1248,7 +1261,10 @@ public final class AdaptiveProjectSupervisorHarness {
     }
 
     public static final class FailingClient {
-        public static void main(String[] args) {
+        public static void main(String[] args) throws Exception {
+            Path project = Paths.get(args[0]);
+            Files.write(project.resolve("run/client.ready"),
+                "visible\n".getBytes(StandardCharsets.US_ASCII));
             System.exit(7);
         }
     }
@@ -1394,6 +1410,12 @@ public final class FakeAdaptiveClient {
             "client runtime log confinement");
         Files.write(clientLog,
             "project-local client log\n".getBytes(StandardCharsets.UTF_8));
+        Path clientReady = Paths.get(System.getProperty(
+            "openrsc.worldBuilderClientReadyFile"));
+        require(clientReady.equals(project.resolve("run/client.ready")),
+            "client visible-window readiness path");
+        Files.write(clientReady,
+            "visible\n".getBytes(StandardCharsets.US_ASCII));
         require("true".equals(System.getProperty("openrsc.worldBuilderAdaptiveMode")),
             "adaptive activation");
         require(Files.isRegularFile(Paths.get(System.getProperty(
