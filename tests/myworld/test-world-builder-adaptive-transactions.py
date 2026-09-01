@@ -10,6 +10,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import adaptive_project_test_support as project_support
@@ -1036,6 +1037,7 @@ public final class AdaptiveTransactionFailureHarness {
         target_runtime_archives=False,
         preserved_installed_v1=False,
         preserved_installed_v2=False,
+        target_build_file=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1062,6 +1064,28 @@ public final class AdaptiveTransactionFailureHarness {
             (client_root / "Open_RSC_Client.jar").write_bytes(
                 b"target client runtime\n"
             )
+            if target_build_file:
+                (target / "server/build.xml").write_text(
+                    """<project name="target-server" default="compile-and-run" basedir=".">
+    <target name="compile_core">
+        <delete file="core.jar"/>
+        <echo file="core.jar" message="legacy source rebuild"/>
+    </target>
+    <target name="compile_plugins">
+        <echo message="target plugins still compile"/>
+    </target>
+    <target name="runserver">
+        <echo message="target server still launches"/>
+    </target>
+    <target name="compile-and-run">
+        <antcall target="compile_core"/>
+        <antcall target="compile_plugins"/>
+        <antcall target="runserver"/>
+    </target>
+</project>
+""",
+                    encoding="utf-8",
+                )
             if preserved_installed_v1:
                 project_support.write_json(
                     target
@@ -1143,7 +1167,7 @@ public final class AdaptiveTransactionFailureHarness {
     def test_import_installs_matching_runtime_archives_and_undo_restores_them(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
             target, installation, project, export = self.target_project(
-                Path(temp), target_runtime_archives=True,
+                Path(temp), target_runtime_archives=True, target_build_file=True,
             )
             server = target / "server/core.jar"
             client = target / "client/Open_RSC_Client.jar"
@@ -1151,6 +1175,8 @@ public final class AdaptiveTransactionFailureHarness {
                 client = target / "Client_Base/Open_RSC_Client.jar"
             before_server = server.read_bytes()
             before_client = client.read_bytes()
+            build_file = target / "server/build.xml"
+            before_build = build_file.read_bytes()
             project_server = project / "working/runtime/server/core.jar"
             project_client = project / "working/runtime/client/Open_RSC_Client.jar"
 
@@ -1161,6 +1187,23 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(project_server.read_bytes(), server.read_bytes())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
+            build_root = ET.parse(build_file).getroot()
+            compile_core = build_root.find("./target[@name='compile_core']")
+            self.assertIsNotNone(compile_core)
+            self.assertEqual(
+                "world.builder.installed.runtime",
+                compile_core.attrib.get("unless"),
+            )
+            guard = build_root.find("./available")
+            self.assertIsNotNone(guard)
+            self.assertEqual(
+                "conf/world-builder/installed-runtime-capability-v2.json",
+                guard.attrib.get("file"),
+            )
+            self.assertEqual(
+                "world.builder.installed.runtime", guard.attrib.get("property")
+            )
+            self.assertIsNotNone(compile_core.find("./delete"))
 
             undone = self.run_reviewed_apply(
                 "undo-adaptive", "UNDO", "--project", project,
@@ -1169,12 +1212,14 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, undone.returncode, undone.stderr)
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
+            self.assertEqual(before_build, build_file.read_bytes())
 
     def test_import_upgrades_installed_v1_runtime_across_repeated_map_updates(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
             target, _, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True,
                 preserved_installed_v1=True,
+                target_build_file=True,
             )
             server = target / "server/core.jar"
             client = target / "client/Open_RSC_Client.jar"
@@ -1210,6 +1255,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
                     "runtime-compatibility-server",
+                    "runtime-compatibility-server-build-guard",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1227,6 +1273,7 @@ public final class AdaptiveTransactionFailureHarness {
                 / "server/conf/world-builder/installed-runtime-capability-v2.json"
             )
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
+            guarded_build = (target / "server/build.xml").read_bytes()
             self.assertTrue(
                 (client.parent / "world-builder-configs/installed-client.json").is_file()
             )
@@ -1246,6 +1293,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(project_server.read_bytes(), server.read_bytes())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
+            self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
             self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
 
     def test_import_upgrades_v1_runtime_for_blocking_base_color(self):

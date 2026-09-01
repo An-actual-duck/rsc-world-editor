@@ -301,11 +301,16 @@ one previewed, offline, backed-up, verified, and recoverable transaction before
 activating the selected map. Existing architecture may be changed
 fundamentally to achieve that result.
 
-- [ ] Define the single current managed-runtime identity and the target-owned
+- [x] Define the single current managed-runtime identity and the target-owned
   bundle contract needed to retain legitimate game customization.
-- [ ] Make Import install that exact current server/client bundle when an older
+- [x] Make Import install that exact current server/client bundle when an older
   managed target is detected, then import and activate the map in the same
   reviewed transaction.
+- [x] Keep the imported managed `server/core.jar` authoritative during the
+  target's normal Ant launch: when the installed-v2 capability is present,
+  skip `compile_core` while target plugin compilation and `runserver` continue.
+  Back up and restore the exact original `server/build.xml` through the import
+  transaction.
 - [ ] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.
@@ -331,15 +336,12 @@ fundamentally to achieve that result.
   dependencies and packed-conversion definition validation.
 - [x] Version the installed runtime loader capability and refuse imports that
   use overlay `255` with the preserved v1 loader.
-- [x] Preserve a target-specific installed v2/loader-v7 server and client
-  instead of overwriting them with the generic runtime; update only the
-  bounded activation configuration and per-map client profile.
+- [x] Supersede the interim target-specific v2 preservation behavior with the
+  current managed server/client bundle upgrade.
 - [x] Publish the tested runtime revision, advance `runtime-provider.lock`, and
   complete the Editor parity and full-suite gates.
-- [ ] Integrate the loader-v7 terrain changes into the customized target's own
-  server/client build once and install its exact v2 capability descriptor. A
-  generic archive replacement is not a safe substitute for that target-owned
-  build.
+- [x] Install loader-v7 through the current managed runtime bundle instead of
+  requiring a manual target-source integration.
 - [ ] Obtain native user validation of painting, mixed-edge blending,
   collision, save/reload, and a repeated server import before the next release.
 
@@ -353,10 +355,10 @@ fundamentally to achieve that result.
   installed map paths, runtime archives, capability evidence, startup command,
   and first failing load operation. Client connection evidence remains part of
   the end-to-end gate.
-- [ ] Preserve a minimal sanitized fixture or deterministic fixture generator
+- [x] Preserve a minimal sanitized fixture or deterministic fixture generator
   for that starting layout. Never commit a real server, map, credential,
   database, log, or user workspace.
-- [ ] Add a failing regression proving that the current import can claim
+- [x] Add a failing regression proving that the current import can claim
   success without producing a server that can load the new map.
 - [x] Compare the working and pre-fix Core copies to derive runtime loader,
   terrain encoding, placement encoding, NPC override, activation, and launch

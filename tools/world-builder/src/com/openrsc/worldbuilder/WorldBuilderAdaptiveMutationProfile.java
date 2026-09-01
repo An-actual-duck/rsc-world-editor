@@ -485,6 +485,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-legacy-capability-retirement".equals(role);
 			boolean serverConfiguration =
 				"runtime-compatibility-server-configuration".equals(role);
+			boolean serverBuildGuard =
+				"runtime-compatibility-server-build-guard".equals(role);
 			boolean clientProfile =
 				"runtime-compatibility-client-profile".equals(role);
 			String destination = WorldBuilderAdaptiveExporter.string(
@@ -502,6 +504,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 								.equals(destination)
 						: serverConfiguration && WorldBuilderRuntimeCompatibility
 							.CONFIGURATION_DESTINATION.equals(destination)
+						|| serverBuildGuard && WorldBuilderRuntimeCompatibility
+							.BUILD_DESTINATION.equals(destination)
 							|| clientProfile && (("Client_Base/"
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination)
@@ -516,7 +520,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			String contentRelative = legacyCapabilityRetirement ? ""
 				: "package/activation/" + role
 					+ (capability || clientProfile ? ".json"
-						: serverConfiguration ? ".conf" : ".jar");
+						: serverConfiguration ? ".conf"
+							: serverBuildGuard ? ".xml" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			String backupRelative = before.present
@@ -544,10 +549,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 					backupRelative, true, null));
 				continue;
 			}
-			Path source = serverConfiguration || clientProfile
+			Path source = serverConfiguration || serverBuildGuard || clientProfile
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
-						: "installed server launch configuration")
+						: serverBuildGuard ? "installed server build guard"
+							: "installed server launch configuration")
 				: WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
 					sourceRelative, "project runtime compatibility archive");
 			byte[] content = Files.readAllBytes(source);

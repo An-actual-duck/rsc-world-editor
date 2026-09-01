@@ -10,6 +10,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Compiles the trusted project runtime into bounded target-install actions. */
 final class WorldBuilderRuntimeCompatibility {
@@ -22,8 +24,20 @@ final class WorldBuilderRuntimeCompatibility {
 	static final String BUNDLE_SOURCE =
 		"working/runtime/server/conf/world-builder/managed-runtime-bundle.json";
 	static final String CONFIGURATION_DESTINATION = "server/myworld.conf";
+	static final String BUILD_DESTINATION = "server/build.xml";
 	static final String CLIENT_PROFILE_NAME =
 		"world-builder-configs/installed-client.json";
+	private static final String BUILD_GUARD_PROPERTY =
+		"world.builder.installed.runtime";
+	private static final String BUILD_GUARD_CAPABILITY =
+		"conf/world-builder/installed-runtime-capability-v2.json";
+	private static final Pattern PROJECT_TAG = Pattern.compile("<project\\b[^>]*>");
+	private static final Pattern TARGET_TAG = Pattern.compile("<target\\b[^>]*>");
+	private static final Pattern AVAILABLE_TAG = Pattern.compile("<available\\b[^>]*>");
+	private static final Pattern COMPILE_CORE_NAME = Pattern.compile(
+		"\\bname\\s*=\\s*(['\"]?)compile_core\\1(?:\\s|/?>|$)");
+	private static final Pattern UNLESS_ATTRIBUTE = Pattern.compile(
+		"\\bunless\\s*=");
 	private static final String SERVER_DESTINATION = "server/core.jar";
 	private static final String SERVER_SOURCE =
 		"working/runtime/server/core.jar";
@@ -127,6 +141,7 @@ final class WorldBuilderRuntimeCompatibility {
 			transactionContent("capability", ".json"), actions);
 		appendLegacyCapabilityRetirement(target, actions);
 		appendServerConfiguration(target, packageValue, actions);
+		appendServerBuildGuard(target, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
 		return new Upgrade(encodingVersions, actions, true);
@@ -350,6 +365,125 @@ final class WorldBuilderRuntimeCompatibility {
 			before, after, transactionContent("server-configuration", ".conf"),
 			"backups/{transaction}/before/" + CONFIGURATION_DESTINATION,
 			true, afterBytes));
+	}
+
+	private static void appendServerBuildGuard(
+		Path target, List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, BUILD_DESTINATION);
+		if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(destination)) {
+			throw problem(BUILD_DESTINATION,
+				"Target server build file is not a safe regular file.",
+				"Restore the target server layout and retry Import.");
+		}
+		byte[] beforeBytes = Files.readAllBytes(destination);
+		String original = new String(beforeBytes, StandardCharsets.UTF_8);
+		if (!java.util.Arrays.equals(beforeBytes,
+				original.getBytes(StandardCharsets.UTF_8))) {
+			throw problem(BUILD_DESTINATION,
+				"Target server build file is not valid UTF-8.",
+				"Convert server/build.xml to UTF-8 and retry Import.");
+		}
+		byte[] afterBytes = renderServerBuildGuard(original)
+			.getBytes(StandardCharsets.UTF_8);
+		WorldBuilderAdaptiveMutationProfile.FileState before =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				beforeBytes.length, WorldBuilderHashes.sha256(beforeBytes));
+		WorldBuilderAdaptiveMutationProfile.FileState after =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				afterBytes.length, WorldBuilderHashes.sha256(afterBytes));
+		if (before.size == after.size && before.sha256.equals(after.sha256)) return;
+		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
+			"runtime-compatibility-server-build-guard", BUILD_DESTINATION,
+			before, after, transactionContent("server-build-guard", ".xml"),
+			"backups/{transaction}/before/" + BUILD_DESTINATION,
+			true, afterBytes));
+	}
+
+	static String renderServerBuildGuard(String original)
+		throws WorldBuilderContractException {
+		Matcher project = PROJECT_TAG.matcher(original);
+		if (!project.find() || project.find()) throw buildGuardProblem(
+			"Target server build file does not contain one unambiguous project element.");
+
+		Matcher targets = TARGET_TAG.matcher(original);
+		String compileTag = null;
+		int compileCoreStart = -1;
+		int compileCoreEnd = -1;
+		int compileCoreCount = 0;
+		while (targets.find()) {
+			String tag = targets.group();
+			if (!COMPILE_CORE_NAME.matcher(tag).find()) continue;
+			compileCoreCount++;
+			if (compileCoreCount == 1) {
+				compileTag = tag;
+				compileCoreStart = targets.start();
+				compileCoreEnd = targets.end();
+			}
+		}
+		if (compileCoreCount != 1 || compileTag == null) throw buildGuardProblem(
+			"Target server build file does not contain one unambiguous compile_core target.");
+
+		boolean targetGuarded = Pattern.compile("\\bunless\\s*=\\s*(['\"]?)"
+			+ Pattern.quote(BUILD_GUARD_PROPERTY) + "\\1(?:\\s|>)")
+			.matcher(compileTag).find();
+		int guardDeclarations = 0;
+		Matcher available = AVAILABLE_TAG.matcher(original);
+		while (available.find()) {
+			String tag = available.group();
+			if (attributeEquals(tag, "file", BUILD_GUARD_CAPABILITY)
+				&& attributeEquals(tag, "property", BUILD_GUARD_PROPERTY)) {
+				guardDeclarations++;
+			}
+		}
+		boolean capabilityNamed = original.contains(BUILD_GUARD_CAPABILITY);
+		boolean propertyNamed = original.contains(BUILD_GUARD_PROPERTY);
+		if (targetGuarded && guardDeclarations == 1) return original;
+		if (targetGuarded || guardDeclarations != 0 || capabilityNamed || propertyNamed
+			|| UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw buildGuardProblem(
+			"Target server build file contains a partial or conflicting compile_core guard.");
+
+		String guardedTarget = compileTag.substring(0, compileTag.length() - 1)
+			+ " unless=\"" + BUILD_GUARD_PROPERTY + "\">";
+		String withTarget = original.substring(0, compileCoreStart)
+			+ guardedTarget + original.substring(compileCoreEnd);
+		Matcher guardedProject = PROJECT_TAG.matcher(withTarget);
+		guardedProject.find();
+		String newline = original.contains("\r\n") ? "\r\n" : "\n";
+		String indent = lineIndent(original, compileCoreStart);
+		String declaration = newline + indent
+			+ "<!-- Preserve the verified World Builder core.jar during target launches. -->"
+			+ newline + indent + "<available file=\"" + BUILD_GUARD_CAPABILITY
+			+ "\" property=\"" + BUILD_GUARD_PROPERTY + "\"/>";
+		return withTarget.substring(0, guardedProject.end()) + declaration
+			+ withTarget.substring(guardedProject.end());
+	}
+
+	private static boolean attributeEquals(
+		String tag, String name, String expected) {
+		return Pattern.compile("\\b" + Pattern.quote(name)
+			+ "\\s*=\\s*(['\"])" + Pattern.quote(expected) + "\\1")
+			.matcher(tag).find();
+	}
+
+	private static String lineIndent(String value, int offset) {
+		int lineStart = value.lastIndexOf('\n', Math.max(0, offset - 1));
+		lineStart = lineStart < 0 ? 0 : lineStart + 1;
+		int cursor = lineStart;
+		while (cursor < offset) {
+			char character = value.charAt(cursor);
+			if (character != ' ' && character != '\t') break;
+			cursor++;
+		}
+		return value.substring(lineStart, cursor);
+	}
+
+	private static WorldBuilderContractException buildGuardProblem(String message) {
+		return problem(BUILD_DESTINATION, message,
+			"Restore an unmodified server/build.xml with one compile_core target and retry Import.");
 	}
 
 	private static void appendLegacyCapabilityRetirement(
