@@ -990,7 +990,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server",
+                "runtime-compatibility-server-overlay",
                 "runtime-compatibility-server-configuration",
             },
             {
@@ -1024,7 +1024,10 @@ class MapMigrationChoiceTest(unittest.TestCase):
         )
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
         self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
-        self.assertEqual(project_server_runtime, (target / "server/core.jar").read_bytes())
+        self.assertEqual(
+            project_server_runtime,
+            (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+        )
         self.assertEqual(
             project_client_runtime,
             (target / "client/Open_RSC_Client.jar").read_bytes(),
@@ -1048,7 +1051,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "runtime-compatibility-client",
                 "runtime-compatibility-client-profile",
                 "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server",
+                "runtime-compatibility-server-overlay",
                 "runtime-compatibility-server-configuration",
             },
             {

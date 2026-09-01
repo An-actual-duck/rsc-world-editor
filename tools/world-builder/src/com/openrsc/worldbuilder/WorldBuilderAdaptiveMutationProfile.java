@@ -479,6 +479,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			String role = WorldBuilderAdaptiveExporter.string(value, "role");
 			if (!role.startsWith("runtime-compatibility-")) continue;
 			boolean server = "runtime-compatibility-server".equals(role);
+			boolean serverOverlay =
+				"runtime-compatibility-server-overlay".equals(role);
 			boolean client = "runtime-compatibility-client".equals(role);
 			boolean capability = "runtime-compatibility-capability".equals(role);
 			boolean legacyCapabilityRetirement =
@@ -487,12 +489,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-server-configuration".equals(role);
 			boolean serverBuildGuard =
 				"runtime-compatibility-server-build-guard".equals(role);
+			boolean serverBuildOverlay =
+				"runtime-compatibility-server-build-overlay".equals(role);
 			boolean clientProfile =
 				"runtime-compatibility-client-profile".equals(role);
 			String destination = WorldBuilderAdaptiveExporter.string(
 				value, "destinationRelativePath");
 			boolean destinationAllowed = server
 				? "server/core.jar".equals(destination)
+				: serverOverlay
+					? "server/lib/world-builder-managed-runtime.jar".equals(destination)
 				: client
 					? "Client_Base/Open_RSC_Client.jar".equals(destination)
 						|| "client/Open_RSC_Client.jar".equals(destination)
@@ -506,13 +512,15 @@ final class WorldBuilderAdaptiveMutationProfile {
 							.CONFIGURATION_DESTINATION.equals(destination)
 						|| serverBuildGuard && WorldBuilderRuntimeCompatibility
 							.BUILD_DESTINATION.equals(destination)
+						|| serverBuildOverlay && WorldBuilderRuntimeCompatibility
+							.BUILD_DESTINATION.equals(destination)
 							|| clientProfile && (("Client_Base/"
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination)
 								|| ("client/"
 								+ WorldBuilderRuntimeCompatibility.CLIENT_PROFILE_NAME)
 								.equals(destination));
-			String sourceRelative = server
+			String sourceRelative = server || serverOverlay
 				? "working/runtime/server/core.jar"
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
@@ -521,7 +529,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				: "package/activation/" + role
 					+ (capability || clientProfile ? ".json"
 						: serverConfiguration ? ".conf"
-							: serverBuildGuard ? ".xml" : ".jar");
+							: serverBuildGuard || serverBuildOverlay ? ".xml" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
 			String backupRelative = before.present
@@ -549,10 +557,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 					backupRelative, true, null));
 				continue;
 			}
-			Path source = serverConfiguration || serverBuildGuard || clientProfile
+			Path source = serverConfiguration || serverBuildGuard
+				|| serverBuildOverlay || clientProfile
 				? safeExistingFile(target, destination,
 					clientProfile ? "installed client profile"
 						: serverBuildGuard ? "installed server build guard"
+							: serverBuildOverlay ? "installed server build overlay"
 							: "installed server launch configuration")
 				: WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
 					sourceRelative, "project runtime compatibility archive");

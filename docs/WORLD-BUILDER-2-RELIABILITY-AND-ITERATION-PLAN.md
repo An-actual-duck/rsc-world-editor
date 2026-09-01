@@ -306,11 +306,11 @@ fundamentally to achieve that result.
 - [x] Make Import install that exact current server/client bundle when an older
   managed target is detected, then import and activate the map in the same
   reviewed transaction.
-- [x] Keep the imported managed `server/core.jar` authoritative during the
-  target's normal Ant launch: when the installed-v2 capability is present,
-  skip `compile_core` while target plugin compilation and `runserver` continue.
-  Back up and restore the exact original `server/build.xml` through the import
-  transaction.
+- [x] Install the managed server as a classpath-first runtime overlay while
+  retaining and rebuilding the target's own `server/core.jar`. Compile target
+  plugins against both layers so target-only APIs and game customization stay
+  available. Back up and restore the exact original `server/build.xml` through
+  the import transaction.
 - [ ] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.

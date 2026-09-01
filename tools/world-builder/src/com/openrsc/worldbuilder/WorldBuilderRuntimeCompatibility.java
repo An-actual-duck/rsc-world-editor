@@ -31,6 +31,8 @@ final class WorldBuilderRuntimeCompatibility {
 		"world.builder.installed.runtime";
 	private static final String BUILD_GUARD_CAPABILITY =
 		"conf/world-builder/installed-runtime-capability-v2.json";
+	private static final String MANAGED_SERVER_DESTINATION =
+		"server/lib/world-builder-managed-runtime.jar";
 	private static final Pattern PROJECT_TAG = Pattern.compile("<project\\b[^>]*>");
 	private static final Pattern TARGET_TAG = Pattern.compile("<target\\b[^>]*>");
 	private static final Pattern AVAILABLE_TAG = Pattern.compile("<available\\b[^>]*>");
@@ -88,6 +90,10 @@ final class WorldBuilderRuntimeCompatibility {
 			capability.get("encodingVersions"), CAPABILITY_SOURCE);
 		Map<String,Object> activation = WorldBuilderAdaptiveExporter.object(
 			capability.get("activation"), "activation");
+		Map<String,Object> runtimeArchives = WorldBuilderAdaptiveExporter.object(
+			capability.get("runtimeArchives"), "runtimeArchives");
+		List<?> clientNames = WorldBuilderAdaptiveExporter.array(
+			runtimeArchives.get("clientNames"), "clientNames");
 		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
 			|| !"world-builder-installed-runtime-capability".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "manifestType"))
@@ -110,6 +116,14 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(capability, "packageSchemaId"))
 			|| !"signed-layered-v1".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "coordinateModel"))
+			|| !MANAGED_SERVER_DESTINATION.equals(
+				WorldBuilderAdaptiveExporter.string(
+					runtimeArchives, "serverRelativePath"))
+			|| !SERVER_DESTINATION.equals(WorldBuilderAdaptiveExporter.string(
+				runtimeArchives, "targetFallbackRelativePath"))
+			|| clientNames.size() != 2
+			|| !"Client_Base/Open_RSC_Client.jar".equals(clientNames.get(0))
+			|| !"client/Open_RSC_Client.jar".equals(clientNames.get(1))
 			|| !currentEncodingSet(encodingVersions)
 			|| !"world-builder-installed".equals(
 				WorldBuilderAdaptiveExporter.string(activation, "runtimeProfile"))
@@ -130,8 +144,9 @@ final class WorldBuilderRuntimeCompatibility {
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
-		appendReplacement(project, target, "runtime-compatibility-server",
-			SERVER_DESTINATION, SERVER_SOURCE, transactionContent("server", ".jar"),
+		appendReplacement(project, target, "runtime-compatibility-server-overlay",
+			MANAGED_SERVER_DESTINATION, SERVER_SOURCE,
+			transactionContent("server-overlay", ".jar"),
 			actions);
 		appendReplacement(project, target, "runtime-compatibility-client",
 			clientDestination, CLIENT_SOURCE, transactionContent("client", ".jar"),
@@ -141,7 +156,7 @@ final class WorldBuilderRuntimeCompatibility {
 			transactionContent("capability", ".json"), actions);
 		appendLegacyCapabilityRetirement(target, actions);
 		appendServerConfiguration(target, packageValue, actions);
-		appendServerBuildGuard(target, actions);
+		appendServerBuildOverlay(target, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
 		return new Upgrade(encodingVersions, actions, true);
@@ -180,8 +195,8 @@ final class WorldBuilderRuntimeCompatibility {
 		List<?> components = WorldBuilderAdaptiveExporter.array(
 			bundle.get("components"), "components");
 		if (components.size() != 3
-			|| !componentMatches(components.get(0), "server-runtime",
-				"server/core.jar", "target-root", "server/core.jar")
+			|| !componentMatches(components.get(0), "server-runtime-overlay",
+				"server/core.jar", "target-root", MANAGED_SERVER_DESTINATION)
 			|| !componentMatches(components.get(1), "client-runtime",
 				"client/Open_RSC_Client.jar", "selected-client-root",
 				"Open_RSC_Client.jar")
@@ -367,7 +382,7 @@ final class WorldBuilderRuntimeCompatibility {
 			true, afterBytes));
 	}
 
-	private static void appendServerBuildGuard(
+	private static void appendServerBuildOverlay(
 		Path target, List<WorldBuilderAdaptiveMutationProfile.Action> actions)
 		throws IOException, WorldBuilderContractException {
 		Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
@@ -387,7 +402,7 @@ final class WorldBuilderRuntimeCompatibility {
 				"Target server build file is not valid UTF-8.",
 				"Convert server/build.xml to UTF-8 and retry Import.");
 		}
-		byte[] afterBytes = renderServerBuildGuard(original)
+		byte[] afterBytes = renderServerBuildOverlay(original)
 			.getBytes(StandardCharsets.UTF_8);
 		WorldBuilderAdaptiveMutationProfile.FileState before =
 			WorldBuilderAdaptiveMutationProfile.FileState.present(
@@ -397,13 +412,13 @@ final class WorldBuilderRuntimeCompatibility {
 				afterBytes.length, WorldBuilderHashes.sha256(afterBytes));
 		if (before.size == after.size && before.sha256.equals(after.sha256)) return;
 		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
-			"runtime-compatibility-server-build-guard", BUILD_DESTINATION,
-			before, after, transactionContent("server-build-guard", ".xml"),
+			"runtime-compatibility-server-build-overlay", BUILD_DESTINATION,
+			before, after, transactionContent("server-build-overlay", ".xml"),
 			"backups/{transaction}/before/" + BUILD_DESTINATION,
 			true, afterBytes));
 	}
 
-	static String renderServerBuildGuard(String original)
+	static String renderServerBuildOverlay(String original)
 		throws WorldBuilderContractException {
 		Matcher project = PROJECT_TAG.matcher(original);
 		if (!project.find() || project.find()) throw buildGuardProblem(
@@ -411,8 +426,6 @@ final class WorldBuilderRuntimeCompatibility {
 
 		Matcher targets = TARGET_TAG.matcher(original);
 		String compileTag = null;
-		int compileCoreStart = -1;
-		int compileCoreEnd = -1;
 		int compileCoreCount = 0;
 		while (targets.find()) {
 			String tag = targets.group();
@@ -420,8 +433,6 @@ final class WorldBuilderRuntimeCompatibility {
 			compileCoreCount++;
 			if (compileCoreCount == 1) {
 				compileTag = tag;
-				compileCoreStart = targets.start();
-				compileCoreEnd = targets.end();
 			}
 		}
 		if (compileCoreCount != 1 || compileTag == null) throw buildGuardProblem(
@@ -441,25 +452,59 @@ final class WorldBuilderRuntimeCompatibility {
 		}
 		boolean capabilityNamed = original.contains(BUILD_GUARD_CAPABILITY);
 		boolean propertyNamed = original.contains(BUILD_GUARD_PROPERTY);
-		if (targetGuarded && guardDeclarations == 1) return original;
-		if (targetGuarded || guardDeclarations != 0 || capabilityNamed || propertyNamed
-			|| UNLESS_ATTRIBUTE.matcher(compileTag).find()) throw buildGuardProblem(
-			"Target server build file contains a partial or conflicting compile_core guard.");
+		String working = original;
+		if (targetGuarded || guardDeclarations != 0 || capabilityNamed || propertyNamed) {
+			if (!targetGuarded || guardDeclarations != 1) throw buildGuardProblem(
+				"Target server build file contains a partial or conflicting compile_core guard.");
+			working = working.replaceFirst(
+				"\\s+unless\\s*=\\s*(['\"])"
+					+ Pattern.quote(BUILD_GUARD_PROPERTY) + "\\1", "");
+			working = working.replaceFirst(
+				"(?m)^[ \\t]*<!-- Preserve the verified World Builder core\\.jar during target launches\\. -->\\r?\\n", "");
+			working = working.replaceFirst(
+				"(?m)^[ \\t]*<available\\s+file=\""
+					+ Pattern.quote(BUILD_GUARD_CAPABILITY)
+					+ "\"\\s+property=\"" + Pattern.quote(BUILD_GUARD_PROPERTY)
+					+ "\"/>\\r?\\n?", "");
+		} else if (UNLESS_ATTRIBUTE.matcher(compileTag).find()) {
+			throw buildGuardProblem(
+				"Target compile_core target already has an unrelated conditional guard.");
+		}
 
-		String guardedTarget = compileTag.substring(0, compileTag.length() - 1)
-			+ " unless=\"" + BUILD_GUARD_PROPERTY + "\">";
-		String withTarget = original.substring(0, compileCoreStart)
-			+ guardedTarget + original.substring(compileCoreEnd);
-		Matcher guardedProject = PROJECT_TAG.matcher(withTarget);
-		guardedProject.find();
-		String newline = original.contains("\r\n") ? "\r\n" : "\n";
-		String indent = lineIndent(original, compileCoreStart);
-		String declaration = newline + indent
-			+ "<!-- Preserve the verified World Builder core.jar during target launches. -->"
-			+ newline + indent + "<available file=\"" + BUILD_GUARD_CAPABILITY
-			+ "\" property=\"" + BUILD_GUARD_PROPERTY + "\"/>";
-		return withTarget.substring(0, guardedProject.end()) + declaration
-			+ withTarget.substring(guardedProject.end());
+		Pattern pluginTargetPattern = Pattern.compile(
+			"(?s)<target\\b(?=[^>]*\\bname\\s*=\\s*(['\"])compile_plugins\\1)[^>]*>.*?</target>");
+		Matcher pluginTarget = pluginTargetPattern.matcher(working);
+		if (!pluginTarget.find()) throw buildGuardProblem(
+			"Target server build file does not contain one unambiguous compile_plugins target.");
+		String block = pluginTarget.group();
+		int pluginTargetStart = pluginTarget.start();
+		if (pluginTarget.find()) throw buildGuardProblem(
+			"Target server build file does not contain one unambiguous compile_plugins target.");
+		String managedEntry = "<pathelement location=\"lib/world-builder-managed-runtime.jar\"/>";
+		int managedIndex = block.indexOf(managedEntry);
+		if (managedIndex >= 0) {
+			if (block.indexOf(managedEntry, managedIndex + 1) >= 0) throw buildGuardProblem(
+				"Target compile_plugins classpath repeats the managed runtime overlay.");
+			return working;
+		}
+		Matcher coreEntry = Pattern.compile(
+			"<pathelement\\s+location=\"(?:core\\.jar|\\$\\{jar\\})\"\\s*/>")
+			.matcher(block);
+		if (!coreEntry.find()) throw buildGuardProblem(
+			"Target compile_plugins classpath has no unambiguous target core entry.");
+		int coreEntryStart = coreEntry.start();
+		if (coreEntry.find()) throw buildGuardProblem(
+			"Target compile_plugins classpath has no unambiguous target core entry.");
+		if (!working.contains("<pathelement location=\"${lib}/*\"/>")
+			|| !working.contains("<pathelement path=\"${jar}/\"/>")) {
+			throw buildGuardProblem(
+				"Target runserver classpath cannot load the managed runtime overlay before core.jar.");
+		}
+		int absoluteCoreStart = pluginTargetStart + coreEntryStart;
+		String indent = lineIndent(working, absoluteCoreStart);
+		String newline = working.contains("\r\n") ? "\r\n" : "\n";
+		return working.substring(0, absoluteCoreStart) + managedEntry + newline + indent
+			+ working.substring(absoluteCoreStart);
 	}
 
 	private static boolean attributeEquals(

@@ -1038,6 +1038,7 @@ public final class AdaptiveTransactionFailureHarness {
         preserved_installed_v1=False,
         preserved_installed_v2=False,
         target_build_file=False,
+        alpha58_build_guard=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1065,17 +1066,25 @@ public final class AdaptiveTransactionFailureHarness {
                 b"target client runtime\n"
             )
             if target_build_file:
-                (target / "server/build.xml").write_text(
-                    """<project name="target-server" default="compile-and-run" basedir=".">
+                build_text = """<project name="target-server" default="compile-and-run" basedir=".">
     <target name="compile_core">
         <delete file="core.jar"/>
         <echo file="core.jar" message="legacy source rebuild"/>
     </target>
     <target name="compile_plugins">
-        <echo message="target plugins still compile"/>
+        <javac srcdir="plugins" destdir="buildplugins">
+            <classpath>
+                <pathelement location="core.jar"/>
+            </classpath>
+        </javac>
     </target>
     <target name="runserver">
-        <echo message="target server still launches"/>
+        <java classname="com.openrsc.server.Server">
+            <classpath>
+                <pathelement location="${lib}/*"/>
+                <pathelement path="${jar}/"/>
+            </classpath>
+        </java>
     </target>
     <target name="compile-and-run">
         <antcall target="compile_core"/>
@@ -1083,8 +1092,19 @@ public final class AdaptiveTransactionFailureHarness {
         <antcall target="runserver"/>
     </target>
 </project>
-""",
-                    encoding="utf-8",
+"""
+                if alpha58_build_guard:
+                    build_text = build_text.replace(
+                        ">\n    <target name=\"compile_core\">",
+                        ">\n    <!-- Preserve the verified World Builder core.jar during target launches. -->\n"
+                        "    <available file=\"conf/world-builder/installed-runtime-capability-v2.json\" "
+                        "property=\"world.builder.installed.runtime\"/>\n"
+                        "    <target name=\"compile_core\" "
+                        "unless=\"world.builder.installed.runtime\">",
+                        1,
+                    )
+                (target / "server/build.xml").write_text(
+                    build_text, encoding="utf-8"
                 )
             if preserved_installed_v1:
                 project_support.write_json(
@@ -1168,6 +1188,7 @@ public final class AdaptiveTransactionFailureHarness {
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
             target, installation, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True, target_build_file=True,
+                alpha58_build_guard=True,
             )
             server = target / "server/core.jar"
             client = target / "client/Open_RSC_Client.jar"
@@ -1185,23 +1206,20 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export, "--target-root", target,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
+            overlay = target / "server/lib/world-builder-managed-runtime.jar"
+            self.assertEqual(project_server.read_bytes(), overlay.read_bytes())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             build_root = ET.parse(build_file).getroot()
             compile_core = build_root.find("./target[@name='compile_core']")
             self.assertIsNotNone(compile_core)
-            self.assertEqual(
-                "world.builder.installed.runtime",
-                compile_core.attrib.get("unless"),
-            )
-            guard = build_root.find("./available")
-            self.assertIsNotNone(guard)
-            self.assertEqual(
-                "conf/world-builder/installed-runtime-capability-v2.json",
-                guard.attrib.get("file"),
+            self.assertNotIn("unless", compile_core.attrib)
+            plugin_entries = build_root.findall(
+                "./target[@name='compile_plugins']/javac/classpath/pathelement"
             )
             self.assertEqual(
-                "world.builder.installed.runtime", guard.attrib.get("property")
+                ["lib/world-builder-managed-runtime.jar", "core.jar"],
+                [entry.attrib.get("location") for entry in plugin_entries],
             )
             self.assertIsNotNone(compile_core.find("./delete"))
 
@@ -1213,6 +1231,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_build, build_file.read_bytes())
+            self.assertFalse(overlay.exists())
 
     def test_import_upgrades_installed_v1_runtime_across_repeated_map_updates(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
@@ -1254,8 +1273,8 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server",
-                    "runtime-compatibility-server-build-guard",
+                    "runtime-compatibility-server-overlay",
+                    "runtime-compatibility-server-build-overlay",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1265,7 +1284,11 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(b"target server runtime\n", server.read_bytes())
+            self.assertEqual(
+                project_server.read_bytes(),
+                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+            )
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertFalse(capability.exists())
             installed_v2 = (
@@ -1290,7 +1313,7 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(b"target server runtime\n", server.read_bytes())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
@@ -1317,7 +1340,7 @@ public final class AdaptiveTransactionFailureHarness {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(
                 (project / "working/runtime/server/core.jar").read_bytes(),
-                (target / "server/core.jar").read_bytes(),
+                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
             )
             self.assertFalse((
                 target
@@ -1369,7 +1392,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server",
+                    "runtime-compatibility-server-overlay",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1380,7 +1403,11 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertNotEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertEqual(
+                project_server.read_bytes(),
+                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
+            )
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
             self.assertEqual(
                 project_support.installed_v2_capability(),
@@ -1398,7 +1425,7 @@ public final class AdaptiveTransactionFailureHarness {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(project_server.read_bytes(), server.read_bytes())
+            self.assertNotEqual(project_server.read_bytes(), server.read_bytes())
             self.assertEqual(project_client.read_bytes(), client.read_bytes())
 
     def test_import_accepts_custom_runtime_transition_from_v1_to_v2(self):
@@ -1444,7 +1471,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
                     "runtime-compatibility-legacy-capability-retirement",
-                    "runtime-compatibility-server",
+                    "runtime-compatibility-server-overlay",
                     "runtime-compatibility-server-configuration",
                 },
                 compatibility_roles,
@@ -1485,7 +1512,7 @@ public final class AdaptiveTransactionFailureHarness {
                     "runtime-compatibility-capability",
                     "runtime-compatibility-client",
                     "runtime-compatibility-client-profile",
-                    "runtime-compatibility-server",
+                    "runtime-compatibility-server-overlay",
                     "runtime-compatibility-server-configuration",
                 },
                 set(compatibility),
@@ -1521,7 +1548,7 @@ public final class AdaptiveTransactionFailureHarness {
             )
             self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
             self.assertEqual(
-                "fixture-installed-server-v2",
+                "fixture-installed-server-overlay-v3",
                 capability["serverBuildId"],
             )
             self.assertEqual(
@@ -1645,7 +1672,7 @@ public final class AdaptiveTransactionFailureHarness {
                     project
                     / "working/runtime/server/core.jar"
                 ).read_bytes(),
-                server.read_bytes(),
+                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
             )
             self.assertEqual(
                 (
@@ -1728,7 +1755,7 @@ public final class AdaptiveTransactionFailureHarness {
                     project
                     / "working/runtime/server/core.jar"
                 ).read_bytes(),
-                server.read_bytes(),
+                (target / "server/lib/world-builder-managed-runtime.jar").read_bytes(),
             )
             self.assertEqual(
                 (
