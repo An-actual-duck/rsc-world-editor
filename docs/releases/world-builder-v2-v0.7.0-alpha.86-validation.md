@@ -102,3 +102,28 @@ promoted. Production archives must be rebuilt from the later clean, published
 gate commit using the exact locked runtime and reviewed JRE inputs. After the
 GitHub release is verified, this record will retain the production tag and
 artifact hashes while development `main` consumes the release gate.
+
+## Post-publication gate state
+
+The production release was rebuilt from and published at gate commit
+`c9219fcd181891e1558c627727767615e8b5eb99` under tag
+`rsc-world-editor-v2-0.7.0-alpha.86`. The full Editor release suite passed all
+26 selections in 423 seconds from that exact commit, and the complete locked
+runtime-provider suite passed. Independent inspection of the fresh production
+archives reported `automated-archive-inspection-passed`; its external evidence
+document has SHA-256
+`57a54589f3c3ca9753e501e07e7b80f5fc07a771e1ca091ba697fefad5091958`.
+
+| Production artifact | SHA-256 |
+| --- | --- |
+| `rsc-world-editor-v2-0.7.0-alpha.86-linux-x64.zip` | `f6ed92d1ff37b5f04a44bbe13b60e781f09ca9f2f3cc86fb5e12a672ac5c1bbf` |
+| `rsc-world-editor-v2-0.7.0-alpha.86-windows-x64.zip` | `aa0af27be816792b6447815d2ba26bb0469c26af75d001e9ce0f8a4c9bc46aff` |
+| `SHA256SUMS.txt` | `32f1162d1d35ec7ca91364990d79c92e5c44fe4e19b18babff4bb2a56b5a23a8` |
+
+All three assets were downloaded back from GitHub, verified against the
+uploaded `SHA256SUMS.txt`, and compared byte-for-byte with the independently
+inspected pre-upload files. The public release is
+<https://github.com/An-actual-duck/rsc-world-editor/releases/tag/rsc-world-editor-v2-0.7.0-alpha.86>.
+Development `main` consumes/removes the gate after publication; a later
+release requires a new exact candidate, owner acceptance, validation record,
+and gate commit.
