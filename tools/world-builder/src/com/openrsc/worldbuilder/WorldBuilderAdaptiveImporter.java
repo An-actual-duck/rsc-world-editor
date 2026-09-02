@@ -172,8 +172,27 @@ final class WorldBuilderAdaptiveImporter {
 							? UUID.randomUUID().toString() : requestedTransactionId;
 					WorldBuilderAdaptiveMutationProfile.Plan plan;
 					if (outstanding == null) {
-						plan = WorldBuilderAdaptiveMutationProfile.prepare(
-							verified, export, target, transactionId);
+						try {
+							plan = WorldBuilderAdaptiveMutationProfile.prepare(
+								verified, export, target, transactionId);
+						} catch (WorldBuilderContractException drift) {
+							if (!WorldBuilderErrorCodes.TARGET_DRIFT.equals(drift.code())) {
+								throw drift;
+							}
+							Map<String,Object> targetIdentity =
+								WorldBuilderAdaptiveExporter.object(
+									verified.manifest.get("target"), "target");
+							String targetLineage = WorldBuilderAdaptiveExporter.string(
+								targetIdentity, "targetFingerprintSha256");
+							try {
+								plan = WorldBuilderAdaptiveMutationProfile
+									.prepareRuntimeCompatibilityCompletion(
+										verified, export, target, transactionId,
+										targetLineage);
+							} catch (WorldBuilderContractException notCompletable) {
+								throw drift;
+							}
+						}
 					} else {
 						WorldBuilderAdaptiveExporter.VerifiedExport previousExport =
 							WorldBuilderAdaptiveUndo.findExport(verified,

@@ -1952,6 +1952,19 @@ public final class mudclient {
                 target, installed_target,
                 ignore=shutil.ignore_patterns("World Builder 2"),
             )
+            client_root = installed_target / "client"
+            if not client_root.is_dir():
+                client_root = installed_target / "Client_Base"
+            downgraded_sources = []
+            for index in (3, 4):
+                _, destination, current, policy, historical = (
+                    project_support.FIXTURE_CLIENT_SOURCES[index]
+                )
+                self.assertEqual("replace-supported-historical", policy)
+                source = client_root / destination
+                self.assertEqual(current, source.read_bytes())
+                source.write_bytes(historical)
+                downgraded_sources.append((source, current))
             selected_content_configuration = installed_target / "server/myworld.conf"
             alternate_content_configuration = (
                 installed_target / "server/myworld-host.conf"
@@ -1991,6 +2004,60 @@ public final class mudclient {
             )
             self.assertEqual(0, reopened.returncode, reopened.stderr)
             self.assertEqual("ready-attached", json.loads(reopened.stdout)["state"])
+
+            fresh_project = Path(json.loads(created.stdout)["projectRoot"])
+            exported = self.run_cli(
+                "export-adaptive", "--project", fresh_project,
+            )
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            fresh_export = Path(json.loads(exported.stdout)["exportDirectory"])
+            active_configuration = json.loads(
+                (
+                    installed_target
+                    / "server/world-builder-configs/primary.json"
+                ).read_text(encoding="utf-8")
+            )
+            active_manifest = (
+                installed_target
+                / active_configuration["serverMapRelativePath"]
+                / "manifest.json"
+            )
+            exact_manifest = active_manifest.read_bytes()
+            active_manifest.write_bytes(exact_manifest + b"\n")
+            rejected = self.run_cli(
+                "import-adaptive", "--project", fresh_project,
+                "--export", fresh_export, "--target-root", installed_target,
+            )
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("TARGET_DRIFT", rejected.stderr)
+            for source, _ in downgraded_sources:
+                self.assertNotIn(
+                    b"WIDE_TILE_WIRE_BYTES = 11", source.read_bytes(),
+                )
+            active_manifest.write_bytes(exact_manifest)
+            preview = self.run_cli(
+                "import-adaptive", "--project", fresh_project,
+                "--export", fresh_export, "--target-root", installed_target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertEqual(
+                {
+                    "runtime-compatibility-client-source-upgrade-3",
+                    "runtime-compatibility-client-source-upgrade-4",
+                },
+                {
+                    action["role"]
+                    for action in json.loads(preview.stdout)["actions"]
+                },
+            )
+            completed = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", fresh_project,
+                "--export", fresh_export, "--target-root", installed_target,
+                preview=preview,
+            )
+            self.assertEqual(0, completed.returncode, completed.stderr)
+            for source, current in downgraded_sources:
+                self.assertEqual(current, source.read_bytes())
 
     def test_existing_map_install_can_be_completed_with_runtime_compatibility(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-completion-") as temp:
