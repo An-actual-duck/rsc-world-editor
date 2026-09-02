@@ -94,12 +94,14 @@ server/conf/server/words.list	server/conf/server/words.list	runtime-configuratio
 server/conf/server/wordsJag.txt	server/conf/server/wordsJag.txt	runtime-configuration
 server/conf/world-builder/adaptive-runtime-capability-v2.json	server/conf/world-builder/adaptive-runtime-capability-v2.json	runtime-capability
 server/conf/world-builder/installed-runtime-capability-v2.json	server/conf/world-builder/installed-runtime-capability-v2.json	runtime-capability
-server/conf/world-builder/installed-client-source-upgrade-v4.json	server/conf/world-builder/installed-client-source-upgrade-v4.json	runtime-capability
+server/conf/world-builder/installed-client-source-upgrade-v5.json	server/conf/world-builder/installed-client-source-upgrade-v5.json	runtime-capability
 server/conf/world-builder/managed-runtime-bundle.json	server/conf/world-builder/managed-runtime-bundle.json	runtime-capability
 server/world-builder-runtime/world-builder-managed-runtime.jar	server/world-builder-runtime/world-builder-managed-runtime.jar	server-runtime-upgrade
 Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java	Client_Base/world-builder-source/orsc/AdaptiveWorldBuilderClientSession.java	client-source-upgrade
 Client_Base/src/orsc/ProjectContentBundle.java	Client_Base/world-builder-source/orsc/ProjectContentBundle.java	client-source-upgrade
 Client_Base/src/orsc/ProjectNpcAnimationRegistry.java	Client_Base/world-builder-source/orsc/ProjectNpcAnimationRegistry.java	client-source-upgrade
+Client_Base/src/orsc/NativeLayeredTerrainChunk.java	Client_Base/world-builder-source/orsc/NativeLayeredTerrainChunk.java	client-source-upgrade
+Client_Base/src/orsc/NativeLayeredTerrainPacketDecoder.java	Client_Base/world-builder-source/orsc/NativeLayeredTerrainPacketDecoder.java	client-source-upgrade
 Client_Base/src/com/openrsc/client/model/Tile.java	Client_Base/world-builder-source/com/openrsc/client/model/Tile.java	client-source-upgrade
 Client_Base/src/orsc/WorldBuilderClientProfile.java	Client_Base/world-builder-source/orsc/WorldBuilderClientProfile.java	client-source-upgrade
 Client_Base/src/orsc/WorldBuilderInstalledClientProfile.java	Client_Base/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java	client-source-upgrade

@@ -156,7 +156,7 @@ def installed_v2_capability() -> dict:
         "managedRuntimeBundleId": "world-builder-managed-runtime-current",
         "profileId": "world-builder-installed",
         "serverBuildId": "fixture-installed-server-upgrade-v6",
-        "clientBuildId": "fixture-installed-client-source-v6",
+        "clientBuildId": "fixture-installed-client-source-v7",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -176,9 +176,9 @@ def installed_v2_capability() -> dict:
             ],
         },
         "clientSourceUpgrade": {
-            "upgradeId": "world-builder-installed-client-source-upgrade-v4",
+            "upgradeId": "world-builder-installed-client-source-upgrade-v5",
             "manifestRelativePath": (
-                "server/conf/world-builder/installed-client-source-upgrade-v4.json"
+                "server/conf/world-builder/installed-client-source-upgrade-v5.json"
             ),
             "buildPolicy": "atomic-compile-target-client-before-run",
         },
@@ -201,7 +201,7 @@ def managed_runtime_bundle() -> dict:
         "schemaVersion": 1,
         "manifestType": "world-builder-managed-runtime-bundle",
         "bundleId": "world-builder-managed-runtime-current",
-        "runtimeContractId": "world-builder-installed-loader-v11",
+        "runtimeContractId": "world-builder-installed-loader-v12",
         "profileId": "world-builder-installed",
         "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
         "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
@@ -221,7 +221,7 @@ def managed_runtime_bundle() -> dict:
             {
                 "role": "client-source-upgrade",
                 "sourceRelativePath": (
-                    "server/conf/world-builder/installed-client-source-upgrade-v4.json"
+                    "server/conf/world-builder/installed-client-source-upgrade-v5.json"
                 ),
                 "destinationKind": "selected-client-root",
                 "destinationRelativePath": "src",
@@ -260,6 +260,16 @@ def managed_runtime_bundle() -> dict:
     }
 
 
+ALPHA70_NATIVE_CHUNK_SOURCE = b"""package orsc;
+public final class NativeLayeredTerrainChunk {
+    int targetSpecificChunkState;
+    void materialize(byte[] tileBytes, int offset, com.openrsc.client.model.Tile tile) {
+        tile.groundElevation = tileBytes[offset++] & 0xff;
+    }
+}
+"""
+
+
 FIXTURE_CLIENT_SOURCES = (
     (
         "client/world-builder-source/orsc/AdaptiveWorldBuilderClientSession.java",
@@ -281,6 +291,20 @@ FIXTURE_CLIENT_SOURCES = (
         b"package orsc;\npublic final class ProjectNpcAnimationRegistry {}\n",
         "add-or-exact",
         None,
+    ),
+    (
+        "client/world-builder-source/orsc/NativeLayeredTerrainChunk.java",
+        "src/orsc/NativeLayeredTerrainChunk.java",
+        b"package orsc;\npublic final class NativeLayeredTerrainChunk { static final int LEGACY_TILE_WIRE_BYTES = 10; static final int WIDE_TILE_WIRE_BYTES = 11; int materializeWideElevation; }\n",
+        "replace-supported-historical",
+        ALPHA70_NATIVE_CHUNK_SOURCE,
+    ),
+    (
+        "client/world-builder-source/orsc/NativeLayeredTerrainPacketDecoder.java",
+        "src/orsc/NativeLayeredTerrainPacketDecoder.java",
+        b"package orsc;\npublic final class NativeLayeredTerrainPacketDecoder { static final int LEGACY_TILE_WIRE_BYTES = 10; static final int WIDE_TILE_WIRE_BYTES = 11; int declaredEncodingVersion; }\n",
+        "replace-supported-historical",
+        b"package orsc;\npublic final class NativeLayeredTerrainPacketDecoder { static final int TILE_WIRE_BYTES = 10; int fixedWidthInflater; }\n",
     ),
     (
         "client/world-builder-source/com/openrsc/client/model/Tile.java",
@@ -326,14 +350,7 @@ FIXTURE_CLIENT_SOURCES = (
     ),
 )
 FIXTURE_JSON_DEPENDENCY = b"fixture pinned JSON dependency\n"
-LEGACY_NATIVE_CHUNK_SOURCE = b"""package orsc;
-public final class NativeLayeredTerrainChunk {
-    int targetSpecificChunkState;
-    void materialize(byte[] tileBytes, int offset, com.openrsc.client.model.Tile tile) {
-        tile.groundElevation = tileBytes[offset++];
-    }
-}
-"""
+LEGACY_NATIVE_CHUNK_SOURCE = ALPHA70_NATIVE_CHUNK_SOURCE
 LEGACY_NATIVE_SNAPSHOT_SOURCE = b"""package orsc;
 public final class NativeLayeredTerrainSnapshot {
     int targetSpecificSnapshotState;
@@ -354,7 +371,6 @@ def installed_client_source_roles() -> set[str]:
 def installed_client_transform_roles() -> set[str]:
     return {
         "runtime-compatibility-client-source-login-transform",
-        "runtime-compatibility-client-source-native-chunk-elevation-transform",
         "runtime-compatibility-client-source-native-uniform-elevation-transform",
     }
 
@@ -372,9 +388,9 @@ def installed_client_source_upgrade() -> dict:
             entry["supportedBeforeSha256"] = [hashlib.sha256(historical).hexdigest()]
         source_files.append(entry)
     return {
-        "schemaVersion": 4,
+        "schemaVersion": 5,
         "manifestType": "world-builder-installed-client-source-upgrade",
-        "upgradeId": "world-builder-installed-client-source-upgrade-v4",
+        "upgradeId": "world-builder-installed-client-source-upgrade-v5",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "sourceFiles": source_files,
         "dependencies": [
@@ -389,10 +405,6 @@ def installed_client_source_upgrade() -> dict:
             {
                 "transformId": "world-builder-installed-login-world-bootstrap-v2",
                 "destinationRelativePath": "src/orsc/mudclient.java",
-            },
-            {
-                "transformId": "world-builder-unsigned-native-chunk-elevation-v1",
-                "destinationRelativePath": "src/orsc/NativeLayeredTerrainChunk.java",
             },
             {
                 "transformId": "world-builder-unsigned-uniform-elevation-v1",
@@ -500,7 +512,7 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         managed_runtime_bundle(),
     )
     write_json(
-        server / "conf/world-builder/installed-client-source-upgrade-v4.json",
+        server / "conf/world-builder/installed-client-source-upgrade-v5.json",
         installed_client_source_upgrade(),
     )
     json_dependency = server / "lib/json-20190722.jar"

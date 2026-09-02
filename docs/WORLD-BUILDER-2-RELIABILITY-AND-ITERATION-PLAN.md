@@ -554,6 +554,18 @@ without replacing either complete target class. Boundary-value runtime tests,
 transactional import/undo/repeat tests, and owner visual retesting gate the next
 candidate.
 
+Owner checkpoint (2026-09-01): Alpha.70 proved terrain, layers, and custom NPCs
+through elevation 255, then crashed when a v2 sector containing elevation 500
+entered the client's radius-two halo. Diagnostics proved the installed server
+sent the correct 11-byte v2 sector while the imported target client retained its
+historical fixed 10-byte chunk inflater. Installed-client upgrade v5 therefore
+owns `NativeLayeredTerrainChunk` and `NativeLayeredTerrainPacketDecoder` as one
+encoding-aware protocol unit: recognized Alpha.69 and Alpha.70 revisions are
+replaced transactionally with the provider's v1/u8 plus v2/u16 implementation,
+while unknown custom revisions fail before mutation. An executable mixed-v1/v2
+v9 halo regression now materializes elevation 500 and rejects mismatched declared
+encodings without changing residency.
+
 ### 7. Integrate and release deliberately
 
 - [x] Review the complete Editor diff and any independent runtime-provider diff

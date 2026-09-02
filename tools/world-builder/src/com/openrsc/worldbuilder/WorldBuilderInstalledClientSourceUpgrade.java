@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -13,8 +14,8 @@ import java.util.regex.Pattern;
 /** Applies the bounded installed-client bootstrap while preserving target content. */
 final class WorldBuilderInstalledClientSourceUpgrade {
 	static final String SOURCE =
-		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v4.json";
-	static final String ID = "world-builder-installed-client-source-upgrade-v4";
+		"working/runtime/server/conf/world-builder/installed-client-source-upgrade-v5.json";
+	static final String ID = "world-builder-installed-client-source-upgrade-v5";
 	private static final String JSON_SOURCE =
 		"server/lib/json-20190722.jar";
 	static final String JSON_DESTINATION =
@@ -27,6 +28,8 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		"client/world-builder-source/orsc/AdaptiveWorldBuilderClientSession.java",
 		"client/world-builder-source/orsc/ProjectContentBundle.java",
 		"client/world-builder-source/orsc/ProjectNpcAnimationRegistry.java",
+		"client/world-builder-source/orsc/NativeLayeredTerrainChunk.java",
+		"client/world-builder-source/orsc/NativeLayeredTerrainPacketDecoder.java",
 		"client/world-builder-source/com/openrsc/client/model/Tile.java",
 		"client/world-builder-source/orsc/WorldBuilderClientProfile.java",
 		"client/world-builder-source/orsc/WorldBuilderInstalledClientProfile.java",
@@ -38,6 +41,8 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		"src/orsc/AdaptiveWorldBuilderClientSession.java",
 		"src/orsc/ProjectContentBundle.java",
 		"src/orsc/ProjectNpcAnimationRegistry.java",
+		"src/orsc/NativeLayeredTerrainChunk.java",
+		"src/orsc/NativeLayeredTerrainPacketDecoder.java",
 		"src/com/openrsc/client/model/Tile.java",
 		"src/orsc/WorldBuilderClientProfile.java",
 		"src/orsc/WorldBuilderInstalledClientProfile.java",
@@ -48,22 +53,20 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 	private static final String[] POLICIES = {
 		"add-or-exact", "add-or-exact", "add-or-exact",
 		"replace-supported-historical", "replace-supported-historical",
+		"replace-supported-historical", "replace-supported-historical",
 		"add-or-exact", "add-or-exact", "add-or-exact",
 		"replace-supported-historical"
 	};
 	private static final String[] TRANSFORM_IDS = {
 		"world-builder-installed-login-world-bootstrap-v2",
-		"world-builder-unsigned-native-chunk-elevation-v1",
 		"world-builder-unsigned-uniform-elevation-v1"
 	};
 	private static final String[] TRANSFORM_PATHS = {
 		"src/orsc/mudclient.java",
-		"src/orsc/NativeLayeredTerrainChunk.java",
 		"src/orsc/NativeLayeredTerrainSnapshot.java"
 	};
 	private static final String[] TRANSFORM_ROLES = {
 		"runtime-compatibility-client-source-login-transform",
-		"runtime-compatibility-client-source-native-chunk-elevation-transform",
 		"runtime-compatibility-client-source-native-uniform-elevation-transform"
 	};
 	private static final Pattern PROFILE_LOGIN_WORLD = Pattern.compile(
@@ -81,16 +84,6 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 			+ "\\(\\s*int\\s+[A-Za-z_$][A-Za-z0-9_$]*\\s*\\)\\s*\\{"
 			+ "[\\t ]*\\r?\\n[\\t ]*try\\s*\\{)");
 
-	private static final Pattern LEGACY_CHUNK_ELEVATION = Pattern.compile(
-		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
-			+ "tileBytes\\s*\\[\\s*offset\\s*\\+\\+\\s*\\]\\s*;");
-	private static final Pattern UNSIGNED_CHUNK_ELEVATION = Pattern.compile(
-		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
-			+ "tileBytes\\s*\\[\\s*offset\\s*\\+\\+\\s*\\]\\s*"
-			+ "&\\s*0xff\\s*;");
-	private static final Pattern WIDE_CHUNK_ELEVATION = Pattern.compile(
-		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
-			+ "tileWireBytes\\s*==\\s*WIDE_TILE_WIRE_BYTES\\s*\\?");
 	private static final Pattern LEGACY_UNIFORM_ELEVATION = Pattern.compile(
 		"tile\\s*\\.\\s*groundElevation\\s*=\\s*"
 			+ "\\(\\s*byte\\s*\\)\\s*elevation\\s*;");
@@ -113,7 +106,7 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		} catch (WorldBuilderDiscoveryException invalid) {
 			throw problem(SOURCE, "Installed client source upgrade is malformed.");
 		}
-		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 4L
+		if (WorldBuilderAdaptiveExporter.integer(manifest, "schemaVersion") != 5L
 			|| !"world-builder-installed-client-source-upgrade".equals(
 				WorldBuilderAdaptiveExporter.string(manifest, "manifestType"))
 			|| !ID.equals(WorldBuilderAdaptiveExporter.string(manifest, "upgradeId"))
@@ -207,16 +200,23 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 				throw problem(SOURCE,
 					"Installed client source upgrade file set is unsupported.");
 			}
-			String supportedBefore = "";
+			List<String> supportedBefore = new ArrayList<String>();
 			if ("replace-supported-historical".equals(policy)) {
 				List<?> supported = WorldBuilderAdaptiveExporter.array(
 					entry.get("supportedBeforeSha256"), "supportedBeforeSha256");
-				if (supported.size() != 1 || !(supported.get(0) instanceof String)
-					|| !((String)supported.get(0)).matches("[0-9a-f]{64}")) {
+				if (supported.isEmpty() || supported.size() > 8) {
 					throw problem(SOURCE,
 						"Installed client historical source boundary is unsupported.");
 				}
-				supportedBefore = (String)supported.get(0);
+				for (Object rawHash : supported) {
+					if (!(rawHash instanceof String)
+						|| !((String)rawHash).matches("[0-9a-f]{64}")
+						|| supportedBefore.contains(rawHash)) {
+						throw problem(SOURCE,
+							"Installed client historical source boundary is unsupported.");
+					}
+					supportedBefore.add((String)rawHash);
+				}
 			} else if (entry.containsKey("supportedBeforeSha256")) {
 				throw problem(SOURCE,
 					"Installed client additive source boundary is unsupported.");
@@ -244,7 +244,7 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 				"Target contains a customized file at an additive World Builder runtime boundary.",
 				"Preserve that source separately or restore the supported runtime source before Import.");
 			if ("replace-supported-historical".equals(policy)
-				&& (!present || !supportedBefore.equals(targetHash))) {
+				&& (!present || !supportedBefore.contains(targetHash))) {
 				throw sourceProblem(clientRoot + "/" + destination,
 					"Target client runtime source is neither current nor a supported historical revision.",
 					"Upgrade from a recognized source revision or integrate the current runtime source once.");
@@ -303,9 +303,7 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 		}
 		String rendered = transformIndex == 0
 			? renderLoginWorldBootstrap(original, destination)
-			: transformIndex == 1
-				? renderUnsignedChunkElevation(original, destination)
-				: renderUnsignedUniformElevation(original, destination);
+			: renderUnsignedUniformElevation(original, destination);
 		byte[] afterBytes = rendered.getBytes(StandardCharsets.UTF_8);
 		WorldBuilderAdaptiveMutationProfile.FileState before =
 			WorldBuilderAdaptiveMutationProfile.FileState.present(
@@ -319,27 +317,6 @@ final class WorldBuilderInstalledClientSourceUpgrade {
 			before, after, WorldBuilderRuntimeCompatibility.transactionContent(
 				"client-source-" + TRANSFORM_IDS[transformIndex], ".java"),
 			"backups/{transaction}/before/" + destination, true, afterBytes));
-	}
-
-	static String renderUnsignedChunkElevation(String original, String destination)
-		throws WorldBuilderContractException {
-		int legacy = occurrences(LEGACY_CHUNK_ELEVATION, original);
-		int unsigned = occurrences(UNSIGNED_CHUNK_ELEVATION, original);
-		int wide = occurrences(WIDE_CHUNK_ELEVATION, original);
-		if (legacy == 0 && unsigned + wide == 1) return original;
-		if (legacy != 1 || unsigned != 0 || wide != 0) throw sourceProblem(
-			destination,
-			"Target NativeLayeredTerrainChunk.java does not match the supported elevation materialization boundary.",
-			"Restore the recognized target client source and retry Import.");
-		String rendered = LEGACY_CHUNK_ELEVATION.matcher(original).replaceFirst(
-			"tile.groundElevation = tileBytes[offset++] & 0xff;");
-		if (occurrences(LEGACY_CHUNK_ELEVATION, rendered) != 0
-			|| occurrences(UNSIGNED_CHUNK_ELEVATION, rendered) != 1) {
-			throw sourceProblem(destination,
-				"Target native chunk elevation upgrade was not exact.",
-				"Restore the recognized target client source and retry Import.");
-		}
-		return rendered;
 	}
 
 	static String renderUnsignedUniformElevation(String original, String destination)

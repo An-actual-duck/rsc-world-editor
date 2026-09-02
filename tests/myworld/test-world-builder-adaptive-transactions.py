@@ -1363,12 +1363,17 @@ public final class mudclient {
                 mudclient_source.read_text(encoding="utf-8"),
             )
             self.assertIn(
-                "tile.groundElevation = tileBytes[offset++] & 0xff;",
+                "WIDE_TILE_WIRE_BYTES = 11",
                 native_chunk_source.read_text(encoding="utf-8"),
             )
+            native_decoder_source = client_source / "NativeLayeredTerrainPacketDecoder.java"
             self.assertIn(
-                "targetSpecificChunkState",
-                native_chunk_source.read_text(encoding="utf-8"),
+                "WIDE_TILE_WIRE_BYTES = 11",
+                native_decoder_source.read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "declaredEncodingVersion",
+                native_decoder_source.read_text(encoding="utf-8"),
             )
             self.assertIn(
                 "tile.groundElevation = elevation;",
@@ -1623,7 +1628,7 @@ public final class mudclient {
             self.assertIn("different JSON dependency", preview.stderr)
             self.assertEqual(before, project_support.tree_bytes(target))
 
-    def test_import_rejects_ambiguous_native_elevation_transform(self):
+    def test_import_rejects_unrecognized_native_protocol_revision(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-client-elevation-drift-") as temp:
             target, _, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -1634,11 +1639,7 @@ public final class mudclient {
                 client_root = target / "Client_Base"
             chunk = client_root / "src/orsc/NativeLayeredTerrainChunk.java"
             source = chunk.read_text(encoding="utf-8")
-            source = source.replace(
-                "        tile.groundElevation = tileBytes[offset++];\n",
-                "        tile.groundElevation = tileBytes[offset++];\n"
-                "        tile.groundElevation = tileBytes[offset++];\n",
-            )
+            source += "// unrecognized target protocol customization\n"
             chunk.write_text(source, encoding="utf-8")
             before = project_support.tree_bytes(target)
 
@@ -1647,7 +1648,7 @@ public final class mudclient {
                 "--target-root", target,
             )
             self.assertEqual(3, preview.returncode)
-            self.assertIn("elevation materialization boundary", preview.stderr)
+            self.assertIn("neither current nor a supported historical revision", preview.stderr)
             self.assertEqual(before, project_support.tree_bytes(target))
 
     def test_import_upgrades_v1_runtime_for_blocking_base_color(self):
@@ -1901,7 +1902,7 @@ public final class mudclient {
                 capability["serverBuildId"],
             )
             self.assertEqual(
-                "fixture-installed-client-source-v6",
+                "fixture-installed-client-source-v7",
                 capability["clientBuildId"],
             )
             configuration = json.loads(
