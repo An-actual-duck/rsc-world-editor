@@ -207,13 +207,14 @@ final class WorldBuilderProjectContentBundle {
 				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
 		WorldBuilderDefinitionComposition.Profile composition =
 			WorldBuilderDefinitionComposition.inspect(copied, sourceLayout);
-		boolean supplementalNpcs = WorldBuilderSupplementalNpcDefinitions
-			.hasSupplemental(copiedTarget, sourceLayout);
+		WorldBuilderSupplementalNpcDefinitions.Result npcRegistry =
+			WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
 			"target-adopted-content-v2", sourceLayout, composition);
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
 			WorldBuilderNpcDefinitionProvider.consume(
-				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds);
+				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds,
+				npcRegistry.customRows);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
 			WorldBuilderSceneryModelProvider.normalize(copiedTarget, runtime);
 		Map<String,Object> packagedCatalog =
@@ -286,11 +287,11 @@ final class WorldBuilderProjectContentBundle {
 				Files.write(destination, sceneryMigration.definitionsOverride);
 				overridden = true;
 			} else if ("definition.npc.custom".equals(spec.role)
-				&& (npcMigration.changed() || supplementalNpcs)) {
+				&& (npcMigration.changed() || npcRegistry.changed())) {
 				Files.write(destination, npcMigration.changed()
 					? npcMigration.customDefinitions
-					: WorldBuilderSupplementalNpcDefinitions.mergedCustomJson(
-						copiedTarget, sourceLayout));
+					: WorldBuilderSupplementalNpcDefinitions.customJson(
+						npcRegistry.customRows));
 				overridden = true;
 			} else if (materialMigration.changed()
 				&& "asset.sprite.custom".equals(spec.role)) {
@@ -321,6 +322,8 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
+		WorldBuilderNpcDefinitionReconciliation.writeReport(
+			projectStage, copiedTarget, sourceLayout, npcRegistry);
 		WorldBuilderSceneryModelProvider.writeReport(projectStage, sceneryMigration);
 		WorldBuilderTerrainMaterialProvider.writeReport(
 			projectStage, materialMigration);

@@ -314,6 +314,17 @@ ignored and cannot block or alter a modern composition. Cross-layer
 replacement is allowed only through the declared deterministic precedence
 order and is always reported.
 
+Additional bounded `*NpcDefs.json` catalogs are discovered without a compiled
+allowlist of NPC names or IDs. Their declared IDs determine the project-local
+sequential registry, independent of filename order; sparse IDs receive inert
+reserved records. A declared ID already occupied by the base, custom, or an
+earlier supplemental definition is the only automatic-reassignment case. The
+later definition receives the next deterministic free ID, existing spawns keep
+their original meaning, and
+`diagnostics/npc-definition-reconciliation-v1.json` records both definitions,
+the reassignment, and every matching source spawn coordinate for manual review.
+Targets remain read-only throughout discovery and project creation.
+
 Descriptor-backed v1 targets that expose no ordinary gameplay configuration
 retain the legacy supplied Patch18/world closure for compatibility. New packed
 discovery with a readable configuration never guesses from filenames: a modern

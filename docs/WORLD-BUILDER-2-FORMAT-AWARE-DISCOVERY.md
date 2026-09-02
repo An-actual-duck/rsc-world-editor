@@ -551,6 +551,15 @@ historical conflicts remain diagnostic-only. This reconciliation runs over
 every NPC and ground-item ID, so collisions are discovered as a class of data
 issue rather than repaired with per-ID name exceptions.
 
+Server-owned supplemental `*NpcDefs.json` catalogs are also discovered as data,
+not through a World Builder NPC registry. Unique declared IDs are incorporated
+automatically even when catalog filenames sort differently. True ID collisions
+are assigned the next deterministic free ID and surfaced once to the creator;
+the project diagnostic `diagnostics/npc-definition-reconciliation-v1.json`
+lists the conflicting definitions and all source spawn coordinates retaining
+the original ID. This keeps detection generic while making ambiguous spawn
+ownership visible instead of blocking every newly introduced NPC.
+
 The fourth source-path increment completes the reviewed flattened server
 profiles. Definitions and placements may additionally reside under
 `conf/server/defs` or `data/definitions`, while server terrain may reside under

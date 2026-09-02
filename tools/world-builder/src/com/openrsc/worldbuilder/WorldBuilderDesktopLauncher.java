@@ -1412,6 +1412,9 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 					@Override public void accept(
 						WorldBuilderAdaptiveProjectLifecycle.ProjectResult created) {
+						String reconciliationWarning =
+							WorldBuilderNpcDefinitionReconciliation.projectWarningSummary(
+								created.projectRoot);
 						String npcWarning =
 							WorldBuilderNpcDefinitionProvider.projectWarningSummary(
 								created.projectRoot);
@@ -1421,12 +1424,23 @@ final class WorldBuilderDesktopLauncher {
 						String materialWarning =
 							WorldBuilderTerrainMaterialProvider.projectWarningSummary(
 								created.projectRoot);
-						String warnings = (npcWarning == null ? "" : npcWarning)
+						String warnings = (reconciliationWarning == null
+							? "" : reconciliationWarning)
+							+ (npcWarning == null ? "" : npcWarning)
 							+ (sceneryWarning == null ? "" : sceneryWarning)
 							+ (materialWarning == null ? "" : materialWarning);
 						status.setText(warnings.isEmpty()
 							? "Project created; opening the editor…"
-							: "Project created with provider warnings; opening the editor…");
+							: "Project created with content warnings; opening the editor…");
+						if (reconciliationWarning != null) {
+							JTextArea notice = readOnlyText();
+							notice.setRows(8);
+							notice.setColumns(58);
+							notice.setText(reconciliationWarning);
+							notice.setCaretPosition(0);
+							JOptionPane.showMessageDialog(frame, new JScrollPane(notice),
+								"NPC IDs Reconciled", JOptionPane.WARNING_MESSAGE);
+						}
 						launchProject(created.projectId,
 							"standalone-empty".equals(created.origin)
 								? null : preview.source);

@@ -6306,10 +6306,10 @@ public final class UpgradeNpcPlacements {
             target = self.fixtures.legacy_fixture(str(base))
             definitions = target / "server/conf/server/defs"
             write_json(definitions / "VisualTestNpcDefs.json", {
-                "npcs": [{"id": 4, "name": "Visual supplemental"}],
+                "npcs": [{"id": 3, "name": "Visual supplemental"}],
             })
             write_json(definitions / "MonsterSlayerNpcDefs.json", {
-                "npcs": [{"id": 3, "name": "Monster supplemental"}],
+                "npcs": [{"id": 4, "name": "Monster supplemental"}],
             })
             server_terrain = (
                 target / "server/conf/server/data/Custom_Landscape.orsc"
@@ -6339,8 +6339,77 @@ public final class UpgradeNpcPlacements {
                 "NpcDefsCustom.json"
             ).read_text(encoding="utf-8"))["npcs"]
             self.assertEqual("custom-appended", custom[0]["name"])
-            self.assertEqual("Monster supplemental", custom[1]["name"])
-            self.assertEqual("Visual supplemental", custom[2]["name"])
+            self.assertEqual("Visual supplemental", custom[1]["name"])
+            self.assertEqual("Monster supplemental", custom[2]["name"])
+            self.assertEqual([2, 3, 4], [row["id"] for row in custom[:3]])
+            self.assertEqual(target_before, tree_bytes(target))
+
+    def test_supplemental_npc_id_conflict_is_reassigned_with_spawn_audit(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-project-npc-conflict-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "QuestGreenDragonNpcDefs.json", {
+                "npcs": [{"id": 1, "name": "Quest green dragon"}],
+            })
+            write_json(definitions / "StandardGreenDragonNpcDefs.json", {
+                "npcs": [{"id": 4, "name": "Green dragon"}],
+            })
+            write_json(definitions / "locs/MyWorldNpcLocs.json", {
+                "npclocs": [{
+                    "id": 1,
+                    "start": {"X": 12, "Y": 10},
+                    "min": {"X": 12, "Y": 10},
+                    "max": {"X": 12, "Y": 10},
+                }],
+            })
+            server_terrain = (
+                target / "server/conf/server/data/Custom_Landscape.orsc"
+            )
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(
+                server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc",
+            )
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            discovery_report = base / "report.json"
+            self.discover(target, discovery_report)
+            target_before = tree_bytes(target)
+
+            created, summary = self.create_project(
+                installation, runtime, target, discovery_report,
+                "NPC conflict reconciliation", 43845,
+            )
+
+            self.assertEqual(0, created.returncode, created.stdout + created.stderr)
+            project = Path(summary["projectRoot"])
+            custom = json.loads((
+                project / "source/content-bundle/files/server/conf/server/defs/"
+                "NpcDefsCustom.json"
+            ).read_text(encoding="utf-8"))["npcs"]
+            self.assertEqual([2, 3, 4, 5], [row["id"] for row in custom[:4]])
+            self.assertEqual("Unused NPC definition slot 3", custom[1]["name"])
+            self.assertEqual("Green dragon", custom[2]["name"])
+            self.assertEqual("Quest green dragon", custom[3]["name"])
+
+            reconciliation = json.loads((
+                project / "diagnostics/npc-definition-reconciliation-v1.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual("reconciled", reconciliation["status"])
+            self.assertEqual(2, reconciliation["discoveredDefinitionCount"])
+            self.assertEqual(1, reconciliation["generatedGapDefinitionCount"])
+            self.assertEqual(1, len(reconciliation["conflicts"]))
+            conflict = reconciliation["conflicts"][0]
+            self.assertEqual(1, conflict["requestedId"])
+            self.assertEqual(5, conflict["assignedId"])
+            self.assertEqual("base-1", conflict["existingDefinition"]["name"])
+            self.assertEqual(
+                {"X": 12, "Y": 10},
+                conflict["spawnLocationsForRequestedId"][0]["start"],
+            )
             self.assertEqual(target_before, tree_bytes(target))
 
     def test_active_definition_overlay_cannot_repeat_an_id(self):
