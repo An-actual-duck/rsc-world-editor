@@ -294,30 +294,35 @@ Preview reports:
 - every placement owned by the destination polygon;
 - represented boundary edges and NPC roam footprints entering the destination
   from placements anchored outside it;
-- missing coverage or preserved occupied content under an incoming crossing
-  boundary/NPC footprint;
+- missing coverage or occupied content under an incoming crossing boundary/NPC
+  footprint;
 - the complete deterministic source-placement-ID to destination-local-ID map;
 - the exact file hashes that an allowed operation would change.
 
 Placement IDs remain unchanged in snapshot provenance. Paste preserves an ID
 when locally available and otherwise derives a deterministic project/snapshot-
 bound destination ID, so Copy then Paste works without deleting or changing
-the source placements. Missing coverage, crossing footprints, incompatible
-dependencies, overflow, or malformed content is blocking and yields no file
-authority. Non-void terrain or destination-owned placements set
-`overwriteRequired`. A normal paste requires literal
+the source placements. Missing coverage, incompatible dependencies, overflow,
+or malformed content is blocking and yields no file authority. Non-void terrain
+or any destination placement replaced by the incoming region sets
+`overwriteRequired`; placement collisions are replacement-preview records, not
+blockers. A normal paste requires literal
 `PASTE <plan-sha256>`; an overwrite requires the separate literal
 `OVERWRITE <plan-sha256>`. There is no force, partial, merge, clipping,
 rotation, mirroring, or selective-family mode.
 
-Represented footprint work is rectangle- and sector-based. Snapshot and
-destination inventories each have an explicit aggregate one-million-tile
-footprint budget, the 48-by-48 spatial index has a one-million-entry budget,
-and cumulative candidate scans are bounded. NPC roam rectangles are never
-expanded into in-memory point lists or repeatedly compared tile-by-placement.
+Represented footprint work is rectangle- and sector-based. Incoming snapshot
+footprints have an explicit aggregate one-million-tile budget. Destination
+indexing is limited to spatial cells relevant to the incoming footprints; the
+48-by-48 spatial index has a one-million-entry budget, and cumulative candidate
+scans are bounded. NPC roam rectangles are never expanded into in-memory point
+lists or repeatedly compared tile-by-placement.
 
-Overwrite clears placements owned by the destination polygon before restoring
-the complete snapshot. Content outside that ownership polygon is preserved.
+Overwrite clears every destination boundary, ground item, NPC, and scenery
+placement owned by the destination polygon. It also clears placements whose
+represented footprint enters that polygon or overlaps an incoming represented
+footprint, then restores the complete four-family snapshot atomically. Content
+outside that exact replacement set is preserved.
 The staged complete package must pass the same generic validator before the
 copy-on-write publication and project save.
 

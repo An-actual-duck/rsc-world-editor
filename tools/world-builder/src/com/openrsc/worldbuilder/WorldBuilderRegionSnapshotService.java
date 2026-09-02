@@ -786,6 +786,7 @@ final class WorldBuilderRegionSnapshotService {
 			snapshot, level, x, y);
 		WorldBuilderRegionContracts.Geometry destination = translatedGeometry(snapshot, x, y);
 		Set<Integer> destinationLevels = new HashSet<Integer>();
+		Set<String> replacedPlacements = new HashSet<String>();
 		boolean blocked = false;
 		boolean overwrite = false;
 		for (Object rawLevel : list(snapshot.root, "levels")) {
@@ -823,21 +824,25 @@ final class WorldBuilderRegionSnapshotService {
 				for (Object raw : list(payload, family)) {
 					Map<String,Object> record = map(raw);
 					Point owner = owner(family, record);
+					boolean representedInside = footprintIntersects(family, record, destination);
 					if (destination.owns(owner.x, owner.y)) {
 						addCollision(collisions, "occupied-" + singularFamily(family),
 							targetLevel.intValue(), owner.x, owner.y,
-							"Destination selection owns an existing placement.");
+							"Confirmed overwrite replaces this destination placement.");
+						replacedPlacements.add(placementKey(
+							targetLevel.intValue(), family, record));
 						overwrite = true;
-					} else if (("boundaries".equals(family) || "npcs".equals(family))
-						&& footprintIntersects(family, record, destination)) {
+					} else if (representedInside) {
 						addCollision(collisions, "represented-" + singularFamily(family)
 							+ "-crossing", targetLevel.intValue(), owner.x, owner.y,
-							"Preserved " + singularFamily(family) + " "
+							"Confirmed overwrite replaces " + singularFamily(family) + " "
 								+ text(record, "placementId")
-								+ " is anchored outside but represented inside the destination.");
-						blocked = true;
+								+ ", which is anchored outside but represented inside the destination.");
+						replacedPlacements.add(placementKey(
+							targetLevel.intValue(), family, record));
+						overwrite = true;
 					}
-					if (!destination.owns(owner.x, owner.y)) {
+					if (!representedInside) {
 						preserved.addRelevant(targetLevel.intValue(), family, record,
 							incomingSpatialCells);
 					}
@@ -859,18 +864,19 @@ final class WorldBuilderRegionSnapshotService {
 				}
 				for (PlacementRef occupied : preserved.query(targetLevel, incomingFootprint)) {
 					if (!incomingFootprint.intersects(occupied.footprint)) continue;
+					if (!replacedPlacements.add(occupied.replacementKey)) continue;
 					Point overlap = incomingFootprint.firstIntersection(occupied.footprint);
 					addCollision(collisions, "incoming-footprint-occupied", targetLevel,
-						overlap.x, overlap.y, "Incoming " + singularFamily(family)
-							+ " footprint overlaps preserved "
+						overlap.x, overlap.y, "Confirmed overwrite replaces "
 							+ singularFamily(occupied.family) + " "
-							+ occupied.placementId + ".");
-					blocked = true;
+							+ occupied.placementId + ", whose footprint overlaps incoming "
+							+ singularFamily(family) + ".");
+					overwrite = true;
 				}
 			}
 		}
 		List<Object> idMappings = allocatePlacementIds(verified, snapshot, live,
-			destinationLevels, destination);
+			destinationLevels, destination, replacedPlacements);
 		Collections.sort(collisions, canonicalComparator());
 		if (blocked) return planOnly(verified, snapshot, "paste", level, x, y,
 			collisions, idMappings, overwrite, true);
@@ -879,7 +885,8 @@ final class WorldBuilderRegionSnapshotService {
 		try {
 			PackageState state = PackageState.read(verified.projectRoot,
 				relativeStage(verified.projectRoot, stage));
-			removeDestinationPlacements(state, destinationLevels, destination);
+			removeDestinationPlacements(state, destinationLevels, destination,
+				replacedPlacements);
 			applySnapshotTiles(state, snapshot, level, x, y, false);
 			addSnapshotPlacements(state, snapshot, level, x, y, idMappings);
 			String afterWorking = state.writeAndValidate(verified);
@@ -920,11 +927,13 @@ final class WorldBuilderRegionSnapshotService {
 		throws WorldBuilderContractException {
 		WorldBuilderRegionContracts.Geometry geometry = translatedGeometry(snapshot, x, y);
 		Set<Integer> levels = snapshotLevels(snapshot, level);
-		removeDestinationPlacements(state, levels, geometry);
+		removeDestinationPlacements(state, levels, geometry,
+			Collections.<String>emptySet());
 	}
 
 	private static void removeDestinationPlacements(PackageState state,
-		Set<Integer> levels, WorldBuilderRegionContracts.Geometry geometry)
+		Set<Integer> levels, WorldBuilderRegionContracts.Geometry geometry,
+		Set<String> replacedPlacements)
 		throws WorldBuilderContractException {
 		for (Integer level : levels) {
 			Map<String,Object> payload = state.placements.get(level);
@@ -934,7 +943,9 @@ final class WorldBuilderRegionSnapshotService {
 				for (Object raw : list(payload, family)) {
 					Map<String,Object> record = map(raw);
 					Point point = owner(family, record);
-					if (!geometry.owns(point.x, point.y)) kept.add(record);
+					if (!geometry.owns(point.x, point.y)
+						&& !replacedPlacements.contains(placementKey(
+							level.intValue(), family, record))) kept.add(record);
 				}
 				payload.put(family, kept);
 			}
@@ -1068,7 +1079,8 @@ final class WorldBuilderRegionSnapshotService {
 	private static List<Object> allocatePlacementIds(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified,
 		WorldBuilderRegionContracts.Snapshot snapshot, PackageState live,
-		Set<Integer> destinationLevels, WorldBuilderRegionContracts.Geometry destination)
+		Set<Integer> destinationLevels, WorldBuilderRegionContracts.Geometry destination,
+		Set<String> replacedPlacements)
 		throws WorldBuilderContractException {
 		Set<String> used = new HashSet<String>();
 		for (Map.Entry<Integer,Map<String,Object>> entry : live.placements.entrySet()) {
@@ -1077,7 +1089,9 @@ final class WorldBuilderRegionSnapshotService {
 					Map<String,Object> record = map(raw);
 					Point owner = owner(family, record);
 					if (!(destinationLevels.contains(entry.getKey())
-						&& destination.owns(owner.x, owner.y))) {
+						&& (destination.owns(owner.x, owner.y)
+							|| replacedPlacements.contains(placementKey(
+								entry.getKey().intValue(), family, record))))) {
 						used.add(text(record, "placementId"));
 					}
 				}
@@ -3102,11 +3116,18 @@ final class WorldBuilderRegionSnapshotService {
 	private static final class PlacementRef {
 		final String family;
 		final String placementId;
+		final String replacementKey;
 		final Footprint footprint;
-		PlacementRef(String family, Map<String,Object> record) {
+		PlacementRef(int level, String family, Map<String,Object> record) {
 			this.family = family; this.placementId = text(record, "placementId");
+			this.replacementKey = placementKey(level, family, record);
 			this.footprint = footprint(family, record);
 		}
+	}
+
+	private static String placementKey(int level, String family,
+		Map<String,Object> record) {
+		return level + "\u0000" + family + "\u0000" + text(record, "placementId");
 	}
 
 	private static Set<String> incomingSpatialCells(
@@ -3149,7 +3170,7 @@ final class WorldBuilderRegionSnapshotService {
 		void addRelevant(int level, String family, Map<String,Object> record,
 			Set<String> relevantCells)
 			throws WorldBuilderContractException {
-			PlacementRef reference = new PlacementRef(family, record);
+			PlacementRef reference = new PlacementRef(level, family, record);
 			for (long cellX = Math.floorDiv(reference.footprint.minimumX, 48);
 				cellX <= (long)Math.floorDiv(reference.footprint.maximumX, 48); cellX++) {
 				for (long cellY = Math.floorDiv(reference.footprint.minimumY, 48);

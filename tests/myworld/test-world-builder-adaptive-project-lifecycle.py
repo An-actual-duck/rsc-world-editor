@@ -3480,6 +3480,63 @@ public final class UpgradeNpcPlacements {
                     {record["placementId"] for record in result[family]},
                 )
 
+            placement_path = package / "placements/global/lp0.json"
+            replacement_fixture = json.loads(
+                placement_path.read_text(encoding="utf-8")
+            )
+            destination_ids = set(mapping_by_source.values())
+            for value in replacement_fixture["boundaries"]:
+                if value["placementId"] in destination_ids:
+                    value["direction"] = (value["direction"] + 1) % 4
+            for value in replacement_fixture["groundItems"]:
+                if value["placementId"] in destination_ids:
+                    value["amount"] = 2
+            for value in replacement_fixture["npcs"]:
+                if value["placementId"] in destination_ids:
+                    value["respawnSeconds"] = 10
+            for value in replacement_fixture["scenery"]:
+                if value["placementId"] in destination_ids:
+                    value["direction"] = (value["direction"] + 1) % 8
+            write_json(placement_path, replacement_fixture)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            next(value for value in manifest["placementSets"] if value["level"] == 0)[
+                "sha256"
+            ] = sha256(placement_path)
+            write_json(manifest_path, manifest)
+            saved = self.run_cli("save-project", "--project", project)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+
+            replacement_preview = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648"
+            )
+            self.assertEqual(0, replacement_preview.returncode, replacement_preview.stderr)
+            replacement_plan = json.loads(replacement_preview.stdout)["operationPlan"]
+            self.assertFalse(replacement_plan["blocked"])
+            self.assertTrue(replacement_plan["overwriteRequired"])
+            self.assertEqual(
+                {"occupied-boundary", "occupied-ground-item", "occupied-npc",
+                 "occupied-scenery"},
+                {
+                    value["kind"] for value in replacement_plan["collisions"]
+                    if value["kind"].startswith("occupied-")
+                },
+            )
+            replacement_hash = replacement_plan["planFingerprintSha256"]
+            replaced = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "125", "--y", "648",
+                "--expected-plan", replacement_hash, "--confirm",
+                "OVERWRITE " + replacement_hash
+            )
+            self.assertEqual(0, replaced.returncode, replaced.stderr)
+            replacement_result = json.loads(
+                (package / "placements/global/lp0.json").read_text(encoding="utf-8")
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(2, len(replacement_result[family]))
+
     def test_region_publication_recovers_every_durable_exchange_milestone(self):
         milestones = {
             "staged-package-durable": "before",
@@ -4065,7 +4122,7 @@ public final class UpgradeNpcPlacements {
             self.assertFalse((base / "tampered-export.wbr").exists())
             canonical_library.write_bytes(canonical_bytes)
 
-    def test_region_preview_blocks_external_and_incoming_crossing_footprints(self):
+    def test_region_preview_replaces_external_crossings_and_blocks_unavailable_footprints(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-footprints-") as temp:
             base = Path(temp)
             installation = base / "World Builder 2"
@@ -4082,6 +4139,16 @@ public final class UpgradeNpcPlacements {
             project = Path(summary["projectRoot"])
             package = project / "working/layered-world/package"
             self.place_representative_definitions(project)
+            placement_path = package / "placements/global/lp0.json"
+            placement = json.loads(placement_path.read_text(encoding="utf-8"))
+            placement["npcs"][0]["roamBounds"]["maximum"]["x"] = 122
+            write_json(placement_path, placement)
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            next(value for value in manifest["placementSets"] if value["level"] == 0)[
+                "sha256"
+            ] = sha256(placement_path)
+            write_json(manifest_path, manifest)
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
             selection = base / "selection.json"
@@ -4095,7 +4162,6 @@ public final class UpgradeNpcPlacements {
             self.assertEqual(0, copied.returncode, copied.stderr)
             snapshot_id = json.loads(copied.stdout)["snapshotId"]
 
-            placement_path = package / "placements/global/lp0.json"
             placement = json.loads(placement_path.read_text(encoding="utf-8"))
             placement["boundaries"].append(
                 {"boundaryId": 1, "direction": 1, "placementId": "outside-boundary",
@@ -4108,6 +4174,13 @@ public final class UpgradeNpcPlacements {
                  "respawnSeconds": -1,
                  "start": {"x": 118, "y": 648}}
             )
+            placement["npcs"].append(
+                {"npcId": 2, "placementId": "incoming-overlap-npc",
+                 "roamBounds": {"minimum": {"x": 122, "y": 648},
+                                "maximum": {"x": 122, "y": 649}},
+                 "respawnSeconds": -1,
+                 "start": {"x": 122, "y": 648}}
+            )
             placement["boundaries"].sort(
                 key=lambda value: (value["position"]["x"], value["position"]["y"],
                                    value["direction"], value["placementId"])
@@ -4117,7 +4190,6 @@ public final class UpgradeNpcPlacements {
                                    value["placementId"])
             )
             write_json(placement_path, placement)
-            manifest_path = package / "manifest.json"
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             next(value for value in manifest["placementSets"] if value["level"] == 0)[
                 "sha256"
@@ -4132,10 +4204,37 @@ public final class UpgradeNpcPlacements {
             )
             self.assertEqual(0, external.returncode, external.stderr)
             external_plan = json.loads(external.stdout)["operationPlan"]
-            self.assertTrue(external_plan["blocked"])
+            self.assertFalse(external_plan["blocked"])
+            self.assertTrue(external_plan["overwriteRequired"])
             kinds = {value["kind"] for value in external_plan["collisions"]}
             self.assertIn("represented-boundary-crossing", kinds)
             self.assertIn("represented-npc-crossing", kinds)
+            self.assertIn("incoming-footprint-occupied", kinds)
+            external_hash = external_plan["planFingerprintSha256"]
+            replaced = self.run_cli(
+                "region-paste-apply", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "648",
+                "--expected-plan", external_hash, "--confirm",
+                "OVERWRITE " + external_hash
+            )
+            self.assertEqual(0, replaced.returncode, replaced.stderr)
+            replaced_placements = json.loads(
+                placement_path.read_text(encoding="utf-8")
+            )
+            self.assertNotIn(
+                "outside-boundary",
+                {value["placementId"] for value in replaced_placements["boundaries"]},
+            )
+            self.assertNotIn(
+                "outside-npc",
+                {value["placementId"] for value in replaced_placements["npcs"]},
+            )
+            self.assertNotIn(
+                "incoming-overlap-npc",
+                {value["placementId"] for value in replaced_placements["npcs"]},
+            )
+            for family in ("boundaries", "groundItems", "npcs", "scenery"):
+                self.assertEqual(1, len(replaced_placements[family]))
 
             incoming = self.run_cli(
                 "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
@@ -4257,7 +4356,8 @@ public final class UpgradeNpcPlacements {
             )
             self.assertEqual(0, limited_destination.returncode, limited_destination.stderr)
             destination_plan = json.loads(limited_destination.stdout)["operationPlan"]
-            self.assertTrue(destination_plan["blocked"])
+            self.assertFalse(destination_plan["blocked"])
+            self.assertTrue(destination_plan["overwriteRequired"])
             self.assertTrue(any(
                 value["kind"] == "represented-npc-crossing"
                 for value in destination_plan["collisions"]
