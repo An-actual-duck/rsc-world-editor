@@ -780,8 +780,10 @@ final class WorldBuilderRegionSnapshotService {
 				"incompatible-dependency", "Snapshot dependencies are incompatible.");
 		}
 		PackageState live = PackageState.read(verified.projectRoot, PACKAGE);
-		requirePackageFootprintBudget(live.placements, "destination package");
-		requireFootprintBudget(map(snapshot.root.get("placements")), "incoming snapshot");
+		Map<String,Object> incoming = map(snapshot.root.get("placements"));
+		requireFootprintBudget(incoming, "incoming snapshot");
+		Set<String> incomingSpatialCells = incomingSpatialCells(
+			snapshot, level, x, y);
 		WorldBuilderRegionContracts.Geometry destination = translatedGeometry(snapshot, x, y);
 		Set<Integer> destinationLevels = new HashSet<Integer>();
 		boolean blocked = false;
@@ -836,12 +838,12 @@ final class WorldBuilderRegionSnapshotService {
 						blocked = true;
 					}
 					if (!destination.owns(owner.x, owner.y)) {
-						preserved.add(targetLevel.intValue(), family, record);
+						preserved.addRelevant(targetLevel.intValue(), family, record,
+							incomingSpatialCells);
 					}
 				}
 			}
 		}
-		Map<String,Object> incoming = map(snapshot.root.get("placements"));
 		for (String family : placementFamilies()) {
 			for (Object raw : list(incoming, family)) {
 				Map<String,Object> absolute = absolutePlacement(family, map(raw), x, y);
@@ -2223,15 +2225,6 @@ final class WorldBuilderRegionSnapshotService {
 		return new Footprint(origin.x, origin.x, origin.y, origin.y);
 	}
 
-	private static void requirePackageFootprintBudget(
-		Map<Integer,Map<String,Object>> placements,
-		String label) throws WorldBuilderContractException {
-		long total = 0L;
-		for (Map<String,Object> payload : placements.values()) {
-			total = addFootprintBudget(payload, total, label);
-		}
-	}
-
 	private static void requireFootprintBudget(Map<String,Object> placements,
 		String label) throws WorldBuilderContractException {
 		addFootprintBudget(placements, 0L, label);
@@ -3116,23 +3109,57 @@ final class WorldBuilderRegionSnapshotService {
 		}
 	}
 
+	private static Set<String> incomingSpatialCells(
+		WorldBuilderRegionContracts.Snapshot snapshot, int level, int x, int y)
+		throws WorldBuilderContractException {
+		Set<String> cells = new HashSet<String>();
+		Map<String,Object> placements = map(snapshot.root.get("placements"));
+		for (String family : placementFamilies()) {
+			for (Object raw : list(placements, family)) {
+				Map<String,Object> relative = map(raw);
+				int targetLevel = checkedAdd(level,
+					integer(relative, "levelOffset"), "incoming footprint level");
+				Footprint footprint = footprint(family,
+					absolutePlacement(family, relative, x, y));
+				for (long cellX = Math.floorDiv(footprint.minimumX, 48);
+					cellX <= (long)Math.floorDiv(footprint.maximumX, 48); cellX++) {
+					for (long cellY = Math.floorDiv(footprint.minimumY, 48);
+						cellY <= (long)Math.floorDiv(footprint.maximumY, 48); cellY++) {
+						cells.add(spatialCellKey(targetLevel, cellX, cellY));
+						if (cells.size() > MAX_SPATIAL_INDEX_ENTRIES) throw problem(
+							WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placements",
+							"Incoming represented-footprint spatial cells exceed 1,000,000 entries.",
+							"Reduce the incoming snapshot footprint inventory.");
+					}
+				}
+			}
+		}
+		return cells;
+	}
+
+	private static String spatialCellKey(int level, long cellX, long cellY) {
+		return level + ":" + cellX + ":" + cellY;
+	}
+
 	private static final class SpatialIndex {
 		final Map<String,List<PlacementRef>> cells =
 			new HashMap<String,List<PlacementRef>>();
 		int entries;
 		long queryScans;
-		void add(int level, String family, Map<String,Object> record)
+		void addRelevant(int level, String family, Map<String,Object> record,
+			Set<String> relevantCells)
 			throws WorldBuilderContractException {
 			PlacementRef reference = new PlacementRef(family, record);
 			for (long cellX = Math.floorDiv(reference.footprint.minimumX, 48);
 				cellX <= (long)Math.floorDiv(reference.footprint.maximumX, 48); cellX++) {
 				for (long cellY = Math.floorDiv(reference.footprint.minimumY, 48);
 					cellY <= (long)Math.floorDiv(reference.footprint.maximumY, 48); cellY++) {
+					String key = spatialCellKey(level, cellX, cellY);
+					if (!relevantCells.contains(key)) continue;
 					if (++entries > MAX_SPATIAL_INDEX_ENTRIES) throw problem(
 						WorldBuilderErrorCodes.INVENTORY_LIMIT_EXCEEDED, "placements",
 						"Represented-footprint spatial index exceeds 1,000,000 entries.",
 						"Reduce destination placement or NPC roam inventory.");
-					String key = level + ":" + cellX + ":" + cellY;
 					List<PlacementRef> values = cells.get(key);
 					if (values == null) {
 						values = new ArrayList<PlacementRef>(); cells.put(key, values);
@@ -3148,7 +3175,8 @@ final class WorldBuilderRegionSnapshotService {
 				cellX <= (long)Math.floorDiv(footprint.maximumX, 48); cellX++) {
 				for (long cellY = Math.floorDiv(footprint.minimumY, 48);
 					cellY <= (long)Math.floorDiv(footprint.maximumY, 48); cellY++) {
-					List<PlacementRef> values = cells.get(level + ":" + cellX + ":" + cellY);
+					List<PlacementRef> values = cells.get(
+						spatialCellKey(level, cellX, cellY));
 					if (values == null) continue;
 					for (PlacementRef value : values) {
 						if (++queryScans > MAX_REPRESENTED_FOOTPRINT_TILES) throw problem(

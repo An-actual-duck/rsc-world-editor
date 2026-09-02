@@ -4255,8 +4255,13 @@ public final class UpgradeNpcPlacements {
                 "region-paste-preview", "--project", project, "--snapshot", original_id,
                 "--level", "0", "--x", "125", "--y", "648"
             )
-            self.assertEqual(3, limited_destination.returncode, limited_destination.stderr)
-            self.assertIn("INVENTORY_LIMIT_EXCEEDED", limited_destination.stderr)
+            self.assertEqual(0, limited_destination.returncode, limited_destination.stderr)
+            destination_plan = json.loads(limited_destination.stdout)["operationPlan"]
+            self.assertTrue(destination_plan["blocked"])
+            self.assertTrue(any(
+                value["kind"] == "represented-npc-crossing"
+                for value in destination_plan["collisions"]
+            ))
 
     def test_region_selection_geometry_and_contracts_fail_closed(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-contract-") as temp:
