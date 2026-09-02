@@ -8,8 +8,8 @@
 | Created | 2026-08-30 |
 | Product | World Builder 2 |
 | Immediate objective | Restore trustworthy server import and shorten development feedback loops |
-| Feature integration base | Editor `383134b5a49f2deb8d901a3f553a66e900c92db9`; adopted runtime provider `07e732608e60b76151c73edb3cdf95e049bddea8` |
-| Release state | `v0.7.0-alpha.50` published; development release gate closed |
+| Feature integration base | Editor `147fdc5b34e2f23f441ce4ccdf60cf908ce85aad`; adopted runtime provider `d2903f21530959a3bd9072846c8611fdf035f792` |
+| Release state | `v0.7.0-alpha.72` published; development release gate closed |
 
 This document keeps the reliability work visible after the independent
 stop-gap was applied manually to the separate Core checkout. It restored that
@@ -527,17 +527,17 @@ testing of a fresh candidate remains in section 6 before release.
 
 - [x] Run the focused regression against the sanitized old/incompatible target
   fixture and confirm it now passes for the right reason.
-- [ ] Start the installed server from a cold state and prove it loads the new
+- [x] Start the installed server from a cold state and prove it loads the new
   layered map without loader, configuration, definition, schema, or protocol
   errors.
-- [ ] Start the matching client, authenticate to the isolated server, enter the
+- [x] Start the matching client, authenticate to the isolated server, enter the
   imported area, and verify terrain and all supported placement families.
 - [x] Test changed-target refusal, missing components, mixed versions, partial
   failure rollback, interrupted recovery, and a second later import.
 - [x] Compare every path outside the reviewed mutation plan before and after.
 - [x] Run runtime-provider parity and the relevant subsystem suites.
 - [x] Run `./scripts/test.sh` and `git diff --check` at final integration.
-- [ ] Obtain owner-native validation from a disposable server copy before any
+- [x] Obtain owner-native validation from a disposable server copy before any
   release gate is opened.
 
 Exit condition: automated and native evidence demonstrate that a representative
@@ -566,6 +566,14 @@ while unknown custom revisions fail before mutation. An executable mixed-v1/v2
 v9 halo regression now materializes elevation 500 and rejects mismatched declared
 encodings without changing residency.
 
+Owner checkpoint (2026-09-01): Alpha.72 completed the upgrade-first import
+path twice. The owner validated the normal detection, editing, saving, import,
+private server/client launch, elevated terrain, and smaller editor functions,
+then deleted the disposable server copy, created a fresh copy, and repeated the
+complete workflow successfully. The exact candidate was accepted, rebuilt from
+its published gate commit, independently inspected, uploaded, downloaded back,
+and verified byte-for-byte before the development gate was closed.
+
 ### 7. Integrate and release deliberately
 
 - [x] Review the complete Editor diff and any independent runtime-provider diff
@@ -576,7 +584,7 @@ encodings without changing residency.
   and no unique work is stranded.
 - [x] Update user documentation to explain supported targets, backup
   responsibility, previewed compatibility changes, and recovery limitations.
-- [ ] Build a fresh restricted candidate and complete the normal owner
+- [x] Build a fresh restricted candidate and complete the normal owner
   acceptance, release gate, archive inspection, production rebuild, upload,
   and post-publication verification process.
 
