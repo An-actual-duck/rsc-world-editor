@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.79-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.83-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -715,20 +715,21 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("a7be4d71eb78290dc1fe592a45c2bad043914282", text)
-        self.assertIn("30a54ee0c39ff96227ca6814dd82348b8d774136", text)
+        self.assertIn("2692f819c7297ade1f037d083f321a584024e761", text)
+        self.assertIn("ce7f6d0f63f8877c34b440f36c372c3f78765c7c", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("Confirmed overwrite", text)
+        self.assertIn("Green Dragon at ID 862", text)
+        self.assertIn("button and File-menu entry are deliberately hidden", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.79", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.83", gate["releaseVersion"])
             self.assertEqual(
-                "a7be4d71eb78290dc1fe592a45c2bad043914282",
+                "2692f819c7297ade1f037d083f321a584024e761",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
-                "30a54ee0c39ff96227ca6814dd82348b8d774136",
+                "ce7f6d0f63f8877c34b440f36c372c3f78765c7c",
                 gate["runtimeProviderCommit"],
             )
         else:
