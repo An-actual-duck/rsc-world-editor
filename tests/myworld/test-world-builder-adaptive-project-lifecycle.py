@@ -7881,6 +7881,56 @@ public final class UpgradeNpcPlacements {
             self.assertNotIn("itemVisuals", manifest)
             self.assertEqual(before, tree_bytes(target))
 
+    def test_same_numeric_custom_item_id_uses_target_identity_and_visual(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-custom-item-id-collision-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsCustom.json", {"items": [{
+                "id": 42,
+                "name": "Foreign server custom item",
+                "sprite": "items/0",
+                "pictureMask": 0x135724,
+                "blueMask": -7,
+            }]})
+            write_json(definitions / "ItemDefsPatch18.json", {"items": []})
+            write_json(definitions / "ItemDefsMyWorld.json", {"items": []})
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Custom item identity collision", 43818,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            manifest = json.loads((project /
+                "source/content-bundle/manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(2, manifest["schemaVersion"])
+            self.assertEqual("project-local-custom-content-v2", manifest["capabilityId"])
+            self.assertEqual([42], [
+                visual["itemId"] for visual in manifest["itemVisuals"]
+            ])
+            self.assertEqual(0x135724, manifest["itemVisuals"][0]["pictureMask"])
+            self.assertEqual(-7, manifest["itemVisuals"][0]["blueMask"])
+            self.assertEqual("items", manifest["itemVisuals"][0][
+                "customSpriteSubspace"
+            ])
+            self.assertEqual("0", manifest["itemVisuals"][0][
+                "customSpriteEntry"
+            ])
+            self.assertEqual(before, tree_bytes(target))
+
     def test_multiple_projects_selection_and_existing_project_preservation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-multiple-") as temp:
             base = Path(temp)

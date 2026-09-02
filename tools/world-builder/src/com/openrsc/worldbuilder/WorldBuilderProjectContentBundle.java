@@ -44,6 +44,8 @@ final class WorldBuilderProjectContentBundle {
 	private static final int MAX_DEFINITIONS = 65536;
 	private static final int MAX_RUNTIME_ID = 65535;
 	private static final int MAX_RAW_BYTE_ID = 254;
+	/** Last item ID in the immutable RuneScape Classic baseline registry. */
+	private static final int VANILLA_MAX_ITEM_ID = 1289;
 	private static final String OPERATION = "project-content-bundle";
 	private static final String ITEM_VISUAL_EVIDENCE_PATH =
 		"server/conf/world-builder/item-visuals-v1.json";
@@ -139,6 +141,12 @@ final class WorldBuilderProjectContentBundle {
 			validateItemVisualEvidence(target.requiredFile(ITEM_VISUAL_EVIDENCE_PATH));
 		}
 		result.add(visuals);
+		WorldBuilderReadOnlyTarget.FileState animations = target.optionalState(
+			discoveryRole(NPC_ANIMATION_SPEC), NPC_ANIMATION_EVIDENCE_PATH);
+		if (animations.present) {
+			readNpcAnimationRegistry(target.requiredFile(NPC_ANIMATION_EVIDENCE_PATH));
+		}
+		result.add(animations);
 		try {
 			deriveCatalog(target.root, "target-adopted-content-v1", layout,
 				composition);
@@ -217,19 +225,24 @@ final class WorldBuilderProjectContentBundle {
 				npcRegistry.customRows);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
 			WorldBuilderSceneryModelProvider.normalize(copiedTarget, runtime);
-		Map<String,Object> packagedCatalog =
-			WorldBuilderStandaloneDefinitionCatalog.generate(runtime,
-				"packaged-content-comparison-v1");
-		Set<Integer> beyondPackaged = differenceIds(
-			targetCatalog.get("groundItems"), packagedCatalog.get("groundItems"));
+		Map<Integer,Map<String,Object>> targetItemDefinitions =
+			effectiveTargetItemDefinitions(copiedTarget, sourceLayout, composition);
+		Set<Integer> targetOwnedItemVisuals = targetOwnedItemVisualIds(
+			targetItemDefinitions,
+			packagedItemDefinitions(runtime));
 		List<Object> itemVisuals;
 		ItemVisualMigration migration = null;
-		boolean itemSuccessor = !beyondPackaged.isEmpty();
-		boolean animationSuccessor = !npcMigration.animations.isEmpty();
+		boolean itemSuccessor = !targetOwnedItemVisuals.isEmpty();
+		boolean preservedAnimationRegistry = Files.isRegularFile(
+			copiedTarget.resolve(NPC_ANIMATION_EVIDENCE_PATH),
+			LinkOption.NOFOLLOW_LINKS);
+		boolean animationSuccessor = preservedAnimationRegistry
+			|| !npcMigration.animations.isEmpty();
 		int version = animationSuccessor ? 3 : itemSuccessor ? 2 : 1;
 		if (itemSuccessor) {
 			migration = migrateItemVisuals(copiedTarget,
-				beyondPackaged, explicitMappings);
+				targetOwnedItemVisuals, targetItemDefinitions,
+				explicitMappings);
 			itemVisuals = migration.itemVisuals;
 		} else {
 			itemVisuals = Collections.emptyList();
@@ -256,6 +269,10 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("itemVisuals", new ArrayList<Object>(itemVisuals));
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
+			} else if (spec == NPC_ANIMATION_SPEC && preservedAnimationRegistry) {
+				source = safeRegular(source, selectedSpec.targetPath);
+				readNpcAnimationRegistry(source);
+				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			} else if (spec == NPC_ANIMATION_SPEC) {
 				Map<String,Object> generated = new LinkedHashMap<String,Object>();
 				generated.put("schemaVersion", Long.valueOf(1L));
@@ -939,15 +956,104 @@ final class WorldBuilderProjectContentBundle {
 			"Provide a complete supported target-owned archive.");
 	}
 
+	private static Map<Integer,Map<String,Object>> effectiveTargetItemDefinitions(
+		Path root, WorldBuilderPackedSourceLayout layout,
+		WorldBuilderDefinitionComposition.Profile composition)
+		throws IOException, WorldBuilderContractException {
+		Map<Integer,Map<String,Object>> result =
+			new TreeMap<Integer,Map<String,Object>>();
+		appendItemDefinitions(result, contentPath(root, "definition.item.base", layout),
+			"definition.item.base", "item");
+		appendItemDefinitions(result, contentPath(root, "definition.item.custom", layout),
+			"definition.item.custom", "items");
+		if (!composition.itemPatchPath.isEmpty()) {
+			appendItemDefinitions(result, root.resolve(composition.itemPatchPath),
+				"definition.item.patch", "items", "item");
+		}
+		if (composition.wantMyWorld) {
+			appendItemDefinitions(result, contentPath(root, "definition.item.world", layout),
+				"definition.item.world", "items");
+		}
+		return result;
+	}
+
+	private static Map<Integer,Map<String,Object>> packagedItemDefinitions(
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime)
+		throws IOException, WorldBuilderContractException {
+		Map<Integer,Map<String,Object>> result =
+			new TreeMap<Integer,Map<String,Object>>();
+		appendItemDefinitions(result, runtime.verifiedSourcePath(
+			"server/conf/server/defs/ItemDefs.json"),
+			"packaged definition.item.base", "item");
+		appendItemDefinitions(result, runtime.verifiedSourcePath(
+			"server/conf/server/defs/ItemDefsCustom.json"),
+			"packaged definition.item.custom", "items");
+		return result;
+	}
+
+	private static void appendItemDefinitions(
+		Map<Integer,Map<String,Object>> destination, Path path,
+		String role, String... arrayNames)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> document;
+		try {
+			document = WorldBuilderJsonDocuments.readTargetDefinitionObject(path);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw malformedDefinition(role, malformed);
+		}
+		Object rawDefinitions = null;
+		if (document.size() == 1) {
+			for (String arrayName : arrayNames) {
+				if (document.containsKey(arrayName)) rawDefinitions = document.get(arrayName);
+			}
+		}
+		if (!(rawDefinitions instanceof List)
+			|| ((List<?>)rawDefinitions).size() > MAX_DEFINITIONS) {
+			throw malformedDefinition(role);
+		}
+		Set<Integer> local = new HashSet<Integer>();
+		for (Object raw : (List<?>)rawDefinitions) {
+			if (!(raw instanceof Map)) throw malformedDefinition(role);
+			@SuppressWarnings("unchecked") Map<String,Object> definition =
+				(Map<String,Object>)raw;
+			Object rawId = definition.get("id");
+			if (!(rawId instanceof Long)) throw malformedDefinition(role);
+			long id = ((Long)rawId).longValue();
+			if (id < 0L || id > MAX_RUNTIME_ID
+				|| !local.add(Integer.valueOf((int)id))) {
+				throw malformedDefinition(role);
+			}
+			destination.put(Integer.valueOf((int)id),
+				new LinkedHashMap<String,Object>(definition));
+		}
+	}
+
+	private static Set<Integer> targetOwnedItemVisualIds(
+		Map<Integer,Map<String,Object>> target,
+		Map<Integer,Map<String,Object>> packaged) {
+		Set<Integer> result = new TreeSet<Integer>();
+		for (Map.Entry<Integer,Map<String,Object>> entry : target.entrySet()) {
+			int id = entry.getKey().intValue();
+			Map<String,Object> packagedDefinition = packaged.get(entry.getKey());
+			if (id > VANILLA_MAX_ITEM_ID || packagedDefinition == null
+				|| !entry.getValue().equals(packagedDefinition)) {
+				result.add(entry.getKey());
+			}
+		}
+		return result;
+	}
+
 	/**
 	 * Resolves successor item visuals without ever writing to the captured target
-	 * tree.  Existing v1 evidence is authoritative.  Otherwise only complete
-	 * declarative records and an optional explicit mapping contract participate.
+	 * tree. Existing evidence participates for the required target-owned IDs;
+	 * complete effective target definitions and an optional explicit mapping
+	 * contract resolve anything newly discovered.
 	 */
 	private static ItemVisualMigration migrateItemVisuals(Path copiedTarget,
-		Set<Integer> required, Path explicitMappings)
+		Set<Integer> required, Map<Integer,Map<String,Object>> definitions,
+		Path explicitMappings)
 		throws IOException, WorldBuilderContractException {
-		Map<Integer,String> itemNames = targetItemNames(copiedTarget, required);
+		Map<Integer,String> itemNames = targetItemNames(definitions, required);
 		if (explicitMappings != null) {
 			if (isLegacyItemVisualMapping(explicitMappings)) {
 				Map<String,Object> mapping = readExplicitItemVisualMappings(explicitMappings);
@@ -962,36 +1068,37 @@ final class WorldBuilderProjectContentBundle {
 					required, itemNames);
 			return new ItemVisualMigration(provider.itemVisuals, provider);
 		}
+		Map<Integer,Map<String,Object>> resolved =
+			new TreeMap<Integer,Map<String,Object>>();
 		Path existing = copiedTarget.resolve(ITEM_VISUAL_EVIDENCE_PATH);
 		if (Files.isRegularFile(existing, LinkOption.NOFOLLOW_LINKS)) {
 			List<Object> visuals = validateItemVisualEvidence(existing);
-			requireExactVisualClosure(visuals, required);
-			validateItemVisualArchiveClosure(copiedTarget, visuals);
-			return new ItemVisualMigration(visuals, null);
+			List<Object> selected = new ArrayList<Object>();
+			for (Object raw : visuals) {
+				Map<String,Object> visual = object(raw, "existing item visual evidence");
+				int itemId = (int)integer(visual, "itemId");
+				if (!required.contains(Integer.valueOf(itemId))) continue;
+				mergeVisual(resolved, visual, "existing item visual evidence");
+				selected.add(new LinkedHashMap<String,Object>(visual));
+			}
+			validateItemVisualArchiveClosure(copiedTarget, selected);
 		}
 
-		Map<Integer,Map<String,Object>> resolved =
-			new TreeMap<Integer,Map<String,Object>>();
 		Map<String,SpriteArchive> archives = new HashMap<String,SpriteArchive>();
 		for (String role : Arrays.asList("asset.sprite.custom", "asset.spritepack")) {
 			archives.put(role, readSpriteArchive(contentPath(copiedTarget, role), role));
 		}
 		Set<Integer> authenticIds = authenticSpriteIds(
 			contentPath(copiedTarget, "asset.sprite.authentic"));
-		for (String role : Arrays.asList("definition.item.base", "definition.item.custom",
-			"definition.item.world", "definition.item.patch")) {
-			for (Object raw : jsonArray(copiedTarget, role,
-				"definition.item.base".equals(role) ? new String[] {"item"}
-					: "definition.item.patch".equals(role)
-						? new String[] {"items", "item"} : new String[] {"items"})) {
-				@SuppressWarnings("unchecked") Map<String,Object> definition =
-					(Map<String,Object>)raw;
-				int itemId = (int)((Long)definition.get("id")).longValue();
-				if (!required.contains(Integer.valueOf(itemId))) continue;
-				Map<String,Object> visual = declarativeVisual(
-					definition, itemId, archives, authenticIds, role);
-				if (visual != null) mergeVisual(resolved, visual, role);
+		for (Map.Entry<Integer,Map<String,Object>> entry : definitions.entrySet()) {
+			int itemId = entry.getKey().intValue();
+			if (!required.contains(entry.getKey()) || resolved.containsKey(entry.getKey())) {
+				continue;
 			}
+			Map<String,Object> visual = declarativeVisual(entry.getValue(), itemId,
+				archives, authenticIds, "effective target item definition");
+			if (visual != null) mergeVisual(resolved, visual,
+				"effective target item definition");
 		}
 
 		if (explicitMappings != null) {
@@ -1001,7 +1108,7 @@ final class WorldBuilderProjectContentBundle {
 				Map<String,Object> visual = object(raw, "item visual mapping input");
 				int itemId = (int)integer(visual, "itemId");
 				if (!required.contains(Integer.valueOf(itemId))) throw visualProblem(
-					"Explicit mappings may contain only unresolved beyond-packaged item IDs.");
+					"Explicit mappings may contain only unresolved target-owned item IDs.");
 				mergeVisual(resolved, visual, "explicit item visual mapping");
 			}
 		}
@@ -1043,26 +1150,15 @@ final class WorldBuilderProjectContentBundle {
 		}
 	}
 
-	private static Map<Integer,String> targetItemNames(Path root, Set<Integer> required)
-		throws IOException, WorldBuilderContractException {
+	private static Map<Integer,String> targetItemNames(
+		Map<Integer,Map<String,Object>> definitions, Set<Integer> required) {
 		Map<Integer,String> result = new TreeMap<Integer,String>();
-		for (String role : Arrays.asList("definition.item.base", "definition.item.custom",
-			"definition.item.world", "definition.item.patch")) {
-			for (Object raw : jsonArray(root, role,
-				"definition.item.base".equals(role) ? new String[] {"item"}
-					: "definition.item.patch".equals(role)
-						? new String[] {"items", "item"} : new String[] {"items"})) {
-				@SuppressWarnings("unchecked") Map<String,Object> definition =
-					(Map<String,Object>)raw;
-				int itemId = (int)((Long)definition.get("id")).longValue();
-				if (!required.contains(Integer.valueOf(itemId))) continue;
-				Object name = definition.get("name");
-				String resolved = name instanceof String && !((String)name).trim().isEmpty()
-					? (String)name : "Item " + itemId;
-				// Later declarative patch/world records are the effective name, matching
-				// the catalog's established override order for a repeated item ID.
-				result.put(Integer.valueOf(itemId), resolved);
-			}
+		for (Map.Entry<Integer,Map<String,Object>> entry : definitions.entrySet()) {
+			if (!required.contains(entry.getKey())) continue;
+			Object name = entry.getValue().get("name");
+			String resolved = name instanceof String && !((String)name).trim().isEmpty()
+				? (String)name : "Item " + entry.getKey();
+			result.put(entry.getKey(), resolved);
 		}
 		return result;
 	}
@@ -1389,16 +1485,16 @@ final class WorldBuilderProjectContentBundle {
 	}
 
 	private static void requireExactVisualClosure(List<Object> visuals,
-		Set<Integer> beyondPackaged) throws WorldBuilderContractException {
+		Set<Integer> targetOwnedIds) throws WorldBuilderContractException {
 		Set<Integer> actual = new TreeSet<Integer>();
 		for (Object raw : visuals) {
 			actual.add(Integer.valueOf((int)integer(object(raw, "itemVisual"), "itemId")));
 		}
-		if (!actual.equals(beyondPackaged)) throw problem(
+		if (!actual.equals(targetOwnedIds)) throw problem(
 			WorldBuilderErrorCodes.CONVERSION_BLOCKED, ITEM_VISUAL_EVIDENCE_PATH,
-			"Static item visual evidence does not exactly cover the beyond-packaged ground-item definitions; required="
-				+ beyondPackaged + ", actual=" + actual + ".",
-			"Add each missing beyond-packaged item once and remove packaged, unknown, or duplicate item records.");
+			"Static item visual evidence does not exactly cover the target-owned ground-item definitions; required="
+				+ targetOwnedIds + ", actual=" + actual + ".",
+			"Add each missing target-owned item once and remove unknown or duplicate item records.");
 	}
 
 	private static void validateItemVisualCatalogClosure(List<Object> visuals,
@@ -1541,13 +1637,6 @@ final class WorldBuilderProjectContentBundle {
 				}
 			}
 		}
-	}
-
-	private static Set<Integer> differenceIds(Object target, Object packaged)
-		throws WorldBuilderContractException {
-		Set<Integer> result = idSet(target);
-		result.removeAll(idSet(packaged));
-		return result;
 	}
 
 	private static Set<Integer> idSet(Object raw) throws WorldBuilderContractException {

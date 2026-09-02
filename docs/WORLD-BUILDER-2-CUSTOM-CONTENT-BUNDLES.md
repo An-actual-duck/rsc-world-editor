@@ -7,12 +7,16 @@ when a target supplies authoritative NPC animation definitions not already
 guaranteed by the packaged runtime. Its checked-in schemas are
 `tools/world-builder/schema/project-content-bundle-v3.schema.json` and
 `tools/world-builder/schema/npc-animation-registry-v1.schema.json`. The Editor
-continues to read and produce v2 for targets needing only beyond-packaged item
-visuals, and v1 when all target ground items already exist in the packaged
-catalog. Material-free projects continue to launch without a content bundle.
+continues to read and produce v2 for targets needing only target-owned item
+visuals, and v1 when every target ground item is an exact verified vanilla
+definition already supplied by the packaged runtime. Material-free projects
+continue to launch without a content bundle.
 
-The bundle is general. No ID, file, hash, or behavior belonging to one target
-is part of the application release or this contract. Floor 31, wall 219,
+The bundle is general. No custom NPC, item, or scenery identity belonging to
+one target is part of the application release or this contract. Only the
+immutable vanilla registries may be recognized as a reuse baseline; custom
+content is discovered from the selected target even when its numeric ID happens
+to collide with content in the packaged runtime. Floor 31, wall 219,
 scenery 59, NPC 846, and items 9000 through 9002 are fixtures only.
 
 ## Project paths
@@ -87,6 +91,11 @@ type `world-builder-npc-animation-registry`, schema version 1, and sorted unique
 records that bind each project animation ID to its renderer semantics and exact
 custom/authentic sprite evidence. It too is inert data.
 
+Discovery inventories and validates an existing registry from an already
+upgraded target, so later detect/edit/import cycles retain its target-owned
+custom animation identities without consulting same-numbered packaged custom
+animations.
+
 No JAR, class, script, plugin, configuration, database, credential, symlink,
 device, socket, executable permission, or target-supplied command is accepted.
 Unknown definition or asset files are blockers; they are never approximated or
@@ -132,18 +141,22 @@ surface.
 
 ## Authoritative item visuals
 
-The Editor derives both the target catalog and the packaged catalog from exact
-verified definition bytes, then computes
-`target groundItems - packaged groundItems`. It uses no numeric threshold. An
-empty difference produces bundle v1. A nonempty difference requires static
-item-visual evidence covering that set exactly—no missing, duplicate,
-packaged, or unknown records.
+The Editor derives the target's effective item registry from its selected base,
+custom, patch, and world layers and derives the packaged comparison registry
+from exact verified definition bytes. An item may reuse a packaged visual only
+when its ID is within the immutable vanilla range and its complete effective
+definition equals the packaged definition at that ID. Every non-vanilla item is
+target-owned, regardless of whether the packaged runtime happens to use the
+same number for unrelated custom content. A changed or absent same-ID vanilla
+definition is target-owned as well. An empty target-owned set produces bundle
+v1. A nonempty set requires static item-visual evidence covering that set
+exactly—no missing, duplicate, or unknown records.
 
 Every v2 `itemVisuals` record has exactly these fields:
 
 | Field | Contract |
 | --- | --- |
-| `itemId` | unique ascending integer `0..65535`; one beyond-packaged definition |
+| `itemId` | unique ascending integer `0..65535`; one target-owned definition |
 | `authenticSpriteId` | authentic archive sprite ID `0..65535`, otherwise `null` |
 | `customSpriteAssetRole` | `asset.sprite.custom` or `asset.spritepack`, otherwise `null` |
 | `customSpriteSubspace` | portable archive subspace for a custom mapping, otherwise `null` |
@@ -170,7 +183,7 @@ the desktop guided-import flow are documented in
 Those neutral provider inputs are copied into the World Builder installation;
 they never authorize a write to the selected server.
 
-When a target-backed packed project has beyond-packaged ground-item IDs but no
+When a target-backed packed project has target-owned ground-item IDs but no
 `item-visuals-v1.json`, project creation does not ask the operator to add one to
 the server. After the complete target evidence has been copied into the unique
 unpublished UUID stage, the Editor first looks for complete visual fields on the
@@ -206,7 +219,7 @@ plus bounded width and height. The exact schema is
 
 A provider may contain a complete catalog, including packaged or unrelated
 items. Creation deterministically selects only the target's required
-beyond-packaged IDs. Authentic archives, custom OSARs, any selected spritepack,
+target-owned IDs. Authentic archives, custom OSARs, any selected spritepack,
 and external RGB PNGs are hash-checked without loading target JARs. Custom,
 spritepack, and external frames are normalized into a generated project-local
 custom OSAR subspace; authentic records retain their exact archive ID and bind
