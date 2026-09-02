@@ -7881,6 +7881,53 @@ public final class UpgradeNpcPlacements {
             self.assertNotIn("itemVisuals", manifest)
             self.assertEqual(before, tree_bytes(target))
 
+    def test_gameplay_only_vanilla_item_overlay_reuses_packaged_visual(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-vanilla-item-overlay-") as temp:
+            base = Path(temp)
+            target = self.fixtures.legacy_fixture(str(base))
+            definitions = target / "server/conf/server/defs"
+            write_json(definitions / "ItemDefsCustom.json", {"items": [{"id": 42}]})
+            write_json(definitions / "ItemDefsPatch18.json", {"items": []})
+            write_json(definitions / "ItemDefsMyWorld.json", {"items": [{
+                "id": 0,
+                "rangedOffense": 6,
+                "basePrice": 20,
+            }]})
+            (target / "server/conf/world-builder/item-visuals-v1.json").unlink()
+            server_terrain = target / "server/conf/server/data/Custom_Landscape.orsc"
+            with zipfile.ZipFile(server_terrain, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("h0x48y37", bytes(48 * 48 * 10))
+            shutil.copy2(server_terrain,
+                target / "Client_Base/Cache/video/Custom_Landscape.orsc")
+
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            before = tree_bytes(target)
+            created, summary = self.create_project(
+                installation, runtime, target, report,
+                "Vanilla gameplay overlay", 43834,
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            manifest = json.loads((project /
+                "source/content-bundle/manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(1, manifest["schemaVersion"])
+            self.assertNotIn("itemVisuals", manifest)
+            world_items = json.loads((project /
+                "source/content-bundle/files/server/conf/server/defs/ItemDefsMyWorld.json"
+            ).read_text(encoding="utf-8"))["items"]
+            self.assertEqual([{
+                "id": 0,
+                "rangedOffense": 6,
+                "basePrice": 20,
+            }], world_items)
+            self.assertFalse((project /
+                "diagnostics/item-visual-provider-warnings.json").exists())
+            self.assertEqual(before, tree_bytes(target))
+
     def test_same_numeric_custom_item_id_uses_target_identity_and_visual(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-custom-item-id-collision-") as temp:
             base = Path(temp)

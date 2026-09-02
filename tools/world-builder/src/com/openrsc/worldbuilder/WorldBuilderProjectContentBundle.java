@@ -229,6 +229,7 @@ final class WorldBuilderProjectContentBundle {
 			effectiveTargetItemDefinitions(copiedTarget, sourceLayout, composition);
 		Set<Integer> targetOwnedItemVisuals = targetOwnedItemVisualIds(
 			targetItemDefinitions,
+			baselineTargetItemDefinitions(copiedTarget, sourceLayout),
 			packagedItemDefinitions(runtime));
 		List<Object> itemVisuals;
 		ItemVisualMigration migration = null;
@@ -991,6 +992,18 @@ final class WorldBuilderProjectContentBundle {
 		return result;
 	}
 
+	private static Map<Integer,Map<String,Object>> baselineTargetItemDefinitions(
+		Path root, WorldBuilderPackedSourceLayout layout)
+		throws IOException, WorldBuilderContractException {
+		Map<Integer,Map<String,Object>> result =
+			new TreeMap<Integer,Map<String,Object>>();
+		appendItemDefinitions(result, contentPath(root, "definition.item.base", layout),
+			"definition.item.base", "item");
+		appendItemDefinitions(result, contentPath(root, "definition.item.custom", layout),
+			"definition.item.custom", "items");
+		return result;
+	}
+
 	private static void appendItemDefinitions(
 		Map<Integer,Map<String,Object>> destination, Path path,
 		String role, String... arrayNames)
@@ -1029,18 +1042,34 @@ final class WorldBuilderProjectContentBundle {
 	}
 
 	private static Set<Integer> targetOwnedItemVisualIds(
-		Map<Integer,Map<String,Object>> target,
+		Map<Integer,Map<String,Object>> effective,
+		Map<Integer,Map<String,Object>> targetBaseline,
 		Map<Integer,Map<String,Object>> packaged) {
 		Set<Integer> result = new TreeSet<Integer>();
-		for (Map.Entry<Integer,Map<String,Object>> entry : target.entrySet()) {
+		for (Map.Entry<Integer,Map<String,Object>> entry : effective.entrySet()) {
 			int id = entry.getKey().intValue();
+			Map<String,Object> targetDefinition = targetBaseline.get(entry.getKey());
 			Map<String,Object> packagedDefinition = packaged.get(entry.getKey());
-			if (id > VANILLA_MAX_ITEM_ID || packagedDefinition == null
-				|| !entry.getValue().equals(packagedDefinition)) {
+			if (id > VANILLA_MAX_ITEM_ID || targetDefinition == null
+				|| packagedDefinition == null
+				|| !targetDefinition.equals(packagedDefinition)
+				|| mentionsDeclarativeItemVisual(entry.getValue())) {
 				result.add(entry.getKey());
 			}
 		}
 		return result;
+	}
+
+	private static boolean mentionsDeclarativeItemVisual(
+		Map<String,Object> definition) {
+		return definition.containsKey("worldBuilderItemVisual")
+			|| definition.containsKey("sprite")
+			|| definition.containsKey("authenticSpriteId")
+			|| definition.containsKey("customSpriteAssetRole")
+			|| definition.containsKey("customSpriteSubspace")
+			|| definition.containsKey("customSpriteEntry")
+			|| definition.containsKey("pictureMask")
+			|| definition.containsKey("blueMask");
 	}
 
 	/**
@@ -1183,14 +1212,7 @@ final class WorldBuilderProjectContentBundle {
 			return result;
 		}
 
-		boolean mentionsVisual = definition.containsKey("sprite")
-			|| definition.containsKey("authenticSpriteId")
-			|| definition.containsKey("customSpriteAssetRole")
-			|| definition.containsKey("customSpriteSubspace")
-			|| definition.containsKey("customSpriteEntry")
-			|| definition.containsKey("pictureMask")
-			|| definition.containsKey("blueMask");
-		if (!mentionsVisual) return null;
+		if (!mentionsDeclarativeItemVisual(definition)) return null;
 		Object pictureMask = definition.get("pictureMask");
 		Object blueMask = definition.get("blueMask");
 		if (!(pictureMask instanceof Long) || !(blueMask instanceof Long)) return null;

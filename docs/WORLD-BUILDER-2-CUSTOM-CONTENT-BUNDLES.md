@@ -144,13 +144,15 @@ surface.
 The Editor derives the target's effective item registry from its selected base,
 custom, patch, and world layers and derives the packaged comparison registry
 from exact verified definition bytes. An item may reuse a packaged visual only
-when its ID is within the immutable vanilla range and its complete effective
-definition equals the packaged definition at that ID. Every non-vanilla item is
-target-owned, regardless of whether the packaged runtime happens to use the
-same number for unrelated custom content. A changed or absent same-ID vanilla
-definition is target-owned as well. An empty target-owned set produces bundle
-v1. A nonempty set requires static item-visual evidence covering that set
-exactly—no missing, duplicate, or unknown records.
+when its ID is within the immutable vanilla range and its base/custom identity
+equals the packaged definition at that ID. Gameplay-only patch and world
+overlays retain that visual, matching the client runtime's overlay behavior;
+an overlay that explicitly declares visual fields remains target-owned. Every
+non-vanilla item is target-owned, regardless of whether the packaged runtime
+happens to use the same number for unrelated custom content. A changed or
+absent same-ID vanilla base/custom definition is target-owned as well. An empty
+target-owned set produces bundle v1. A nonempty set requires static item-visual
+evidence covering that set exactly—no missing, duplicate, or unknown records.
 
 Every v2 `itemVisuals` record has exactly these fields:
 
