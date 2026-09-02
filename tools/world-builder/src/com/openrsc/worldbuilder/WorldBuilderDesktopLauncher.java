@@ -289,7 +289,6 @@ final class WorldBuilderDesktopLauncher {
 		private final JTextArea details = readOnlyText();
 		private final JLabel status = new JLabel("Ready");
 		private final JButton open = new JButton("Continue Working on Selected Project");
-		private final JButton empty = new JButton("Create New Project");
 		private final JButton installedSource = new JButton("Detect Server Map");
 		private final JButton importToServer =
 			new JButton("Upgrade Server and Import Map");
@@ -325,9 +324,6 @@ final class WorldBuilderDesktopLauncher {
 			JMenu file = new JMenu("File");
 			file.add(menu("Continue Working on Selected Project", new Runnable() {
 				@Override public void run() { openSelected(); }
-			}));
-			file.add(menu("Create New Project", new Runnable() {
-				@Override public void run() { createEmpty(); }
 			}));
 			file.add(menu("Detect Server Map", new Runnable() {
 				@Override public void run() { inspectInstalledSource(); }
@@ -382,8 +378,8 @@ final class WorldBuilderDesktopLauncher {
 			title.setFont(title.getFont().deriveFont(Font.BOLD, 25f));
 			heading.add(title);
 			heading.add(Box.createVerticalStrut(5));
-			heading.add(new JLabel("Continue a project, create a new world, or detect "
-				+ "the server map beside this application."));
+			heading.add(new JLabel("Continue a project or detect the server map beside "
+				+ "this application."));
 			frame.add(heading, BorderLayout.NORTH);
 
 			projectList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -413,15 +409,13 @@ final class WorldBuilderDesktopLauncher {
 			frame.add(center, BorderLayout.CENTER);
 
 			open.addActionListener(event -> openSelected());
-			empty.addActionListener(event -> createEmpty());
 			installedSource.addActionListener(event -> inspectInstalledSource());
 			importToServer.addActionListener(event -> importSelectedProject());
 			restoreBackup.addActionListener(event -> openProjectBackups());
-			for (JButton primary : new JButton[] {empty, installedSource, open}) {
+			for (JButton primary : new JButton[] {installedSource, open}) {
 				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
 				primary.setPreferredSize(new Dimension(245, 44));
 			}
-			empty.setToolTipText("Create a new isolated empty world.");
 			installedSource.setToolTipText(
 				"Find and safely copy the map from the server beside World Builder.");
 			open.setToolTipText("Open the selected project and continue editing.");
@@ -439,10 +433,8 @@ final class WorldBuilderDesktopLauncher {
 			action.fill = GridBagConstraints.HORIZONTAL;
 			action.weightx = 1;
 			action.gridx = 0; action.gridy = 0;
-			actions.add(empty, action);
-			action.gridx = 1;
 			actions.add(installedSource, action);
-			action.gridx = 2;
+			action.gridx = 1;
 			actions.add(open, action);
 
 			JPanel selectedProjectActions = new JPanel(new GridBagLayout());
@@ -503,11 +495,10 @@ final class WorldBuilderDesktopLauncher {
 					if (selected >= 0) projectList.setSelectedIndex(selected);
 					else {
 						details.setText("No projects are registered in this installation.\n\n"
-							+ "Choose Create New Project for an empty world, or Detect Server Map "
-							+ "to copy the adjacent server into an isolated project.\n"
+							+ "Choose Detect Server Map to copy the adjacent server into an "
+							+ "isolated project.\n"
 							+ "Nothing in a server is overwritten during project creation or editing.");
-						frame.getRootPane().setDefaultButton(
-							model.defaultTarget() == null ? empty : installedSource);
+						frame.getRootPane().setDefaultButton(installedSource);
 					}
 					status.setText(entries.isEmpty() ? "Ready — no projects yet"
 						: "Ready — " + entries.size() + " project"
@@ -1521,7 +1512,6 @@ final class WorldBuilderDesktopLauncher {
 		private void setBusy(boolean value, String message) {
 			busy = value;
 			projectList.setEnabled(!value);
-			empty.setEnabled(!value);
 			installedSource.setEnabled(!value);
 			boolean selected = projectList.getSelectedValue() != null;
 			open.setEnabled(!value && selected);

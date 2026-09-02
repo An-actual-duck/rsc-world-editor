@@ -8041,9 +8041,19 @@ public final class UpgradeNpcPlacements {
         self.assertIn("Advanced provider import…", launcher_source)
         self.assertIn("Advanced / Recovery", launcher_source)
         self.assertIn("Continue Working on Selected Project", launcher_source)
-        self.assertIn("Create New Project", launcher_source)
         self.assertIn("Detect Server Map", launcher_source)
-        self.assertEqual(3, launcher_source.count("actions.add("))
+        self.assertNotIn(
+            'private final JButton empty = new JButton("Create New Project");',
+            launcher_source,
+        )
+        self.assertNotIn('file.add(menu("Create New Project"', launcher_source)
+        self.assertNotIn("empty.addActionListener", launcher_source)
+        self.assertNotIn("actions.add(empty, action)", launcher_source)
+        self.assertIn(
+            'private final JButton installedSource = new JButton("Detect Server Map");',
+            launcher_source,
+        )
+        self.assertEqual(2, launcher_source.count("actions.add("))
         self.assertIn("Selected Project Actions", launcher_source)
         self.assertIn('new JButton("Upgrade Server and Import Map")', launcher_source)
         self.assertNotIn("Open this project now?", launcher_source)
