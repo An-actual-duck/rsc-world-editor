@@ -586,7 +586,6 @@ final class WorldBuilderRegionSnapshotService {
 				"Choose one short creator-facing snapshot name.");
 		}
 		PackageState state = PackageState.read(verified.projectRoot, PACKAGE);
-		requirePackageFootprintBudget(state.placements, "source package");
 		if (!selection.worldSpace.equals(state.worldSpace)) {
 			throw problem(WorldBuilderErrorCodes.MAP_MISMATCH, "selection",
 				"Selection world space does not match the working package.",
@@ -659,6 +658,7 @@ final class WorldBuilderRegionSnapshotService {
 				selection.geometry, placements, reports, dependencies,
 				verified.definitions.catalogId);
 		}
+		requireFootprintBudget(placements, "selected snapshot");
 		for (String family : placementFamilies()) sortCanonical(list(placements, family));
 		Collections.sort(reports, new Comparator<Object>() {
 			@Override public int compare(Object left, Object right) {

@@ -2958,6 +2958,61 @@ public final class UpgradeNpcPlacements {
             self.assertEqual(4, payload["schemaVersion"])
             self.assertEqual(-1, payload["npcs"][0]["respawnSeconds"])
 
+    def test_region_copy_budget_is_scoped_to_the_selected_content(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-region-copy-budget-") as temp:
+            base = Path(temp)
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            target = base / "ordinary-parent"
+            target.mkdir()
+            report = base / "report.json"
+            self.discover(target, report)
+            created, summary = self.create_project(
+                installation, runtime, target, report, "Region budget", 43859
+            )
+            self.assertEqual(0, created.returncode, created.stderr)
+            project = Path(summary["projectRoot"])
+            package = project / "working/layered-world/package"
+            manifest_path = package / "manifest.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            declaration = next(
+                value for value in manifest["placementSets"] if value["level"] == 0
+            )
+            placement_path = package / declaration["path"]
+            placements = json.loads(placement_path.read_text(encoding="utf-8"))
+            placements["npcs"] = [
+                {
+                    "npcId": 2,
+                    "placementId": f"unselected-large-roam-npc-{index:03d}",
+                    "roamBounds": {
+                        "minimum": {"x": 96, "y": 624},
+                        "maximum": {"x": 143, "y": 671},
+                    },
+                    "respawnSeconds": -1,
+                    "start": {"x": 96, "y": 624},
+                }
+                for index in range(435)
+            ]
+            write_json(placement_path, placements)
+            declaration["sha256"] = sha256(placement_path)
+            write_json(manifest_path, manifest)
+
+            selection = base / "selection.json"
+            self.write_region_selection(
+                selection,
+                [(119, 648), (122, 648), (122, 651), (119, 651)],
+                [0],
+            )
+            copied = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Small selected region"
+            )
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            result = json.loads(copied.stdout)
+            self.assertEqual(16, result["tileCount"])
+            self.assertEqual(0, result["placementCount"])
+
     def test_region_copy_cut_paste_round_trip_is_exact_and_project_local(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-region-round-trip-") as temp:
             base = Path(temp)
