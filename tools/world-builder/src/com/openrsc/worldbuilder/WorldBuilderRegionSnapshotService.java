@@ -890,6 +890,14 @@ final class WorldBuilderRegionSnapshotService {
 			applySnapshotTiles(state, snapshot, level, x, y, false);
 			addSnapshotPlacements(state, snapshot, level, x, y, idMappings);
 			String afterWorking = state.writeAndValidate(verified);
+			if (!packageDiffers(live.root, state.root)) {
+				addCollision(collisions, "destination-already-matches", level, x, y,
+					"Destination already contains the snapshot's exact terrain and placements.");
+				Collections.sort(collisions, canonicalComparator());
+				deleteTree(stage);
+				return planOnly(verified, snapshot, "paste", level, x, y,
+					collisions, idMappings, overwrite, true);
+			}
 			Map<String,Object> plan = plan(verified, snapshot, "paste", level, x, y,
 				stage, collisions, idMappings, overwrite, false);
 			return new PreparedMutation(stage, plan, afterWorking);
@@ -1195,6 +1203,18 @@ final class WorldBuilderRegionSnapshotService {
 			"operation", "Region operation would make no working-package change.",
 			"Choose content or a destination whose exact result differs.");
 		return records;
+	}
+
+	private static boolean packageDiffers(Path live, Path stage)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Path> before = files(live);
+		Map<String,Path> after = files(stage);
+		if (!before.keySet().equals(after.keySet())) return true;
+		for (String relative : before.keySet()) {
+			if (!WorldBuilderHashes.sha256(before.get(relative)).equals(
+				WorldBuilderHashes.sha256(after.get(relative)))) return true;
+		}
+		return false;
 	}
 
 	private LibraryRecord publishToLibrary(Path project,

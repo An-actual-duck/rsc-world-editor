@@ -3440,6 +3440,20 @@ public final class UpgradeNpcPlacements {
             source_before = json.loads(
                 (package / "placements/global/lp0.json").read_text(encoding="utf-8")
             )
+            package_before_no_change = tree_bytes(package)
+            no_change = self.run_cli(
+                "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
+                "--level", "0", "--x", "119", "--y", "648"
+            )
+            self.assertEqual(0, no_change.returncode, no_change.stderr)
+            no_change_plan = json.loads(no_change.stdout)["operationPlan"]
+            self.assertTrue(no_change_plan["blocked"])
+            self.assertEqual([], no_change_plan["files"])
+            self.assertIn(
+                "destination-already-matches",
+                {value["kind"] for value in no_change_plan["collisions"]},
+            )
+            self.assertEqual(package_before_no_change, tree_bytes(package))
             preview = self.run_cli(
                 "region-paste-preview", "--project", project, "--snapshot", snapshot_id,
                 "--level", "0", "--x", "125", "--y", "648"
