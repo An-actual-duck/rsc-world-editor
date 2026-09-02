@@ -32,8 +32,8 @@ workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel. The current adaptive release is `v0.5.0-alpha.11`, accepted and
-published on 2026-08-25. Production artifacts were rebuilt from its published
+v1 channel. The current adaptive release is `v0.7.0-alpha.79`, accepted and
+published on 2026-09-02. Production artifacts were rebuilt from its published
 gate commit rather than promoted from restricted validation archives.
 
 ## Repository status
@@ -59,7 +59,7 @@ End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
 Source checkouts are intended for development and release production. Published
 history includes the frozen legacy v1 line, the historical pre-adaptive alpha,
-and the current adaptive `rsc-world-editor-v2-0.5.0-alpha.11`. Development
+and the current adaptive `rsc-world-editor-v2-0.7.0-alpha.79`. Development
 continues after that alpha with its release gate closed.
 
 The legacy v1 packaged workflow is:
