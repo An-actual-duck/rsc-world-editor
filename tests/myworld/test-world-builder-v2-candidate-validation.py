@@ -720,7 +720,7 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("Accepted on", text)
         self.assertIn("Green Dragon at ID 862", text)
-        self.assertIn("button and File-menu entry are deliberately hidden", text)
+        self.assertIn("entry are deliberately hidden for this release", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
             self.assertEqual("v0.7.0-alpha.83", gate["releaseVersion"])
