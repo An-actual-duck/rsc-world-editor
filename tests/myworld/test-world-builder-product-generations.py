@@ -31,14 +31,14 @@ class WorldBuilderProductGenerationTest(unittest.TestCase):
 
         current_validation = (
             ROOT
-            / "docs/releases/world-builder-v2-v0.7.0-alpha.83-validation.md"
+            / "docs/releases/world-builder-v2-v0.7.0-alpha.84-validation.md"
         ).read_text(encoding="utf-8")
         gate_path = V2 / "RELEASE-READY"
         if gate_path.exists():
             gate = json.loads(gate_path.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.83", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.84", gate["releaseVersion"])
             self.assertEqual(
-                "docs/releases/world-builder-v2-v0.7.0-alpha.83-validation.md",
+                "docs/releases/world-builder-v2-v0.7.0-alpha.84-validation.md",
                 gate["validationRecord"],
             )
             self.assertIn("ACCEPTED — RELEASE READY", current_validation)

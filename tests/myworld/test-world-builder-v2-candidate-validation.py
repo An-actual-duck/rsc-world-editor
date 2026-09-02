@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.83-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.84-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -715,17 +715,17 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("2692f819c7297ade1f037d083f321a584024e761", text)
+        self.assertIn("556dd5345f1a55b9d0c5a356e21eb14a7f67024a", text)
         self.assertIn("ce7f6d0f63f8877c34b440f36c372c3f78765c7c", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("Green Dragon at ID 862", text)
-        self.assertIn("entry are deliberately hidden for this release", text)
+        self.assertIn("Bronze Arrows at ID 11", text)
+        self.assertIn("542 distinct vanilla item IDs", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.83", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.84", gate["releaseVersion"])
             self.assertEqual(
-                "2692f819c7297ade1f037d083f321a584024e761",
+                "556dd5345f1a55b9d0c5a356e21eb14a7f67024a",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
