@@ -38,6 +38,9 @@ final class WorldBuilderRegionSnapshotService {
 	private static final String OPERATION = "region-snapshot";
 	private static final String PACKAGE = "working/layered-world/package";
 	private static final String LIBRARY = "snapshot-library/v1";
+	private static final String ACTIVE_CLIPBOARD = "snapshot-library/active-v1.json";
+	private static final String ACTIVE_CLIPBOARD_TYPE =
+		"world-builder-region-active-clipboard";
 	private static final String BUNDLE_EXTENSION = ".wbr";
 	private static final String TRANSACTION = "working/layered-world/.region-transaction-v1.json";
 	private static final String JOURNAL_TEMP_PREFIX = ".region-transaction-v1.json.new-";
@@ -472,6 +475,7 @@ final class WorldBuilderRegionSnapshotService {
 		recoverRegionTransaction(root);
 		WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
 		List<Object> records = new ArrayList<Object>();
+		Set<String> snapshotIds = new HashSet<String>();
 		Path requestedLibrary = root.resolve(LIBRARY).normalize();
 		if (Files.exists(requestedLibrary, LinkOption.NOFOLLOW_LINKS)) {
 			Path verifiedLibrary = library(root, false);
@@ -507,6 +511,7 @@ final class WorldBuilderRegionSnapshotService {
 						"Keep only exact content-addressed .wbr bundles in the library.");
 				String snapshotId = filename.substring(0, 64);
 				Bundle bundle = loadLibrary(root, snapshotId);
+				snapshotIds.add(bundle.snapshot.id);
 				Map<String,Object> record = new LinkedHashMap<String,Object>();
 				record.put("snapshotId", bundle.snapshot.id);
 				record.put("name", text(bundle.snapshot.root, "name"));
@@ -520,6 +525,13 @@ final class WorldBuilderRegionSnapshotService {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("operation", "library");
 		result.put("snapshots", records);
+		String activeSnapshotId = readActiveClipboard(root);
+		if (!activeSnapshotId.isEmpty() && !snapshotIds.contains(activeSnapshotId)) {
+			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, ACTIVE_CLIPBOARD,
+				"Active Region clipboard points to a missing snapshot.",
+				"Restore the referenced .wbr entry or copy/import another region.");
+		}
+		result.put("activeSnapshotId", activeSnapshotId);
 		result.put("worldModified", Boolean.FALSE);
 		return WorldBuilderJsonDocuments.pretty(result);
 	}
@@ -1184,14 +1196,17 @@ final class WorldBuilderRegionSnapshotService {
 		Path library = library(project, true);
 		String name = bundle.snapshot.id + BUNDLE_EXTENSION;
 		Path destination = library.resolve(name);
+		LibraryRecord published;
 		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
 			Path verified = requireLibraryFile(project, bundle.snapshot.id);
 			if (!fileEquals(verified, bundle.bytes)) throw problem(
 				WorldBuilderErrorCodes.INVENTORY_DUPLICATE, LIBRARY + "/" + name,
 				"Snapshot ID already exists with different bundle bytes.",
 				"Preserve the existing library entry and investigate the collision.");
-			return new LibraryRecord(LIBRARY + "/" + name,
+			published = new LibraryRecord(LIBRARY + "/" + name,
 				WorldBuilderHashes.sha256(verified), false);
+			writeActiveClipboard(project, bundle.snapshot.id);
+			return published;
 		}
 		requireLibraryCapacity(library);
 		String bundleHash = WorldBuilderHashes.sha256(bundle.bytes);
@@ -1212,8 +1227,82 @@ final class WorldBuilderRegionSnapshotService {
 			WorldBuilderErrorCodes.MUTATION_FAILED, LIBRARY + "/" + name,
 			"Published snapshot library bundle did not verify byte-for-byte.",
 			"Preserve the library and request filesystem recovery.");
-		return new LibraryRecord(LIBRARY + "/" + name,
+		published = new LibraryRecord(LIBRARY + "/" + name,
 			bundleHash, true);
+		writeActiveClipboard(project, bundle.snapshot.id);
+		return published;
+	}
+
+	private static void writeActiveClipboard(Path project, String snapshotId)
+		throws IOException, WorldBuilderContractException {
+		if (!WorldBuilderBoundedInventory.isHash(snapshotId)) throw problem(
+			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, ACTIVE_CLIPBOARD,
+			"Active Region clipboard snapshot ID is invalid.",
+			"Use the exact ID returned by copy or import.");
+		Path root = project.toAbsolutePath().normalize();
+		Path pointer = root.resolve(ACTIVE_CLIPBOARD).normalize();
+		Path parent = pointer.getParent();
+		if (!pointer.startsWith(root) || parent == null
+			|| !Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(parent)
+			|| !parent.toRealPath().startsWith(root.toRealPath())) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, ACTIVE_CLIPBOARD,
+			"Active Region clipboard path is unsafe.",
+			"Restore the real project-local snapshot-library directory.");
+		if (Files.exists(pointer, LinkOption.NOFOLLOW_LINKS)
+			&& (!Files.isRegularFile(pointer, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(pointer))) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, ACTIVE_CLIPBOARD,
+			"Active Region clipboard is linked or not a regular file.",
+			"Restore a real project-local clipboard pointer.");
+		Map<String,Object> value = new LinkedHashMap<String,Object>();
+		value.put("schemaVersion", Long.valueOf(1L));
+		value.put("manifestType", ACTIVE_CLIPBOARD_TYPE);
+		value.put("snapshotId", snapshotId);
+		byte[] bytes = WorldBuilderJsonDocuments.pretty(value)
+			.getBytes(StandardCharsets.UTF_8);
+		Path temporary = parent.resolve(".active-v1.json.new-"
+			+ WorldBuilderHashes.sha256(bytes));
+		Files.write(temporary, bytes, StandardOpenOption.CREATE_NEW,
+			StandardOpenOption.WRITE);
+		try {
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
+			Files.move(temporary, pointer, StandardCopyOption.ATOMIC_MOVE,
+				StandardCopyOption.REPLACE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceDirectory(parent);
+		} finally { Files.deleteIfExists(temporary); }
+	}
+
+	private static String readActiveClipboard(Path project)
+		throws IOException, WorldBuilderContractException {
+		Path root = project.toAbsolutePath().normalize();
+		Path pointer = root.resolve(ACTIVE_CLIPBOARD).normalize();
+		if (!Files.exists(pointer, LinkOption.NOFOLLOW_LINKS)) return "";
+		if (!pointer.startsWith(root)
+			|| !Files.isRegularFile(pointer, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(pointer)
+			|| Files.size(pointer) < 2L || Files.size(pointer) > 4096L) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, ACTIVE_CLIPBOARD,
+			"Active Region clipboard is missing, linked, or outside its size bound.",
+			"Restore a real bounded project-local clipboard pointer.");
+		Map<String,Object> value;
+		try { value = WorldBuilderJsonDocuments.readObject(pointer); }
+		catch (WorldBuilderDiscoveryException malformed) { throw problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, ACTIVE_CLIPBOARD,
+			"Active Region clipboard is malformed.",
+			"Copy or import another region to replace the pointer.", malformed); }
+		Set<String> keys = new HashSet<String>(Arrays.asList(
+			"schemaVersion", "manifestType", "snapshotId"));
+		Object snapshotId = value.get("snapshotId");
+		if (!value.keySet().equals(keys)
+			|| !Long.valueOf(1L).equals(value.get("schemaVersion"))
+			|| !ACTIVE_CLIPBOARD_TYPE.equals(value.get("manifestType"))
+			|| !(snapshotId instanceof String)
+			|| !WorldBuilderBoundedInventory.isHash((String)snapshotId)) throw problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, ACTIVE_CLIPBOARD,
+			"Active Region clipboard contract is invalid.",
+			"Copy or import another region to replace the pointer.");
+		return (String)snapshotId;
 	}
 
 	private static void requireLibraryCapacity(Path library)

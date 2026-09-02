@@ -1068,10 +1068,18 @@ public final class AdaptiveProjectSupervisorHarness {
                         (Map<String,Object>)libraryAnswer.get("result");
                     @SuppressWarnings("unchecked") List<Object> snapshots =
                         (List<Object>)libraryResult.get("snapshots");
-                    require(snapshots.size() == 1, "interactive Paste library result");
-                    @SuppressWarnings("unchecked") Map<String,Object> snapshot =
-                        (Map<String,Object>)snapshots.get(0);
-                    String snapshotId = (String)snapshot.get("snapshotId");
+                    require(snapshots.size() >= 1, "interactive Paste library result");
+                    String snapshotId = (String)libraryResult.get("activeSnapshotId");
+                    require(snapshotId != null && snapshotId.matches("[0-9a-f]{64}"),
+                        "interactive Paste active clipboard");
+                    @SuppressWarnings("unchecked") Map<String,Object> snapshot = null;
+                    for (Object candidate : snapshots) {
+                        Map<String,Object> record = (Map<String,Object>)candidate;
+                        if (snapshotId.equals(record.get("snapshotId"))) snapshot = record;
+                    }
+                    require(snapshot != null, "interactive Paste active snapshot entry");
+                    Files.write(control.resolve("fake-region-paste-active-snapshot"),
+                        snapshotId.getBytes(StandardCharsets.US_ASCII));
                     Map<String,Object> previewRequest = pasteRequest(
                         "22222222222222222222222222222222", "preview", snapshotId,
                         0, 125, 648, "", "");
@@ -2617,6 +2625,14 @@ public final class FakeAdaptiveClient {
                 "--name", "Interactive Paste fixture",
             )
             self.assertEqual(0, copied.returncode, copied.stderr)
+            first_snapshot_id = json.loads(copied.stdout)["snapshotId"]
+            copied_active = self.run_cli(
+                "region-copy", "--project", project, "--selection", selection,
+                "--name", "Interactive Paste active fixture",
+            )
+            self.assertEqual(0, copied_active.returncode, copied_active.stderr)
+            active_snapshot_id = json.loads(copied_active.stdout)["snapshotId"]
+            self.assertNotEqual(first_snapshot_id, active_snapshot_id)
             before = json.loads(
                 (project / "project.json").read_text(encoding="utf-8")
             )["fingerprints"]["workingSha256"]
@@ -2633,6 +2649,12 @@ public final class FakeAdaptiveClient {
             control = project / "run/world-builder"
             self.assertTrue((control / "fake-region-paste-live").is_file())
             self.assertTrue((control / "fake-region-paste-undo-live").is_file())
+            self.assertEqual(
+                active_snapshot_id,
+                (control / "fake-region-paste-active-snapshot").read_text(
+                    encoding="ascii"
+                ),
+            )
             self.assertFalse(
                 (project / "region-history/v1/last-paste-undo.json").exists()
             )
