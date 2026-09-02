@@ -1093,6 +1093,7 @@ public final class mudclient {
         missing_client_runtime=False,
         alpha58_build_guard=False,
         alpha59_managed_first=False,
+        target_mutator=None,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1241,6 +1242,8 @@ public final class mudclient {
         elif install_enabled and not port_evidence:
             capability["install"]["offlineEvidence"] = ["pid-file"]
         project_support.write_json(capability_path, capability)
+        if target_mutator is not None:
+            target_mutator(target)
         installation = target / "World Builder 2"
         installation.mkdir()
         runtime = project_support.make_runtime(base)
@@ -1281,6 +1284,39 @@ public final class mudclient {
         self.assertEqual(0, exported.returncode, exported.stderr)
         export = Path(json.loads(exported.stdout)["exportDirectory"])
         return target, installation, project, export
+
+    def test_import_accepts_discovered_supplemental_npc_registry(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-supplemental-npcs-") as temp:
+            def add_supplemental_npcs(target):
+                definitions = target / "server/conf/server/defs"
+                project_support.write_json(
+                    definitions / "QuestGreenDragonNpcDefs.json",
+                    {"npcs": [{"id": 1, "name": "Quest green dragon"}]},
+                )
+                project_support.write_json(
+                    definitions / "StandardGreenDragonNpcDefs.json",
+                    {"npcs": [{"id": 2, "name": "Green dragon"}]},
+                )
+
+            target, installation, project, export = self.target_project(
+                Path(temp), representation="packed",
+                target_mutator=add_supplemental_npcs,
+            )
+            custom = json.loads((
+                project / "source/content-bundle/files/server/conf/server/defs/"
+                "NpcDefsCustom.json"
+            ).read_text(encoding="utf-8"))["npcs"]
+            self.assertEqual([1, 2], [row["id"] for row in custom[:2]])
+            self.assertEqual(
+                ["Quest green dragon", "Green dragon"],
+                [row["name"] for row in custom[:2]],
+            )
+
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
 
     def test_import_installs_content_neutral_runtime_and_undo_restores_sources(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-install-") as temp:
