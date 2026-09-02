@@ -833,8 +833,13 @@ final class WorldBuilderRegionSnapshotService {
 							targetLevel.intValue(), family, record));
 						overwrite = true;
 					} else if (representedInside) {
+						Point marker = firstRepresentedTileInside(family, record, destination);
+						if (marker == null) {
+							WorldBuilderRegionContracts.Point first = destination.points.get(0);
+							marker = new Point(first.x, first.y);
+						}
 						addCollision(collisions, "represented-" + singularFamily(family)
-							+ "-crossing", targetLevel.intValue(), owner.x, owner.y,
+							+ "-crossing", targetLevel.intValue(), marker.x, marker.y,
 							"Confirmed overwrite replaces " + singularFamily(family) + " "
 								+ text(record, "placementId")
 								+ ", which is anchored outside but represented inside the destination.");
@@ -2232,6 +2237,21 @@ final class WorldBuilderRegionSnapshotService {
 	private static boolean footprintIntersects(String family,
 		Map<String,Object> record, WorldBuilderRegionContracts.Geometry geometry) {
 		return footprint(family, record).intersects(geometry);
+	}
+
+	private static Point firstRepresentedTileInside(String family,
+		Map<String,Object> record, WorldBuilderRegionContracts.Geometry geometry) {
+		Footprint footprint = footprint(family, record);
+		int minimumX = Math.max(footprint.minimumX, geometry.minimumX);
+		int maximumX = Math.min(footprint.maximumX, geometry.maximumX);
+		int minimumY = Math.max(footprint.minimumY, geometry.minimumY);
+		int maximumY = Math.min(footprint.maximumY, geometry.maximumY);
+		for (long x = minimumX; x <= (long)maximumX; x++) {
+			for (long y = minimumY; y <= (long)maximumY; y++) {
+				if (geometry.owns((int)x, (int)y)) return new Point((int)x, (int)y);
+			}
+		}
+		return null;
 	}
 
 	private static Footprint footprint(String family, Map<String,Object> record) {

@@ -4224,6 +4224,17 @@ public final class UpgradeNpcPlacements {
             self.assertIn("represented-boundary-crossing", kinds)
             self.assertIn("represented-npc-crossing", kinds)
             self.assertIn("incoming-footprint-occupied", kinds)
+            crossing_markers = [
+                value for value in external_plan["collisions"]
+                if value["kind"] in {
+                    "represented-boundary-crossing", "represented-npc-crossing"
+                }
+            ]
+            self.assertEqual(2, len(crossing_markers))
+            self.assertEqual(
+                {(119, 648)},
+                {(value["x"], value["y"]) for value in crossing_markers},
+            )
             external_hash = external_plan["planFingerprintSha256"]
             replaced = self.run_cli(
                 "region-paste-apply", "--project", project, "--snapshot", snapshot_id,
