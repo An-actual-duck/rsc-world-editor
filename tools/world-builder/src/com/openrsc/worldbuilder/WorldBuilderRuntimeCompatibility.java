@@ -7,11 +7,17 @@ import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /** Compiles the trusted project runtime into bounded target-install actions. */
 final class WorldBuilderRuntimeCompatibility {
@@ -160,6 +166,9 @@ final class WorldBuilderRuntimeCompatibility {
 				"Restore the exact verified project runtime.");
 		}
 		verifyBundle(project, capability);
+		Path managedServerSource = WorldBuilderAdaptiveExporter.requireFile(
+			project.projectRoot, SERVER_SOURCE, "managed server runtime upgrade");
+		requireNoTargetClassShadowing(managedServerSource, target, serverTarget);
 		if (!clientPresent && !"world-builder-installed-runtime-capability-v2"
 			.equals(targetCapability.capabilityId)
 			&& !hasManagedRepairCapability(target)) {
@@ -187,6 +196,115 @@ final class WorldBuilderRuntimeCompatibility {
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
 		return new Upgrade(encodingVersions, actions, true);
+	}
+
+	/**
+	 * Refuses an overlay archive whenever it can win a target-owned server class.
+	 * Byte-identical duplicates are still unsafe: a later target rebuild could
+	 * change one side while leaving the first-on-classpath overlay stale.
+	 */
+	static void requireNoTargetClassShadowing(
+		Path providerArchive, Path target, Path targetArchive)
+		throws IOException, WorldBuilderContractException {
+		Set<String> providerClasses = archiveClasses(
+			providerArchive, SERVER_SOURCE, "Managed server runtime upgrade");
+		Set<String> targetClasses = archiveClasses(
+			targetArchive, SERVER_DESTINATION, "Target server runtime");
+		Path libraries = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, "server/lib");
+		if (Files.exists(libraries, LinkOption.NOFOLLOW_LINKS)) {
+			if (!Files.isDirectory(libraries, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(libraries)) {
+				throw problem("server/lib",
+					"Target server library path is not a safe directory.",
+					"Restore the target runtime layout and retry Import.");
+			}
+			List<Path> archives = new ArrayList<Path>();
+			try (java.nio.file.DirectoryStream<Path> entries =
+				Files.newDirectoryStream(libraries, "*.jar")) {
+				for (Path archive : entries) {
+					if (archives.size() >= 512) throw problem("server/lib",
+						"Target server library directory contains too many JAR archives.",
+						"Reduce the target runtime to a bounded reviewed library set and retry Import.");
+					archives.add(archive);
+				}
+			} catch (WorldBuilderContractException invalid) {
+				throw invalid;
+			} catch (IOException invalid) {
+				throw problem("server/lib",
+					"Target server library directory cannot be inspected safely.",
+					"Restore readable target runtime libraries and retry Import.");
+			}
+			Collections.sort(archives, Comparator.comparing(Path::toString));
+			for (Path archive : archives) {
+				String relative = "server/lib/" + archive.getFileName().toString();
+				// The former managed overlay is removed by this same transaction,
+				// so it cannot own a class on the resulting production classpath.
+				if (LEGACY_MANAGED_SERVER_DESTINATION.equals(relative)) continue;
+				if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)
+					|| Files.isSymbolicLink(archive)) {
+					throw problem(relative,
+						"Target server library is not a safe regular JAR archive.",
+						"Restore a safe regular target library and retry Import.");
+				}
+				targetClasses.addAll(archiveClasses(
+					archive, relative, "Target server library"));
+			}
+		}
+		Set<String> overlap = new TreeSet<String>(providerClasses);
+		overlap.retainAll(targetClasses);
+		if (overlap.isEmpty()) return;
+
+		List<String> examples = new ArrayList<String>();
+		String[] important = {
+			"com/openrsc/server/model/entity/player/Player.class",
+			"com/openrsc/server/model/container/Inventory.class",
+			"com/openrsc/server/model/world/World.class",
+			"com/openrsc/server/net/rsc/ActionSender.class"
+		};
+		for (String name : important) if (overlap.contains(name)) examples.add(name);
+		for (String name : overlap) {
+			if (examples.size() >= 4) break;
+			if (!examples.contains(name)) examples.add(name);
+		}
+		throw problem(SERVER_SOURCE,
+			"Managed server runtime would shadow " + overlap.size()
+				+ " target-owned runtime class(es): " + examples + ".",
+			"Install or build a host-compatible World Builder runtime with no duplicate "
+				+ "com.openrsc.server classes; the target was not changed.");
+	}
+
+	private static Set<String> archiveClasses(
+		Path archive, String source, String description)
+		throws WorldBuilderContractException {
+		Set<String> result = new TreeSet<String>();
+		int entries = 0;
+		try (ZipFile zip = new ZipFile(archive.toFile())) {
+			Enumeration<? extends ZipEntry> values = zip.entries();
+			while (values.hasMoreElements()) {
+				ZipEntry entry = values.nextElement();
+				entries++;
+				if (entries > 100000) throw problem(source,
+					description + " contains too many archive entries.",
+					"Restore a bounded regular JAR and retry Import.");
+				String name = entry.getName();
+				if (name.length() > 1024 || name.indexOf('\\') >= 0
+					|| name.startsWith("/") || name.contains("../")) {
+					throw problem(source, description + " contains an unsafe archive path.",
+						"Restore a safe regular JAR and retry Import.");
+				}
+				if (entry.isDirectory() || !name.endsWith(".class")) continue;
+				if (!result.add(name)) throw problem(source,
+					description + " repeats server class " + name + ".",
+					"Restore an archive with unique class entries and retry Import.");
+			}
+		} catch (WorldBuilderContractException invalid) {
+			throw invalid;
+		} catch (IOException invalid) {
+			throw problem(source, description + " is not a readable JAR archive.",
+				"Restore a valid regular JAR and retry Import.");
+		}
+		return result;
 	}
 
 	private static boolean hasManagedRepairCapability(Path target)
