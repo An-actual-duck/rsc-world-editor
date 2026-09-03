@@ -21,6 +21,11 @@ from the Spoiled Milk repository before this dedicated repository was created.
   layered and converted packed origins. Undo deactivates configuration before
   package removal and restores packages before rollback reactivation.
   Standalone target operations stop with `NO_TARGET` before target resolution.
+- Made installed-map Import fail closed before preview or mutation when a
+  managed server provider duplicates any class from the target's `core.jar` or
+  retained `server/lib` archives. Target libraries and `core.jar` now remain
+  first on the generated runtime classpath, and diagnostics identify
+  representative conflicting classes without changing the target.
 - Replaced the bundled-world package input and broad runtime copies with an
   explicit content-neutral runtime/default-catalog allowlist. Production
   validation now rejects terrain, placements, layered packages, creator state,

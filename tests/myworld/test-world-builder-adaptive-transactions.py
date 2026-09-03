@@ -1470,9 +1470,9 @@ public final class mudclient {
                 )
                 self.assertEqual(
                     [
-                        "world-builder-runtime/world-builder-managed-runtime.jar",
                         "${lib}/*",
                         "${jar}/",
+                        "world-builder-runtime/world-builder-managed-runtime.jar",
                     ],
                     [
                         entry.attrib.get("location", entry.attrib.get("path"))
@@ -1508,14 +1508,20 @@ public final class mudclient {
 
     def test_import_refuses_provider_archive_that_shadows_target_server_classes(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-shadow-") as temp:
-            shadowed = "com/openrsc/server/model/entity/player/Player.class"
+            shadowed = (
+                "com/openrsc/server/model/entity/player/Player.class",
+                "com/openrsc/server/model/container/Inventory.class",
+                "com/openrsc/server/model/world/World.class",
+                "com/openrsc/server/net/rsc/ActionSender.class",
+            )
 
             def target_shadow(target):
                 archive = target / "server/core.jar"
                 archive.parent.mkdir(parents=True, exist_ok=True)
                 with zipfile.ZipFile(archive, "w") as jar:
                     jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
-                    jar.writestr(shadowed, b"target-player")
+                    for name in shadowed:
+                        jar.writestr(name, b"target-owned-class")
 
             def runtime_shadow(runtime):
                 archive = (
@@ -1523,7 +1529,8 @@ public final class mudclient {
                     / "server/world-builder-runtime/world-builder-managed-runtime.jar"
                 )
                 with zipfile.ZipFile(archive, "a") as jar:
-                    jar.writestr(shadowed, b"stale-provider-player")
+                    for name in shadowed:
+                        jar.writestr(name, b"stale-provider-class")
 
             target, installation, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -1538,8 +1545,12 @@ public final class mudclient {
             )
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
-            self.assertIn("would shadow 1 target-owned runtime class", refused.stderr)
-            self.assertIn("Player.class", refused.stderr)
+            self.assertIn("would shadow 4 target-owned runtime class", refused.stderr)
+            for name in (
+                "Player.class", "Inventory.class", "World.class",
+                "ActionSender.class",
+            ):
+                self.assertIn(name, refused.stderr)
             self.assertIn("target was not changed", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 

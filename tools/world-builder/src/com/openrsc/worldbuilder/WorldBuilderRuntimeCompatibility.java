@@ -889,17 +889,18 @@ final class WorldBuilderRuntimeCompatibility {
 			if (!required) return original;
 			throw buildGuardProblem(
 				"Target " + targetName
-					+ " classpath cannot isolate the managed runtime before core.jar.");
+					+ " classpath cannot keep the target runtime authoritative.");
 		}
 		if (block.indexOf(libraryEntry, libraryIndex + 1) >= 0
 			|| block.indexOf(targetCoreEntry, targetCoreIndex + 1) >= 0
 			|| libraryIndex > targetCoreIndex) throw buildGuardProblem(
 			"Target " + targetName
-				+ " classpath cannot isolate the managed runtime before core.jar.");
+				+ " classpath cannot keep the target runtime authoritative.");
 		String newline = original.contains("\r\n") ? "\r\n" : "\n";
-		String indent = lineIndent(block, libraryIndex);
-		block = block.substring(0, libraryIndex) + managedEntry + newline + indent
-			+ block.substring(libraryIndex);
+		int targetCoreEnd = targetCoreIndex + targetCoreEntry.length();
+		String indent = lineIndent(block, targetCoreIndex);
+		block = block.substring(0, targetCoreEnd) + newline + indent + managedEntry
+			+ block.substring(targetCoreEnd);
 		return original.substring(0, targetStart) + block + original.substring(targetEnd);
 	}
 
