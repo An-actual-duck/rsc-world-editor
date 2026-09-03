@@ -32,7 +32,7 @@ workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel. The current adaptive release is `v0.7.0-alpha.79`, accepted and
+v1 channel. The current adaptive release is `v0.7.0-alpha.87`, accepted and
 published on 2026-09-02. Production artifacts were rebuilt from its published
 gate commit rather than promoted from restricted validation archives.
 
@@ -59,7 +59,7 @@ End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
 Source checkouts are intended for development and release production. Published
 history includes the frozen legacy v1 line, the historical pre-adaptive alpha,
-and the current adaptive `rsc-world-editor-v2-0.7.0-alpha.79`. Development
+and the current adaptive `rsc-world-editor-v2-0.7.0-alpha.87`. Development
 continues after that alpha with its release gate closed.
 
 The legacy v1 packaged workflow is:
@@ -87,9 +87,10 @@ World Builder 2's instructions are kept separately in
 The adaptive v2 product contract is:
 
 1. Put the complete `World Builder 2` folder directly inside a compatible
-   game/server root and launch it. The desktop screen offers New Empty World,
-   Use Detected Server Map, Open Existing Project, and Select Another Supported
-   Source; the command-line workflow remains available for automation.
+   game/server root and launch it. The desktop screen offers Detect Server Map,
+   Continue Working on Selected Project, Upgrade Server and Import Map, and
+   Restore Project Backup; the command-line workflow remains available for
+   automation.
 2. Let World Builder discover the target's active map, definitions, and
    compatibility evidence; unsupported or ambiguous layouts fail with a
    report instead of being guessed.
@@ -109,6 +110,91 @@ The adaptive v2 product contract is:
    installed state. Each import verifies that complete server/client package and
    active configuration as its before-state without changing the Editor's later
    working bytes.
+
+## Using World Builder 2
+
+Put the complete `World Builder 2` folder directly inside the game/server root,
+beside `server/` and `Client_Base/`, then run `Start World Builder.sh` on Linux
+or `Start World Builder.cmd` on Windows. The main window has four actions:
+
+- **Detect Server Map** is the starting point for a server that has not been
+  opened with this copy of World Builder. It finds every recognizable map file
+  and lets you choose which one to adopt into an isolated editing project. In a
+  normal installation, choose the most recently modified map when prompted.
+- **Continue Working on Selected Project** reopens a project that was started
+  earlier. Select it from the project list populated in the main window, then
+  continue editing its independent working copy.
+- **Upgrade Server and Import Map** installs the compatibility files required by
+  World Builder's improved map loader and layering system, then imports the
+  selected project's saved map into its server. The target server must be fully
+  offline. Review the preview, make and verify a separate full-server backup,
+  and confirm the transaction only when you are ready to update the target.
+- **Restore Project Backup** loads an earlier saved state into the selected
+  project without changing the server. World Builder creates automatic project
+  backups when an editing session starts and closes; the backup screen also
+  supports manually named backups.
+
+### In-editor tools
+
+- **Navigate** provides coordinate teleport fields for X, Y, and Level. Classic
+  RSC stored its four planes in one Y value, adding offsets of 944 to distinguish
+  the surface, upper floors, and underground. World Builder separates that plane
+  information into a signed Level value: level `0` is the overworld, positive
+  levels are upper floors, and negative levels are underground depths. In an
+  editable project you can teleport to a new signed level and author it as you
+  go, allowing a world to grow beyond the original four planes. Enable **Click
+  teleport** in Navigate mode to move quickly by clicking the world instead of
+  entering coordinates.
+- **Inspect** is a read-only lookup mode. Click terrain, scenery, walls, or NPCs
+  to see their authoritative coordinates, IDs, definitions, raw terrain fields,
+  level, and collision details. Inspection results can also seed the matching
+  editing selection.
+- **Scenery** lets you search or browse scenery definitions and place, move,
+  rotate, or remove scenery objects.
+- **NPC** lets you search or browse NPC definitions, place or remove NPCs, and
+  set their respawn time and roam radius.
+- **Items** lets you search or browse item definitions, place or remove ground
+  items, and set their amount and respawn time.
+- **Terrain** is the map brush. Elevation, Floor Color, Floor Texture, Roof,
+  North Wall, East Wall, and Diagonal Wall are independent toggles with their
+  own values; a stroke changes only the fields that are enabled. Freehand,
+  adjustable brush sizes, lines, and rectangles can apply several enabled
+  fields together.
+
+Terrain field behavior is worth knowing before painting:
+
+- **Elevation** is no longer limited to the original unsigned-byte maximum of
+  255. World Builder's wide terrain format supports elevations through 65,535,
+  making genuinely large mountains and much greater vertical variation possible
+  in RSC.
+- **Floor Color** uses RSC's intentionally limited blended ground palette:
+  browns, greens, and white.
+- **Floor Texture** controls walkability and distinctive floor visuals. Value
+  `0` leaves walkable base-color terrain, `255` leaves the same smoothly blended
+  color but makes the tile unwalkable, and `8` removes the floor. Other values
+  select the corresponding floor definition and its appearance or collision
+  behavior.
+- **Roof** applies or removes the selected roof definition.
+- **Walls** are stored in north, east, and diagonal fields rather than four
+  cardinal directions. The Line and Rectangle tools are especially useful for
+  laying out walls; rectangles also offer Smart Walls for clean outlines.
+
+**Build view** switches to a clear, faceted tile grid so terrain boundaries and
+the tile under the pointer are easier to see. It is a visual editing aid and
+does not become part of the saved map.
+
+The **Regions** tools copy complete areas, including terrain, scenery, NPCs, and
+ground items. With Copy or Cut selected, place ordered boundary markers around
+the area, choose Stop to close the selection, then choose Copy or Cut. Copy
+leaves the source unchanged; Cut captures the same reusable snapshot before
+replacing the selected content. Switch to Paste, click the destination, review
+the exact preview, and complete the confirmation sequence to replace that
+area. Paste also provides an exact Undo for its most recent operation.
+
+Choose **Export** after copying to save the clipboard as a portable `.wbr`
+region file. That file can be shared with another World Builder user, who can
+choose **Import .wbr** in the Paste tool and place the copied region into their
+own project and game.
 
 ## Development
 
