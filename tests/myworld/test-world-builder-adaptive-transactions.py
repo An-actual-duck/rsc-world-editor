@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = ROOT / "tools/world-builder/src"
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
 class AdaptiveTransactionTest(unittest.TestCase):
+    @staticmethod
+    def write_runtime_jar(path: Path, payload: bytes):
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
+            archive.writestr("target/RuntimeMarker.class", payload)
+
     @classmethod
     def setUpClass(cls):
         cls.fixtures = project_support.load_discovery_fixtures()
@@ -1094,6 +1100,7 @@ public final class mudclient {
         alpha58_build_guard=False,
         alpha59_managed_first=False,
         target_mutator=None,
+        runtime_mutator=None,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1104,7 +1111,10 @@ public final class mudclient {
             self.upgrade_fixture_placements_to_v4(target / "server/maps/active")
             self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
         if target_runtime_archives:
-            (target / "server/core.jar").write_bytes(b"target server runtime\n")
+            with zipfile.ZipFile(target / "server/core.jar", "w") as archive:
+                archive.writestr(
+                    "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n"
+                )
             (target / "server/myworld.conf").write_text(
                 "want_sync_scene_baseline: false\ncustom_landscape: true\n",
                 encoding="utf-8",
@@ -1247,6 +1257,8 @@ public final class mudclient {
         installation = target / "World Builder 2"
         installation.mkdir()
         runtime = project_support.make_runtime(base)
+        if runtime_mutator is not None:
+            runtime_mutator(runtime)
         discovery = self.run_cli("discover-adaptive", "--target-root", target)
         self.assertEqual(0, discovery.returncode, discovery.stderr)
         report = base / "discovery.json"
@@ -1382,6 +1394,7 @@ public final class mudclient {
             self.assertFalse(legacy_overlay.exists())
             self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(before_config, config_source.read_bytes())
+
             self.assertEqual(
                 (project / "working/runtime/server/lib/json-20190722.jar").read_bytes(),
                 client_json_dependency.read_bytes(),
@@ -1457,9 +1470,9 @@ public final class mudclient {
                 )
                 self.assertEqual(
                     [
-                        "world-builder-runtime/world-builder-managed-runtime.jar",
                         "${lib}/*",
                         "${jar}/",
+                        "world-builder-runtime/world-builder-managed-runtime.jar",
                     ],
                     [
                         entry.attrib.get("location", entry.attrib.get("path"))
@@ -1493,6 +1506,91 @@ public final class mudclient {
             self.assertFalse(overlay.exists())
             self.assertEqual(before_legacy_overlay, legacy_overlay.read_bytes())
 
+    def test_import_refuses_provider_archive_that_shadows_target_server_classes(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-shadow-") as temp:
+            shadowed = (
+                "com/openrsc/server/model/entity/player/Player.class",
+                "com/openrsc/server/model/container/Inventory.class",
+                "com/openrsc/server/model/world/World.class",
+                "com/openrsc/server/net/rsc/ActionSender.class",
+            )
+
+            def target_shadow(target):
+                archive = target / "server/core.jar"
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(archive, "w") as jar:
+                    jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
+                    for name in shadowed:
+                        jar.writestr(name, b"target-owned-class")
+
+            def runtime_shadow(runtime):
+                archive = (
+                    runtime
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                )
+                with zipfile.ZipFile(archive, "a") as jar:
+                    for name in shadowed:
+                        jar.writestr(name, b"stale-provider-class")
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                target_build_file=True, target_client_build_file=True,
+                target_mutator=target_shadow, runtime_mutator=runtime_shadow,
+            )
+            before = project_support.tree_bytes(target, installation)
+
+            refused = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("would shadow 4 target-owned runtime class", refused.stderr)
+            for name in (
+                "Player.class", "Inventory.class", "World.class",
+                "ActionSender.class",
+            ):
+                self.assertIn(name, refused.stderr)
+            self.assertIn("target was not changed", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+
+    def test_import_refuses_provider_archive_that_shadows_target_library(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-lib-shadow-") as temp:
+            shadowed = "org/example/TargetLibrary.class"
+
+            def target_shadow(target):
+                library = target / "server/lib/target-library.JAR"
+                library.parent.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(library, "w") as jar:
+                    jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
+                    jar.writestr(shadowed, b"target-library")
+
+            def runtime_shadow(runtime):
+                archive = (
+                    runtime
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                )
+                with zipfile.ZipFile(archive, "a") as jar:
+                    jar.writestr(shadowed, b"stale-provider-library")
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True,
+                target_build_file=True, target_client_build_file=True,
+                target_mutator=target_shadow, runtime_mutator=runtime_shadow,
+            )
+            before = project_support.tree_bytes(target, installation)
+
+            refused = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("would shadow 1 target-owned runtime class", refused.stderr)
+            self.assertIn("TargetLibrary.class", refused.stderr)
+            self.assertIn("target was not changed", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+
     def test_import_upgrades_installed_v1_runtime_across_repeated_map_updates(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
             target, _, project, export = self.target_project(
@@ -1505,6 +1603,7 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.is_file():
                 client = target / "Client_Base/Open_RSC_Client.jar"
+            before_server = server.read_bytes()
             capability = (
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v1.json"
@@ -1563,7 +1662,7 @@ public final class mudclient {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(b"target server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(
                 project_server.read_bytes(),
                 (
@@ -1602,7 +1701,7 @@ public final class mudclient {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(b"target server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(b"target client runtime\n", client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
@@ -1820,7 +1919,9 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.is_file():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"custom target loader-v7 server runtime\n")
+            self.write_runtime_jar(
+                server, b"custom target loader-v7 server runtime\n"
+            )
             client.write_bytes(b"custom target loader-v7 client runtime\n")
             capability = (
                 target
@@ -2108,7 +2209,10 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.parent.is_dir():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"incompatible installed server runtime\n")
+            self.write_runtime_jar(
+                server, b"incompatible installed server runtime\n"
+            )
+            before_server = server.read_bytes()
             client.write_bytes(b"incompatible installed client runtime\n")
             self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(
@@ -2147,7 +2251,7 @@ public final class mudclient {
                 "--target-root", target,
             )
             self.assertEqual(0, undone.returncode, undone.stderr)
-            self.assertEqual(b"incompatible installed server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(b"incompatible installed client runtime\n", client.read_bytes())
             configuration = json.loads(
                 (target / "server/world-builder-configs/primary.json").read_text(
@@ -2191,7 +2295,9 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.parent.is_dir():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"incompatible installed server runtime\n")
+            self.write_runtime_jar(
+                server, b"incompatible installed server runtime\n"
+            )
             client.write_bytes(b"incompatible installed client runtime\n")
             self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(

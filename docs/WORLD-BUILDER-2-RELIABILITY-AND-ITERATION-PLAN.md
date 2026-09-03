@@ -326,15 +326,14 @@ fundamentally to achieve that result.
 - [x] Make Import install that exact current server/client bundle when an older
   managed target is detected, then import and activate the map in the same
   reviewed transaction.
-- [x] Install the managed server as a classpath-first runtime overlay while
-  retaining and rebuilding the target's own `server/core.jar`. Compile target
-  plugins against the target core first and the managed overlay second so
-  target-only APIs and game customization stay authoritative during the build;
-  keep the managed overlay first at launch so the upgraded map loader stays
-  authoritative at runtime. Keep the overlay outside `server/lib` so target
-  library wildcards cannot change that precedence, and retire the earlier
-  in-library overlay transactionally. Back up and restore the exact original
-  `server/build.xml` through the import transaction.
+- [x] Refuse a managed server provider before mutation if any of its classes
+  duplicate classes from the target's `server/core.jar` or retained
+  `server/lib/*.jar` archives. Compile target plugins against the target core
+  first and append a verified disjoint provider after the target libraries and
+  core at launch, so target-owned code remains authoritative. Keep the provider
+  outside `server/lib`, retire the earlier in-library overlay transactionally,
+  and back up and restore the exact original `server/build.xml` through the
+  import transaction.
 - [x] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.

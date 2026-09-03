@@ -27,6 +27,12 @@ PACKED_FIXTURES = ROOT / "tests" / "myworld" / "test-world-builder-packed-conver
 ZERO_HASH = "0" * 64
 
 
+def write_runtime_jar(path: Path, payload: bytes) -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
+        archive.writestr("target/RuntimeMarker.class", payload)
+
+
 def add_client_upgrade_source(client_root: Path) -> None:
     source = client_root / "src/orsc"
     (source / "graphics/three").mkdir(parents=True, exist_ok=True)
@@ -973,8 +979,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
         configuration_path.write_text(
             json.dumps(configuration, indent=2) + "\n", encoding="utf-8"
         )
-        (target / "server/core.jar").write_bytes(
-            b"target-specific v1 server runtime\n"
+        write_runtime_jar(
+            target / "server/core.jar", b"target-specific v1 server runtime\n"
         )
         (target / "client/Open_RSC_Client.jar").write_bytes(
             b"target-specific v1 client runtime\n"
@@ -1290,7 +1296,9 @@ class MapMigrationChoiceTest(unittest.TestCase):
             ],
         )
         self.add_layered_authority(target, generated_catalog)
-        (target / "server/core.jar").write_bytes(b"old target server runtime\n")
+        write_runtime_jar(
+            target / "server/core.jar", b"old target server runtime\n"
+        )
         (target / "client/Open_RSC_Client.jar").write_bytes(
             b"old target client runtime\n"
         )
