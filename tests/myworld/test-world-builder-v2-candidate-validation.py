@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.86-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.87-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -715,21 +715,21 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("b1a90a4210965c03b1531446063f2d041e35f648", text)
-        self.assertIn("67be8ea7bb309a54df6f36ca969261b13ef0c155", text)
+        self.assertIn("73566c5429efeceac7ed005e8e6b10b883ec295b", text)
+        self.assertIn("500780656a2c77d8e2f17c61e024d35e5f34ca2a", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("distant spawn anchors", text)
-        self.assertIn("exact-destination no-op handling", text)
+        self.assertIn("saved terrain-sector and level growth", text)
+        self.assertIn("unrecorded or unrelated layout expansion", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.86", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.87", gate["releaseVersion"])
             self.assertEqual(
-                "b1a90a4210965c03b1531446063f2d041e35f648",
+                "73566c5429efeceac7ed005e8e6b10b883ec295b",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
-                "67be8ea7bb309a54df6f36ca969261b13ef0c155",
+                "500780656a2c77d8e2f17c61e024d35e5f34ca2a",
                 gate["runtimeProviderCommit"],
             )
         else:
