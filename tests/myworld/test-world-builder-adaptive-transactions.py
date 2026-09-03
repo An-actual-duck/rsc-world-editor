@@ -20,6 +20,12 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE_ROOT = ROOT / "tools/world-builder/src"
 MAIN_CLASS = "com.openrsc.worldbuilder.WorldBuilderCli"
 class AdaptiveTransactionTest(unittest.TestCase):
+    @staticmethod
+    def write_runtime_jar(path: Path, payload: bytes):
+        with zipfile.ZipFile(path, "w") as archive:
+            archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
+            archive.writestr("target/RuntimeMarker.class", payload)
+
     @classmethod
     def setUpClass(cls):
         cls.fixtures = project_support.load_discovery_fixtures()
@@ -1586,6 +1592,7 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.is_file():
                 client = target / "Client_Base/Open_RSC_Client.jar"
+            before_server = server.read_bytes()
             capability = (
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v1.json"
@@ -1644,7 +1651,7 @@ public final class mudclient {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(b"target server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(
                 project_server.read_bytes(),
                 (
@@ -1683,7 +1690,7 @@ public final class mudclient {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(b"target server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(b"target client runtime\n", client.read_bytes())
             self.assertEqual(project_capability.read_bytes(), installed_v2.read_bytes())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
@@ -1901,7 +1908,9 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.is_file():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"custom target loader-v7 server runtime\n")
+            self.write_runtime_jar(
+                server, b"custom target loader-v7 server runtime\n"
+            )
             client.write_bytes(b"custom target loader-v7 client runtime\n")
             capability = (
                 target
@@ -2189,7 +2198,10 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.parent.is_dir():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"incompatible installed server runtime\n")
+            self.write_runtime_jar(
+                server, b"incompatible installed server runtime\n"
+            )
+            before_server = server.read_bytes()
             client.write_bytes(b"incompatible installed client runtime\n")
             self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(
@@ -2228,7 +2240,7 @@ public final class mudclient {
                 "--target-root", target,
             )
             self.assertEqual(0, undone.returncode, undone.stderr)
-            self.assertEqual(b"incompatible installed server runtime\n", server.read_bytes())
+            self.assertEqual(before_server, server.read_bytes())
             self.assertEqual(b"incompatible installed client runtime\n", client.read_bytes())
             configuration = json.loads(
                 (target / "server/world-builder-configs/primary.json").read_text(
@@ -2272,7 +2284,9 @@ public final class mudclient {
             client = target / "client/Open_RSC_Client.jar"
             if not client.parent.is_dir():
                 client = target / "Client_Base/Open_RSC_Client.jar"
-            server.write_bytes(b"incompatible installed server runtime\n")
+            self.write_runtime_jar(
+                server, b"incompatible installed server runtime\n"
+            )
             client.write_bytes(b"incompatible installed client runtime\n")
             self.add_client_upgrade_source(client.parent)
             (target / "server/myworld.conf").write_text(
