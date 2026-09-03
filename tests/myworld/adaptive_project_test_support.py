@@ -196,6 +196,45 @@ def installed_v2_capability() -> dict:
     }
 
 
+def host_runtime_capability() -> dict:
+    return {
+        "schemaVersion": 1,
+        "manifestType": "world-builder-host-runtime-capability",
+        "capabilityId": "world-builder-host-runtime-capability-v1",
+        "integrationModel": "host-integrated-core-v1",
+        "profileId": "world-builder-installed",
+        "serverBuildId": "rsc-world-editor-runtime-host-server-v1",
+        "clientBuildId": "rsc-world-editor-runtime-host-client-v1",
+        "clientBootstrapId": "world-builder-installed-client-profile-v1",
+        "serverBootstrapId": "world-builder-installed-server-profile-v1",
+        "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
+        "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
+        "mapFormatId": "signed-layered-v1",
+        "packageSchemaId": "layered-world-package-v1",
+        "coordinateModel": "signed-layered-v1",
+        "encodingVersions": [1, 2, 3, 4],
+        "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        "activation": {
+            "serverProfileRelativePath": (
+                "server/world-builder-configs/installed-server.json"
+            ),
+            "clientProfileRelativePaths": [
+                "Client_Base/world-builder-configs/installed-client.json",
+                "client/world-builder-configs/installed-client.json",
+            ],
+            "requiresExactManifestSha256": True,
+            "requiresExactInventorySha256": False,
+            "replacesLegacyTerrain": False,
+            "replacesLegacyPlacements": False,
+            "ordinaryImportOwnership": [
+                "content-addressed-map-package",
+                "world-builder-map-selection",
+                "world-builder-owned-activation-profile",
+            ],
+        },
+    }
+
+
 def managed_runtime_bundle() -> dict:
     return {
         "schemaVersion": 1,
@@ -506,6 +545,10 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
     write_json(
         server / "conf/world-builder/installed-runtime-capability-v2.json",
         installed_v2_capability(),
+    )
+    write_json(
+        server / "conf/world-builder/installed-runtime-capability-v3.json",
+        host_runtime_capability(),
     )
     write_json(
         server / "conf/world-builder/managed-runtime-bundle.json",

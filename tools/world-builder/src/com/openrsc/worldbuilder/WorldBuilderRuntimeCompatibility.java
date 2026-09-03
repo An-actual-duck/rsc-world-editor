@@ -35,6 +35,12 @@ final class WorldBuilderRuntimeCompatibility {
 	static final String BUILD_DESTINATION = "server/build.xml";
 	static final String CLIENT_PROFILE_NAME =
 		"world-builder-configs/installed-client.json";
+	static final String SERVER_PROFILE_NAME =
+		"server/world-builder-configs/installed-server.json";
+	static final String HOST_CAPABILITY_DESTINATION =
+		"server/conf/world-builder/installed-runtime-capability-v3.json";
+	static final String HOST_CAPABILITY_SOURCE =
+		"working/runtime/server/conf/world-builder/installed-runtime-capability-v3.json";
 	private static final String CLIENT_BUILD_NAME = "build.xml";
 	private static final String BUILD_GUARD_PROPERTY =
 		"world.builder.installed.runtime";
@@ -46,6 +52,8 @@ final class WorldBuilderRuntimeCompatibility {
 		"world-builder-configs/installed-client.json";
 	private static final String MANAGED_SERVER_DESTINATION =
 		"server/world-builder-runtime/world-builder-managed-runtime.jar";
+	private static final String GAMEPLAY_OVERLAY_DESTINATION =
+		"server/core-gameplay-overlay.jar";
 	private static final String MANAGED_SERVER_BUILD_PATH =
 		"world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final Pattern PROJECT_TAG = Pattern.compile("<project\\b[^>]*>");
@@ -75,57 +83,65 @@ final class WorldBuilderRuntimeCompatibility {
 		throws IOException, WorldBuilderContractException {
 		String clientDestination = compiledClientRoot(configuration)
 			+ "/Open_RSC_Client.jar";
-		Path serverTarget = WorldBuilderAdaptiveMutationProfile.safeDestination(
-			target, SERVER_DESTINATION);
-		Path clientTarget = WorldBuilderAdaptiveMutationProfile.safeDestination(
-			target, clientDestination);
-		boolean serverPresent = Files.isRegularFile(
-			serverTarget, LinkOption.NOFOLLOW_LINKS);
-		boolean clientPresent = Files.isRegularFile(
-			clientTarget, LinkOption.NOFOLLOW_LINKS);
-		if (!serverPresent && !clientPresent) {
-			return new Upgrade(targetCapability.encodingVersions,
-				Collections.<WorldBuilderAdaptiveMutationProfile.Action>emptyList(), false);
+		rejectRetiredShadowRuntime(target);
+		requireTargetArchive(target, SERVER_DESTINATION, "server runtime",
+			"com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+			"com/openrsc/server/io/NativeLayeredWorldPackage.class");
+		requireTargetArchive(target, clientDestination, "client runtime",
+			"orsc/WorldBuilderInstalledClientProfile.class",
+			"orsc/WorldBuilderTerrainBootstrap.class");
+		Path source = WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+			HOST_CAPABILITY_SOURCE, "project host runtime capability");
+		Path installed = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, HOST_CAPABILITY_DESTINATION);
+		if (!Files.isRegularFile(installed, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(installed)) {
+			throw runtimeUpgradeRequired(
+				"Target does not advertise the required host-integrated World Builder runtime.");
 		}
-		if (!serverPresent) throw problem(
-			SERVER_DESTINATION,
-			"Managed runtime upgrade found only one target runtime archive.",
-			"Restore the complete server and client runtime pair, then retry Import.");
-		Path capabilitySource = WorldBuilderAdaptiveExporter.requireFile(
-			project.projectRoot, CAPABILITY_SOURCE,
-			"project runtime compatibility capability");
+		byte[] sourceBytes = Files.readAllBytes(source);
+		byte[] installedBytes = Files.readAllBytes(installed);
+		if (!java.util.Arrays.equals(sourceBytes, installedBytes)) {
+			throw runtimeUpgradeRequired(
+				"Target host runtime capability differs from the pinned project runtime.");
+		}
 		Map<String,Object> capability;
 		try {
-			capability = WorldBuilderJsonDocuments.readObject(capabilitySource);
+			capability = WorldBuilderJsonDocuments.readObject(source);
 		} catch (WorldBuilderDiscoveryException invalid) {
-			throw problem(CAPABILITY_SOURCE,
-				"Project runtime compatibility capability is malformed.",
+			throw problem(HOST_CAPABILITY_SOURCE,
+				"Project host runtime capability is malformed.",
 				"Restore the exact verified project runtime.");
 		}
 		List<Integer> encodingVersions = integerList(
-			capability.get("encodingVersions"), CAPABILITY_SOURCE);
+			capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE);
 		Map<String,Object> activation = WorldBuilderAdaptiveExporter.object(
 			capability.get("activation"), "activation");
-		Map<String,Object> runtimeArchives = WorldBuilderAdaptiveExporter.object(
-			capability.get("runtimeArchives"), "runtimeArchives");
-		Map<String,Object> clientSourceUpgrade = WorldBuilderAdaptiveExporter.object(
-			capability.get("clientSourceUpgrade"), "clientSourceUpgrade");
-		List<?> clientNames = WorldBuilderAdaptiveExporter.array(
-			runtimeArchives.get("clientNames"), "clientNames");
+		List<?> clientProfiles = WorldBuilderAdaptiveExporter.array(
+			activation.get("clientProfileRelativePaths"),
+			"clientProfileRelativePaths");
+		List<?> ownership = WorldBuilderAdaptiveExporter.array(
+			activation.get("ordinaryImportOwnership"),
+			"ordinaryImportOwnership");
 		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
-			|| !"world-builder-installed-runtime-capability".equals(
+			|| !"world-builder-host-runtime-capability".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "manifestType"))
-			|| !"world-builder-installed-runtime-capability-v2".equals(
+			|| !"world-builder-host-runtime-capability-v1".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
-			|| !BUNDLE_ID.equals(WorldBuilderAdaptiveExporter.string(
-				capability, "managedRuntimeBundleId"))
+			|| !"host-integrated-core-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "integrationModel"))
 			|| !"world-builder-installed".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "profileId"))
+			|| !"rsc-world-editor-runtime-host-server-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "serverBuildId"))
+			|| !"rsc-world-editor-runtime-host-client-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "clientBuildId"))
+			|| !"world-builder-installed-server-profile-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "serverBootstrapId"))
+			|| !"world-builder-installed-client-profile-v1".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "clientBootstrapId"))
 			|| !"generic-signed-layered-loader-v7-blocking-base-color".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "loaderId"))
-			|| !"world-builder-installed-client-profile-v1".equals(
-				WorldBuilderAdaptiveExporter.string(
-					capability, "clientBootstrapId"))
 			|| !"world-builder-native-layered-protocol-v2-u16-elevation".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "protocolId"))
 			|| !"signed-layered-v1".equals(
@@ -134,69 +150,86 @@ final class WorldBuilderRuntimeCompatibility {
 				WorldBuilderAdaptiveExporter.string(capability, "packageSchemaId"))
 			|| !"signed-layered-v1".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "coordinateModel"))
-			|| !MANAGED_SERVER_DESTINATION.equals(
-				WorldBuilderAdaptiveExporter.string(
-					runtimeArchives, "serverRelativePath"))
-			|| !SERVER_DESTINATION.equals(WorldBuilderAdaptiveExporter.string(
-				runtimeArchives, "targetFallbackRelativePath"))
-			|| !WorldBuilderInstalledClientSourceUpgrade.ID.equals(
-				WorldBuilderAdaptiveExporter.string(
-				clientSourceUpgrade, "upgradeId"))
-			|| !"server/conf/world-builder/installed-client-source-upgrade-v5.json"
-				.equals(WorldBuilderAdaptiveExporter.string(
-					clientSourceUpgrade, "manifestRelativePath"))
-			|| !"atomic-compile-target-client-before-run".equals(
-				WorldBuilderAdaptiveExporter.string(clientSourceUpgrade, "buildPolicy"))
-			|| clientNames.size() != 2
-			|| !"Client_Base/Open_RSC_Client.jar".equals(clientNames.get(0))
-			|| !"client/Open_RSC_Client.jar".equals(clientNames.get(1))
 			|| !currentEncodingSet(encodingVersions)
-			|| !"world-builder-installed".equals(
-				WorldBuilderAdaptiveExporter.string(activation, "runtimeProfile"))
-			|| WorldBuilderAdaptiveExporter.bool(activation, "builderOnly")
+			|| !expectedPlacementFamilies(capability.get("placementFamilies"))
+			|| !SERVER_PROFILE_NAME.equals(WorldBuilderAdaptiveExporter.string(
+				activation, "serverProfileRelativePath"))
+			|| clientProfiles.size() != 2
+			|| !("Client_Base/" + CLIENT_PROFILE_NAME).equals(clientProfiles.get(0))
+			|| !("client/" + CLIENT_PROFILE_NAME).equals(clientProfiles.get(1))
 			|| !WorldBuilderAdaptiveExporter.bool(
 				activation, "requiresExactManifestSha256")
-			|| !WorldBuilderAdaptiveExporter.bool(
-				activation, "replacesLegacyTerrain")
-			|| !WorldBuilderAdaptiveExporter.bool(
-				activation, "replacesLegacyPlacements")
-			|| !WorldBuilderAdaptiveExporter.bool(
-				activation, "replacesLegacyClientBootstrap")) {
-			throw problem(CAPABILITY_SOURCE,
-				"Project runtime compatibility identity is unsupported.",
+			|| WorldBuilderAdaptiveExporter.bool(
+				activation, "requiresExactInventorySha256")
+			|| WorldBuilderAdaptiveExporter.bool(activation, "replacesLegacyTerrain")
+			|| WorldBuilderAdaptiveExporter.bool(activation, "replacesLegacyPlacements")
+			|| ownership.size() != 3
+			|| !"content-addressed-map-package".equals(ownership.get(0))
+			|| !"world-builder-map-selection".equals(ownership.get(1))
+			|| !"world-builder-owned-activation-profile".equals(ownership.get(2))) {
+			throw problem(HOST_CAPABILITY_SOURCE,
+				"Project host runtime capability identity is unsupported.",
 				"Restore the exact verified project runtime.");
-		}
-		verifyBundle(project, capability);
-		Path managedServerSource = WorldBuilderAdaptiveExporter.requireFile(
-			project.projectRoot, SERVER_SOURCE, "managed server runtime upgrade");
-		requireNoTargetClassShadowing(managedServerSource, target, serverTarget);
-		if (!clientPresent && !"world-builder-installed-runtime-capability-v2"
-			.equals(targetCapability.capabilityId)
-			&& !hasManagedRepairCapability(target)) {
-			throw problem(clientDestination,
-				"Target client archive is missing outside a recognized managed-runtime repair state.",
-				"Restore the target client archive or detect the previously upgraded target again.");
 		}
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
-		appendReplacement(project, target, "runtime-compatibility-server-upgrade",
-			MANAGED_SERVER_DESTINATION, SERVER_SOURCE,
-			transactionContent("server-upgrade", ".jar"),
-			actions);
-		appendLegacyOverlayRetirement(target, actions);
-		WorldBuilderInstalledClientSourceUpgrade.append(project, target,
-			compiledClientRoot(configuration), actions);
-		appendReplacement(project, target, "runtime-compatibility-capability",
-			CAPABILITY_DESTINATION, CAPABILITY_SOURCE,
-			transactionContent("capability", ".json"), actions);
-		appendLegacyCapabilityRetirement(target, actions);
-		appendServerConfiguration(target, packageValue, actions);
-		appendServerBuildOverlay(target, actions);
-		appendClientBuildOverlay(target, clientDestination, actions);
+		appendServerProfile(target, targetCapability, packageValue, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);
-		return new Upgrade(encodingVersions, actions, true);
+		return new Upgrade(encodingVersions, actions, false);
+	}
+
+	private static void rejectRetiredShadowRuntime(Path target)
+		throws IOException, WorldBuilderContractException {
+		for (String relative : new String[] {
+			MANAGED_SERVER_DESTINATION,
+			LEGACY_MANAGED_SERVER_DESTINATION,
+			GAMEPLAY_OVERLAY_DESTINATION
+		}) {
+			Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
+			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw runtimeUpgradeRequired(
+				"Target still contains retired class-shadowing runtime content at "
+				+ relative + ". It can replace target-owned Player, Skills, Inventory, "
+				+ "World, Mob, Npc, ActionSender, and OpcodeOut classes.");
+		}
+	}
+
+	private static void requireTargetArchive(
+		Path target, String relative, String description, String... requiredEntries)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) throw runtimeUpgradeRequired(
+			"Target " + description + " is missing or unsafe at " + relative + ".");
+		try (ZipFile archive = new ZipFile(path.toFile())) {
+			for (String entry : requiredEntries) {
+				if (archive.getEntry(entry) == null) throw runtimeUpgradeRequired(
+					"Target " + description + " does not contain the required host-integrated "
+					+ "bootstrap " + entry + ".");
+			}
+		} catch (java.util.zip.ZipException invalid) {
+			throw runtimeUpgradeRequired(
+				"Target " + description + " is not a readable runtime archive at "
+				+ relative + ".");
+		}
+	}
+
+	private static boolean expectedPlacementFamilies(Object raw)
+		throws WorldBuilderContractException {
+		List<?> families = WorldBuilderAdaptiveExporter.array(raw, "placementFamilies");
+		return families.size() == 4
+			&& "boundary".equals(families.get(0))
+			&& "ground-item".equals(families.get(1))
+			&& "npc".equals(families.get(2))
+			&& "scenery".equals(families.get(3));
+	}
+
+	private static WorldBuilderContractException runtimeUpgradeRequired(String message) {
+		return new WorldBuilderContractException(
+			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED,
+			"plan-adaptive-import", HOST_CAPABILITY_DESTINATION, false, message,
+			"Run the separate transactional target runtime upgrade, complete its build and startup verification, then retry Import.");
 	}
 
 	/**
@@ -455,6 +488,38 @@ final class WorldBuilderRuntimeCompatibility {
 		}
 	}
 
+	private static void appendServerProfile(
+		Path target, WorldBuilderTargetCapability targetCapability,
+		WorldBuilderGenericLayeredPackage packageValue,
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		byte[] generated = profileBytes(true, targetCapability.mutationProfileId,
+			packageValue);
+		Path destinationPath = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, SERVER_PROFILE_NAME);
+		WorldBuilderAdaptiveMutationProfile.FileState before;
+		if (Files.isRegularFile(destinationPath, LinkOption.NOFOLLOW_LINKS)) {
+			before = WorldBuilderAdaptiveMutationProfile.FileState.present(
+				Files.size(destinationPath), WorldBuilderHashes.sha256(destinationPath));
+		} else if (Files.exists(destinationPath, LinkOption.NOFOLLOW_LINKS)) {
+			throw problem(SERVER_PROFILE_NAME,
+				"Installed server profile destination is not a regular file.",
+				"Restore the target server layout and retry Import.");
+		} else {
+			before = WorldBuilderAdaptiveMutationProfile.FileState.absent();
+		}
+		WorldBuilderAdaptiveMutationProfile.FileState after =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				generated.length, WorldBuilderHashes.sha256(generated));
+		if (before.present && before.size == after.size
+			&& before.sha256.equals(after.sha256)) return;
+		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
+			"runtime-compatibility-server-profile", SERVER_PROFILE_NAME, before, after,
+			transactionContent("server-profile", ".json"),
+			before.present ? "backups/{transaction}/before/" + SERVER_PROFILE_NAME : "",
+			true, generated));
+	}
+
 	private static void appendClientProfile(
 		Path target, String clientRuntimeDestination,
 		WorldBuilderTargetCapability targetCapability,
@@ -463,21 +528,8 @@ final class WorldBuilderRuntimeCompatibility {
 		throws IOException, WorldBuilderContractException {
 		String clientRoot = clientRuntimeDestination.substring(
 			0, clientRuntimeDestination.indexOf('/'));
-		String address = WorldBuilderAdaptiveMutationProfile.PACKED_PROFILE.equals(
-			targetCapability.mutationProfileId)
-			? packageValue.fingerprintSha256 : packageValue.nativeInventorySha256;
-		Map<String,Object> profile = new LinkedHashMap<String,Object>();
-		profile.put("schemaVersion", Long.valueOf(1L));
-		profile.put("manifestType", "world-builder-installed-client-profile");
-		profile.put("active", Boolean.TRUE);
-		profile.put("packageId", packageValue.packageId);
-		profile.put("packageVersion", packageValue.packageVersion);
-		profile.put("packageFingerprintSha256", packageValue.fingerprintSha256);
-		profile.put("manifestSha256", packageValue.manifestSha256);
-		profile.put("packageRelativePath",
-			"world-builder/packages/" + address + "/package");
-		byte[] generated = WorldBuilderJsonDocuments.pretty(profile)
-			.getBytes(StandardCharsets.UTF_8);
+		byte[] generated = profileBytes(false, targetCapability.mutationProfileId,
+			packageValue);
 		String destination = clientRoot + "/" + CLIENT_PROFILE_NAME;
 		Path destinationPath = WorldBuilderAdaptiveMutationProfile.safeDestination(
 			target, destination);
@@ -502,6 +554,27 @@ final class WorldBuilderRuntimeCompatibility {
 			transactionContent("client-profile", ".json"),
 			before.present ? "backups/{transaction}/before/" + destination : "",
 			true, generated));
+	}
+
+	static byte[] profileBytes(boolean server, String mutationProfileId,
+		WorldBuilderGenericLayeredPackage packageValue) {
+		String address = WorldBuilderAdaptiveMutationProfile.PACKED_PROFILE.equals(
+			mutationProfileId)
+			? packageValue.fingerprintSha256 : packageValue.nativeInventorySha256;
+		Map<String,Object> profile = new LinkedHashMap<String,Object>();
+		profile.put("schemaVersion", Long.valueOf(1L));
+		profile.put("manifestType", server
+			? "world-builder-installed-server-profile"
+			: "world-builder-installed-client-profile");
+		profile.put("active", Boolean.TRUE);
+		profile.put("packageId", packageValue.packageId);
+		profile.put("packageVersion", packageValue.packageVersion);
+		profile.put("packageFingerprintSha256", address);
+		profile.put("manifestSha256", packageValue.manifestSha256);
+		profile.put("packageRelativePath",
+			"world-builder/packages/" + address + "/package");
+		return WorldBuilderJsonDocuments.pretty(profile)
+			.getBytes(StandardCharsets.UTF_8);
 	}
 
 	private static void appendServerConfiguration(

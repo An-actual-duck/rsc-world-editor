@@ -170,30 +170,11 @@ final class WorldBuilderAdaptiveImporter {
 						? expectedPreview.plan.transactionId()
 						: requestedTransactionId == null
 							? UUID.randomUUID().toString() : requestedTransactionId;
-					WorldBuilderAdaptiveMutationProfile.Plan plan;
-					if (outstanding == null) {
-						try {
+						WorldBuilderAdaptiveMutationProfile.Plan plan;
+						if (outstanding == null) {
 							plan = WorldBuilderAdaptiveMutationProfile.prepare(
 								verified, export, target, transactionId);
-						} catch (WorldBuilderContractException drift) {
-							if (!WorldBuilderErrorCodes.TARGET_DRIFT.equals(drift.code())) {
-								throw drift;
-							}
-							Map<String,Object> targetIdentity =
-								WorldBuilderAdaptiveExporter.object(
-									verified.manifest.get("target"), "target");
-							String targetLineage = WorldBuilderAdaptiveExporter.string(
-								targetIdentity, "targetFingerprintSha256");
-							try {
-								plan = WorldBuilderAdaptiveMutationProfile
-									.prepareRuntimeCompatibilityCompletion(
-										verified, export, target, transactionId,
-										targetLineage);
-							} catch (WorldBuilderContractException notCompletable) {
-								throw drift;
-							}
-						}
-					} else {
+						} else {
 						WorldBuilderAdaptiveExporter.VerifiedExport previousExport =
 							WorldBuilderAdaptiveUndo.findExport(verified,
 								outstanding.exportFingerprint());
@@ -203,24 +184,11 @@ final class WorldBuilderAdaptiveImporter {
 								outstanding.transactionId());
 						WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(
 							previous, outstanding);
-						try {
 							previous = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(
 								previous);
 							plan = WorldBuilderAdaptiveMutationProfile.prepareChained(
 								verified, export, target, transactionId, previous);
-						} catch (WorldBuilderContractException drift) {
-							if (!WorldBuilderErrorCodes.TARGET_DRIFT.equals(drift.code())) {
-								throw drift;
-							}
-							try {
-								plan = WorldBuilderAdaptiveMutationProfile
-									.prepareRuntimeCompatibilityCompletion(verified, export,
-										target, transactionId, previous.targetLineage());
-							} catch (WorldBuilderContractException notCompletable) {
-								throw drift;
-							}
 						}
-					}
 					if (expectedPreview != null
 						&& !expectedPreview.plan.canonicalSha256.equals(
 							plan.canonicalSha256)) throw problem(

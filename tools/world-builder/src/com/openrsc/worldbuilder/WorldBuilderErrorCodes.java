@@ -28,6 +28,7 @@ final class WorldBuilderErrorCodes {
 	static final String OFFLINE_REQUIRED = "OFFLINE_REQUIRED";
 	static final String PROJECT_DETACHED = "PROJECT_DETACHED";
 	static final String RECOVERY_REQUIRED = "RECOVERY_REQUIRED";
+	static final String RUNTIME_UPGRADE_REQUIRED = "RUNTIME_UPGRADE_REQUIRED";
 	static final String SOURCE_CORRUPT = "SOURCE_CORRUPT";
 	static final String TARGET_DRIFT = "TARGET_DRIFT";
 	static final String UNSAFE_PATH = "UNSAFE_PATH";
@@ -58,6 +59,7 @@ final class WorldBuilderErrorCodes {
 			OFFLINE_REQUIRED,
 			PROJECT_DETACHED,
 			RECOVERY_REQUIRED,
+			RUNTIME_UPGRADE_REQUIRED,
 			SOURCE_CORRUPT,
 			TARGET_DRIFT,
 			UNSAFE_PATH,

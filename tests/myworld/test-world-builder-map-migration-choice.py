@@ -31,6 +31,19 @@ def write_runtime_jar(path: Path, payload: bytes) -> None:
     with zipfile.ZipFile(path, "w") as archive:
         archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
         archive.writestr("target/RuntimeMarker.class", payload)
+        if path.name == "core.jar":
+            archive.writestr(
+                "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+                payload,
+            )
+            archive.writestr(
+                "com/openrsc/server/io/NativeLayeredWorldPackage.class", payload
+            )
+        else:
+            archive.writestr(
+                "orsc/WorldBuilderInstalledClientProfile.class", payload
+            )
+            archive.writestr("orsc/WorldBuilderTerrainBootstrap.class", payload)
 
 
 def add_client_upgrade_source(client_root: Path) -> None:
@@ -225,32 +238,24 @@ public final class LauncherMigrationTransactionHarness {
             model.prepareServerImport(selected);
         Files.write(Paths.get(arguments[5]),
             prepared.preview.toJson().getBytes(StandardCharsets.UTF_8));
-        boolean preserveLegacy = arguments.length > 6
-            && "preserve".equals(arguments[6]);
         boolean retirementSummary = prepared.summary().contains(
             "Legacy Custom_Landscape retirement: 2 exact files");
-        if (preserveLegacy == retirementSummary) throw new AssertionError(
-            prepared.summary());
+        if (retirementSummary) throw new AssertionError(prepared.summary());
         System.out.println(model.applyServerImport(prepared));
         Path target = Paths.get(arguments[2]);
         boolean serverLegacyPresent = Files.isRegularFile(target.resolve(
             "server/conf/server/data/Custom_Landscape.orsc"));
         boolean clientLegacyPresent = Files.isRegularFile(target.resolve(
             "Client_Base/Cache/video/Custom_Landscape.orsc"));
-        if (preserveLegacy) {
-            if (!serverLegacyPresent || !clientLegacyPresent) throw new AssertionError(
-                "installed v1 legacy landscape was not preserved");
-            if (Files.exists(target.resolve(
-                    "client/world-builder-configs/installed-client.json"))) {
-                throw new AssertionError("unsupported client profile was installed");
-            }
-        } else {
-            if (serverLegacyPresent || clientLegacyPresent) throw new AssertionError(
-                "legacy landscape was not retired");
-            if (!Files.isRegularFile(target.resolve(
-                    "client/world-builder-configs/installed-client.json"))) {
-                throw new AssertionError("archive-free client profile was not installed");
-            }
+        if (!serverLegacyPresent || !clientLegacyPresent) throw new AssertionError(
+            "legacy landscape was not preserved");
+        if (!Files.isRegularFile(target.resolve(
+                "client/world-builder-configs/installed-client.json"))) {
+            throw new AssertionError("client activation profile was not installed");
+        }
+        if (!Files.isRegularFile(target.resolve(
+                "server/world-builder-configs/installed-server.json"))) {
+            throw new AssertionError("server activation profile was not installed");
         }
     }
 }
@@ -937,7 +942,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(json.loads(result.stdout)["retirementRequested"])
 
-    def test_primary_packed_choice_upgrades_installed_v1_runtime_and_preserves_map_choice(self) -> None:
+    def test_primary_packed_choice_preserves_v1_runtime_and_legacy_map(self) -> None:
         base = self.root / "primary-packed-retirement"
         base.mkdir()
         packed_fixture = PACKED.PackedConversionTest(methodName="runTest")
@@ -982,7 +987,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
         write_runtime_jar(
             target / "server/core.jar", b"target-specific v1 server runtime\n"
         )
-        (target / "client/Open_RSC_Client.jar").write_bytes(
+        write_runtime_jar(
+            target / "client/Open_RSC_Client.jar",
             b"target-specific v1 client runtime\n"
         )
         add_client_upgrade_source(target / "client")
@@ -990,6 +996,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
             target
             / "server/conf/world-builder/installed-runtime-capability-v1.json",
             project_support.installed_v1_capability(),
+        )
+        project_support.write_json(
+            target
+            / "server/conf/world-builder/installed-runtime-capability-v3.json",
+            project_support.host_runtime_capability(),
         )
         installation = base / "World Builder 2"
         installation.mkdir()
@@ -1041,31 +1052,22 @@ class MapMigrationChoiceTest(unittest.TestCase):
         preview_plan = json.loads(preview.stdout)
         self.assertEqual(
             {
-                "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
-                "runtime-compatibility-client-json-dependency",
-                *project_support.installed_client_transform_roles(),
-                *project_support.installed_client_source_roles(),
-                "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server-upgrade",
-                "runtime-compatibility-server-configuration",
+                "runtime-compatibility-server-profile",
             },
             {
                 action["role"] for action in preview_plan["actions"]
                 if action["role"].startswith("runtime-compatibility-")
             },
         )
-        self.assertTrue(any(
+        self.assertFalse(any(
             action["role"].startswith("retire-legacy-landscape-")
             for action in preview_plan["actions"]
         ))
         self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
-        project_server_runtime = (
-            project
-            / "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
-        ).read_bytes()
+        target_server_runtime = (target / "server/core.jar").read_bytes()
         target_client_runtime = (target / "client/Open_RSC_Client.jar").read_bytes()
         transaction = subprocess.run(
             [
@@ -1081,39 +1083,30 @@ class MapMigrationChoiceTest(unittest.TestCase):
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
         self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
         self.assertEqual(
-            project_server_runtime,
-            (
-                target
-                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-            ).read_bytes(),
+            target_server_runtime,
+            (target / "server/core.jar").read_bytes(),
         )
         self.assertEqual(
             target_client_runtime,
             (target / "client/Open_RSC_Client.jar").read_bytes(),
         )
-        self.assertFalse((
-            target / "server/conf/world-builder/installed-runtime-capability-v1.json"
-        ).exists())
         self.assertTrue((
-            target / "server/conf/world-builder/installed-runtime-capability-v2.json"
+            target / "server/conf/world-builder/installed-runtime-capability-v1.json"
         ).is_file())
-        self.assertFalse(server_legacy.exists())
-        self.assertFalse(client_legacy.exists())
+        self.assertFalse((
+            target / "server/conf/world-builder/installed-runtime-capability-v2.json"
+        ).exists())
+        self.assertTrue(server_legacy.is_file())
+        self.assertTrue(client_legacy.is_file())
         plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        self.assertEqual(2, len([
+        self.assertEqual(0, len([
             action for action in plan["actions"]
             if action["role"].startswith("retire-legacy-landscape-")
         ]))
         self.assertEqual(
             {
-                "runtime-compatibility-capability",
                 "runtime-compatibility-client-profile",
-                "runtime-compatibility-client-json-dependency",
-                *project_support.installed_client_transform_roles(),
-                *project_support.installed_client_source_roles(),
-                "runtime-compatibility-legacy-capability-retirement",
-                "runtime-compatibility-server-upgrade",
-                "runtime-compatibility-server-configuration",
+                "runtime-compatibility-server-profile",
             },
             {
                 action["role"] for action in plan["actions"]
@@ -1299,8 +1292,14 @@ class MapMigrationChoiceTest(unittest.TestCase):
         write_runtime_jar(
             target / "server/core.jar", b"old target server runtime\n"
         )
-        (target / "client/Open_RSC_Client.jar").write_bytes(
+        write_runtime_jar(
+            target / "client/Open_RSC_Client.jar",
             b"old target client runtime\n"
+        )
+        project_support.write_json(
+            target
+            / "server/conf/world-builder/installed-runtime-capability-v3.json",
+            project_support.host_runtime_capability(),
         )
         add_client_upgrade_source(target / "client")
 
@@ -1442,9 +1441,8 @@ class MapMigrationChoiceTest(unittest.TestCase):
         ).read_text(encoding="utf-8"))
         self.assertTrue(scripted_choice["retirementRequested"])
 
-        # The explicit migration decision becomes target mutation authority only
-        # through the normal previewed import transaction. Both legacy files are
-        # backed up and retired after layered activation.
+        # Ordinary Import installs and selects the layered package but keeps legacy
+        # rollback assets even when the earlier migration choice requested retirement.
         target_bytes_before_import = LIFECYCLE.tree_bytes(target)
         project_id = manifest["projectId"]
         plan_path = self.root / "launcher-import-plan.json"
@@ -1466,24 +1464,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
             action for action in plan["actions"]
             if action["role"].startswith("retire-legacy-landscape-")
         ]
-        self.assertEqual(len(retirements), 2)
-        roles = [action["role"] for action in plan["actions"]]
-        client_profile_index = roles.index("runtime-compatibility-client-profile")
-        self.assertTrue(all(
-            client_profile_index < roles.index(action["role"])
-            for action in retirements
-        ))
-        self.assertTrue(all(action["before"]["present"] for action in retirements))
-        self.assertTrue(
-            all(not action["after"]["present"] for action in retirements)
-        )
-        for action in retirements:
-            backup = project / action["backupRelativePath"]
-            self.assertTrue(backup.is_file())
-            self.assertEqual(
-                hashlib.sha256(backup.read_bytes()).hexdigest(),
-                action["before"]["sha256"],
-            )
+        self.assertEqual(len(retirements), 0)
+        self.assertTrue(server_terrain.is_file())
+        self.assertTrue((
+            target / "Client_Base/Cache/video/Custom_Landscape.orsc"
+        ).is_file())
         self.assertNotEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
 
 
