@@ -675,7 +675,10 @@ final class WorldBuilderAdaptiveUndo {
 		List<WorldBuilderAdaptiveMutationProfile.Action> ordered =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
 		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
-			if (action.activation) ordered.add(action);
+			if (isConfigurationActivation(action)) ordered.add(action);
+		}
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (action.activation && !isConfigurationActivation(action)) ordered.add(action);
 		}
 		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
 			if (!action.activation) ordered.add(action);
@@ -691,9 +694,17 @@ final class WorldBuilderAdaptiveUndo {
 			if (!action.activation) ordered.add(action);
 		}
 		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
-			if (action.activation) ordered.add(action);
+			if (action.activation && !isConfigurationActivation(action)) ordered.add(action);
+		}
+		for (WorldBuilderAdaptiveMutationProfile.Action action : actions) {
+			if (isConfigurationActivation(action)) ordered.add(action);
 		}
 		return ordered;
+	}
+
+	private static boolean isConfigurationActivation(
+		WorldBuilderAdaptiveMutationProfile.Action action) {
+		return action.activation && action.role.endsWith("activation-configuration");
 	}
 
 	private static void cleanupImportedDirectories(

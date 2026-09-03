@@ -45,28 +45,24 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static final String DEFINITION_PREFIX =
 		"server/conf/server/defs/";
 	private static final List<String> BASE_REQUIRED_RUNTIME_PATHS =
-		Collections.unmodifiableList(Arrays.asList(
-			"server/core.jar",
-			"server/plugins.jar",
-			"server/world-builder-runtime/world-builder-managed-runtime.jar",
-			"server/conf/world-builder/adaptive-runtime-capability-v2.json",
-			"server/conf/world-builder/installed-runtime-capability-v2.json",
-			"server/conf/world-builder/managed-runtime-bundle.json",
-			"server/inc/sqlite/world_builder_seed.db",
-			"client/Open_RSC_Client.jar"));
+			Collections.unmodifiableList(Arrays.asList(
+				"server/core.jar",
+				"server/plugins.jar",
+				"server/conf/world-builder/adaptive-runtime-capability-v2.json",
+				"server/conf/world-builder/installed-runtime-capability-v3.json",
+				"server/inc/sqlite/world_builder_seed.db",
+				"client/Open_RSC_Client.jar"));
 	private static final Set<String> ALLOWED_RUNTIME_ROLES =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"builder-database-seed",
-			"client-source-upgrade",
-			"client-template",
+				"client-template",
 			"default-definition-catalog",
 			"default-render-catalog",
 			"runtime-audio",
 			"runtime-capability",
 			"runtime-configuration",
-			"runtime-database-contract",
-			"runtime-library",
-			"server-runtime-upgrade")));
+				"runtime-database-contract",
+				"runtime-library")));
 	private static final Set<String> EMPTY_RUNTIME_ASSET_PATHS =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/conf/server/languages/CustomMessages_en_UK_female.properties",

@@ -27,6 +27,7 @@ from adaptive_project_test_support import (
     VISIBLE_FLOOR_TILE,
     canonical_hash,
     change_working_terrain,
+    host_runtime_capability,
     load_discovery_fixtures,
     load_packed_fixtures,
     make_runtime,
@@ -4951,6 +4952,41 @@ public final class UpgradeNpcPlacements {
                 evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
                 evidence["encodingVersions"] = [1, 2, 3, 4]
                 write_json(runtime_path, evidence)
+            write_json(
+                target
+                / "server/conf/world-builder/installed-runtime-capability-v3.json",
+                host_runtime_capability(),
+            )
+            selected = json.loads((
+                target / "server/world-builder-configs/primary.json"
+            ).read_text(encoding="utf-8"))
+            client_root = target / Path(
+                selected["clientRuntimeRelativePath"]
+            ).parts[0]
+            archives = (
+                (
+                    target / "server/core.jar",
+                    (
+                        "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+                        "com/openrsc/server/io/NativeLayeredWorldPackage.class",
+                    ),
+                ),
+                (
+                    client_root / "Open_RSC_Client.jar",
+                    (
+                        "orsc/WorldBuilderInstalledClientProfile.class",
+                        "orsc/WorldBuilderTerrainBootstrap.class",
+                    ),
+                ),
+            )
+            for archive_path, entries in archives:
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                with zipfile.ZipFile(archive_path, "w") as archive:
+                    archive.writestr(
+                        "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n"
+                    )
+                    for entry in entries:
+                        archive.writestr(entry, b"host-integrated-runtime")
             installation = target / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
