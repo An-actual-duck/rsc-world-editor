@@ -290,8 +290,10 @@ final class WorldBuilderDesktopLauncher {
 		private final JLabel status = new JLabel("Ready");
 		private final JButton open = new JButton("Continue Working on Selected Project");
 		private final JButton installedSource = new JButton("Detect Server Map");
+		private final JButton upgradeServer =
+			new JButton("Upgrade Target Runtime");
 		private final JButton importToServer =
-			new JButton("Upgrade Server and Import Map");
+			new JButton("Import Map Changes");
 		private final JButton restoreBackup = new JButton("Restore Project Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
@@ -334,6 +336,9 @@ final class WorldBuilderDesktopLauncher {
 			}));
 			file.add(menu("Project Backups…", new Runnable() {
 				@Override public void run() { openProjectBackups(); }
+			}));
+			file.add(menu("Upgrade Selected Project Target Runtime…", new Runnable() {
+				@Override public void run() { upgradeSelectedProjectRuntime(); }
 			}));
 			file.add(menu("Import Selected Project Map Changes to Server…", new Runnable() {
 				@Override public void run() { importSelectedProject(); }
@@ -410,6 +415,7 @@ final class WorldBuilderDesktopLauncher {
 
 			open.addActionListener(event -> openSelected());
 			installedSource.addActionListener(event -> inspectInstalledSource());
+			upgradeServer.addActionListener(event -> upgradeSelectedProjectRuntime());
 			importToServer.addActionListener(event -> importSelectedProject());
 			restoreBackup.addActionListener(event -> openProjectBackups());
 			for (JButton primary : new JButton[] {installedSource, open}) {
@@ -420,9 +426,12 @@ final class WorldBuilderDesktopLauncher {
 				"Find and safely copy the map from the server beside World Builder.");
 			open.setToolTipText("Open the selected project and continue editing.");
 			importToServer.setToolTipText(
-				"Preview, back up, and safely install the selected project's map into its server.");
+				"Preview, back up, and install only the selected project's map activation state.");
+			upgradeServer.setToolTipText(
+				"Preview and transactionally replace an affected target runtime before map import.");
 			restoreBackup.setToolTipText(
 				"Load an earlier backup into the selected project without changing its server.");
+			upgradeServer.setEnabled(false);
 			importToServer.setEnabled(false);
 			restoreBackup.setEnabled(false);
 
@@ -446,8 +455,10 @@ final class WorldBuilderDesktopLauncher {
 			selectedAction.weightx = 1;
 			selectedAction.gridx = 0;
 			selectedAction.gridy = 0;
-			selectedProjectActions.add(importToServer, selectedAction);
+			selectedProjectActions.add(upgradeServer, selectedAction);
 			selectedAction.gridx = 1;
+			selectedProjectActions.add(importToServer, selectedAction);
+			selectedAction.gridx = 2;
 			selectedProjectActions.add(restoreBackup, selectedAction);
 
 			JPanel actionRows = new JPanel();
@@ -510,6 +521,7 @@ final class WorldBuilderDesktopLauncher {
 		private void showSelectedDetails() {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			open.setEnabled(!busy && entry != null);
+			upgradeServer.setEnabled(!busy && entry != null);
 			importToServer.setEnabled(!busy && entry != null);
 			restoreBackup.setEnabled(!busy && entry != null);
 			if (entry == null) return;
@@ -527,9 +539,9 @@ final class WorldBuilderDesktopLauncher {
 						+ entry.configurationSha256.substring(0, 12) : "")
 				+ "\n\nOpening validates the complete project before starting its private "
 				+ "client and server. Editing remains isolated here until you explicitly "
-				+ "run Upgrade Server and Import Map. That action backs up the target, "
-				+ "installs the current managed runtime when needed, and activates the "
-				+ "edited map in one transaction.\n\n"
+				+ "run Import Map Changes. If Import reports RUNTIME_UPGRADE_REQUIRED, "
+				+ "run Upgrade Target Runtime first. Runtime upgrade and map activation "
+				+ "are separate reviewed transactions.\n\n"
 				+ "This project is a fixed imported snapshot; it is never silently mixed "
 				+ "with newer server files. If the server map has changed, use Detect "
 				+ "Server Map to create a fresh isolated project.");
@@ -557,16 +569,41 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderLauncherModel.PreparedImport>() {
 					@Override public void accept(
 						final WorldBuilderLauncherModel.PreparedImport prepared) {
-						if (!confirmTransaction("Upgrade Server and Import Map",
-							"Upgrade and Import", prepared.summary())) return;
-						runTask("Backing up the server, applying its managed runtime, and "
-							+ "importing the reviewed map…",
+						if (!confirmTransaction("Import Map Changes",
+							"Import", prepared.summary())) return;
+						runTask("Backing up and importing the reviewed map activation…",
 							new Task<String>() {
 								@Override public String run() throws Exception {
 									return model.applyServerImport(prepared);
 								}
 							}, transactionSuccess(entry.projectId,
-								"Server Upgrade and Map Import Complete"));
+								"Map Import Complete"));
+					}
+				});
+		}
+
+		private void upgradeSelectedProjectRuntime() {
+			final WorldBuilderLauncherModel.ProjectEntry entry =
+				selectedForServerAction("upgrade the target runtime");
+			if (entry == null) return;
+			runTask("Preparing an exact target runtime upgrade preview…",
+				new Task<WorldBuilderLauncherModel.PreparedImport>() {
+					@Override public WorldBuilderLauncherModel.PreparedImport run()
+						throws Exception {
+						return model.prepareServerRuntimeUpgrade(entry);
+					}
+				}, new Success<WorldBuilderLauncherModel.PreparedImport>() {
+					@Override public void accept(
+						final WorldBuilderLauncherModel.PreparedImport prepared) {
+						if (!confirmTransaction("Upgrade Target Runtime", "Upgrade",
+							prepared.summary())) return;
+						runTask("Backing up the affected runtime and installing the "
+							+ "current host-integrated runtime…", new Task<String>() {
+								@Override public String run() throws Exception {
+									return model.applyServerRuntimeUpgrade(prepared);
+								}
+							}, transactionSuccess(entry.projectId,
+								"Target Runtime Upgrade Complete"));
 					}
 				});
 		}
@@ -1515,6 +1552,7 @@ final class WorldBuilderDesktopLauncher {
 			installedSource.setEnabled(!value);
 			boolean selected = projectList.getSelectedValue() != null;
 			open.setEnabled(!value && selected);
+			upgradeServer.setEnabled(!value && selected);
 			importToServer.setEnabled(!value && selected);
 			restoreBackup.setEnabled(!value && selected);
 			status.setText(message);

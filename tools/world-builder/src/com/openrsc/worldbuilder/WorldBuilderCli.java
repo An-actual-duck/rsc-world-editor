@@ -103,6 +103,9 @@ public final class WorldBuilderCli {
 		if ("import-adaptive".equals(args[0])) {
 			return importAdaptive(args);
 		}
+		if ("upgrade-target-runtime".equals(args[0])) {
+			return upgradeTargetRuntime(args);
+		}
 		if ("launch-adaptive".equals(args[0])) {
 			return launchAdaptive(args);
 		}
@@ -111,6 +114,9 @@ public final class WorldBuilderCli {
 		}
 		if ("import-active-adaptive".equals(args[0])) {
 			return importActiveAdaptive(args);
+		}
+		if ("upgrade-active-target-runtime".equals(args[0])) {
+			return upgradeActiveTargetRuntime(args);
 		}
 		if ("recover-adaptive".equals(args[0])) {
 			return recoverAdaptive(args);
@@ -871,6 +877,83 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int upgradeTargetRuntime(String[] args) {
+		Path project = null;
+		Path export = null;
+		Path target = null;
+		String confirmation = null;
+		String expectedTransactionId = null;
+		String expectedPlanFingerprint = null;
+		boolean projectSeen = false;
+		boolean exportSeen = false;
+		boolean targetSeen = false;
+		boolean confirmationSeen = false;
+		boolean transactionSeen = false;
+		boolean fingerprintSeen = false;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if ("--project".equals(argument) && index + 1 < args.length
+				&& !projectSeen) {
+				projectSeen = true;
+				project = Paths.get(args[++index]);
+			} else if ("--export".equals(argument) && index + 1 < args.length
+				&& !exportSeen) {
+				exportSeen = true;
+				export = Paths.get(args[++index]);
+			} else if ("--target-root".equals(argument) && index + 1 < args.length
+				&& !targetSeen) {
+				targetSeen = true;
+				target = Paths.get(args[++index]);
+			} else if ("--confirm".equals(argument) && index + 1 < args.length
+				&& !confirmationSeen) {
+				confirmationSeen = true;
+				confirmation = args[++index];
+			} else if ("--transaction-id".equals(argument)
+				&& index + 1 < args.length && !transactionSeen) {
+				transactionSeen = true;
+				expectedTransactionId = args[++index];
+			} else if ("--plan-sha256".equals(argument)
+				&& index + 1 < args.length && !fingerprintSeen) {
+				fingerprintSeen = true;
+				expectedPlanFingerprint = args[++index];
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: "
+					+ argument);
+				return 2;
+			}
+		}
+		if (project == null || export == null || target == null) {
+			System.err.println("ERROR: upgrade-target-runtime requires --project, "
+				+ "--export, and --target-root.");
+			return 2;
+		}
+		if (!validReviewedPlanArguments(confirmation, expectedTransactionId,
+			expectedPlanFingerprint, "UPGRADE", "upgrade-target-runtime")) return 2;
+		try {
+			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+			WorldBuilderAdaptiveImporter.Preview preview = confirmation == null
+				? importer.previewRuntimeUpgrade(project, export, target)
+				: importer.previewRuntimeUpgrade(
+					project, export, target, expectedTransactionId);
+			System.err.print(preview.humanSummary());
+			if (confirmation == null) {
+				System.out.print(preview.toJson());
+				return 0;
+			}
+			if (!expectedPlanFingerprint.equals(preview.planFingerprintSha256())) {
+				return reviewedPlanMismatch("upgrade-target-runtime");
+			}
+			System.out.print(importer.applyRuntimeUpgrade(preview, confirmation).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Target runtime upgrade failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
 	private static int importActiveAdaptive(String[] args) {
 		Path installation = singlePathOption(args, "--installation-root",
 			"import-active-adaptive");
@@ -903,6 +986,43 @@ public final class WorldBuilderCli {
 			return adaptiveRefusal(refusal);
 		} catch (Exception failure) {
 			System.err.println("ERROR: Active adaptive import failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int upgradeActiveTargetRuntime(String[] args) {
+		Path installation = singlePathOption(args, "--installation-root",
+			"upgrade-active-target-runtime");
+		if (installation == null) return 2;
+		try {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if ("standalone-empty".equals(project.origin)) {
+				new WorldBuilderAdaptiveImporter().previewRuntimeUpgrade(
+					project.projectRoot, null, null);
+			}
+			Path install = installation.toAbsolutePath().normalize();
+			Path target = install.getParent();
+			if (target == null) throw new java.io.IOException(
+				"World Builder installation has no parent target directory");
+			WorldBuilderAdaptiveExporter.ExportResult exported =
+				new WorldBuilderAdaptiveExporter().export(project.projectRoot);
+			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+			WorldBuilderAdaptiveImporter.Preview preview = importer.previewRuntimeUpgrade(
+				project.projectRoot, exported.exportDirectory, target);
+			System.err.print(preview.humanSummary());
+			if (!confirmAdaptive("UPGRADE", "Type UPGRADE to replace only the reviewed "
+				+ "target runtime files, or press Enter to cancel: ")) {
+				System.err.println("Runtime upgrade cancelled; no target file was changed.");
+				return 0;
+			}
+			System.out.print(importer.applyRuntimeUpgrade(preview, "UPGRADE").toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Active target runtime upgrade failed: "
 				+ failure.getMessage());
 			return 4;
 		}
@@ -1866,6 +1986,10 @@ public final class WorldBuilderCli {
 			+ " --export <export-directory> [--target-root <server-root>]"
 			+ " [--confirm IMPORT --transaction-id <preview-uuid>"
 			+ " --plan-sha256 <preview-sha256>]"
+			+ "\n  WorldBuilderCli upgrade-target-runtime --project <projects/uuid>"
+			+ " --export <export-directory> --target-root <server-root>"
+			+ " [--confirm UPGRADE --transaction-id <preview-uuid>"
+			+ " --plan-sha256 <preview-sha256>]"
 			+ "\n  WorldBuilderCli recover-adaptive --project <projects/uuid>"
 			+ " [--target-root <server-root>] [--confirm RECOVER"
 			+ " --transaction-id <preview-uuid> --plan-sha256 <preview-sha256>]"
@@ -1877,6 +2001,8 @@ public final class WorldBuilderCli {
 			+ " --runtime-root <builder-runtime> --target-root <parent> --port <port>"
 			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli import-active-adaptive --installation-root <World Builder 2>"
+			+ "\n  WorldBuilderCli upgrade-active-target-runtime"
+			+ " --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli recover-active-adaptive"
 			+ " --installation-root <World Builder 2>"
 			+ "\n  WorldBuilderCli discover --server-root <path>"

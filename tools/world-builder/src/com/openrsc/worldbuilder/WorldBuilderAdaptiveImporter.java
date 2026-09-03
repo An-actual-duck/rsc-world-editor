@@ -65,9 +65,9 @@ final class WorldBuilderAdaptiveImporter {
 		try {
 			ImportOutcome outcome = operate(
 				requestedProject, requestedExport, requestedTarget, null, null,
-				requestedTransactionId);
+				requestedTransactionId, false);
 			return new Preview(outcome.plan, requestedProject, requestedExport,
-				requestedTarget);
+				requestedTarget, false);
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
 		} catch (IOException failure) {
@@ -75,6 +75,32 @@ final class WorldBuilderAdaptiveImporter {
 		} catch (Exception impossibleGateFailure) {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "preview", false,
 				"Adaptive import preview was interrupted.",
+				"Retry after resolving the local interruption.", impossibleGateFailure);
+		}
+	}
+
+	Preview previewRuntimeUpgrade(Path requestedProject,
+		Path requestedExport, Path requestedTarget)
+		throws IOException, WorldBuilderContractException {
+		return previewRuntimeUpgrade(
+			requestedProject, requestedExport, requestedTarget, null);
+	}
+
+	Preview previewRuntimeUpgrade(Path requestedProject, Path requestedExport,
+		Path requestedTarget, String requestedTransactionId)
+		throws IOException, WorldBuilderContractException {
+		try {
+			ImportOutcome outcome = operate(requestedProject, requestedExport,
+				requestedTarget, null, null, requestedTransactionId, true);
+			return new Preview(outcome.plan, requestedProject, requestedExport,
+				requestedTarget, true);
+		} catch (WorldBuilderContractException failure) {
+			throw failure;
+		} catch (IOException failure) {
+			throw failure;
+		} catch (Exception impossibleGateFailure) {
+			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, "preview", false,
+				"Target runtime upgrade preview was interrupted.",
 				"Retry after resolving the local interruption.", impossibleGateFailure);
 		}
 	}
@@ -90,7 +116,7 @@ final class WorldBuilderAdaptiveImporter {
 						WorldBuilderAdaptiveMutationProfile.Plan plan) {
 						return confirmation;
 					}
-				}, preview, null);
+				}, preview, null, preview.runtimeUpgrade);
 			return outcome.result;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -104,17 +130,25 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
+	ImportResult applyRuntimeUpgrade(Preview preview, final String confirmation)
+		throws IOException, WorldBuilderContractException {
+		if (preview == null || !preview.runtimeUpgrade) {
+			throw new IllegalArgumentException("runtime upgrade preview");
+		}
+		return apply(preview, confirmation);
+	}
+
 	ImportOutcome applyInteractive(Path requestedProject, Path requestedExport,
 		Path requestedTarget, ConfirmationGate confirmation)
 		throws Exception {
 		if (confirmation == null) throw new IllegalArgumentException("confirmation");
 		return operate(requestedProject, requestedExport, requestedTarget,
-			confirmation, null, null);
+			confirmation, null, null, false);
 	}
 
 	private ImportOutcome operate(Path requestedProject, Path requestedExport,
 		Path requestedTarget, ConfirmationGate confirmation, Preview expectedPreview,
-		String requestedTransactionId)
+		String requestedTransactionId, boolean runtimeUpgrade)
 		throws Exception {
 		/* Verify origin before resolving, opening, or locking any target path. */
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject initial =
@@ -127,6 +161,11 @@ final class WorldBuilderAdaptiveImporter {
 			"Continue editing/exporting the standalone project; Import is unavailable.");
 		WorldBuilderAdaptiveReceipt.State outstanding =
 			latestOutstandingSuccessfulImport(initial.projectRoot);
+		if (runtimeUpgrade && outstanding != null) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, "receipts/"
+				+ outstanding.transactionId() + ".json", false,
+			"This project already has a successful target transaction and cannot establish the affected backup as its upgrade before-state.",
+			"Create a fresh project from the exact offline affected backup, then run Upgrade Target Runtime.");
 		if (!"ready-attached".equals(initial.state) && outstanding == null) {
 			Map<String,Object> targetIdentity = WorldBuilderAdaptiveExporter.object(
 				initial.manifest.get("target"), "target");
@@ -171,7 +210,10 @@ final class WorldBuilderAdaptiveImporter {
 						: requestedTransactionId == null
 							? UUID.randomUUID().toString() : requestedTransactionId;
 						WorldBuilderAdaptiveMutationProfile.Plan plan;
-						if (outstanding == null) {
+						if (runtimeUpgrade) {
+							plan = WorldBuilderAdaptiveMutationProfile.prepareRuntimeUpgrade(
+								verified, export, target, transactionId);
+						} else if (outstanding == null) {
 							plan = WorldBuilderAdaptiveMutationProfile.prepare(
 								verified, export, target, transactionId);
 						} else {
@@ -198,10 +240,14 @@ final class WorldBuilderAdaptiveImporter {
 					ensureFreeSpace(plan);
 					if (confirmation == null) return new ImportOutcome(plan, null);
 					String supplied = confirmation.confirm(plan);
-					if (!"IMPORT".equals(supplied)) throw problem(
+					String expectedConfirmation = runtimeUpgrade ? "UPGRADE" : "IMPORT";
+					if (!expectedConfirmation.equals(supplied)) throw problem(
 						WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation", false,
-						"Adaptive import requires exact IMPORT confirmation for this preview.",
-						"Review the complete plan and type IMPORT exactly, or cancel.");
+						(runtimeUpgrade ? "Target runtime upgrade" : "Adaptive import")
+							+ " requires exact " + expectedConfirmation
+							+ " confirmation for this preview.",
+						"Review the complete plan and type " + expectedConfirmation
+							+ " exactly, or cancel.");
 					observe("plan-confirmed", project);
 					return new ImportOutcome(plan, applyLocked(plan, offline));
 				}
@@ -566,6 +612,19 @@ final class WorldBuilderAdaptiveImporter {
 			WorldBuilderTargetCapability.RELATIVE_PATH, true,
 			"Target capability changed during installation.",
 			"Keep the target offline so the transaction can roll back.");
+		if (runtimeUpgradeOnly(plan)) {
+			WorldBuilderAdaptiveConfiguration configuration =
+				WorldBuilderAdaptiveConfiguration.select(target, capability,
+					plan.configuration.configurationId).selected;
+			if (!plan.configuration.sha256.equals(configuration.sha256)) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, configuration.relativePath, true,
+				"Target runtime upgrade changed the selected map configuration.",
+				"Keep the target offline so the transaction can roll back.");
+			WorldBuilderRuntimeCompatibility.verifyTargetUpgrade(
+				plan.project, plan.targetRoot, configuration, capability,
+				plan.export.packageValue);
+			return;
+		}
 		WorldBuilderAdaptiveConfiguration.Selection selected =
 			WorldBuilderAdaptiveConfiguration.select(target, capability,
 				plan.configuration.configurationId);
@@ -594,6 +653,15 @@ final class WorldBuilderAdaptiveImporter {
 			WorldBuilderErrorCodes.MAP_MISMATCH, "installed-package", true,
 			"Installed server/client packages do not match the validated export.",
 			"Keep the target offline so the transaction can roll back.");
+	}
+
+	private static boolean runtimeUpgradeOnly(
+		WorldBuilderAdaptiveMutationProfile.Plan plan) {
+		if (plan.actions.isEmpty() || !plan.configurationChanges.isEmpty()) return false;
+		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
+			if (!action.role.startsWith("runtime-compatibility-")) return false;
+		}
+		return true;
 	}
 
 	private List<WorldBuilderAdaptiveReceipt.Verification> rollback(
@@ -969,13 +1037,15 @@ final class WorldBuilderAdaptiveImporter {
 		final Path requestedProject;
 		final Path requestedExport;
 		final Path requestedTarget;
+		final boolean runtimeUpgrade;
 
 		Preview(WorldBuilderAdaptiveMutationProfile.Plan plan, Path requestedProject,
-			Path requestedExport, Path requestedTarget) {
+			Path requestedExport, Path requestedTarget, boolean runtimeUpgrade) {
 			this.plan = plan;
 			this.requestedProject = requestedProject;
 			this.requestedExport = requestedExport;
 			this.requestedTarget = requestedTarget;
+			this.runtimeUpgrade = runtimeUpgrade;
 		}
 
 		String humanSummary() {

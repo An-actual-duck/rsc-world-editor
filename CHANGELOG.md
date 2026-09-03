@@ -8,6 +8,13 @@ from the Spoiled Milk repository before this dedicated repository was created.
 
 ## World Builder 2 - in development
 
+- Split runtime migration from ordinary Import. The explicit, offline
+  `UPGRADE` transaction accepts an affected backup as its before-state, backs
+  up and replaces only the pinned host-integrated `core.jar`, matching player
+  client, and v3 capability, removes retired shadow/overlay JARs, verifies the
+  result, and lets the following map-only Import chain from its receipt. Maps,
+  configuration, definitions, plugins, databases, sources, build files, and
+  assets remain untouched by the runtime upgrade.
 - Added adaptive discovery, deterministic packed conversion, UUID project
   creation/selection, compatible layered adoption, and standalone empty mode.
 - Pinned the generic adaptive loader/authoring runtime capability while keeping

@@ -636,6 +636,24 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
         with zipfile.ZipFile(jar, "w") as archive:
             entry = zipfile.ZipInfo("META-INF/MANIFEST.MF", (2024, 1, 2, 3, 4, 6))
             archive.writestr(entry, "Manifest-Version: 1.0\n\n")
+            if jar.name == "core.jar":
+                archive.writestr(
+                    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+                    b"fixture-current-host-server",
+                )
+                archive.writestr(
+                    "com/openrsc/server/io/NativeLayeredWorldPackage.class",
+                    b"fixture-current-host-server",
+                )
+            elif jar.name == "Open_RSC_Client.jar":
+                archive.writestr(
+                    "orsc/WorldBuilderInstalledClientProfile.class",
+                    b"fixture-current-host-client",
+                )
+                archive.writestr(
+                    "orsc/WorldBuilderTerrainBootstrap.class",
+                    b"fixture-current-host-client",
+                )
     return runtime
 
 

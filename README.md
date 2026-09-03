@@ -88,9 +88,9 @@ The adaptive v2 product contract is:
 
 1. Put the complete `World Builder 2` folder directly inside a compatible
    game/server root and launch it. The desktop screen offers Detect Server Map,
-   Continue Working on Selected Project, Upgrade Server and Import Map, and
-   Restore Project Backup; the command-line workflow remains available for
-   automation.
+   Continue Working on Selected Project, Upgrade Target Runtime, Import Map
+   Changes, and Restore Project Backup; the command-line workflow remains
+   available for automation.
 2. Let World Builder discover the target's active map, definitions, and
    compatibility evidence; unsupported or ambiguous layouts fail with a
    report instead of being guessed.
@@ -98,10 +98,10 @@ The adaptive v2 product contract is:
    isolated project. A production adaptive archive supplies no map, world, or
    static placements of its own.
 4. Edit, save, close, and reopen only the project copy under World Builder.
-5. Change the target only with **Upgrade Server and Import Map**. Its one
-   confirmation covers an explicit previewed, backed-up, verified transaction
-   that installs the current managed server/client runtime when needed, retires
-   superseded runtime capability evidence, and activates the edited map.
+5. Change the target only with the two explicit reviewed actions. **Upgrade
+   Target Runtime** is used when an affected or older target needs the current
+   host-integrated core/client runtime. **Import Map Changes** then installs and
+   activates only the edited map package and World Builder-owned profiles.
 6. Keep the target offline and use Recovery if an interrupted rollback is
    explicitly reported. Administrators must make and verify a complete server
    backup before import; there is no end-user Undo action. Standalone empty
@@ -124,11 +124,15 @@ or `Start World Builder.cmd` on Windows. The main window has four actions:
 - **Continue Working on Selected Project** reopens a project that was started
   earlier. Select it from the project list populated in the main window, then
   continue editing its independent working copy.
-- **Upgrade Server and Import Map** installs the compatibility files required by
-  World Builder's improved map loader and layering system, then imports the
-  selected project's saved map into its server. The target server must be fully
-  offline. Review the preview, make and verify a separate full-server backup,
-  and confirm the transaction only when you are ready to update the target.
+- **Upgrade Target Runtime** is the explicit migration for an affected backup or
+  older target. It backs up and replaces only the current server core, matching
+  player client, and v3 host capability, then removes retired shadow/overlay
+  JARs. It preserves maps, configuration, definitions, plugins, databases,
+  source trees, build files, and assets.
+- **Import Map Changes** installs only the selected project's saved map package
+  and World Builder-owned activation profiles. If it reports
+  `RUNTIME_UPGRADE_REQUIRED`, run the separate runtime upgrade first and retry
+  Import while the target remains offline.
 - **Restore Project Backup** loads an earlier saved state into the selected
   project without changing the server. World Builder creates automatic project
   backups when an editing session starts and closes; the backup screen also
