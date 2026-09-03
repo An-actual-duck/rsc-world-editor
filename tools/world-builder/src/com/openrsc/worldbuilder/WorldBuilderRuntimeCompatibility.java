@@ -62,6 +62,7 @@ final class WorldBuilderRuntimeCompatibility {
 		"working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final String BUNDLE_ID =
 		"world-builder-managed-runtime-current";
+	private static final int MAX_RUNTIME_ARCHIVE_ENTRIES = 500000;
 
 	private WorldBuilderRuntimeCompatibility() {
 	}
@@ -199,17 +200,20 @@ final class WorldBuilderRuntimeCompatibility {
 	}
 
 	/**
-	 * Refuses an overlay archive whenever it can win a target-owned server class.
+	 * Refuses a provider archive whenever it duplicates a target-owned runtime class.
 	 * Byte-identical duplicates are still unsafe: a later target rebuild could
-	 * change one side while leaving the first-on-classpath overlay stale.
+	 * change one side while leaving the installed provider stale.
 	 */
 	static void requireNoTargetClassShadowing(
 		Path providerArchive, Path target, Path targetArchive)
 		throws IOException, WorldBuilderContractException {
+		int[] remainingEntries = {MAX_RUNTIME_ARCHIVE_ENTRIES};
 		Set<String> providerClasses = archiveClasses(
-			providerArchive, SERVER_SOURCE, "Managed server runtime upgrade");
+			providerArchive, SERVER_SOURCE, "Managed server runtime upgrade",
+			remainingEntries);
 		Set<String> targetClasses = archiveClasses(
-			targetArchive, SERVER_DESTINATION, "Target server runtime");
+			targetArchive, SERVER_DESTINATION, "Target server runtime",
+			remainingEntries);
 		Path libraries = WorldBuilderAdaptiveMutationProfile.safeDestination(
 			target, "server/lib");
 		if (Files.exists(libraries, LinkOption.NOFOLLOW_LINKS)) {
@@ -221,8 +225,11 @@ final class WorldBuilderRuntimeCompatibility {
 			}
 			List<Path> archives = new ArrayList<Path>();
 			try (java.nio.file.DirectoryStream<Path> entries =
-				Files.newDirectoryStream(libraries, "*.jar")) {
+				Files.newDirectoryStream(libraries)) {
 				for (Path archive : entries) {
+					String name = archive.getFileName().toString();
+					if (name.length() < 4 || !name.regionMatches(
+						true, name.length() - 4, ".jar", 0, 4)) continue;
 					if (archives.size() >= 512) throw problem("server/lib",
 						"Target server library directory contains too many JAR archives.",
 						"Reduce the target runtime to a bounded reviewed library set and retry Import.");
@@ -248,7 +255,7 @@ final class WorldBuilderRuntimeCompatibility {
 						"Restore a safe regular target library and retry Import.");
 				}
 				targetClasses.addAll(archiveClasses(
-					archive, relative, "Target server library"));
+					archive, relative, "Target server library", remainingEntries));
 			}
 		}
 		Set<String> overlap = new TreeSet<String>(providerClasses);
@@ -270,12 +277,12 @@ final class WorldBuilderRuntimeCompatibility {
 		throw problem(SERVER_SOURCE,
 			"Managed server runtime would shadow " + overlap.size()
 				+ " target-owned runtime class(es): " + examples + ".",
-			"Install or build a host-compatible World Builder runtime with no duplicate "
-				+ "com.openrsc.server classes; the target was not changed.");
+			"Install or build a host-compatible World Builder provider with no duplicate "
+				+ "target runtime classes; the target was not changed.");
 	}
 
 	private static Set<String> archiveClasses(
-		Path archive, String source, String description)
+		Path archive, String source, String description, int[] remainingEntries)
 		throws WorldBuilderContractException {
 		Set<String> result = new TreeSet<String>();
 		int entries = 0;
@@ -284,8 +291,10 @@ final class WorldBuilderRuntimeCompatibility {
 			while (values.hasMoreElements()) {
 				ZipEntry entry = values.nextElement();
 				entries++;
-				if (entries > 100000) throw problem(source,
-					description + " contains too many archive entries.",
+				remainingEntries[0]--;
+				if (entries > 100000 || remainingEntries[0] < 0) throw problem(source,
+					"Runtime archive inspection exceeds the safe entry limit at "
+						+ description + ".",
 					"Restore a bounded regular JAR and retry Import.");
 				String name = entry.getName();
 				if (name.length() > 1024 || name.indexOf('\\') >= 0
@@ -295,7 +304,7 @@ final class WorldBuilderRuntimeCompatibility {
 				}
 				if (entry.isDirectory() || !name.endsWith(".class")) continue;
 				if (!result.add(name)) throw problem(source,
-					description + " repeats server class " + name + ".",
+					description + " repeats runtime class " + name + ".",
 					"Restore an archive with unique class entries and retry Import.");
 			}
 		} catch (WorldBuilderContractException invalid) {

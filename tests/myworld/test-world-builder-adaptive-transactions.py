@@ -1559,7 +1559,7 @@ public final class mudclient {
             shadowed = "org/example/TargetLibrary.class"
 
             def target_shadow(target):
-                library = target / "server/lib/target-library.jar"
+                library = target / "server/lib/target-library.JAR"
                 library.parent.mkdir(parents=True, exist_ok=True)
                 with zipfile.ZipFile(library, "w") as jar:
                     jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
