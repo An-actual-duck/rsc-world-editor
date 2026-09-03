@@ -543,6 +543,19 @@ final class WorldBuilderLauncherModel {
 		return new PreparedImport(importer, preview, target);
 	}
 
+	PreparedImport prepareServerRuntimeUpgrade(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException(
+			"Select one project before upgrading its target runtime.");
+		Path target = targetFor(entry);
+		WorldBuilderAdaptiveExporter.ExportResult exported =
+			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
+		WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+		WorldBuilderAdaptiveImporter.Preview preview = importer.previewRuntimeUpgrade(
+			entry.projectRoot, exported.exportDirectory, target);
+		return new PreparedImport(importer, preview, target);
+	}
+
 	Path exportCompleteMap(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before exporting.");
@@ -556,6 +569,17 @@ final class WorldBuilderLauncherModel {
 			prepared.importer.apply(prepared.preview, "IMPORT");
 		return "Map changes were imported successfully.\n\nTransaction: "
 			+ result.transactionId + "\nReceipt: " + result.receiptPath;
+	}
+
+	String applyServerRuntimeUpgrade(PreparedImport prepared)
+		throws IOException, WorldBuilderContractException {
+		if (prepared == null) throw new IOException(
+			"Runtime upgrade preview was not supplied.");
+		WorldBuilderAdaptiveImporter.ImportResult result =
+			prepared.importer.applyRuntimeUpgrade(prepared.preview, "UPGRADE");
+		return "Target runtime was upgraded successfully.\n\nTransaction: "
+			+ result.transactionId + "\nReceipt: " + result.receiptPath
+			+ "\n\nKeep the target offline and run Import Map Changes next.";
 	}
 
 	PreparedRecovery prepareServerRecovery(ProjectEntry entry)

@@ -464,11 +464,14 @@ final class WorldBuilderAdaptiveUndo {
 				changed.add(action.destinationRelativePath);
 			}
 		}
-		if (ownsPackageEntries(installed.serverPackageRelativePath, expected)) {
+		boolean runtimeOnly = runtimeCompatibilityOnly(installed);
+		if (!runtimeOnly && ownsPackageEntries(
+			installed.serverPackageRelativePath, expected)) {
 			collectUnexpectedFingerprintEntries(installed.targetRoot,
 				installed.serverPackageRelativePath, expected, changed);
 		}
-		if (ownsPackageEntries(installed.clientPackageRelativePath, expected)) {
+		if (!runtimeOnly && ownsPackageEntries(
+			installed.clientPackageRelativePath, expected)) {
 			collectUnexpectedFingerprintEntries(installed.targetRoot,
 				installed.clientPackageRelativePath, expected, changed);
 		}

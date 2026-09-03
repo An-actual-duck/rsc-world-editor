@@ -316,7 +316,8 @@ public final class AdaptiveTransactionFailureHarness {
                         }
                     };
                 new WorldBuilderAdaptiveExporter(observer).export(project);
-            } else if ("import".equals(operation)) {
+            } else if ("import".equals(operation)
+                || "runtime-upgrade".equals(operation)) {
                 WorldBuilderAdaptiveImporter.Observer observer =
                     new WorldBuilderAdaptiveImporter.Observer() {
                         @Override public void observe(String milestone, Path path)
@@ -378,9 +379,12 @@ public final class AdaptiveTransactionFailureHarness {
                     };
                 WorldBuilderAdaptiveImporter importer =
                     new WorldBuilderAdaptiveImporter(observer);
-                WorldBuilderAdaptiveImporter.Preview preview = importer.preview(
-                    project, Paths.get(args[4]), target);
-                importer.apply(preview, "IMPORT");
+                boolean runtimeUpgrade = "runtime-upgrade".equals(operation);
+                WorldBuilderAdaptiveImporter.Preview preview = runtimeUpgrade
+                    ? importer.previewRuntimeUpgrade(
+                        project, Paths.get(args[4]), target)
+                    : importer.preview(project, Paths.get(args[4]), target);
+                importer.apply(preview, runtimeUpgrade ? "UPGRADE" : "IMPORT");
             } else if ("import-stale".equals(operation)) {
                 WorldBuilderAdaptiveImporter importer =
                     new WorldBuilderAdaptiveImporter();
@@ -1433,6 +1437,155 @@ public final class mudclient {
             self.assertIn("Player, Skills, Inventory, World", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
+    def test_explicit_runtime_upgrade_repairs_affected_backup_then_imports_map(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-explicit-runtime-upgrade-") as temp:
+            def make_affected(target):
+                retired = (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                )
+                retired.parent.mkdir(parents=True)
+                with zipfile.ZipFile(retired, "w") as archive:
+                    for name in (
+                        "Player", "Skills", "Inventory", "World", "Mob", "Npc",
+                        "ActionSender", "OpcodeOut",
+                    ):
+                        archive.writestr(f"com/openrsc/server/{name}.class", b"stale")
+                (target / "server/core.jar").write_bytes(b"affected-old-core\n")
+                (target / "server/plugins.jar").write_bytes(
+                    b"affected-target-plugins\n"
+                )
+                selected = json.loads((
+                    target / "server/world-builder-configs/primary.json"
+                ).read_text(encoding="utf-8"))
+                client_root = target / Path(
+                    selected["clientRuntimeRelativePath"]
+                ).parts[0]
+                (client_root / "Open_RSC_Client.jar").write_bytes(
+                    b"affected-old-client\n"
+                )
+                (target / "server/plugins/custom-game-content.jar").parent.mkdir(
+                    parents=True, exist_ok=True
+                )
+                (target / "server/plugins/custom-game-content.jar").write_bytes(
+                    b"target-authored-plugin\n"
+                )
+                (target / "server/inc/sqlite/live.db").parent.mkdir(
+                    parents=True, exist_ok=True
+                )
+                (target / "server/inc/sqlite/live.db").write_bytes(
+                    b"target-player-data\n"
+                )
+                (target / "server/src/TargetCustomization.java").parent.mkdir(
+                    parents=True, exist_ok=True
+                )
+                (target / "server/src/TargetCustomization.java").write_text(
+                    "final class TargetCustomization {}\n", encoding="utf-8"
+                )
+                (target / "server/build.xml").write_text(
+                    "<project name=\"affected-target-build\"/>\n", encoding="utf-8"
+                )
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_mutator=make_affected,
+            )
+            selected = json.loads((
+                target / "server/world-builder-configs/primary.json"
+            ).read_text(encoding="utf-8"))
+            client_root = target / Path(
+                selected["clientRuntimeRelativePath"]
+            ).parts[0]
+            preserved = {
+                relative: (target / relative).read_bytes()
+                for relative in (
+                    "server/plugins/custom-game-content.jar",
+                    "server/plugins.jar",
+                    "server/inc/sqlite/live.db",
+                    "server/src/TargetCustomization.java",
+                    "server/build.xml",
+                )
+            }
+
+            refused = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            result = json.loads(upgraded.stdout)
+            plan = json.loads((
+                project / "backups" / result["transactionId"] / "mutation-plan.json"
+            ).read_text(encoding="utf-8"))
+            self.assertEqual([], plan["configurationChanges"])
+            self.assertTrue(all(
+                action["role"].startswith("runtime-compatibility-")
+                for action in plan["actions"]
+            ))
+            self.assertFalse((
+                target
+                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+            ).exists())
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                (target / "server/core.jar").read_bytes(),
+            )
+            self.assertEqual(
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                (client_root / "Open_RSC_Client.jar").read_bytes(),
+            )
+            for relative, expected in preserved.items():
+                self.assertEqual(expected, (target / relative).read_bytes(), relative)
+
+            imported = self.run_reviewed_apply(
+                "import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            for relative, expected in preserved.items():
+                self.assertEqual(expected, (target / relative).read_bytes(), relative)
+            self.assert_no_transaction_stage(target)
+
+    def test_explicit_runtime_upgrade_failure_restores_affected_backup(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-upgrade-rollback-") as temp:
+            def make_affected(target):
+                retired = (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                )
+                retired.parent.mkdir(parents=True)
+                retired.write_bytes(b"affected-shadow-runtime\n")
+                (target / "server/core.jar").write_bytes(b"affected-core\n")
+                selected = json.loads((
+                    target / "server/world-builder-configs/primary.json"
+                ).read_text(encoding="utf-8"))
+                client = target / Path(
+                    selected["clientRuntimeRelativePath"]
+                ).parts[0] / "Open_RSC_Client.jar"
+                client.write_bytes(b"affected-client\n")
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_mutator=make_affected,
+            )
+            before = project_support.tree_bytes(target, installation)
+            failed = self.run_failure(
+                "runtime-upgrade", "before-success-receipt",
+                project, target, export,
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            receipts = [
+                json.loads(path.read_text(encoding="utf-8"))
+                for path in (project / "receipts").glob("*.json")
+            ]
+            self.assertEqual(["rolled-back"], [item["status"] for item in receipts])
+            self.assert_no_transaction_stage(target)
+
     def test_import_requires_host_integrated_runtime_before_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-required-") as temp:
             def remove_host_capability(target):
@@ -1451,7 +1604,7 @@ public final class mudclient {
             )
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-            self.assertIn("separate transactional target runtime upgrade", refused.stderr)
+            self.assertIn("run Upgrade Target Runtime", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
     def test_import_refuses_mismatched_host_runtime_capability(self):

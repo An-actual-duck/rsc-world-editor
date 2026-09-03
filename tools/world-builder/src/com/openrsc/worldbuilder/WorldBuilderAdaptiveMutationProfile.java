@@ -31,6 +31,90 @@ final class WorldBuilderAdaptiveMutationProfile {
 	private WorldBuilderAdaptiveMutationProfile() {
 	}
 
+	static Plan prepareRuntimeUpgrade(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		WorldBuilderAdaptiveExporter.VerifiedExport export,
+		Path targetRoot, String transactionId)
+		throws IOException, WorldBuilderContractException {
+		if ("standalone-empty".equals(project.origin)) throw problem(
+			WorldBuilderErrorCodes.NO_TARGET, "target-root",
+			"Standalone projects have no target server runtime.",
+			"Continue editing/exporting this standalone project; target upgrade is unavailable.");
+		Map<String,Object> projectTarget = WorldBuilderAdaptiveExporter.object(
+			project.manifest.get("target"), "target");
+		Map<String,Object> selectedReference = WorldBuilderAdaptiveExporter.object(
+			project.snapshot.get("selectedConfiguration"), "selectedConfiguration");
+		String selectedRole = WorldBuilderAdaptiveExporter.string(
+			selectedReference, "role");
+		Path target = requireTarget(targetRoot);
+		preflightCompiledInstallRoots(target);
+		safeExistingFile(target,
+			WorldBuilderAdaptiveConfiguration.pathForRole(selectedRole),
+			"Selected target configuration");
+
+		WorldBuilderAdaptiveDiscoveryReport fresh =
+			new WorldBuilderAdaptiveDiscovery().discover(target,
+				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
+					project.discoveryReport));
+		String expectedLineage = WorldBuilderAdaptiveExporter.string(
+			projectTarget, "targetFingerprintSha256");
+		if (!"compatible".equals(fresh.status)
+			|| !expectedLineage.equals(fresh.fingerprintSha256())) {
+			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, "target-root",
+				"Target no longer matches this project's immutable affected-runtime source lineage.",
+				"Create a fresh project from the exact offline affected backup before upgrading it.");
+		}
+
+		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
+		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);
+		String adapter = WorldBuilderAdaptiveExporter.string(projectTarget, "adapterId");
+		String capabilityId = WorldBuilderAdaptiveExporter.string(
+			projectTarget, "capabilityId");
+		String profile = WorldBuilderAdaptiveExporter.string(
+			projectTarget, "importProfileId");
+		if (!capability.installEnabled || !adapter.equals(capability.adapterId)
+			|| !capabilityId.equals(capability.capabilityId)
+			|| !profile.equals(capability.mutationProfileId)
+			|| !(GENERIC_PROFILE.equals(profile) || PACKED_PROFILE.equals(profile))) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
+				WorldBuilderTargetCapability.RELATIVE_PATH,
+				"Target does not advertise this project's exact bounded install profile.",
+				"Use the exact affected backup from which this project was created.");
+		}
+		WorldBuilderAdaptiveConfiguration configuration =
+			WorldBuilderAdaptiveConfiguration.select(
+				readOnly, capability, selectedRole).selected;
+		String configurationPath = WorldBuilderAdaptiveConfiguration.pathForRole(
+			selectedRole);
+		if (!configurationPath.equals(configuration.relativePath)
+			|| !configuration.sha256.equals(
+				WorldBuilderAdaptiveExporter.string(selectedReference, "sha256"))) {
+			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, configurationPath,
+				"Selected configuration no longer matches the affected backup snapshot.",
+				"Restore the exact affected backup or create a fresh project from it.");
+		}
+
+		WorldBuilderRuntimeCompatibility.Upgrade upgrade =
+			WorldBuilderRuntimeCompatibility.prepareTargetUpgrade(
+				project, target, configuration);
+		requireInstallEncodingSupport(upgrade.encodingVersions, export.packageValue);
+		List<Action> actions = new ArrayList<Action>(
+			WorldBuilderRuntimeCompatibility.bindTransaction(upgrade, transactionId));
+		byte[] configurationBytes = Files.readAllBytes(
+			safeExistingFile(target, configurationPath, "selected target configuration"));
+		long requiredSpace = requiredSpace(actions);
+		List<String> directories = plannedDirectories(target, actions);
+		Map<String,Object> generated = document(transactionId, project, export,
+			capability, configuration, expectedLineage, actions,
+			Collections.<ConfigurationChange>emptyList(), directories, requiredSpace,
+			configuration.sha256);
+		return new Plan(target, project, export, capability, configuration,
+			profile, configuration.serverMapRelativePath,
+			configuration.clientMapRelativePath, configurationBytes,
+			actions, Collections.<ConfigurationChange>emptyList(), directories,
+			generated);
+	}
+
 	static Plan prepare(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		WorldBuilderAdaptiveExporter.VerifiedExport export,
@@ -393,6 +477,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-server-upgrade".equals(role);
 			boolean client = "runtime-compatibility-client".equals(role);
 			boolean capability = "runtime-compatibility-capability".equals(role);
+			boolean hostCapability =
+				"runtime-compatibility-host-capability".equals(role);
+			boolean retiredShadowRetirement =
+				"runtime-compatibility-retired-shadow-retirement".equals(role);
+			boolean gameplayOverlayRetirement =
+				"runtime-compatibility-gameplay-overlay-retirement".equals(role);
 			boolean legacyCapabilityRetirement =
 				"runtime-compatibility-legacy-capability-retirement".equals(role);
 			boolean legacyOverlayRetirement =
@@ -439,6 +529,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 					: capability
 						? WorldBuilderRuntimeCompatibility.CAPABILITY_DESTINATION
 							.equals(destination)
+					: hostCapability
+						? WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_DESTINATION
+							.equals(destination)
+					: retiredShadowRetirement
+						? "server/world-builder-runtime/world-builder-managed-runtime.jar"
+							.equals(destination)
+					: gameplayOverlayRetirement
+						? "server/core-gameplay-overlay.jar".equals(destination)
 						: legacyCapabilityRetirement
 							? WorldBuilderRuntimeCompatibility.LEGACY_CAPABILITY_DESTINATION
 								.equals(destination)
@@ -484,8 +582,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 					? "working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar"
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
-					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE : "";
+					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE
+						: hostCapability
+							? WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_SOURCE : "";
 			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement
+				|| retiredShadowRetirement || gameplayOverlayRetirement
 				? ""
 				: clientSourceUpgrade
 					? "package/activation/runtime-compatibility-client-source-"
@@ -504,7 +605,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 										? "world-builder-installed-terrain-bootstrap-v1.java"
 										: "world-builder-installed-login-world-bootstrap-v1.java")
 								: "package/activation/" + role
-									+ (capability || clientProfile ? ".json"
+									+ (capability || hostCapability || clientProfile ? ".json"
 										: serverProfile ? ".json"
 									: serverConfiguration ? ".conf"
 										: serverBuildGuard || serverBuildOverlay
@@ -526,7 +627,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			FileState after = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("after"), "after"));
-			if (legacyCapabilityRetirement || legacyOverlayRetirement) {
+			if (legacyCapabilityRetirement || legacyOverlayRetirement
+				|| retiredShadowRetirement || gameplayOverlayRetirement) {
 				if (!before.present || after.present) throw problem(
 					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
 					"backups/" + transactionId + "/mutation-plan.json",
@@ -1011,10 +1113,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveConfiguration configuration =
 			WorldBuilderAdaptiveConfiguration.readBytes(configurationBytes,
 				configurationPath, selectedHash);
-		if (!selectedRole.equals(configuration.configurationId)
-			|| !"layered".equals(configuration.representation)) throw problem(
+		if (!selectedRole.equals(configuration.configurationId)) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, configurationPath,
-			"Runtime compatibility transaction is not bound to the active layered configuration.",
+			"Runtime compatibility transaction is not bound to the selected configuration.",
 			"Restore the exact complete transaction evidence.");
 
 		List<Action> actions = new ArrayList<Action>();
@@ -2191,7 +2292,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 		String humanSummary() {
 			int retiredLegacyFiles = 0;
 			int managedRuntimeActions = 0;
+			boolean runtimeUpgradeOnly = !actions.isEmpty()
+				&& configurationChanges.isEmpty();
 			for (Action action : actions) {
+				runtimeUpgradeOnly &= action.role.startsWith("runtime-compatibility-");
 				if (action.role.startsWith("retire-legacy-landscape-")
 					&& action.before.present && !action.after.present) {
 					retiredLegacyFiles++;
@@ -2210,7 +2314,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 				}
 			}
 			StringBuilder value = new StringBuilder(4096);
-			value.append("Import preview (no target files changed)\n")
+			value.append(runtimeUpgradeOnly
+				? "Target runtime upgrade preview (no target files changed)\n"
+				: "Import preview (no target files changed)\n")
 				.append("Transaction: ").append(document.get("transactionId")).append('\n')
 				.append("Project: ").append(project.projectId).append('\n')
 				.append("Adapter/profile: ").append(capability.adapterId).append(" / ")
@@ -2234,7 +2340,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append(document.get("transactionId")).append('\n')
 				.append("Receipt: projects/").append(project.projectId).append("/receipts/")
 				.append(document.get("transactionId")).append(".json\n")
-				.append("Confirmation required: IMPORT\n");
+				.append("Confirmation required: ")
+				.append(runtimeUpgradeOnly ? "UPGRADE" : "IMPORT").append('\n');
 			return value.toString();
 		}
 	}

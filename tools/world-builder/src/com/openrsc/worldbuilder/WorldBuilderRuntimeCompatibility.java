@@ -75,6 +75,117 @@ final class WorldBuilderRuntimeCompatibility {
 	private WorldBuilderRuntimeCompatibility() {
 	}
 
+	/**
+	 * Compiles the explicit, host-integrated target upgrade. Ordinary Import never
+	 * calls this path: it may only bind map packages after this upgrade succeeds.
+	 */
+	static Upgrade prepareTargetUpgrade(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		Path target, WorldBuilderAdaptiveConfiguration configuration)
+		throws IOException, WorldBuilderContractException {
+		String clientDestination = compiledClientRoot(configuration)
+			+ "/Open_RSC_Client.jar";
+		requireProjectArchive(project, "working/runtime/server/core.jar",
+			"current host-integrated server runtime",
+			"com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+			"com/openrsc/server/io/NativeLayeredWorldPackage.class");
+		requireProjectArchive(project, "working/runtime/client/Open_RSC_Client.jar",
+			"current host-integrated client runtime",
+			"orsc/WorldBuilderInstalledClientProfile.class",
+			"orsc/WorldBuilderTerrainBootstrap.class");
+		Path capabilitySource = WorldBuilderAdaptiveExporter.requireFile(
+			project.projectRoot, HOST_CAPABILITY_SOURCE,
+			"project host runtime capability");
+		Map<String,Object> capability;
+		try {
+			capability = WorldBuilderJsonDocuments.readObject(capabilitySource);
+		} catch (WorldBuilderDiscoveryException invalid) {
+			throw problem(HOST_CAPABILITY_SOURCE,
+				"Project host runtime capability is malformed.",
+				"Restore the exact verified project runtime.");
+		}
+		List<Integer> encodingVersions = integerList(
+			capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE);
+
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
+			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+		appendReplacement(project, target, "runtime-compatibility-server",
+			SERVER_DESTINATION, "working/runtime/server/core.jar",
+			transactionContent("server", ".jar"), actions);
+		appendReplacement(project, target, "runtime-compatibility-client",
+			clientDestination, "working/runtime/client/Open_RSC_Client.jar",
+			transactionContent("client", ".jar"), actions);
+		appendReplacement(project, target, "runtime-compatibility-host-capability",
+			HOST_CAPABILITY_DESTINATION, HOST_CAPABILITY_SOURCE,
+			transactionContent("host-capability", ".json"), actions);
+		appendRetiredRuntimeRemoval(target, MANAGED_SERVER_DESTINATION,
+			"runtime-compatibility-retired-shadow-retirement", actions);
+		appendRetiredRuntimeRemoval(target, LEGACY_MANAGED_SERVER_DESTINATION,
+			"runtime-compatibility-legacy-overlay-retirement", actions);
+		appendRetiredRuntimeRemoval(target, GAMEPLAY_OVERLAY_DESTINATION,
+			"runtime-compatibility-gameplay-overlay-retirement", actions);
+		if (actions.isEmpty()) throw new WorldBuilderContractException(
+			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
+			"upgrade-target-runtime", HOST_CAPABILITY_DESTINATION, false,
+			"The exact current host-integrated runtime is already installed and no retired runtime remains.",
+			"Run Import Map Changes for the selected project.");
+		return new Upgrade(encodingVersions, actions, true);
+	}
+
+	static void verifyTargetUpgrade(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		Path target, WorldBuilderAdaptiveConfiguration configuration,
+		WorldBuilderTargetCapability targetCapability,
+		WorldBuilderGenericLayeredPackage packageValue)
+		throws IOException, WorldBuilderContractException {
+		Upgrade remaining = inspect(
+			project, target, configuration, targetCapability, packageValue);
+		for (WorldBuilderAdaptiveMutationProfile.Action action : remaining.actions) {
+			if (!action.role.endsWith("-profile")) throw problem(
+				action.destinationRelativePath,
+				"Target runtime upgrade did not reach the host-integrated runtime state.",
+				"Keep the target offline so the transaction can roll back.");
+		}
+	}
+
+	private static void requireProjectArchive(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		String relative, String description, String... requiredEntries)
+		throws IOException, WorldBuilderContractException {
+		Path archive = WorldBuilderAdaptiveExporter.requireFile(
+			project.projectRoot, relative, description);
+		try (ZipFile zip = new ZipFile(archive.toFile())) {
+			for (String entry : requiredEntries) {
+				if (zip.getEntry(entry) == null) throw problem(relative,
+					description + " is missing required entry " + entry + ".",
+					"Restore the exact verified project runtime.");
+			}
+		} catch (java.util.zip.ZipException invalid) {
+			throw problem(relative, description + " is not a readable JAR archive.",
+				"Restore the exact verified project runtime.");
+		}
+	}
+
+	private static void appendRetiredRuntimeRemoval(
+		Path target, String destination, String role,
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, destination);
+		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return;
+		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(path)) throw problem(destination,
+			"Retired runtime destination is not a safe regular file.",
+			"Restore the affected target backup without changing its layout.");
+		WorldBuilderAdaptiveMutationProfile.FileState before =
+			WorldBuilderAdaptiveMutationProfile.FileState.present(
+				Files.size(path), WorldBuilderHashes.sha256(path));
+		actions.add(new WorldBuilderAdaptiveMutationProfile.Action(
+			role, destination, before,
+			WorldBuilderAdaptiveMutationProfile.FileState.absent(), "",
+			"backups/{transaction}/before/" + destination, true, null));
+	}
+
 	static Upgrade inspect(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, WorldBuilderAdaptiveConfiguration configuration,
@@ -229,7 +340,7 @@ final class WorldBuilderRuntimeCompatibility {
 		return new WorldBuilderContractException(
 			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED,
 			"plan-adaptive-import", HOST_CAPABILITY_DESTINATION, false, message,
-			"Run the separate transactional target runtime upgrade, complete its build and startup verification, then retry Import.");
+			"Keep the target offline, run Upgrade Target Runtime for this exact project, then retry Import Map Changes.");
 	}
 
 	/**

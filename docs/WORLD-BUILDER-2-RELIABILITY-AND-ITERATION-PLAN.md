@@ -315,25 +315,21 @@ gate before integration.
 
 The owner has explicitly chosen forward server evolution over permanent
 backward-runtime support. The desired end state is one current managed World
-Builder runtime. Import upgrades an older supported target—including the
-matching player client when the protocol or rendering contract requires it—as
-one previewed, offline, backed-up, verified, and recoverable transaction before
-activating the selected map. Existing architecture may be changed
-fundamentally to achieve that result.
+Builder runtime. A separate explicit runtime action upgrades an older or
+affected supported target—including the matching player client when required—
+as a previewed, offline, backed-up, verified, and recoverable transaction.
+Ordinary Import remains a second map-only transaction. Existing architecture
+may be changed fundamentally to achieve that result.
 
 - [x] Define the single current managed-runtime identity and the target-owned
   bundle contract needed to retain legitimate game customization.
-- [x] Make Import install that exact current server/client bundle when an older
-  managed target is detected, then import and activate the map in the same
-  reviewed transaction.
-- [x] Refuse a managed server provider before mutation if any of its classes
-  duplicate classes from the target's `server/core.jar` or retained
-  `server/lib/*.jar` archives. Compile target plugins against the target core
-  first and append a verified disjoint provider after the target libraries and
-  core at launch, so target-owned code remains authoritative. Keep the provider
-  outside `server/lib`, retire the earlier in-library overlay transactionally,
-  and back up and restore the exact original `server/build.xml` through the
-  import transaction.
+- [x] Make the explicit runtime upgrader install the exact current
+  host-integrated server/client pair and retire the earlier class-shadowing
+  overlays before a separate map-only Import.
+- [x] Refuse ordinary Import while a retired provider can shadow target-owned
+  classes. Runtime upgrade replaces the authoritative core/client archives and
+  v3 capability while preserving plugins, definitions, databases, source,
+  build files, configuration, maps, and assets.
 - [x] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.

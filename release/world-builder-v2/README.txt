@@ -139,15 +139,26 @@ updates its fingerprint. It never reads or writes the target. Source corruption,
 unsaved manifest drift, linked runtime state, or concurrent project operations
 fail closed.
 
-Close World Builder and stop the private target server completely before
-installing. Select the project and choose "Upgrade Server and Import Map". It
+Close World Builder and stop the private target server completely before either
+target operation. Select the project and choose "Import Map Changes". Import
 exports the active saved project, revalidates the immutable source and target,
 acquires every advertised offline signal, and displays one readable preview
-with an actual transaction ID, managed server/client runtime changes,
-content-addressed map destinations, configuration changes, backups, receipt,
-free-space requirement, and verification steps. Nothing is changed until you
-confirm that complete plan. The packaged Import Map Changes scripts provide
-the equivalent command-line path and require typing IMPORT exactly.
+with an actual transaction ID, content-addressed map destinations,
+configuration changes, backups, receipt, free-space requirement, and
+verification steps. Nothing is changed until you confirm that complete plan.
+The packaged Import Map Changes scripts provide the equivalent command-line
+path and require typing IMPORT exactly.
+
+Import never upgrades the target runtime. If it reports
+RUNTIME_UPGRADE_REQUIRED, preserve the affected offline target or backup,
+create a fresh isolated project from that exact state if necessary, and choose
+"Upgrade Target Runtime". This separate UPGRADE transaction replaces only the
+target core.jar, matching Open_RSC_Client.jar, and host runtime capability with
+the exact current project runtime. It backs up each prior file and removes the
+retired World Builder shadow/overlay JARs. It does not change map packages,
+configuration, definitions, databases, plugins, source trees, build files, or
+assets. After the upgrade succeeds, keep the target offline and run Import Map
+Changes as a second reviewed transaction.
 
 Back up the complete target server before Import and verify that backup can be
 restored. World Builder does not offer an action to reverse a completed import.
@@ -157,15 +168,10 @@ activation content, and every verified backup, then forces their directory
 entries before publishing and forcing the pending receipt. A filesystem/Java
 provider that cannot provide that ordering is refused before transaction
 artifacts or target mutation. Import publishes verified server and client
-package content first. Import treats the runtime pinned inside the project as
-the one current managed runtime contract. If the target server core, client
-archive, or installed runtime capability differs, Import previews, backs up,
-and atomically replaces those bounded components before activating the selected
-configuration. It also retires superseded World Builder runtime capability
-evidence. Plugins, definitions, databases, and unrelated target files are not
-replaced. Import then verifies every changed byte and both package
-selections. Before restarting, distribute the exact reported client/map
-identity to every player.
+package content first. Import requires the separate runtime upgrade to have
+established the exact host-integrated runtime contract first. It then verifies
+every changed map and activation byte and both package selections. Before
+restarting, distribute the exact reported client/map identity to every player.
 Later Detect Server Map runs recognize that exact packed-profile installation
 as the active compatible layered map, so the edit/import/detect cycle does not
 fall back to the retired packed representation.
@@ -182,12 +188,11 @@ transaction. Keep the complete project/backups/receipts and run "Recover Map
 Transaction"; review its exact plan and type RECOVER. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
-There is no force option. Runtime installation uses the exact pinned
-content-neutral server runtime plus a bounded client source/bootstrap upgrade.
-It preserves the target client's protocol version, definitions, advertised
-limits, custom behavior, and assets, then allows the target's normal build to
-compile the combined client before launch. Source changes use the same preview,
-backup, rollback, receipt, and verification transaction as map activation.
+There is no force option. The separate runtime upgrade uses the exact pinned
+host-integrated server and client archives. It preserves target definitions,
+plugins, databases, source trees, build files, configuration, custom assets,
+and map content. Runtime upgrade and map activation each have their own exact
+preview, backup, rollback, receipt, and verification transaction.
 Standalone projects can save and export, but Import, Undo, and Recovery return
 NO_TARGET before resolving, accessing, or locking any target path.
 
