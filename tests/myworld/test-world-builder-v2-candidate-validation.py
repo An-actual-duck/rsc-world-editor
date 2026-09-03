@@ -25,7 +25,7 @@ VALIDATION_RECORD = (
     ROOT / "docs/releases/world-builder-v2-v0.2.0-alpha.1-validation.md"
 )
 CURRENT_VALIDATION_RECORD = (
-    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.87-validation.md"
+    ROOT / "docs/releases/world-builder-v2-v0.7.0-alpha.88-validation.md"
 )
 CURRENT_RELEASE_GATE = ROOT / "release/world-builder-v2/RELEASE-READY"
 VERSION = "v0.2.0-alpha.1"
@@ -715,21 +715,21 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
     def test_accepted_record_binds_exact_candidate_and_rebuild_rule(self) -> None:
         text = CURRENT_VALIDATION_RECORD.read_text(encoding="utf-8")
         self.assertIn("ACCEPTED — RELEASE READY", text)
-        self.assertIn("73566c5429efeceac7ed005e8e6b10b883ec295b", text)
-        self.assertIn("500780656a2c77d8e2f17c61e024d35e5f34ca2a", text)
+        self.assertIn("233568516e72ddaf85f8af5da8f80b8b96866135", text)
+        self.assertIn("23db5a02fd51087bf7390182938fbb7f6857c732", text)
         self.assertIn("Production archives must be rebuilt", text)
         self.assertIn("Accepted on", text)
-        self.assertIn("saved terrain-sector and level growth", text)
-        self.assertIn("unrecorded or unrelated layout expansion", text)
+        self.assertIn("Ground-item-only scene telemetry", text)
+        self.assertIn("changed static-scene identity", text)
         if CURRENT_RELEASE_GATE.exists():
             gate = json.loads(CURRENT_RELEASE_GATE.read_text(encoding="utf-8"))
-            self.assertEqual("v0.7.0-alpha.87", gate["releaseVersion"])
+            self.assertEqual("v0.7.0-alpha.88", gate["releaseVersion"])
             self.assertEqual(
-                "73566c5429efeceac7ed005e8e6b10b883ec295b",
+                "233568516e72ddaf85f8af5da8f80b8b96866135",
                 gate["validatedEditorCommit"],
             )
             self.assertEqual(
-                "500780656a2c77d8e2f17c61e024d35e5f34ca2a",
+                "23db5a02fd51087bf7390182938fbb7f6857c732",
                 gate["runtimeProviderCommit"],
             )
         else:
