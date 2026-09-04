@@ -39,6 +39,10 @@ def write_runtime_jar(path: Path, payload: bytes) -> None:
             archive.writestr(
                 "com/openrsc/server/io/NativeLayeredWorldPackage.class", payload
             )
+            archive.writestr(
+                "com/openrsc/server/net/RSCProtocolDecoder.class",
+                project_support.FIXTURE_HOST_DECODER_CLASS,
+            )
         else:
             archive.writestr(
                 "orsc/WorldBuilderInstalledClientProfile.class", payload
@@ -92,6 +96,16 @@ public final class mudclient {
     (source / "NativeLayeredTerrainSnapshot.java").write_bytes(
         project_support.LEGACY_NATIVE_SNAPSHOT_SOURCE
     )
+
+
+def add_current_host_capability(target: Path) -> None:
+    project_support.write_json(
+        target / "server/conf/world-builder/installed-runtime-capability-v3.json",
+        project_support.host_runtime_capability(),
+    )
+    source = target / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    source.write_bytes(project_support.FIXTURE_HOST_DECODER_SOURCE)
 
 HARNESS = r"""
 package com.openrsc.worldbuilder;
@@ -997,11 +1011,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             / "server/conf/world-builder/installed-runtime-capability-v1.json",
             project_support.installed_v1_capability(),
         )
-        project_support.write_json(
-            target
-            / "server/conf/world-builder/installed-runtime-capability-v3.json",
-            project_support.host_runtime_capability(),
-        )
+        add_current_host_capability(target)
         installation = base / "World Builder 2"
         installation.mkdir()
         runtime = LIFECYCLE.AdaptiveProjectLifecycleTest.make_runtime(base)
@@ -1296,11 +1306,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             target / "client/Open_RSC_Client.jar",
             b"old target client runtime\n"
         )
-        project_support.write_json(
-            target
-            / "server/conf/world-builder/installed-runtime-capability-v3.json",
-            project_support.host_runtime_capability(),
-        )
+        add_current_host_capability(target)
         add_client_upgrade_source(target / "client")
 
         selected_report_path = self.root / "selected-layered.json"
