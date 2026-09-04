@@ -218,19 +218,22 @@ preview can report `UPGRADE_READY`; apply still fails before creating
 transaction evidence or touching the target. Activation has an independent
 compiled `executionReady:false` gate, so provider installability cannot
 silently enable apply.
-The built-in migrator now renders the typed configuration into the staged
-release, validates and copies a closed offline SQLite snapshot byte-exactly,
-and converts a reviewed single-sector packed terrain input through the existing
-codec with exact reverse-parity verification. Every output path, mode, size,
-source hash, and result hash is compiled or plan-bound and is revalidated as
-part of the release tree. SQLite WAL/journal/SHM state, malformed snapshots,
-unrecognized paths, and unsupported map shapes fail before target mutation.
-These are executable staging primitives, not a current-schema data cutover.
-This first bounded row deliberately recognizes only the compiled
-`server/inc/sqlite/preservation.db` source and one 48x48x10-byte terrain
-sector; it does not accept target-selected paths. Staged outputs enforce POSIX
-`0600` modes, so non-POSIX filesystems remain an explicit portability gap and
-must fail rather than silently weaken permissions.
+The built-in migrator now renders typed configuration and invokes the exact
+provider migration class from the staged, inventory-verified `server-runtime`
+artifact. For the compiled `server/inc/sqlite/preservation.db` source it
+requires a closed WAL/journal/SHM-free snapshot, migrates into a new Current
+Base database, verifies the provider's exact evidence contract and source
+immutability, and enforces `0600` output modes. Contract/tool drift, customized
+schemas, timeouts, excessive diagnostics, malformed evidence, and output drift
+fail closed with generated state removed. Non-POSIX filesystems remain an
+explicit portability gap and must fail rather than weaken permissions.
+
+MariaDB preview accepts only literal `127.0.0.1`, distinct bounded source/stage
+schema names, and uppercase environment-variable *names* for credentials;
+secret values never enter the plan. MariaDB apply remains unavailable because
+the Editor does not yet own exact cleanup/recovery of a successfully created
+external stage schema. This is a plan-specific blocker and does not make
+SQLite depend on MariaDB support.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract and `preservation-retro-to-current-base-v1` row through the closed
@@ -239,12 +242,19 @@ roles. Its manifest is fixed at
 `contracts/runtime/current-base-v1/state-migration.json`; it selects
 `com.openrsc.server.database.CurrentBaseStateMigration` from the hash-bound
 `runtime/server/core.jar`, not a separate migration-tool artifact, and has real
-SQLite and loopback MariaDB migration evidence. The Editor does not invoke that
-row or cut over its staged database yet. Activation also requires complete
-canonical-package installation and staged/installed server/client launch,
+SQLite and loopback MariaDB migration evidence. The Editor binds that row
+during preview and its staging executor invokes the SQLite path, but the
+transaction does not cut over the staged database yet. Activation also
+requires mapping a
+complete recognized Preservation archive through the existing
+`WorldBuilderPackedConverter`/`WorldBuilderPackedMap` pipeline (the raw-sector
+shortcut is no longer treated as public evidence), canonical-package
+installation, and staged/installed server/client launch,
 handshake, login, gameplay, map, and state verification. Live connections and
-target credentials are not accepted by the current Editor path. There is no
-desktop route yet.
+credential values are not accepted by the current Editor plan. There is no
+desktop route yet. Provider installability, compiled profile readiness, and the
+selected plan's zero-blocker state are all required independently; metadata
+alone cannot authorize apply.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification

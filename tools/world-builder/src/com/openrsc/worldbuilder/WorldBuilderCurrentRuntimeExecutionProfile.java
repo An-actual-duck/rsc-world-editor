@@ -118,11 +118,29 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.add(readiness("typed-configuration-staging", true));
 		result.add(readiness("provider-state-schema-migration-row", true));
 		result.add(readiness("closed-sqlite-current-schema-migration", true));
-		result.add(readiness("closed-mariadb-snapshot-restore", false));
 		result.add(readiness("complete-canonical-map-package", false));
 		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));
 		result.add(readiness("installed-runtime-launch-handshake-login-gameplay", false));
 		return result;
+	}
+
+	boolean activationReady(Map<String,Object> migrationPlan)
+		throws WorldBuilderContractException {
+		if (!executionReady) return false;
+		if (syntheticOnly) return true;
+		Map<String,Object> staged = object(migrationPlan.get("stagedExecution"));
+		if (!array(staged.get("readinessBlockers")).isEmpty()
+			|| !WorldBuilderBoundedInventory.bool(staged.get("typedConfigurationReady"),
+				"current-runtime-migration", "typedConfigurationReady")
+			|| !WorldBuilderBoundedInventory.bool(staged.get("canonicalMapPackageReady"),
+				"current-runtime-migration", "canonicalMapPackageReady")) return false;
+		String engine = string(object(staged.get("providerStateMigration")), "engine");
+		return "sqlite".equals(engine)
+			? WorldBuilderBoundedInventory.bool(staged.get("sqliteSchemaMigrationReady"),
+				"current-runtime-migration", "sqliteSchemaMigrationReady")
+			: "mariadb".equals(engine)
+				&& WorldBuilderBoundedInventory.bool(staged.get("mariaDbMigrationReady"),
+					"current-runtime-migration", "mariaDbMigrationReady");
 	}
 
 	private static Map<String,Object> readiness(String id, boolean ready) {
@@ -231,7 +249,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderBoundedInventory.exactKeys(typed, "current-runtime-migration",
 			"schemaVersion", "manifestType", "sourceRelativePath", "precedence",
 			"duplicatePolicy", "serverName", "experienceRate", "bindAddress",
-			"gamePort", "externalSecretReferences", "translations");
+			"gamePort", "databaseMigration", "externalSecretReferences", "translations");
 		if (!"world-builder-current-base-configuration".equals(
 				string(typed, "manifestType"))
 			|| !"first-value-wins".equals(string(typed, "duplicatePolicy")))
@@ -278,7 +296,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"providerStateMigration",
 			"typedConfigurationReady", "sqliteSnapshotReady",
 			"sqliteSchemaMigrationReady", "mariaDbMigrationReady",
-			"canonicalMapSectorReady", "stagedOutputs", "readinessBlockers");
+			"canonicalMapPackageReady", "stagedOutputs", "readinessBlockers");
 		if (!"preservation-staged-data-migrator-v1".equals(
 			string(staged, "implementationId"))
 			|| !"current-base-state-migration-v1".equals(
@@ -329,6 +347,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			empty.put("experienceRate", Long.valueOf(1));
 			empty.put("bindAddress", "127.0.0.1");
 			empty.put("gamePort", Long.valueOf(43594));
+			empty.put("databaseMigration", sqliteDatabaseMigration());
 			empty.put("externalSecretReferences", new ArrayList<Object>());
 			empty.put("translations", new ArrayList<Object>());
 			return empty;
@@ -386,7 +405,14 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		typed.put("duplicatePolicy", "first-value-wins");
 		typed.put("serverName", name); typed.put("experienceRate", Long.valueOf(experience));
 		typed.put("bindAddress", bind); typed.put("gamePort", Long.valueOf(port));
-		typed.put("externalSecretReferences", new ArrayList<Object>());
+		Map<String,Object> database = databaseMigration(values);
+		typed.put("databaseMigration", database);
+		List<Object> secrets = new ArrayList<Object>();
+		if ("mariadb".equals(stringUnchecked(database, "engine"))) {
+			secrets.add(database.get("userEnvironmentName"));
+			secrets.add(database.get("passwordEnvironmentName"));
+		}
+		typed.put("externalSecretReferences", secrets);
 		typed.put("translations", translations);
 		return typed;
 	}
@@ -408,7 +434,67 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		if (Arrays.asList("experience_rate", "exp_rate", "experiance_rate").contains(key)) return "experienceRate";
 		if (Arrays.asList("bind_address", "bindAddress").contains(key)) return "bindAddress";
 		if (Arrays.asList("port", "game_port", "gamePort").contains(key)) return "gamePort";
+		if (Arrays.asList("db_engine", "database_engine").contains(key)) return "databaseEngine";
+		if (Arrays.asList("db_host", "database_host").contains(key)) return "databaseHost";
+		if (Arrays.asList("db_port", "database_port").contains(key)) return "databasePort";
+		if (Arrays.asList("db_name", "database_name", "source_schema").contains(key)) return "databaseSourceSchema";
+		if (Arrays.asList("db_stage_name", "stage_schema").contains(key)) return "databaseStageSchema";
+		if (Arrays.asList("db_user_env", "database_user_env").contains(key)) return "databaseUserEnvironment";
+		if (Arrays.asList("db_password_env", "database_password_env").contains(key)) return "databasePasswordEnvironment";
 		return null;
+	}
+
+	private static Map<String,Object> databaseMigration(Map<String,String> values)
+		throws WorldBuilderContractException {
+		if (!values.containsKey("databaseEngine")) return sqliteDatabaseMigration();
+		if (!"mariadb".equals(values.get("databaseEngine"))) throw refusal(
+			"Only sqlite or the closed MariaDB migration pathway is supported.");
+		for (String key : Arrays.asList("databaseHost", "databasePort",
+			"databaseSourceSchema", "databaseStageSchema", "databaseUserEnvironment",
+			"databasePasswordEnvironment")) if (!values.containsKey(key)) throw refusal(
+			"MariaDB configuration omits required credential-reference field: " + key);
+		if (!"127.0.0.1".equals(values.get("databaseHost"))) throw refusal(
+			"MariaDB migration endpoint must be literal IPv4 loopback 127.0.0.1.");
+		long port = integer(values, "databasePort", 1L, 65535L, 0L);
+		String source = safeDatabaseName(values.get("databaseSourceSchema"), "source schema");
+		String stage = safeDatabaseName(values.get("databaseStageSchema"), "stage schema");
+		if (source.equals(stage)) throw refusal(
+			"MariaDB staged schema must differ from the read-only source schema.");
+		String user = safeEnvironmentName(values.get("databaseUserEnvironment"));
+		String password = safeEnvironmentName(values.get("databasePasswordEnvironment"));
+		if (user.equals(password)) throw refusal(
+			"MariaDB user and password must use distinct environment references.");
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("engine", "mariadb"); result.put("host", "127.0.0.1");
+		result.put("port", Long.valueOf(port)); result.put("sourceSchema", source);
+		result.put("stageSchema", stage); result.put("userEnvironmentName", user);
+		result.put("passwordEnvironmentName", password); return result;
+	}
+
+	private static Map<String,Object> sqliteDatabaseMigration() {
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("engine", "sqlite"); result.put("host", "");
+		result.put("port", Long.valueOf(0)); result.put("sourceSchema", "");
+		result.put("stageSchema", ""); result.put("userEnvironmentName", "");
+		result.put("passwordEnvironmentName", ""); return result;
+	}
+
+	private static String safeDatabaseName(String value, String label)
+		throws WorldBuilderContractException {
+		if (value == null || !value.matches("[A-Za-z_][A-Za-z0-9_]{0,63}"))
+			throw refusal("MariaDB " + label + " is not a bounded SQL identifier.");
+		return value;
+	}
+
+	private static String safeEnvironmentName(String value)
+		throws WorldBuilderContractException {
+		if (value == null || !value.matches("[A-Z][A-Z0-9_]{0,127}")) throw refusal(
+			"MariaDB credentials must be uppercase environment-name references.");
+		return value;
+	}
+
+	private static String stringUnchecked(Map<String,Object> value, String key) {
+		return (String)value.get(key);
 	}
 
 	private static Map<String,Object> preservationAdapterDocument() {

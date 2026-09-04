@@ -382,16 +382,19 @@ without imposing its gameplay or content on Base users.
   zero-write refusal. A separate compiled execution-readiness gate remains false
   even if future provider metadata becomes installable, pending executable
   migrators, staged and installed runtime verification, project migration,
-  broader reviewed fingerprints, and UI consent. The Editor now executes a
-  bounded staging subset: typed configuration rendering, closed SQLite snapshot
-  validation/copy, and single-sector packed terrain conversion with reverse
-  parity, all output-inventoried and release-tree verified. This does not yet
-  perform a current-schema state cutover. It requires the provider's hash-bound
+  broader reviewed fingerprints, and UI consent. The Editor now renders typed
+  configuration and executes the provider's hash-bound
   `current-base-state-migration-v1` /
-  `preservation-retro-to-current-base-v1` row, whose fixed manifest selects the
-  migration main class from the existing `server-runtime` artifact, plus the
-  closed `state-migration-manifest` and `contract-schema` roles before that
-  readiness condition can change.
+  `preservation-retro-to-current-base-v1` SQLite row from the staged
+  `server-runtime`, verifies closed evidence/current-schema output and exact
+  source immutability, and rejects customized state. MariaDB has a safe
+  loopback/schema/environment-name preview contract but remains apply-blocked
+  until external stage cleanup/recovery is exact. Authorization is selected-plan
+  specific, so future proven SQLite apply does not depend on MariaDB. Complete
+  recognized packed-map conversion must reuse the existing packed converter;
+  no raw one-sector shortcut is accepted as public migration proof. Runnable
+  staged/installed server-client verification and exact binding of generated
+  outputs into activation/recovery evidence also remain open.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

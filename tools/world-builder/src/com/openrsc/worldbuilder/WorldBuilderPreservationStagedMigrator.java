@@ -59,18 +59,25 @@ final class WorldBuilderPreservationStagedMigrator {
 		// A raw 23,040-byte sector is not a representative public intake package.
 		boolean mapReady = false;
 
+		Map<String,Object> database = object(typed.get("databaseMigration"));
+		String engine = string(database, "engine");
 		Path sqlite = target.resolve(SQLITE_SOURCE);
-		boolean sqlitePresent = Files.exists(sqlite, LinkOption.NOFOLLOW_LINKS);
-		if (sqlitePresent) {
-			requireClosedSqliteSnapshot(target, sqlite);
-		}
+		boolean sqlitePresent = "sqlite".equals(engine)
+			&& Files.exists(sqlite, LinkOption.NOFOLLOW_LINKS);
+		if (sqlitePresent) requireClosedSqliteSnapshot(target, sqlite);
 		Map<String,Object> provider = providerStateBinding(composition);
-		provider.put("engine", "sqlite");
-		provider.put("sourceRelativePath", SQLITE_SOURCE);
+		provider.put("engine", engine);
+		provider.put("sourceRelativePath", "sqlite".equals(engine) ? SQLITE_SOURCE : "");
 		provider.put("sourceSha256", sqlitePresent ? fileHash(sqlite, SQLITE_SOURCE) : "");
-		provider.put("stageRelativePath", SQLITE_OUTPUT);
+		provider.put("stageRelativePath", "sqlite".equals(engine) ? SQLITE_OUTPUT : "");
 		provider.put("evidenceRelativePath", SQLITE_EVIDENCE);
 		provider.put("evidenceSchemaId", "current-base-state-migration-evidence-v1");
+		provider.put("host", database.get("host"));
+		provider.put("port", database.get("port"));
+		provider.put("sourceSchema", database.get("sourceSchema"));
+		provider.put("stageSchema", database.get("stageSchema"));
+		provider.put("userEnvironmentName", database.get("userEnvironmentName"));
+		provider.put("passwordEnvironmentName", database.get("passwordEnvironmentName"));
 
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("implementationId", "preservation-staged-data-migrator-v1");
@@ -85,11 +92,13 @@ final class WorldBuilderPreservationStagedMigrator {
 		result.put("sqliteSnapshotReady", Boolean.valueOf(sqlitePresent));
 		result.put("sqliteSchemaMigrationReady", Boolean.valueOf(sqlitePresent));
 		result.put("mariaDbMigrationReady", Boolean.FALSE);
-		result.put("canonicalMapSectorReady", Boolean.valueOf(mapReady));
+		result.put("canonicalMapPackageReady", Boolean.valueOf(mapReady));
 		result.put("stagedOutputs", outputs);
 		List<Object> blockers = new ArrayList<Object>();
-		if (!sqlitePresent) blockers.add("reviewed-offline-sqlite-snapshot-not-found");
-		blockers.add("closed-mariadb-snapshot-and-restore-contract-required");
+		if ("sqlite".equals(engine) && !sqlitePresent)
+			blockers.add("reviewed-offline-sqlite-snapshot-not-found");
+		if ("mariadb".equals(engine))
+			blockers.add("mariadb-external-stage-rollback-not-implemented");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
 		blockers.add("staged-and-installed-executable-verification-required");
 		result.put("readinessBlockers", blockers);
@@ -117,7 +126,10 @@ final class WorldBuilderPreservationStagedMigrator {
 			setMode(destination, string(record, "mode"));
 			requireOutput(destination, record);
 		}
-		invokeSqlite(target, stage, object(execution.get("providerStateMigration")));
+		Map<String,Object> state = object(execution.get("providerStateMigration"));
+		if ("sqlite".equals(string(state, "engine"))) invokeSqlite(target, stage, state);
+		else throw blocked(
+			"MariaDB migration is previewable but not mutation-authorized until external-stage rollback is transactional.");
 	}
 
 	static void writeTypedConfiguration(Path stage, Map<String,Object> typed,
@@ -163,8 +175,11 @@ final class WorldBuilderPreservationStagedMigrator {
 			requireOutput(output, record);
 		}
 		Map<String,Object> state = object(execution.get("providerStateMigration"));
-		for (String key : Arrays.asList("stageRelativePath", "evidenceRelativePath")) {
-			String stagedRelative = string(state, key);
+		List<String> statePaths = new ArrayList<String>();
+		if (!string(state, "stageRelativePath").isEmpty())
+			statePaths.add(string(state, "stageRelativePath"));
+		statePaths.add(string(state, "evidenceRelativePath"));
+		for (String stagedRelative : statePaths) {
 			if (!stagedRelative.startsWith("migration/output/")) throw blocked(
 				"Provider state-migration output escaped its compiled namespace.");
 			String relative = stagedRelative.substring("migration/output/".length());
@@ -413,7 +428,9 @@ final class WorldBuilderPreservationStagedMigrator {
 			"contractBundlePath", "contractSha256", "toolBundlePath", "toolSha256",
 			"toolArtifactRole", "mainClass", "migrationRowId", "engine",
 			"sourceRelativePath", "sourceSha256", "stageRelativePath",
-			"evidenceRelativePath", "evidenceSchemaId");
+			"evidenceRelativePath", "evidenceSchemaId", "host", "port",
+			"sourceSchema", "stageSchema", "userEnvironmentName",
+			"passwordEnvironmentName");
 		if (!STATE_CONTRACT_BUNDLE.equals(string(binding, "contractBundlePath"))
 			|| !STATE_CONTRACT_SHA256.equals(string(binding, "contractSha256"))
 			|| !STATE_TOOL_BUNDLE.equals(string(binding, "toolBundlePath"))
@@ -421,9 +438,6 @@ final class WorldBuilderPreservationStagedMigrator {
 			|| !STATE_MAIN_CLASS.equals(string(binding, "mainClass"))
 			|| !"preservation-retro-to-current-base-v1".equals(
 				string(binding, "migrationRowId"))
-			|| !"sqlite".equals(string(binding, "engine"))
-			|| !SQLITE_SOURCE.equals(string(binding, "sourceRelativePath"))
-			|| !SQLITE_OUTPUT.equals(string(binding, "stageRelativePath"))
 			|| !SQLITE_EVIDENCE.equals(string(binding, "evidenceRelativePath"))
 			|| !"current-base-state-migration-evidence-v1".equals(
 				string(binding, "evidenceSchemaId"))) throw blocked(
@@ -431,6 +445,31 @@ final class WorldBuilderPreservationStagedMigrator {
 		requireHash(string(binding, "toolSha256"), "toolSha256");
 		String sourceHash = string(binding, "sourceSha256");
 		if (!sourceHash.isEmpty()) requireHash(sourceHash, "sourceSha256");
+		String engine = string(binding, "engine");
+		if ("sqlite".equals(engine)) {
+			if (!SQLITE_SOURCE.equals(string(binding, "sourceRelativePath"))
+				|| !SQLITE_OUTPUT.equals(string(binding, "stageRelativePath"))
+				|| !string(binding, "host").isEmpty()
+				|| integer(binding, "port") != 0L
+				|| !string(binding, "sourceSchema").isEmpty()
+				|| !string(binding, "stageSchema").isEmpty()
+				|| !string(binding, "userEnvironmentName").isEmpty()
+				|| !string(binding, "passwordEnvironmentName").isEmpty()) throw blocked(
+				"Provider SQLite state-migration binding changed.");
+		} else if ("mariadb".equals(engine)) {
+			if (!string(binding, "sourceRelativePath").isEmpty() || !sourceHash.isEmpty()
+				|| !string(binding, "stageRelativePath").isEmpty()
+				|| !"127.0.0.1".equals(string(binding, "host"))
+				|| integer(binding, "port") < 1L || integer(binding, "port") > 65535L
+				|| !string(binding, "sourceSchema").matches("[A-Za-z_][A-Za-z0-9_]{0,63}")
+				|| !string(binding, "stageSchema").matches("[A-Za-z_][A-Za-z0-9_]{0,63}")
+				|| string(binding, "sourceSchema").equals(string(binding, "stageSchema"))
+				|| !string(binding, "userEnvironmentName").matches("[A-Z][A-Z0-9_]{0,127}")
+				|| !string(binding, "passwordEnvironmentName").matches("[A-Z][A-Z0-9_]{0,127}")
+				|| string(binding, "userEnvironmentName").equals(
+					string(binding, "passwordEnvironmentName"))) throw blocked(
+				"Provider MariaDB state-migration binding changed.");
+		} else throw blocked("Provider state-migration engine is unsupported.");
 	}
 
 	private static void requireBoundProviderFile(Path path, String hash, String role)

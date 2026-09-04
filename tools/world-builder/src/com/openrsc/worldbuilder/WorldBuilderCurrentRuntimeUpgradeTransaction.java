@@ -424,6 +424,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			artifacts.add(action);
 		}
 		plan.put("artifactPlan", artifacts);
+		validateProviderMigrationArtifactBinding(plan, artifacts, profile);
 		plan.put("artifactPlanHash", canonicalHash(artifacts));
 		String releaseRelative = RELEASE_PREFIX + composition.string("bundleInventoryHash");
 		plan.put("releaseRelativePath", releaseRelative);
@@ -439,7 +440,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("mutationOccurred", Boolean.FALSE);
 		plan.put("activationAuthorized", Boolean.valueOf(composition.installable
 			&& "UPGRADE_READY".equals(string(classification, "status"))
-			&& profile.executionReady));
+			&& profile.activationReady(object(plan.get("migrationPlan")))));
 		plan.put("confirmationIdentity", "UPGRADE:" + transactionId + ":"
 			+ string(classification, "classificationFingerprintSha256") + ":"
 			+ canonicalHash(artifacts));
@@ -505,6 +506,39 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			result.add(action);
 		}
 		return result;
+	}
+
+	private static void validateProviderMigrationArtifactBinding(Map<String,Object> plan,
+		List<?> artifacts, WorldBuilderCurrentRuntimeExecutionProfile profile)
+		throws WorldBuilderContractException {
+		if (profile.syntheticOnly) return;
+		Map<String,Object> migration = object(plan.get("migrationPlan"));
+		Map<String,Object> execution = object(migration.get("stagedExecution"));
+		Map<String,Object> binding = object(execution.get("providerStateMigration"));
+		Map<String,Object> contract = null;
+		Map<String,Object> tool = null;
+		for (Object raw : artifacts) {
+			Map<String,Object> artifact = object(raw);
+			String bundle = string(artifact, "bundlePath");
+			if (WorldBuilderPreservationStagedMigrator.STATE_CONTRACT_BUNDLE.equals(bundle)) {
+				if (contract != null) throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+					bundle, false, "Provider migration manifest artifact is duplicated.",
+					"Restore and resolve the exact provider composition.");
+				contract = artifact;
+			}
+			if (WorldBuilderPreservationStagedMigrator.STATE_TOOL_BUNDLE.equals(bundle)) {
+				if (tool != null) throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT,
+					bundle, false, "Provider server-runtime artifact is duplicated.",
+					"Restore and resolve the exact provider composition.");
+				tool = artifact;
+			}
+		}
+		if (contract == null || tool == null
+			|| !string(contract, "sha256").equals(string(binding, "contractSha256"))
+			|| !string(tool, "sha256").equals(string(binding, "toolSha256"))) throw problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, "providerStateMigration", false,
+			"Migration invocation is not hash-bound to the selected provider artifact plan.",
+			"Restore the exact provider composition and preview a fresh transaction.");
 	}
 
 	private static Map<String,Object> activationLedger(Path target,
@@ -1458,6 +1492,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Map<String,Object> ledger = object(plan.get("activationLedger"));
 		Map<String,Object> migration = object(plan.get("migrationPlan"));
 		profile.validateMigrationPlan(migration);
+		validateProviderMigrationArtifactBinding(plan,
+			array(plan.get("artifactPlan")), profile);
 		if (!profile.migratorId.equals(string(migration, "migratorId"))
 			|| !profile.serverBuildId.equals(string(ledger, "serverBuildId"))
 			|| !profile.clientBuildId.equals(string(ledger, "clientBuildId"))

@@ -141,7 +141,7 @@
             "sqliteSnapshotReady": {"type": "boolean"},
             "sqliteSchemaMigrationReady": {"type": "boolean"},
             "mariaDbMigrationReady": {"type": "boolean"},
-            "canonicalMapSectorReady": {"type": "boolean"},
+            "canonicalMapPackageReady": {"type": "boolean"},
             "stagedOutputs": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/migrationOutput"}},
             "readinessBlockers": {"type": "array", "maxItems": 32, "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}}
           }
@@ -167,7 +167,9 @@
       "required": ["contractBundlePath", "contractSha256", "toolBundlePath",
         "toolSha256", "toolArtifactRole", "mainClass", "migrationRowId", "engine",
         "sourceRelativePath", "sourceSha256", "stageRelativePath",
-        "evidenceRelativePath", "evidenceSchemaId"],
+        "evidenceRelativePath", "evidenceSchemaId", "host", "port",
+        "sourceSchema", "stageSchema", "userEnvironmentName",
+        "passwordEnvironmentName"],
       "properties": {
         "contractBundlePath": {"const": "contracts/runtime/current-base-v1/state-migration.json"},
         "contractSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
@@ -176,12 +178,18 @@
         "toolArtifactRole": {"const": "server-runtime"},
         "mainClass": {"const": "com.openrsc.server.database.CurrentBaseStateMigration"},
         "migrationRowId": {"const": "preservation-retro-to-current-base-v1"},
-        "engine": {"const": "sqlite"},
-        "sourceRelativePath": {"const": "server/inc/sqlite/preservation.db"},
+        "engine": {"enum": ["sqlite", "mariadb"]},
+        "sourceRelativePath": {"type": "string", "maxLength": 4096},
         "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
-        "stageRelativePath": {"const": "migration/output/state/current-base.db"},
+        "stageRelativePath": {"type": "string", "maxLength": 4096},
         "evidenceRelativePath": {"const": "migration/output/state/current-base-migration-evidence.json"},
-        "evidenceSchemaId": {"const": "current-base-state-migration-evidence-v1"}
+        "evidenceSchemaId": {"const": "current-base-state-migration-evidence-v1"},
+        "host": {"type": "string", "maxLength": 64},
+        "port": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "sourceSchema": {"type": "string", "maxLength": 64},
+        "stageSchema": {"type": "string", "maxLength": 64},
+        "userEnvironmentName": {"type": "string", "maxLength": 128},
+        "passwordEnvironmentName": {"type": "string", "maxLength": 128}
       }
     },
     "preimage": {

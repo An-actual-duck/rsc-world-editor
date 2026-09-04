@@ -774,7 +774,11 @@ public final class CurrentUpgradeHarness {
         self.assertTrue(execution["sqliteSnapshotReady"])
         self.assertTrue(execution["sqliteSchemaMigrationReady"])
         self.assertFalse(execution["mariaDbMigrationReady"])
-        self.assertFalse(execution["canonicalMapSectorReady"])
+        self.assertFalse(execution["canonicalMapPackageReady"])
+        self.assertNotIn(
+            "mariadb-external-stage-rollback-not-implemented",
+            execution["readinessBlockers"],
+        )
         self.assertEqual(1, len(execution["stagedOutputs"]))
         self.assertIn(
             "server/inc/sqlite/preservation.db",
@@ -839,6 +843,71 @@ public final class CurrentUpgradeHarness {
                 self.assertIn("SQLite sidecar state exists", refused.stderr)
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
+
+    def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "mariadb-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        local = target / "server/conf/local.conf"
+        local.write_text(
+            "server_name=Maria Preview\n"
+            "db_engine=mariadb\n"
+            "db_host=127.0.0.1\n"
+            "db_port=3307\n"
+            "db_name=preservation_source\n"
+            "db_stage_name=current_base_stage\n"
+            "db_user_env=CURRENT_BASE_DB_USER\n"
+            "db_password_env=CURRENT_BASE_DB_PASSWORD\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        result = self.run_harness("profile-migration", target, workspace, "maria-preview")
+        self.assertEqual(0, result.returncode, result.stderr)
+        migration = json.loads(result.stdout)
+        database = migration["typedConfiguration"]["databaseMigration"]
+        self.assertEqual({
+            "engine": "mariadb", "host": "127.0.0.1", "port": 3307,
+            "sourceSchema": "preservation_source",
+            "stageSchema": "current_base_stage",
+            "userEnvironmentName": "CURRENT_BASE_DB_USER",
+            "passwordEnvironmentName": "CURRENT_BASE_DB_PASSWORD",
+        }, database)
+        self.assertEqual(
+            ["CURRENT_BASE_DB_USER", "CURRENT_BASE_DB_PASSWORD"],
+            migration["typedConfiguration"]["externalSecretReferences"],
+        )
+        binding = migration["stagedExecution"]["providerStateMigration"]
+        self.assertEqual("mariadb", binding["engine"])
+        self.assertEqual("", binding["sourceRelativePath"])
+        self.assertEqual("", binding["sourceSha256"])
+        self.assertEqual("", binding["stageRelativePath"])
+        self.assertIn(
+            "mariadb-external-stage-rollback-not-implemented",
+            migration["stagedExecution"]["readinessBlockers"],
+        )
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual({}, tree_snapshot(workspace))
+
+        for index, replacement in enumerate((
+            ("db_host=127.0.0.1", "db_host=10.0.0.3"),
+            ("db_user_env=CURRENT_BASE_DB_USER", "db_user_env=not-a-safe-reference"),
+            ("db_stage_name=current_base_stage", "db_stage_name=preservation_source"),
+        )):
+            with self.subTest(invalid_mariadb=index):
+                local.write_text(local.read_text().replace(*replacement), encoding="utf-8")
+                invalid_before = tree_snapshot(target)
+                refused = self.run_harness(
+                    "profile-migration", target, workspace, f"maria-refused-{index}"
+                )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("CODE=CONVERSION_BLOCKED", refused.stderr)
+                self.assertEqual(invalid_before, tree_snapshot(target))
+                self.assertEqual({}, tree_snapshot(workspace))
+                local.write_text(
+                    local.read_text().replace(replacement[1], replacement[0]),
+                    encoding="utf-8",
+                )
 
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):
