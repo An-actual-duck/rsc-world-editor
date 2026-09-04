@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import shutil
 import sqlite3
@@ -11,6 +12,7 @@ import subprocess
 import tempfile
 import unittest
 import warnings
+import zlib
 from pathlib import Path
 
 try:
@@ -477,6 +479,16 @@ public final class CurrentUpgradeHarness {
         self.assertFalse(plan["executionProfile"]["executionReady"])
         self.assertEqual("migration-and-verification-not-implemented",
                          plan["executionProfile"]["executionReadinessStatus"])
+        readiness = {
+            item["conditionId"]: item["ready"]
+            for item in plan["executionProfile"]["executionReadinessConditions"]
+        }
+        self.assertTrue(readiness["typed-configuration-staging"])
+        self.assertTrue(readiness["closed-sqlite-snapshot-staging"])
+        self.assertTrue(readiness["single-sector-packed-map-parity"])
+        self.assertFalse(readiness["provider-state-schema-migration-row"])
+        self.assertFalse(readiness["complete-canonical-map-package"])
+        self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
         self.assertEqual("named-profile",
@@ -612,16 +624,10 @@ public final class CurrentUpgradeHarness {
         map_source.write_bytes(bytes(48 * 48 * 10))
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
-        connection = sqlite3.connect(database)
-        connection.execute("PRAGMA page_size=4096")
-        connection.execute("PRAGMA journal_mode=DELETE")
-        connection.execute(
-            "CREATE TABLE accounts (id INTEGER PRIMARY KEY, username TEXT NOT NULL, skill_total INTEGER NOT NULL)"
-        )
-        connection.execute(
-            "INSERT INTO accounts VALUES (1, ?, ?)", ("invented_player", 321)
-        )
-        connection.commit()
+        database.write_bytes(zlib.decompress(base64.b64decode(
+            "eNrt17FqAkEQBuDZQ0gl2oiVMKWi2OQFcoYlSE6j5wpayaobOLLehbtVEGws86i+hReSs7CxFv+P+Vlmd+YBdjIOImf4M0k32vEzVUkIemEmIu8/BZGndNXf4lF391P+Ha4cKC8AAAAAAACAh3MU4qneaIjj1OmlNXq1Sraxy4rTew2lryQrvxdILm65Ga25P1TyTYY8CvsDP5zzu5x3eJuZNNYbw0rOFA8/8kyDoMPZV2TtwiVO28ti8dr6+5ufKC8AAAAAAAAAuHc1UaK2F8U7EzuzXnxbvTep8M/7EDnk"
+        )))
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         self.assertEqual("ok", connection.execute("PRAGMA integrity_check").fetchone()[0])
         connection.close()
         self.assertEqual(
@@ -717,6 +723,22 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual("rolled-back", receipt["status"])
                 self.assertTrue(receipt["rollbackComplete"])
                 self.case.cleanup(); self.setUp()
+
+    def test_production_preview_rejects_target_selected_state_paths_zero_write(self) -> None:
+        target = self.target("preservation-t0")
+        custom = target / "server/inc/sqlite/custom-selected.db"
+        custom.parent.mkdir(parents=True)
+        custom.write_bytes(b"target-selected-state")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        result = self.run_harness(
+            "preview-production", target, workspace, "custom-state-path",
+            identity=self.candidate_identity, catalog=self.candidate_catalog,
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual({}, tree_snapshot(workspace))
 
     def test_interrupted_rollback_preserves_recovery_evidence_and_recovers(self) -> None:
         target = self.target("managed-n")
