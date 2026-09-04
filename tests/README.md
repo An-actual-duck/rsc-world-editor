@@ -53,9 +53,11 @@ itself is not a reason to fragment an otherwise navigable suite.
 
 The synthetic, content-neutral current-generation identity and T0-T5
 classification fixtures live under `fixtures/current-runtime-upgrade-v1/`.
-Their fixture-set manifest seals the complete contract inventory and each target
-tree. Tests classify only those fixtures or temporary copies; never replace
-them with a real server path.
+Their fixture-set manifest seals the Editor contract inventory, synthetic
+provider extension, and each target tree. Tests resolve the exact locked
+provider Base/Advanced contracts and apply the explicit installable test overlay
+only in a temporary directory. They classify only those fixtures or temporary
+copies; never replace them with a real server path.
 
 ## Native and optional checks
 

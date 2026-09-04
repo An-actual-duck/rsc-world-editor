@@ -230,7 +230,8 @@ final class WorldBuilderCurrentRuntimeContracts {
 			"projectCapability", "installedLedger", "evidence", "actions",
 			"classificationFingerprintSha256");
 		String status = enumeration(root, "status", op,
-			"CURRENT", "UPGRADE_READY", "PORT_REQUIRED", "BLOCKED_UNSAFE");
+			"CURRENT", "UPGRADE_READY", "PORT_REQUIRED", "BLOCKED_UNSAFE",
+			"NOT_INSTALLABLE");
 		String tier = enumeration(root, "tier", op, "T0", "T1", "T2A", "T2B",
 			"T3", "T4", "T5", "CURRENT", "MANAGED_N");
 		if (bool(root, "mutationOccurred", op)) invalid(op,
@@ -281,10 +282,12 @@ final class WorldBuilderCurrentRuntimeContracts {
 			hash(item, "sha256", op, true);
 		}
 		texts(root.get("actions"), op, "actions", 1, MAX_LIST, 1024);
-		if ("CURRENT".equals(tier) != "CURRENT".equals(status)
-			|| "MANAGED_N".equals(tier) && !"UPGRADE_READY".equals(status)
+		if ("CURRENT".equals(status) && !"CURRENT".equals(tier)
+			|| "MANAGED_N".equals(tier)
+				&& !("UPGRADE_READY".equals(status) || "NOT_INSTALLABLE".equals(status))
 			|| "T5".equals(tier) != "BLOCKED_UNSAFE".equals(status)
-			|| portRequired != "PORT_REQUIRED".equals(status)) invalid(op,
+			|| portRequired != "PORT_REQUIRED".equals(status)
+			|| "NOT_INSTALLABLE".equals(status) && "T5".equals(tier)) invalid(op,
 			"Classification tier and outcome disagree.");
 		hash(root, "classificationFingerprintSha256", op, false);
 	}
@@ -344,6 +347,11 @@ final class WorldBuilderCurrentRuntimeContracts {
 		}
 		if ("T0".equals(tier)) actions.add(
 			"Convert the legacy packed map/state to the canonical current package during upgrade.");
+		if (!composition.installable && "UPGRADE_READY".equals(status)) {
+			status = "NOT_INSTALLABLE";
+			actions.clear();
+			actions.add("The selected provider composition is foundation-only; select a released installable bundle before preview or mutation.");
+		}
 		return classification(status, tier, composition,
 			adapter, project, null, evidence, actions);
 	}
@@ -396,14 +404,19 @@ final class WorldBuilderCurrentRuntimeContracts {
 				.equals(composition.string("inputAdapterContractId"));
 		List<String> predecessors = identifiers(adapter.get("supportedManagedPredecessorReleaseIds"),
 			"classify-ledger", "supportedManagedPredecessorReleaseIds", 0, 64);
-		if (exactCurrent) return classification("CURRENT", "CURRENT", composition,
-			adapter, project, ledgerDocument,
-			Collections.<Evidence>emptyList(),
-			Collections.singletonList("Permit map-only import after normal ledger and artifact revalidation."));
+		if (exactCurrent) return classification(
+			composition.installable ? "CURRENT" : "NOT_INSTALLABLE", "CURRENT", composition,
+			adapter, project, ledgerDocument, Collections.<Evidence>emptyList(),
+			Collections.singletonList(composition.installable
+				? "Permit map-only import after normal ledger and artifact revalidation."
+				: "The exact ledger names a foundation-only composition; refuse activation until an installable provider bundle is selected."));
 		if (predecessors.contains(release) && sameVariant && sameAdapter) return classification(
-			"UPGRADE_READY", "MANAGED_N", composition, adapter, project,
+			composition.installable ? "UPGRADE_READY" : "NOT_INSTALLABLE",
+			"MANAGED_N", composition, adapter, project,
 			ledgerDocument, Collections.<Evidence>emptyList(), Collections.singletonList(
-				"Advance the trusted managed predecessor within its selected variant using a reviewed N-to-N+1 plan."));
+				composition.installable
+					? "Advance the trusted managed predecessor within its selected variant using a reviewed N-to-N+1 plan."
+					: "The selected destination is foundation-only; select an installable provider bundle before N-to-N+1 preview."));
 		List<Evidence> evidence = Collections.singletonList(new Evidence(
 			"target-ledger", string(adapter, "targetLedgerRelativePath", "classify-ledger"),
 			"T5", "blocker", "", "Installed ledger is not the exact current composition or a trusted same-variant predecessor.",
@@ -759,8 +772,9 @@ final class WorldBuilderCurrentRuntimeContracts {
 		return second.equals(first) || second.startsWith(first + "/");
 	}
 
-	private static WorldBuilderContractException invalid(String operation, String message) {
-		return new WorldBuilderContractException(
+	private static WorldBuilderContractException invalid(String operation, String message)
+		throws WorldBuilderContractException {
+		throw new WorldBuilderContractException(
 			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, operation, message);
 	}
 

@@ -1541,7 +1541,8 @@ public final class WorldBuilderCli {
 					compositionIdentity, adapter, projectCapability);
 			System.out.print(result.toJson());
 			return "BLOCKED_UNSAFE".equals(result.status())
-				|| "PORT_REQUIRED".equals(result.status()) ? 3 : 0;
+				|| "PORT_REQUIRED".equals(result.status())
+				|| "NOT_INSTALLABLE".equals(result.status()) ? 3 : 0;
 		}
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);

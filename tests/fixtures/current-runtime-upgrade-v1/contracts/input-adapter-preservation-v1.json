@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "manifestType": "world-builder-input-adapter-v1",
   "adapterId": "preservation-synthetic-v1",
-  "adapterVersion": "1.0.0",
+  "adapterVersion": "v1",
   "historicalRuntimeId": "preservation-synthetic-sealed-v1",
   "evidenceAuthority": "synthetic-fixture",
   "installable": false,
@@ -109,5 +109,5 @@
       ]
     }
   ],
-  "adapterManifestHash": "0000000000000000000000000000000000000000000000000000000000000000"
+  "adapterManifestHash": "787d692c0b84e664eb7370aee40e6d5e9cc827dec2d9e87ba8be0d89089750e0"
 }

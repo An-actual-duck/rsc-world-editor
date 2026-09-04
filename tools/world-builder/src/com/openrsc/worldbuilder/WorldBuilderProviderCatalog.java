@@ -6,6 +6,7 @@ import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -27,6 +28,10 @@ final class WorldBuilderProviderCatalog {
 	static Composition resolve(Path catalogRoot, Path compositionIdentity)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderReadOnlyTarget catalog = WorldBuilderReadOnlyTarget.open(catalogRoot);
+		Path payloadRootPath = catalog.root.getParent();
+		if (payloadRootPath == null) invalid(
+			"Provider catalog has no contained payload root.");
+		WorldBuilderReadOnlyTarget payload = WorldBuilderReadOnlyTarget.open(payloadRootPath);
 		Map<String,Object> composition = readExternal(compositionIdentity,
 			"provider-composition-identity");
 		validateComposition(composition);
@@ -54,6 +59,17 @@ final class WorldBuilderProviderCatalog {
 		if (!INPUT_ADAPTER_CONTRACT.equals(string(composition, "inputAdapterContractId"))
 			|| !INPUT_ADAPTER_CONTRACT.equals(string(bundle, "inputAdapterContractId"))) invalid(
 			"Provider composition does not bind the Editor input-adapter contract.");
+		Map<String,Object> adapterBoundary = object(platform.get("inputAdapterBoundary"),
+			"platform inputAdapterBoundary");
+		exact(adapterBoundary, "contractId", "installedInRuntime", "selectionAuthority",
+			"unknownCodePolicy");
+		if (!INPUT_ADAPTER_CONTRACT.equals(string(adapterBoundary, "contractId"))
+			|| bool(adapterBoundary, "installedInRuntime")
+			|| !"editor-migration-boundary-only".equals(
+				string(adapterBoundary, "selectionAuthority"))
+			|| !"refuse-before-mutation".equals(
+				string(adapterBoundary, "unknownCodePolicy"))) invalid(
+			"Provider platform does not expose the required fail-closed Editor adapter boundary.");
 
 		List<Map<String,Object>> schemaContracts = objectList(platform.get("schemaContracts"),
 			"schemaContracts", 5, 256);
@@ -68,7 +84,7 @@ final class WorldBuilderProviderCatalog {
 		for (Map<String,Object> record : moduleSet) {
 			exact(record, "manifestHash", "moduleId", "moduleVersion", "payloadRootHash");
 			String moduleId = identifier(record, "moduleId");
-			identifier(record, "moduleVersion"); hash(record, "manifestHash");
+			text(record, "moduleVersion", 1, 256); hash(record, "manifestHash");
 			hash(record, "payloadRootHash");
 			if (!resolvedModuleIds.add(moduleId)) invalid(
 				"Provider module set repeats a module ID.");
@@ -79,7 +95,7 @@ final class WorldBuilderProviderCatalog {
 				|| !platformId.equals(string(module, "platformReleaseId"))) invalid(
 				"Resolved module identity does not match its provider manifest.");
 			requireCanonicalHash(module, string(record, "manifestHash"), "module manifestHash");
-			List<Map<String,Object>> artifacts = inventory(module.get("artifacts"),
+			List<Map<String,Object>> artifacts = inventory(payload, module.get("artifacts"),
 				"module artifacts");
 			requireHash(canonicalHash(artifacts), string(record, "payloadRootHash"),
 				"module payloadRootHash");
@@ -88,12 +104,12 @@ final class WorldBuilderProviderCatalog {
 		requireHash(canonicalHash(moduleSet), string(composition, "moduleSetHash"),
 			"moduleSetHash");
 
-		List<Map<String,Object>> expectedInventory = inventory(bundle.get("artifacts"),
+		List<Map<String,Object>> expectedInventory = inventory(payload, bundle.get("artifacts"),
 			"bundle artifacts");
 		expectedInventory.addAll(moduleArtifacts);
 		Collections.sort(expectedInventory, inventoryOrder());
 		validateInventoryOrderAndCollisions(expectedInventory, "resolved provider inventory");
-		List<Map<String,Object>> suppliedInventory = inventory(
+		List<Map<String,Object>> suppliedInventory = resolvedInventory(
 			composition.get("bundleInventory"), "bundleInventory");
 		if (!WorldBuilderJsonDocuments.canonical(expectedInventory).equals(
 			WorldBuilderJsonDocuments.canonical(suppliedInventory))) invalid(
@@ -187,7 +203,77 @@ final class WorldBuilderProviderCatalog {
 		}
 	}
 
-	private static List<Map<String,Object>> inventory(Object raw, String name)
+	private static List<Map<String,Object>> inventory(WorldBuilderReadOnlyTarget payload,
+		Object raw, String name)
+		throws WorldBuilderContractException {
+		List<Map<String,Object>> specs = objectList(raw, name, 1,
+			WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES);
+		List<Map<String,Object>> result = new ArrayList<Map<String,Object>>();
+		for (Map<String,Object> spec : specs) {
+			exact(spec, "sourcePath", "bundlePath", "role", "destination", "ownership",
+				"replacementPolicy", "rollbackPolicy", "provenance");
+			String sourcePath = relative(spec, "sourcePath");
+			String bundlePath = relative(spec, "bundlePath");
+			String destination = relative(spec, "destination");
+			String role = identifier(spec, "role");
+			String ownership = identifier(spec, "ownership");
+			String replacement = identifier(spec, "replacementPolicy");
+			String rollback = identifier(spec, "rollbackPolicy");
+			String provenance = identifier(spec, "provenance");
+			WorldBuilderReadOnlyTarget.FileState state =
+				payload.requiredState("provider-artifact", sourcePath);
+			Map<String,Object> record = new LinkedHashMap<String,Object>();
+			record.put("bundlePath", bundlePath);
+			record.put("destination", destination);
+			record.put("mode", fileMode(payload.requiredFile(sourcePath), sourcePath));
+			record.put("ownership", ownership);
+			record.put("provenance", provenance);
+			record.put("replacementPolicy", replacement);
+			record.put("role", role);
+			record.put("rollbackPolicy", rollback);
+			record.put("sha256", state.sha256);
+			record.put("size", Long.valueOf(state.size));
+			record.put("type", "file");
+			result.add(record);
+		}
+		Collections.sort(result, inventoryOrder());
+		validateInventoryOrderAndCollisions(result, name);
+		return result;
+	}
+
+	private static String fileMode(Path path, String relative)
+		throws WorldBuilderContractException {
+		try {
+			Object raw = Files.getAttribute(path, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+			if (!(raw instanceof Number)) invalid(
+				"Provider artifact has no numeric file mode: " + relative);
+			return String.format("%04o", Integer.valueOf(((Number)raw).intValue() & 0777));
+		} catch (UnsupportedOperationException unsupported) {
+			try {
+				Set<PosixFilePermission> permissions = Files.getPosixFilePermissions(
+					path, LinkOption.NOFOLLOW_LINKS);
+				int mode = 0;
+				if (permissions.contains(PosixFilePermission.OWNER_READ)) mode |= 0400;
+				if (permissions.contains(PosixFilePermission.OWNER_WRITE)) mode |= 0200;
+				if (permissions.contains(PosixFilePermission.OWNER_EXECUTE)) mode |= 0100;
+				if (permissions.contains(PosixFilePermission.GROUP_READ)) mode |= 0040;
+				if (permissions.contains(PosixFilePermission.GROUP_WRITE)) mode |= 0020;
+				if (permissions.contains(PosixFilePermission.GROUP_EXECUTE)) mode |= 0010;
+				if (permissions.contains(PosixFilePermission.OTHERS_READ)) mode |= 0004;
+				if (permissions.contains(PosixFilePermission.OTHERS_WRITE)) mode |= 0002;
+				if (permissions.contains(PosixFilePermission.OTHERS_EXECUTE)) mode |= 0001;
+				return String.format("%04o", Integer.valueOf(mode));
+			} catch (IOException failure) {
+				invalid("Provider artifact mode cannot be verified: " + relative);
+				return "";
+			}
+		} catch (IOException failure) {
+			invalid("Provider artifact mode cannot be verified: " + relative);
+			return "";
+		}
+	}
+
+	private static List<Map<String,Object>> resolvedInventory(Object raw, String name)
 		throws WorldBuilderContractException {
 		List<Map<String,Object>> result = objectList(raw, name, 0,
 			WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES);
@@ -195,14 +281,17 @@ final class WorldBuilderProviderCatalog {
 			exact(record, "bundlePath", "destination", "mode", "ownership", "provenance",
 				"replacementPolicy", "role", "rollbackPolicy", "sha256", "size", "type");
 			relative(record, "bundlePath"); relative(record, "destination");
-			identifier(record, "mode"); identifier(record, "ownership");
+			String mode = string(record, "mode");
+			if (!mode.matches("[0-7]{4}")) invalid("Provider artifact mode is invalid.");
+			identifier(record, "ownership");
 			text(record, "provenance", 1, 1024); identifier(record, "replacementPolicy");
 			identifier(record, "role"); identifier(record, "rollbackPolicy");
 			hash(record, "sha256");
 			long size = integer(record, "size");
 			if (size < 0 || size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES) invalid(
 				"Provider artifact size is outside the Editor's bounded inventory limit.");
-			identifier(record, "type");
+			if (!"file".equals(string(record, "type"))) invalid(
+				"Provider inventory may contain only regular files.");
 		}
 		validateInventoryOrderAndCollisions(result, name);
 		return result;
@@ -245,6 +334,13 @@ final class WorldBuilderProviderCatalog {
 			@SuppressWarnings("unchecked") Map<String,Object> object = (Map<String,Object>)value;
 			result.add(object);
 		}
+		return result;
+	}
+
+	private static Map<String,Object> object(Object raw, String name)
+		throws WorldBuilderContractException {
+		if (!(raw instanceof Map)) invalid("Provider field is not an object: " + name);
+		@SuppressWarnings("unchecked") Map<String,Object> result = (Map<String,Object>)raw;
 		return result;
 	}
 
@@ -325,8 +421,8 @@ final class WorldBuilderProviderCatalog {
 		return value;
 	}
 
-	private static WorldBuilderContractException invalid(String message) {
-		return new WorldBuilderContractException(
+	private static void invalid(String message) throws WorldBuilderContractException {
+		throw new WorldBuilderContractException(
 			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, OPERATION, message);
 	}
 
