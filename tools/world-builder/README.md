@@ -232,8 +232,12 @@ must fail rather than silently weaken permissions.
 Activation remains unavailable until the provider supplies the hash-bound
 `current-base-state-migration-v1` contract and
 `preservation-retro-to-current-base-v1` row through the closed
-`state-migration-manifest`, `contract-schema`, and `state-migration-tool` roles,
-plus complete canonical-package installation and staged/installed server/client
+`state-migration-manifest`, `contract-schema`, and existing `server-runtime`
+roles. The provider manifest is fixed at
+`contracts/runtime/current-base-v1/state-migration.json`; it selects
+`com.openrsc.server.database.CurrentBaseStateMigration` from the hash-bound
+`runtime/server/core.jar`, not a separate migration-tool artifact. Activation
+also requires complete canonical-package installation and staged/installed server/client
 launch, handshake, login, gameplay, map, and state verification. MariaDB also
 requires a closed snapshot/restore implementation; live connections and target
 credentials are not accepted. There is no desktop route yet.

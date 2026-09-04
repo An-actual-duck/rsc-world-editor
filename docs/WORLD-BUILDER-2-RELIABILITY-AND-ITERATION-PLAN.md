@@ -388,8 +388,10 @@ without imposing its gameplay or content on Base users.
   parity, all output-inventoried and release-tree verified. This does not yet
   perform a current-schema state cutover. It requires the provider's hash-bound
   `current-base-state-migration-v1` /
-  `preservation-retro-to-current-base-v1` row and closed artifact roles before
-  that readiness condition can change.
+  `preservation-retro-to-current-base-v1` row, whose fixed manifest selects the
+  migration main class from the existing `server-runtime` artifact, plus the
+  closed `state-migration-manifest` and `contract-schema` roles before that
+  readiness condition can change.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

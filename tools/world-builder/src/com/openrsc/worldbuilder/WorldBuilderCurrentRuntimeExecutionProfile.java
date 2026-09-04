@@ -287,7 +287,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"Production staged migrator identity changed.");
 		if (!array(staged.get("requiredProviderArtifactRoles")).equals(
 			Arrays.<Object>asList("state-migration-manifest", "contract-schema",
-				"state-migration-tool"))) throw refusal(
+				"server-runtime"))) throw refusal(
 			"Production state-migration artifact roles changed.");
 		List<String> kinds = new ArrayList<String>();
 		for (Object raw : array(staged.get("stagedOutputs"))) {

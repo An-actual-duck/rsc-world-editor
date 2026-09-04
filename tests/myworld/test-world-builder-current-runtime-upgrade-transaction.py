@@ -650,7 +650,7 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("preservation-retro-to-current-base-v1",
                          execution["requiredStateMigrationRowId"])
         self.assertEqual(
-            ["state-migration-manifest", "contract-schema", "state-migration-tool"],
+            ["state-migration-manifest", "contract-schema", "server-runtime"],
             execution["requiredProviderArtifactRoles"],
         )
         self.assertTrue(execution["typedConfigurationReady"])

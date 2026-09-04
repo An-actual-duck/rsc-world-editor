@@ -78,7 +78,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		result.put("requiredStateMigrationRowId", "preservation-retro-to-current-base-v1");
 		List<Object> roles = new ArrayList<Object>();
 		roles.add("state-migration-manifest"); roles.add("contract-schema");
-		roles.add("state-migration-tool");
+		roles.add("server-runtime");
 		result.put("requiredProviderArtifactRoles", roles);
 		result.put("typedConfigurationReady", Boolean.TRUE);
 		result.put("sqliteSnapshotReady", Boolean.valueOf(sqlitePresent));
