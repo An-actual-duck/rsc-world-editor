@@ -106,7 +106,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["schemaVersion", "manifestType", "migratorId",
         "configurationMigrationId", "typedConfiguration", "durableStateMigrationId",
-        "durableState", "mapMigration", "migrationPlanFingerprintSha256"],
+        "durableState", "mapMigration", "stagedExecution", "migrationPlanFingerprintSha256"],
       "properties": {
         "schemaVersion": {"const": 1},
         "manifestType": {"const": "world-builder-current-runtime-migration-plan"},
@@ -116,7 +116,37 @@
         "durableStateMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "durableState": {"type": "array", "maxItems": 8192, "items": {"type": "object"}},
         "mapMigration": {"type": "object"},
+        "stagedExecution": {
+          "type": "object",
+          "required": ["implementationId", "stagedOutputs", "readinessBlockers"],
+          "properties": {
+            "implementationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+            "requiredStateMigrationContractId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+            "requiredStateMigrationRowId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+            "requiredProviderArtifactRoles": {"type": "array", "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}},
+            "typedConfigurationReady": {"type": "boolean"},
+            "sqliteSnapshotReady": {"type": "boolean"},
+            "sqliteSchemaMigrationReady": {"type": "boolean"},
+            "mariaDbMigrationReady": {"type": "boolean"},
+            "canonicalMapSectorReady": {"type": "boolean"},
+            "stagedOutputs": {"type": "array", "maxItems": 64, "items": {"$ref": "#/$defs/migrationOutput"}},
+            "readinessBlockers": {"type": "array", "maxItems": 32, "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}}
+          }
+        },
         "migrationPlanFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "migrationOutput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relativePath", "kind", "sourceRelativePath", "sourceSha256", "size", "sha256", "mode"],
+      "properties": {
+        "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "kind": {"enum": ["typed-configuration", "sqlite-state-snapshot", "canonical-terrain-sector"]},
+        "sourceRelativePath": {"type": "string", "maxLength": 4096},
+        "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
+        "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "mode": {"const": "0600"}
       }
     },
     "preimage": {

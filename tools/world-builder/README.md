@@ -215,10 +215,23 @@ does not yet authorize a real upgrade: the locked Current Base provider remains
 fails before creating transaction evidence or touching the target. Activation
 also has an independent compiled `executionReady:false` gate: changing a future
 provider composition to `installable:true` cannot silently enable apply.
-Activation remains unavailable until executable configuration/durable-state/map
-migrators and staged plus installed server/client launch, handshake, login,
-gameplay, map, and state verifiers are implemented and reviewed. There is no
-desktop route yet.
+The built-in migrator now renders the typed configuration into the staged
+release, validates and copies a closed offline SQLite snapshot byte-exactly,
+and converts a reviewed single-sector packed terrain input through the existing
+codec with exact reverse-parity verification. Every output path, mode, size,
+source hash, and result hash is compiled or plan-bound and is revalidated as
+part of the release tree. SQLite WAL/journal/SHM state, malformed snapshots,
+unrecognized paths, and unsupported map shapes fail before target mutation.
+These are executable staging primitives, not a current-schema data cutover.
+
+Activation remains unavailable until the provider supplies the hash-bound
+`current-base-state-migration-v1` contract and
+`preservation-retro-to-current-base-v1` row through the closed
+`state-migration-manifest`, `contract-schema`, and `state-migration-tool` roles,
+plus complete canonical-package installation and staged/installed server/client
+launch, handshake, login, gameplay, map, and state verification. MariaDB also
+requires a closed snapshot/restore implementation; live connections and target
+credentials are not accepted. There is no desktop route yet.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
