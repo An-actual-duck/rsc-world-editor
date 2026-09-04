@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-synthetic-installable-overlay",
+  "sourceProviderCommit": "084c11d9865cea61c578399e756a437e962a7b3b",
+  "variantId": "current-base-v1",
+  "variantChanges": {
+    "releaseStatus": "release-candidate",
+    "installable": true,
+    "inputAdapterRecommendations": [
+      "preservation-family-v1",
+      "generic-signed-layered-v1",
+      "preservation-synthetic-v1"
+    ]
+  },
+  "bundleChanges": {
+    "bundleSpecId": "current-base-synthetic-installable-v1",
+    "installable": true
+  },
+  "testOnly": true
+}

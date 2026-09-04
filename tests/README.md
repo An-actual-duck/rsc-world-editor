@@ -25,7 +25,7 @@ tooling once and syntax-checks packaged and repository shell scripts.
 | Group | Primary ownership | Important files |
 | --- | --- | --- |
 | `workflow` | Manager/worktree safety and maintainability tooling | `test-world-builder-ai-workspaces.py`, `test-world-builder-maintainability-tooling.py` |
-| `discovery` | Contracts, target layouts, packed conversion, providers, content bundles | Adaptive contracts/discovery, legacy discovery, migration choice, packed conversion, portable/NPC providers, bundle fixtures |
+| `discovery` | Contracts, target layouts, current-runtime classification, packed conversion, providers, content bundles | Adaptive/current contracts and discovery, legacy discovery, migration choice, packed conversion, portable/NPC providers, sealed upgrade/bundle fixtures |
 | `projects` | UUID lifecycle, runtime preparation, supervision, revisions, wide elevation | Adaptive lifecycle plus focused runtime/project modules |
 | `transactions` | Export, import, failure rollback, recovery, offline checks, historical transaction compatibility | Adaptive transactions, legacy export/import, migration choice |
 | `packaging` | Product isolation, candidate inspection, release gate, archives | Product generations/independence and v2 candidate/release modules |
@@ -50,6 +50,14 @@ large embedded Java harnesses and broad behavioral groupings. Prefer an exact
 method while iterating and the complete module at subsystem handoff. Split a
 behavioral group only when that improves selection or ownership; line count by
 itself is not a reason to fragment an otherwise navigable suite.
+
+The synthetic, content-neutral current-generation identity and T0-T5
+classification fixtures live under `fixtures/current-runtime-upgrade-v1/`.
+Their fixture-set manifest seals the Editor contract inventory, synthetic
+provider extension, and each target tree. Tests resolve the exact locked
+provider Base/Advanced contracts and apply the explicit installable test overlay
+only in a temporary directory. They classify only those fixtures or temporary
+copies; never replace them with a real server path.
 
 ## Native and optional checks
 

@@ -22,6 +22,7 @@ may participate across more than one subsystem.
 | Layout selection | `WorldBuilderLayoutAdapter`, `WorldBuilderLayoutAdapterRegistry`, `WorldBuilderGenericLayeredAdapter`, `WorldBuilderPackedLayoutAdapter` |
 | Packed-layout probing | `WorldBuilderPackedSourceLayout`, `WorldBuilderPackedFallbackEvidence`, `WorldBuilderPackedCompatibilityCorrections` |
 | Capability and compatibility evidence | `WorldBuilderTargetCapability`, `WorldBuilderCompatibilityEvidence`, `WorldBuilderDiscoveryReconciliation`, `WorldBuilderContentReconciliation` |
+| Provider current-composition adoption and read-only T0-T5 classification | `WorldBuilderProviderCatalog`, `WorldBuilderCurrentRuntimeContracts`, and Editor-owned `schema/current-*.schema.json` |
 | Legacy layered-base migration | `WorldBuilderLegacyLandscapeDiscovery`, `WorldBuilderLayeredBaseDiscovery`, `WorldBuilderMapMigrationChoice`, `WorldBuilderPackedMigrationChoice` |
 
 ## Projects and durable state
@@ -84,6 +85,8 @@ tests; do not infer safety from a single class.
 | Responsibility | Primary classes |
 | --- | --- |
 | Versioned adaptive validation | `WorldBuilderAdaptiveContracts` and `schema/*.schema.json` |
+| Locked provider platform/variant/module/bundle/composition resolution | `WorldBuilderProviderCatalog` consumes `.runtime-provider/current-platform` |
+| Editor-owned input-adapter/project/target-ledger/classification validation | `WorldBuilderCurrentRuntimeContracts` and `schema/current-*.schema.json` |
 | JSON parsing/canonicalization | `WorldBuilderJsonDocuments` |
 | Bounds and error identity | `WorldBuilderContractLimits`, `WorldBuilderContractException`, `WorldBuilderErrorCodes`, `WorldBuilderDiscoveryException` |
 

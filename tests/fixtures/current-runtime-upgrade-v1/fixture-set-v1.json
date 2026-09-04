@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-current-upgrade-fixture-set",
+  "contractsInventorySha256": "37e41fe33fb74c06f499812e2fd7382d13eb19ef9ddf3955cedfe4f7851d2f8b",
+  "providerExtensionInventorySha256": "e015399215ee4b9aad1ba1e9485cc8fabaf072175d4dfd692ba97932f6eaca83",
+  "targets": [
+    {"id": "generated-state-t1", "treeSha256": "21b5cdfcdf8abaebdbca4c40b6f182beed1b4bc59df76f1cb924eb8b14171b24"},
+    {"id": "light-config-t2a", "treeSha256": "39fbd44f3aaa1387554f850985e05f472e1d7be2faba40167708a95d12fdddac"},
+    {"id": "maintained-extension-t3", "treeSha256": "4a09b36cb4121b0acda2aa61f56c91878fa839e5649790211efab246ae76d892"},
+    {"id": "managed-n", "treeSha256": "efdbfdacaf017944999ee8954eab4108e6ad8bec5aa324f29f8ce2711bb58065"},
+    {"id": "plugin-core-abi-t4", "treeSha256": "0dd179b27b01fbf9a85121132de120018ecf439b486ece9c8989638e66bba6ac"},
+    {"id": "portable-data-t2b", "treeSha256": "e4a0973c6825b23541c5b64fd6419d854ec2e629a5a2a36132f7d5f767931a14"},
+    {"id": "preservation-t0", "treeSha256": "a057a0d37a64a8dc01c5cab6e8cf7815fdf86098502115b9b2dfd4ffc72a6b8a"},
+    {"id": "unported-extension-t3", "treeSha256": "8d0d055eb3d6a769c318ac2fe8ef4127bd77f05097c3043ca5596163a61dca06"},
+    {"id": "unsafe-t5", "treeSha256": "56c49abda82ed6719dca49cd4b7fc54e0864adad0bf21b4afcbb052dfb8b282e"}
+  ],
+  "fixtureSetFingerprintSha256": "c6924e65fbf0d63bc4826ca02b852a3d48211be824c68871b6ef0b1027732539"
+}

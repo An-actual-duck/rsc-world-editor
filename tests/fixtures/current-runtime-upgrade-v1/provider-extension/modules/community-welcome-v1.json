@@ -1,0 +1,38 @@
+{
+  "schemaId": "current-module-v1",
+  "manifestType": "current-platform-module",
+  "moduleId": "community-welcome-v1",
+  "moduleVersion": "1.0.0",
+  "kind": "declarative-data",
+  "platformReleaseId": "rsc-current-platform-r1",
+  "platformApiVersion": "current-extension-api-v1",
+  "providesCapabilities": ["community-welcome-v1"],
+  "requires": [],
+  "conflicts": [],
+  "loadAfter": [],
+  "loadBefore": [],
+  "entryPoints": [],
+  "configurationNamespaces": ["community-welcome-v1.message"],
+  "stateMigrations": [],
+  "clientPairing": {
+    "required": false,
+    "clientCapabilityId": null
+  },
+  "artifacts": [
+    {
+      "sourcePath": "current-platform/synthetic-fixtures/community-welcome-v1.txt",
+      "bundlePath": "modules/community-welcome-v1/data/welcome.txt",
+      "role": "module-data",
+      "destination": "managed-runtime/modules/community-welcome-v1/data/welcome.txt",
+      "ownership": "provider",
+      "replacementPolicy": "content-addressed",
+      "rollbackPolicy": "pointer-rollback",
+      "provenance": "sealed-synthetic-fixture"
+    }
+  ],
+  "semanticTests": ["community-welcome-positive-v1"],
+  "provenance": {
+    "kind": "sealed-synthetic-fixture",
+    "redistributable": true
+  }
+}

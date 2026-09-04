@@ -32,9 +32,14 @@ runtime, not the accepted destination for every target server. The later
 development-only pinned-core target-upgrade candidate is rejected. The planned
 replacement resolves Preservation-like servers to Current Base, the owner's
 reviewed lineage to Current Advanced, and portable custom behavior to explicit
-current modules on one platform generation. Until its manifests, target ledger,
-migrations, and executable gate are implemented, `upgrade-target-runtime` must
-not be presented as a supported public migration. See
+current modules on one platform generation. Provider-owned platform, Base,
+Advanced, bundle, module, and resolved-composition contracts now exist, along
+with Editor-owned input-adapter, project-capability, target-ledger, and
+read-only classification contracts. The provider bundles remain
+`foundation-contract-only` and `installable: false`; migrations, the
+transactional installer, and the executable release gate still must be built.
+Until then, `upgrade-target-runtime` must not be presented as a supported public
+migration. See
 [`docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md`](../../docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 Build the standalone tools with:
@@ -140,6 +145,51 @@ Add `--configuration-role <role>` only when a descriptor truthfully declares
 more than one active role. The command emits a strict
 `world-builder-discovery-report` v2 document. Exit `0` means compatible or a
 clearly labelled no-server classification; exit `3` means blocked.
+
+### Current-runtime target classification foundation
+
+Developers can validate an Editor-owned migration contract and classify a
+sealed target against a provider-resolved current composition:
+
+```bash
+java -jar output/world-builder-tools/world-builder-tools.jar \
+  validate-current-runtime-contract --kind input-adapter \
+  --document /path/to/input-adapter.json
+
+java -jar output/world-builder-tools/world-builder-tools.jar \
+  classify-current-target --target-root /path/to/offline-target \
+  --provider-catalog-root .runtime-provider/current-platform \
+  --composition-identity /path/to/resolved-composition.json \
+  --input-adapter /path/to/input-adapter.json \
+  --project-capability /path/to/project-capability.json
+```
+
+Classification is non-executing and read-only. It binds the provider platform,
+schema set, variant, module set, complete bundle inventory, bundle spec, and
+input-adapter boundary before inspecting bounded target evidence. Outcomes are
+`CURRENT`, `UPGRADE_READY`, `PORT_REQUIRED`, `BLOCKED_UNSAFE`, or
+`NOT_INSTALLABLE`. The last outcome is mandatory for the current provider's
+foundation-only bundles: they may be inspected but cannot authorize activation
+or map import. `UPGRADE_READY` is classification evidence, not an installer;
+this command never changes a target.
+
+A project's required capability IDs are satisfied by exactly the union of the
+platform's `mapRuntimeCapabilities` and the selected variant's
+`requiredCapabilities`. Module-provided capabilities do not silently widen
+that project contract; module selection is separately bound by
+`requiredModuleIds`. The resolver also requires exact agreement among
+composition, bundle, and variant installability, and independently reconstructs
+the complete dependency/conflict/load-order module closure.
+
+Input adapters are separate, non-installable migration evidence. A new
+historical layout should add a reviewed bounded adapter, while portable behavior
+should map to a provider-owned current module. Unknown code, unregistered module
+ports, mixed ledgers, unsafe paths, and unrecognized bytes fail before mutation.
+The adapter ID must be explicitly admitted by the selected variant's
+`inputAdapterRecommendations`; a recommended variant alone is insufficient.
+The repository currently ships only synthetic recognition fixtures, not a
+production Preservation-family fingerprint set, so do not point this command at
+a real server and infer upgrade support from fixture results.
 
 A descriptor-backed server publishes
 `server/world-builder-capabilities.json` and maps a lowercase role to

@@ -462,6 +462,10 @@ validate_application_paths() {
 	for relative in \
 		active-project-v1.schema.json \
 		adaptive-contract-definitions-v1.schema.json \
+		current-input-adapter-v1.schema.json \
+		current-project-capability-v1.schema.json \
+		current-target-classification-v1.schema.json \
+		current-target-runtime-ledger-v1.schema.json \
 		conversion-plan-v1.schema.json conversion-report-v1.schema.json \
 		content-reconciliation-v1.schema.json \
 		definition-composition-v1.schema.json \
