@@ -814,6 +814,10 @@ final class WorldBuilderCurrentRuntimeContracts {
 		String status() {
 			return (String)root.get("status");
 		}
+
+		Map<String,Object> document() {
+			return root;
+		}
 	}
 
 	private static final class Evidence {
