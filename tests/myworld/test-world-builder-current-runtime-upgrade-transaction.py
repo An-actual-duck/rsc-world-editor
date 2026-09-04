@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import shutil
@@ -205,6 +206,10 @@ public final class CurrentUpgradeHarness {
         Path adapter = Paths.get(args[6]);
         Path project = Paths.get(args[7]);
         String transactionId = args[8];
+        Path packedSource = args.length > 9 && !"-".equals(args[9])
+            ? Paths.get(args[9]) : null;
+        Path packedReport = args.length > 10 && !"-".equals(args[10])
+            ? Paths.get(args[10]) : null;
         WorldBuilderCurrentRuntimeUpgradeTransaction.Observer observer =
             new WorldBuilderCurrentRuntimeUpgradeTransaction.Observer() {
                 @Override public void observe(String milestone, Path path) throws Exception {
@@ -238,7 +243,7 @@ public final class CurrentUpgradeHarness {
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
             System.out.print(WorldBuilderJsonDocuments.pretty(
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation()
-                    .migrationPlan(target, classification, composition)));
+                    .migrationPlan(target, classification, composition, null, null)));
         } else if ("profile-migration-stage".equals(operation)
             || "profile-migration-stage-tamper".equals(operation)
             || "profile-migration-provider-refusal".equals(operation)) {
@@ -249,7 +254,7 @@ public final class CurrentUpgradeHarness {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
             Map<String,Object> migration = profile.migrationPlan(
-                target, classification, composition);
+                target, classification, composition, null, null);
             Path stage = transactions.resolve(transactionId);
             Files.createDirectory(stage);
             Files.createDirectory(stage.resolve("migration"));
@@ -292,17 +297,48 @@ public final class CurrentUpgradeHarness {
                         PosixFilePermission.OTHERS_READ));
                 }
             }
-            WorldBuilderPreservationStagedMigrator.verify(target, stage, execution);
+            WorldBuilderPreservationStagedMigrator.verify(target, stage, execution,
+                (Map<String,Object>)migration.get("mapMigration"));
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
         } else if ("preview-production".equals(operation)
+            || "preview-production-packed".equals(operation)
+            || "stage-production-packed".equals(operation)
+            || "verify-production-packed-tamper".equals(operation)
+            || "verify-production-packed-extra".equals(operation)
+            || "stage-production-packed-source-drift".equals(operation)
             || "apply-production".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
                 transaction.previewPreservation(target, transactions, catalog,
-                    identity, project, transactionId);
-            if ("preview-production".equals(operation)) {
+                    identity, project, transactionId, packedSource, packedReport);
+            if ("preview-production".equals(operation)
+                || "preview-production-packed".equals(operation)) {
+                System.out.print(preview.toJson());
+            } else if ("stage-production-packed".equals(operation)
+                || "verify-production-packed-tamper".equals(operation)
+                || "verify-production-packed-extra".equals(operation)
+                || "stage-production-packed-source-drift".equals(operation)) {
+                Path stage = transactions.resolve(transactionId);
+                if ("stage-production-packed-source-drift".equals(operation)) {
+                    try (java.util.stream.Stream<Path> paths = Files.walk(packedSource)) {
+                        Path changed = paths.filter(Files::isRegularFile).sorted().findFirst().get();
+                        Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
+                    }
+                }
+                transaction.stageReviewedRelease(preview, stage);
+                if ("verify-production-packed-tamper".equals(operation)) {
+                    Path map = stage.resolve(
+                        "migration/output/map/conversion/package/manifest.json");
+                    Files.write(map, new byte[] {32}, StandardOpenOption.APPEND);
+                    transaction.verifyReviewedRelease(preview, stage);
+                } else if ("verify-production-packed-extra".equals(operation)) {
+                    Files.write(stage.resolve(
+                        "migration/output/map/conversion/unexpected.bin"),
+                        new byte[] {1}, StandardOpenOption.CREATE_NEW);
+                    transaction.verifyReviewedRelease(preview, stage);
+                }
                 System.out.print(preview.toJson());
             } else {
                 System.out.print(transaction.apply(preview,
@@ -424,11 +460,28 @@ public final class CurrentUpgradeHarness {
         path.mkdir()
         return path
 
+    def complete_packed_source(self) -> tuple[Path, Path]:
+        module_path = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
+        specification = importlib.util.spec_from_file_location(
+            "current_upgrade_packed_fixture", module_path
+        )
+        assert specification is not None and specification.loader is not None
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        helper = module.PackedConversionTest()
+        helper.classes = self.classes
+        parent = self.case_root / "packed-evidence"
+        parent.mkdir()
+        target = helper.fixture(parent)
+        source, report, _ = helper.discover_and_copy(target, parent)
+        return source, report
+
     def run_harness(
         self, operation: str, target: Path, workspace: Path, txid: str,
         failures: str = "-", identity: Path | None = None,
         catalog: Path | None = None, adapter: Path | None = None,
         environment: dict[str, str] | None = None,
+        packed_source: Path | None = None, packed_report: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["java", "-cp", str(self.classes),
@@ -436,7 +489,9 @@ public final class CurrentUpgradeHarness {
              str(target), str(workspace), str(catalog or self.catalog),
              str(identity or self.identity),
              str(adapter or CONTRACTS / "input-adapter-preservation-v1.json"),
-             str(CONTRACTS / "project-capability-v1.json"), txid],
+             str(CONTRACTS / "project-capability-v1.json"), txid,
+             str(packed_source) if packed_source else "-",
+             str(packed_report) if packed_report else "-"],
             cwd=ROOT, text=True, capture_output=True, check=False,
             env=environment,
         )
@@ -843,6 +898,90 @@ public final class CurrentUpgradeHarness {
                 self.assertIn("SQLite sidecar state exists", refused.stderr)
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
+
+    def test_complete_packed_map_preview_and_stage_bind_exact_semantics_and_inventory(self) -> None:
+        target = self.target("preservation-t0")
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as writable:
+            writable.executescript(
+                (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+            )
+        packed_source, packed_report = self.complete_packed_source()
+        workspace = self.workspace()
+        target_before = tree_snapshot(target)
+        source_before = tree_snapshot(packed_source)
+        workspace_before = tree_snapshot(workspace)
+        previewed = self.run_harness(
+            "preview-production-packed", target, workspace, "packed-preview",
+            packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertEqual(0, previewed.returncode, previewed.stderr)
+        plan = json.loads(previewed.stdout)
+        map_plan = plan["migrationPlan"]["mapMigration"]
+        self.assertTrue(map_plan["packageReady"])
+        self.assertTrue(plan["migrationPlan"]["stagedExecution"]
+                        ["canonicalMapPackageReady"])
+        self.assertGreater(map_plan["terrainCount"], 1)
+        self.assertGreater(map_plan["placementCount"], 0)
+        self.assertRegex(map_plan["conversionPlanFingerprintSha256"], r"^[0-9a-f]{64}$")
+        self.assertRegex(map_plan["outputPackageFingerprintSha256"], r"^[0-9a-f]{64}$")
+        paths = {record["relativePath"] for record in map_plan["outputInventory"]}
+        self.assertIn(
+            "migration/output/map/conversion/package/manifest.json", paths
+        )
+        self.assertGreater(len(paths), 8)
+        self.assertFalse(plan["activationAuthorized"])
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+        self.assertEqual(workspace_before, tree_snapshot(workspace))
+
+        staged = self.run_harness(
+            "stage-production-packed", target, workspace, "packed-stage",
+            packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertEqual(0, staged.returncode, staged.stderr)
+        for record in map_plan["outputInventory"]:
+            output = workspace / "packed-stage" / record["relativePath"]
+            self.assertEqual(record["size"], output.stat().st_size)
+            self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
+            self.assertEqual(0o600, output.stat().st_mode & 0o777)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        tampered_workspace = self.case_root / "tampered-packed-transactions"
+        tampered_workspace.mkdir()
+        tampered = self.run_harness(
+            "verify-production-packed-tamper", target, tampered_workspace,
+            "packed-tamper", packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, tampered.returncode)
+        self.assertIn("CODE=TARGET_DRIFT", tampered.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        extra_workspace = self.case_root / "extra-packed-transactions"
+        extra_workspace.mkdir()
+        extra = self.run_harness(
+            "verify-production-packed-extra", target, extra_workspace,
+            "packed-extra", packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, extra.returncode)
+        self.assertIn("CODE=TARGET_DRIFT", extra.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        drift_source = self.case_root / "drift-source"
+        shutil.copytree(packed_source, drift_source)
+        drift_workspace = self.case_root / "drift-packed-transactions"
+        drift_workspace.mkdir()
+        drift = self.run_harness(
+            "stage-production-packed-source-drift", target, drift_workspace,
+            "packed-drift", packed_source=drift_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, drift.returncode)
+        self.assertIn("CODE=", drift.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
 
     def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
         fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"

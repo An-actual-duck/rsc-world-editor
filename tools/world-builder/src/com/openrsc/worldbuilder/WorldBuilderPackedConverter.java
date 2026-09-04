@@ -9,11 +9,14 @@ import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /** Atomic Phase 2 conversion from an immutable packed evidence copy. */
@@ -54,6 +57,82 @@ final class WorldBuilderPackedConverter {
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
 		this.idFactory = idFactory;
 		this.cumulativeRecordLimit = cumulativeRecordLimit;
+	}
+
+	/** Read-only semantic preview used by the current-runtime upgrade transaction. */
+	Inspection inspect(Path sourceRoot, Path discoveryReport)
+		throws IOException, WorldBuilderContractException {
+		Path temporary = Files.createTempDirectory("world-builder-packed-preview-");
+		try {
+			Path output = temporary.resolve("conversion");
+			Result converted = convert(sourceRoot, discoveryReport, output);
+			normalizePrivateModes(output);
+			Map<String,Object> conversionPlan;
+			try {
+				conversionPlan = WorldBuilderJsonDocuments.readObject(
+					output.resolve("conversion-plan.json"));
+			} catch (WorldBuilderDiscoveryException malformed) {
+				throw blocked("Generated conversion plan is malformed.",
+					"Inspect the deterministic converter before retrying preview.");
+			}
+			requireSelfFingerprint(conversionPlan, "planFingerprintSha256");
+			return new Inspection(converted.sourceFingerprintSha256,
+				(String)conversionPlan.get("planFingerprintSha256"), converted.planSha256,
+				converted.reportSha256, converted.reconciliationSha256,
+				converted.outputFingerprintSha256,
+				converted.terrainCount, converted.placementCount,
+				outputInventory(output, "migration/output/map/conversion"));
+		} finally {
+			deleteTree(temporary);
+		}
+	}
+
+	static void normalizePrivateModes(final Path root) throws IOException {
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file))
+					throw new IOException("unsafe packed conversion output file");
+				Files.setPosixFilePermissions(file, EnumSet.of(
+					PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+				return FileVisitResult.CONTINUE;
+			}
+		});
+	}
+
+	static List<Object> outputInventory(final Path root, final String prefix)
+		throws IOException {
+		final List<Map<String,Object>> records = new ArrayList<Map<String,Object>>();
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isDirectory() || Files.isSymbolicLink(directory))
+					throw new IOException("unsafe packed conversion output directory");
+				return FileVisitResult.CONTINUE;
+			}
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file))
+					throw new IOException("unsafe packed conversion output file");
+				String relative = root.relativize(file).toString().replace('\\', '/');
+				Map<String,Object> record = new LinkedHashMap<String,Object>();
+				record.put("relativePath", prefix + "/" + relative);
+				record.put("size", Long.valueOf(attributes.size()));
+				record.put("sha256", WorldBuilderHashes.sha256(file));
+				record.put("mode", "0600");
+				records.add(record);
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		Collections.sort(records, new java.util.Comparator<Map<String,Object>>() {
+			@Override public int compare(Map<String,Object> left, Map<String,Object> right) {
+				return ((String)left.get("relativePath")).compareTo(
+					(String)right.get("relativePath"));
+			}
+		});
+		List<Object> result = new ArrayList<Object>(records.size());
+		result.addAll(records);
+		return result;
 	}
 
 	Result convert(Path sourceRoot, Path discoveryReport, Path requestedOutput)
@@ -587,6 +666,34 @@ final class WorldBuilderPackedConverter {
 			value.put("terrainCount", Long.valueOf(terrainCount));
 			value.put("placementCount", Long.valueOf(placementCount));
 			return WorldBuilderJsonDocuments.pretty(value);
+		}
+	}
+
+	static final class Inspection {
+		final String sourceFingerprintSha256;
+		final String planFingerprintSha256;
+		final String planSha256;
+		final String reportSha256;
+		final String reconciliationSha256;
+		final String outputFingerprintSha256;
+		final int terrainCount;
+		final int placementCount;
+		final List<Object> outputInventory;
+
+		Inspection(String sourceFingerprintSha256, String planFingerprintSha256,
+			String planSha256, String reportSha256, String reconciliationSha256,
+			String outputFingerprintSha256, int terrainCount, int placementCount,
+			List<Object> outputInventory) {
+			this.sourceFingerprintSha256 = sourceFingerprintSha256;
+			this.planFingerprintSha256 = planFingerprintSha256;
+			this.planSha256 = planSha256;
+			this.reportSha256 = reportSha256;
+			this.reconciliationSha256 = reconciliationSha256;
+			this.outputFingerprintSha256 = outputFingerprintSha256;
+			this.terrainCount = terrainCount;
+			this.placementCount = placementCount;
+			this.outputInventory = Collections.unmodifiableList(
+				new ArrayList<Object>(outputInventory));
 		}
 	}
 }

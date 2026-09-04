@@ -47,17 +47,13 @@ final class WorldBuilderPreservationStagedMigrator {
 	private WorldBuilderPreservationStagedMigrator() {}
 
 	static Map<String,Object> plan(Path target, Map<String,Object> typed,
-		String mapRelative, WorldBuilderProviderCatalog.Composition composition)
+		WorldBuilderProviderCatalog.Composition composition, boolean mapReady)
 		throws WorldBuilderContractException {
 		List<Object> outputs = new ArrayList<Object>();
 		byte[] config = WorldBuilderJsonDocuments.pretty(typed)
 			.getBytes(StandardCharsets.UTF_8);
 		outputs.add(output(CONFIG_OUTPUT, "typed-configuration", "", "",
 			config.length, WorldBuilderHashes.sha256(config), "0600"));
-
-		// Complete Preservation map conversion must use WorldBuilderPackedConverter.
-		// A raw 23,040-byte sector is not a representative public intake package.
-		boolean mapReady = false;
 
 		Map<String,Object> database = object(typed.get("databaseMigration"));
 		String engine = string(database, "engine");
@@ -150,7 +146,8 @@ final class WorldBuilderPreservationStagedMigrator {
 		requireOutput(destination, record);
 	}
 
-	static void verify(Path target, Path stage, Map<String,Object> execution)
+	static void verify(Path target, Path stage, Map<String,Object> execution,
+		Map<String,Object> mapMigration)
 		throws IOException, WorldBuilderContractException {
 		final Path root = stage.resolve("migration/output");
 		final Set<String> expectedFiles = new HashSet<String>();
@@ -192,20 +189,34 @@ final class WorldBuilderPreservationStagedMigrator {
 		}
 		final Set<String> actualFiles = new HashSet<String>();
 		final Set<String> actualDirectories = new HashSet<String>();
+		final boolean mapPackageReady = WorldBuilderBoundedInventory.bool(
+			execution.get("canonicalMapPackageReady"), "preservation-migration",
+			"canonicalMapPackageReady");
+		if (mapPackageReady) {
+			for (Object raw : array(mapMigration.get("outputInventory"))) {
+				Map<String,Object> record = object(raw);
+				String relative = string(record, "relativePath");
+				expectedFiles.add(relative.substring("migration/output/".length()));
+				addParentDirectories(relative.substring("migration/output/".length()),
+					expectedDirectories);
+			}
+		}
 		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
 			@Override public FileVisitResult preVisitDirectory(Path directory,
 				BasicFileAttributes attributes) throws IOException {
 				if (!attributes.isDirectory() || Files.isSymbolicLink(directory))
 					throw new IOException("linked staged migration directory");
-				actualDirectories.add(root.equals(directory) ? ""
-					: root.relativize(directory).toString().replace('\\', '/'));
+				String relative = root.equals(directory) ? ""
+					: root.relativize(directory).toString().replace('\\', '/');
+				actualDirectories.add(relative);
 				return FileVisitResult.CONTINUE;
 			}
 			@Override public FileVisitResult visitFile(Path file,
 				BasicFileAttributes attributes) throws IOException {
 				if (!attributes.isRegularFile() || Files.isSymbolicLink(file))
 					throw new IOException("linked staged migration file");
-				actualFiles.add(root.relativize(file).toString().replace('\\', '/'));
+				String relative = root.relativize(file).toString().replace('\\', '/');
+				actualFiles.add(relative);
 				return FileVisitResult.CONTINUE;
 			}
 		});
@@ -213,6 +224,24 @@ final class WorldBuilderPreservationStagedMigrator {
 			|| !expectedDirectories.equals(actualDirectories)) throw blocked(
 			"Staged migration output tree has extra or missing paths.");
 		verifySqlite(target, stage, object(execution.get("providerStateMigration")));
+		if (mapPackageReady) {
+			for (Object raw : array(mapMigration.get("outputInventory"))) {
+				Map<String,Object> record = object(raw);
+				String relative = string(record, "relativePath");
+				Path output = stage.resolve(relative);
+				requireOutput(output, record);
+				if (!string(record, "mode").equals(fileMode(output))) throw blocked(
+					"Canonical map output mode differs from its reviewed inventory.");
+			}
+		}
+	}
+
+	private static void addParentDirectories(String relative, Set<String> values) {
+		int slash = relative.lastIndexOf('/');
+		while (slash > 0) {
+			values.add(relative.substring(0, slash));
+			slash = relative.lastIndexOf('/', slash - 1);
+		}
 	}
 
 	private static Map<String,Object> providerStateBinding(

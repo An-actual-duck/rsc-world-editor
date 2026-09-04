@@ -201,7 +201,7 @@ or executable code.
 The supported `preview-current-runtime-upgrade`,
 `apply-current-runtime-upgrade`, and `recover-current-runtime-upgrade` CLI
 commands share that closed profile and transaction engine. Preview is
-zero-write and emits typed legacy configuration, explicit precedence/alias
+does not write the target and emits typed legacy configuration, explicit precedence/alias
 translations, durable-state boundaries, canonical-map conversion identity,
 exact preimage inventory, content-addressed external staging, and an exact
 confirmation identity. Apply preserves activation-last publication, installed
@@ -235,6 +235,17 @@ the Editor does not yet own exact cleanup/recovery of a successfully created
 external stage schema. This is a plan-specific blocker and does not make
 SQLite depend on MariaDB support.
 
+Complete descriptor-backed packed evidence can be supplied with the paired
+`--packed-source-root` and `--packed-discovery-report` options. Preview runs the
+existing complete packed converter in a disposable external directory and
+binds the source/report identity, conversion-plan self-fingerprint, exact plan,
+report and reconciliation hashes, canonical package fingerprint, counts, and
+the sorted byte/mode inventory of every output. Staging repeats conversion from
+the immutable evidence, revalidates every semantic identity, requires the exact
+inventory with no extra files/directories/symlinks, and keeps private files at
+`0600`. Preview never writes the target or transaction workspace. A changed
+source/report or coherent-looking package tamper is a pre-publication refusal.
+
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract and `preservation-retro-to-current-base-v1` row through the closed
 `state-migration-manifest`, `contract-schema`, and existing `server-runtime`
@@ -244,12 +255,14 @@ roles. Its manifest is fixed at
 `runtime/server/core.jar`, not a separate migration-tool artifact, and has real
 SQLite and loopback MariaDB migration evidence. The Editor binds that row
 during preview and its staging executor invokes the SQLite path, but the
-transaction does not cut over the staged database yet. Activation also
-requires mapping a
-complete recognized Preservation archive through the existing
+transaction does not yet bind the generated state inventory into a recoverable
+installed cutover. Complete recognized descriptor-backed Preservation map
+evidence now runs through the existing
 `WorldBuilderPackedConverter`/`WorldBuilderPackedMap` pipeline (the raw-sector
-shortcut is no longer treated as public evidence), canonical-package
-installation, and staged/installed server/client launch,
+shortcut is no longer treated as public evidence) and is fully verified in an
+unpublished stage. Activation still requires materializing the package and
+migrated configuration/state into the provider's server/client layout, binding
+all generated state into recovery, and staged/installed server/client launch,
 handshake, login, gameplay, map, and state verification. Live connections and
 credential values are not accepted by the current Editor plan. There is no
 desktop route yet. Provider installability, compiled profile readiness, and the

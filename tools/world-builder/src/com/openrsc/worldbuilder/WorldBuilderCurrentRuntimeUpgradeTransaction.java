@@ -64,21 +64,31 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, inputAdapter, projectCapability, transactionId,
-			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter));
+			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter), null, null);
 	}
 
 	Preview previewPreservation(Path targetRoot, Path transactionRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
 		String transactionId) throws IOException, WorldBuilderContractException {
+		return previewPreservation(targetRoot, transactionRoot, providerCatalogRoot,
+			compositionIdentity, projectCapability, transactionId, null, null);
+	}
+
+	Preview previewPreservation(Path targetRoot, Path transactionRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
+		String transactionId, Path packedSourceRoot, Path packedDiscoveryReport)
+		throws IOException, WorldBuilderContractException {
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, null, projectCapability, transactionId,
-			WorldBuilderCurrentRuntimeExecutionProfile.preservation());
+			WorldBuilderCurrentRuntimeExecutionProfile.preservation(),
+			packedSourceRoot, packedDiscoveryReport);
 	}
 
 	private Preview previewInternal(Path targetRoot, Path transactionRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
 		Path projectCapability, String transactionId,
-		WorldBuilderCurrentRuntimeExecutionProfile profile)
+		WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
+		Path packedDiscoveryReport)
 		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
@@ -127,9 +137,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Select a released installable bundle; inspection alone is not activation authority.");
 
 		Map<String,Object> plan = buildPlan(target, workspace, composition, adapter,
-			project, classification, transactionId, profile);
+			project, classification, transactionId, profile, packedSourceRoot,
+			packedDiscoveryReport);
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
-			inputAdapter, projectCapability, profile, plan);
+			inputAdapter, projectCapability, profile, packedSourceRoot,
+			packedDiscoveryReport, plan);
 	}
 
 	Result apply(Preview reviewed, String confirmation)
@@ -244,7 +256,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			preview.projectCapability, string(preview.plan, "transactionId"));
 		return previewPreservation(preview.targetRoot, preview.transactionRoot,
 			preview.providerCatalogRoot, preview.compositionIdentity,
-			preview.projectCapability, string(preview.plan, "transactionId"));
+			preview.projectCapability, string(preview.plan, "transactionId"),
+			preview.packedSourceRoot, preview.packedDiscoveryReport);
 	}
 
 	Result recover(Path targetRoot, Path transactionRoot, String transactionId)
@@ -379,7 +392,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderCurrentRuntimeContracts.Document adapter,
 		WorldBuilderCurrentRuntimeContracts.Document project,
 		Map<String,Object> classification, String transactionId,
-		WorldBuilderCurrentRuntimeExecutionProfile profile)
+		WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
+		Path packedDiscoveryReport)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> plan = new LinkedHashMap<String,Object>();
 		plan.put("schemaVersion", Long.valueOf(1));
@@ -397,7 +411,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		adapterReference.put("evidenceAuthority", string(adapter.root, "evidenceAuthority"));
 		plan.put("inputAdapter", adapterReference);
 		plan.put("executionProfile", profile.identity());
-		plan.put("migrationPlan", profile.migrationPlan(target, classification, composition));
+		plan.put("migrationPlan", profile.migrationPlan(target, classification, composition,
+			packedSourceRoot, packedDiscoveryReport));
 		Map<String,Object> projectReference = new LinkedHashMap<String,Object>();
 		projectReference.put("projectId", string(project.root, "projectId"));
 		projectReference.put("capabilityFingerprintSha256",
@@ -665,15 +680,80 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.pretty(preview.plan.get("migrationPlan")));
 		if (!preview.profile.syntheticOnly) {
 			Map<String,Object> migration = object(preview.plan.get("migrationPlan"));
+			Map<String,Object> map = object(migration.get("mapMigration"));
+			if (bool(map, "packageReady")) {
+				if (preview.packedSourceRoot == null || preview.packedDiscoveryReport == null)
+					throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, "mapMigration", false,
+						"Reviewed packed conversion paths are absent from the in-memory preview.",
+						"Review a fresh production transaction.");
+				Path mapParent = staging.resolve("migration/output/map");
+				Files.createDirectories(mapParent);
+				WorldBuilderPackedConverter.Result converted =
+					new WorldBuilderPackedConverter().convert(preview.packedSourceRoot,
+						preview.packedDiscoveryReport, mapParent.resolve("conversion"));
+				Path convertedRoot = mapParent.resolve("conversion");
+				WorldBuilderPackedConverter.normalizePrivateModes(convertedRoot);
+				Map<String,Object> convertedPlan;
+				try {
+					convertedPlan = WorldBuilderJsonDocuments.readObject(
+						convertedRoot.resolve("conversion-plan.json"));
+				} catch (WorldBuilderDiscoveryException malformed) {
+					throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+						"mapMigration", false,
+						"Packed conversion plan became malformed after conversion.",
+						"Discard staging and preview the immutable source again.", malformed);
+				}
+				List<Object> convertedInventory = WorldBuilderPackedConverter.outputInventory(
+					convertedRoot, "migration/output/map/conversion");
+				if (!converted.sourceFingerprintSha256.equals(
+						string(map, "preparedSourceFingerprintSha256"))
+					|| !string(convertedPlan, "planFingerprintSha256").equals(
+						string(map, "conversionPlanFingerprintSha256"))
+					|| !converted.planSha256.equals(string(map, "conversionPlanSha256"))
+					|| !converted.reportSha256.equals(string(map, "conversionReportSha256"))
+					|| !converted.reconciliationSha256.equals(
+						string(map, "discoveryReconciliationSha256"))
+					|| !converted.outputFingerprintSha256.equals(
+						string(map, "outputPackageFingerprintSha256"))
+					|| converted.terrainCount != integer(map, "terrainCount")
+					|| converted.placementCount != integer(map, "placementCount")
+					|| !WorldBuilderJsonDocuments.canonical(convertedInventory).equals(
+						WorldBuilderJsonDocuments.canonical(map.get("outputInventory"))))
+					throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+						"mapMigration", false,
+						"Packed conversion result differs from the reviewed semantic preview.",
+						"Discard staging and preview the immutable source again.");
+			}
 			Map<String,Object> execution = object(migration.get("stagedExecution"));
 			WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(staging,
 				object(migration.get("typedConfiguration")), execution);
 			WorldBuilderPreservationStagedMigrator.stage(preview.targetRoot, staging,
 				execution);
-			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging, execution);
+			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging,
+				execution, map);
 		}
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
+	}
+
+	/** Package-private verification seam for an unpublished, externally staged release. */
+	void stageReviewedRelease(Preview preview, Path staging)
+		throws IOException, WorldBuilderContractException {
+		if (Files.exists(staging, LinkOption.NOFOLLOW_LINKS)) throw problem(
+			WorldBuilderErrorCodes.UNSAFE_PATH, "staging", false,
+			"Reviewed staging destination already exists.",
+			"Choose a new external staging destination.");
+		Files.createDirectory(staging);
+		stageRelease(preview, staging);
+	}
+
+	void verifyReviewedRelease(Preview preview, Path staging)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition composition =
+			WorldBuilderProviderCatalog.resolve(preview.providerCatalogRoot,
+				preview.compositionIdentity);
+		verifyProviderReleaseTree(staging, "", composition.artifacts,
+			activationDocument(preview.plan), object(preview.plan.get("migrationPlan")));
 	}
 
 	private static void writeActivationLedger(Path ledger, Map<String,Object> document)
@@ -1054,6 +1134,23 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				addParentDirectories(relative, expectedDirectories);
 				migrationOutputs.add(output);
 			}
+			Map<String,Object> state = execution.containsKey("providerStateMigration")
+				? object(execution.get("providerStateMigration")) : null;
+			if (state != null && "sqlite".equals(string(state, "engine"))) {
+				for (String relative : new String[] {string(state, "stageRelativePath"),
+					string(state, "evidenceRelativePath")}) {
+					expectedFiles.add(relative);
+					addParentDirectories(relative, expectedDirectories);
+				}
+			}
+			Map<String,Object> map = object(expectedMigration.get("mapMigration"));
+			for (Object raw : array(map.get("outputInventory"))) {
+				Map<String,Object> output = object(raw);
+				String relative = string(output, "relativePath");
+				expectedFiles.add(relative);
+				addParentDirectories(relative, expectedDirectories);
+				migrationOutputs.add(output);
+			}
 		}
 		final Set<String> actualFiles = new HashSet<String>();
 		final Set<String> actualDirectories = new HashSet<String>();
@@ -1394,16 +1491,21 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		final Path compositionIdentity;
 		final Path inputAdapter;
 		final Path projectCapability;
+		final Path packedSourceRoot;
+		final Path packedDiscoveryReport;
 		final WorldBuilderCurrentRuntimeExecutionProfile profile;
 		final Map<String,Object> plan;
 
 		Preview(Path targetRoot, Path transactionRoot, Path providerCatalogRoot,
 			Path compositionIdentity, Path inputAdapter, Path projectCapability,
-			WorldBuilderCurrentRuntimeExecutionProfile profile, Map<String,Object> plan) {
+			WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
+			Path packedDiscoveryReport, Map<String,Object> plan) {
 			this.targetRoot = targetRoot; this.transactionRoot = transactionRoot;
 			this.providerCatalogRoot = providerCatalogRoot;
 			this.compositionIdentity = compositionIdentity;
 			this.inputAdapter = inputAdapter; this.projectCapability = projectCapability;
+			this.packedSourceRoot = packedSourceRoot;
+			this.packedDiscoveryReport = packedDiscoveryReport;
 			this.profile = profile;
 			this.plan = plan;
 		}

@@ -1584,6 +1584,8 @@ public final class WorldBuilderCli {
 			for (String value : required) if (value.equals(option)) known = true;
 			if ("--confirmation-identity".equals(option)
 				&& "apply-current-runtime-upgrade".equals(command)) known = true;
+			if (("--packed-source-root".equals(option)
+				|| "--packed-discovery-report".equals(option)) && !recovery) known = true;
 			if (!known) {
 				System.err.println("ERROR: Unsupported option for " + command + ": " + option);
 				return 2;
@@ -1597,6 +1599,11 @@ public final class WorldBuilderCli {
 		if ("apply-current-runtime-upgrade".equals(command)
 			&& !options.containsKey("--confirmation-identity")) {
 			System.err.println("ERROR: apply-current-runtime-upgrade requires --confirmation-identity from an exact fresh preview.");
+			return 2;
+		}
+		if (!recovery && (options.containsKey("--packed-source-root")
+			!= options.containsKey("--packed-discovery-report"))) {
+			System.err.println("ERROR: --packed-source-root and --packed-discovery-report must be supplied together.");
 			return 2;
 		}
 		try {
@@ -1613,7 +1620,11 @@ public final class WorldBuilderCli {
 				transaction.previewPreservation(target, transactionRoot,
 					Paths.get(options.get("--provider-catalog-root")),
 					Paths.get(options.get("--composition-identity")),
-					Paths.get(options.get("--project-capability")), transactionId);
+					Paths.get(options.get("--project-capability")), transactionId,
+					options.containsKey("--packed-source-root")
+						? Paths.get(options.get("--packed-source-root")) : null,
+					options.containsKey("--packed-discovery-report")
+						? Paths.get(options.get("--packed-discovery-report")) : null);
 			if ("preview-current-runtime-upgrade".equals(command)) {
 				System.out.print(preview.toJson());
 				return 0;
@@ -2109,6 +2120,7 @@ public final class WorldBuilderCli {
 			+ " --transaction-root <external-sibling> --provider-catalog-root <current-platform>"
 			+ " --composition-identity <resolved.json> --project-capability <manifest.json>"
 			+ " --transaction-id <id> --adapter preservation-family-v1"
+			+ " [--packed-source-root <immutable-copy> --packed-discovery-report <report.json>]"
 			+ "\n  WorldBuilderCli apply-current-runtime-upgrade <same preview arguments>"
 			+ " --confirmation-identity <exact-preview-identity>"
 			+ "\n  WorldBuilderCli recover-current-runtime-upgrade --target-root <offline-server>"

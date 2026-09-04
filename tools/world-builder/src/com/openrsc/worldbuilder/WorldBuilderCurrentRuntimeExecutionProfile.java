@@ -187,7 +187,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 	}
 
 	Map<String,Object> migrationPlan(Path target, Map<String,Object> classification,
-		WorldBuilderProviderCatalog.Composition composition)
+		WorldBuilderProviderCatalog.Composition composition, Path packedSourceRoot,
+		Path packedDiscoveryReport)
 		throws WorldBuilderContractException {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("schemaVersion", Long.valueOf(1));
@@ -217,13 +218,60 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		map.put("migrationId", mapMigrationId);
 		map.put("sourceRelativePath", "client/cache/landscape.pack");
 		map.put("destinationRole", "canonical-signed-layered-map");
-		map.put("executionBoundary", syntheticOnly
-			? "synthetic-plan-only" : "existing-packed-converter-after-capability-validation");
+		map.put("executionBoundary", syntheticOnly ? "synthetic-plan-only"
+			: "descriptor-backed-world-builder-packed-converter");
+		String sourceFingerprint = "";
+		String reportHash = "";
+		String conversionPlanFingerprint = "";
+		String conversionPlanSha256 = "";
+		String conversionReportSha256 = "";
+		String discoveryReconciliationSha256 = "";
+		String outputPackageFingerprint = "";
+		List<Object> outputInventory = new ArrayList<Object>();
+		long terrainCount = 0L;
+		long placementCount = 0L;
+		boolean mapReady = false;
+		if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
+			try {
+				WorldBuilderPackedConverter.Inspection inspected =
+					new WorldBuilderPackedConverter().inspect(
+						packedSourceRoot, packedDiscoveryReport);
+				sourceFingerprint = inspected.sourceFingerprintSha256;
+				conversionPlanFingerprint = inspected.planFingerprintSha256;
+				conversionPlanSha256 = inspected.planSha256;
+				conversionReportSha256 = inspected.reportSha256;
+				discoveryReconciliationSha256 = inspected.reconciliationSha256;
+				outputPackageFingerprint = inspected.outputFingerprintSha256;
+				outputInventory.addAll(inspected.outputInventory);
+				terrainCount = inspected.terrainCount;
+				placementCount = inspected.placementCount;
+				reportHash = WorldBuilderHashes.sha256(packedDiscoveryReport);
+				mapReady = true;
+			} catch (java.io.IOException failure) {
+				throw new WorldBuilderContractException(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+					"current-runtime-migration", "packed-discovery-report", false,
+					"Packed conversion preview evidence could not be read.",
+					"Keep the target offline and recreate the immutable packed source.", failure);
+			}
+		} else if (!syntheticOnly && (packedSourceRoot != null
+			|| packedDiscoveryReport != null)) throw refusal(
+			"Packed conversion source and discovery report must be supplied together.");
+		map.put("preparedSourceFingerprintSha256", sourceFingerprint);
+		map.put("discoveryReportSha256", reportHash);
+		map.put("conversionPlanFingerprintSha256", conversionPlanFingerprint);
+		map.put("conversionPlanSha256", conversionPlanSha256);
+		map.put("conversionReportSha256", conversionReportSha256);
+		map.put("discoveryReconciliationSha256", discoveryReconciliationSha256);
+		map.put("outputPackageFingerprintSha256", outputPackageFingerprint);
+		map.put("terrainCount", Long.valueOf(terrainCount));
+		map.put("placementCount", Long.valueOf(placementCount));
+		map.put("outputInventory", outputInventory);
+		map.put("packageReady", Boolean.valueOf(mapReady));
 		result.put("mapMigration", map);
 		result.put("stagedExecution", syntheticOnly
 			? syntheticStagedExecution()
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
-				string(map, "sourceRelativePath"), composition));
+				composition, mapReady));
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
 			"migrationPlanFingerprintSha256");
@@ -256,9 +304,50 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			throw refusal("Typed configuration has unsupported execution semantics.");
 		Map<String,Object> map = object(plan.get("mapMigration"));
 		WorldBuilderBoundedInventory.exactKeys(map, "current-runtime-migration",
-			"migrationId", "sourceRelativePath", "destinationRole", "executionBoundary");
+			"migrationId", "sourceRelativePath", "destinationRole", "executionBoundary",
+			"preparedSourceFingerprintSha256", "discoveryReportSha256",
+			"conversionPlanFingerprintSha256", "conversionPlanSha256",
+			"conversionReportSha256", "discoveryReconciliationSha256",
+			"outputPackageFingerprintSha256", "terrainCount", "placementCount",
+			"outputInventory", "packageReady");
 		if (!mapMigrationId.equals(string(map, "migrationId")))
 			throw refusal("Map migration does not match its compiled profile.");
+		List<String> mapPaths = new ArrayList<String>();
+		for (Object raw : array(map.get("outputInventory"))) {
+			Map<String,Object> record = object(raw);
+			WorldBuilderBoundedInventory.exactKeys(record, "current-runtime-migration",
+				"relativePath", "size", "sha256", "mode");
+			String relative = string(record, "relativePath");
+			if (!relative.startsWith("migration/output/map/conversion/")
+				|| relative.contains("..") || mapPaths.contains(relative)
+				|| (!mapPaths.isEmpty() && mapPaths.get(mapPaths.size() - 1)
+					.compareTo(relative) >= 0)
+				|| WorldBuilderBoundedInventory.integer(record.get("size"),
+					"current-runtime-migration", "size") < 0L
+				|| !WorldBuilderBoundedInventory.isHash(string(record, "sha256"))
+				|| !"0600".equals(string(record, "mode"))) throw refusal(
+				"Canonical map inventory is not a closed private output set.");
+			mapPaths.add(relative);
+		}
+		boolean packageReady = WorldBuilderBoundedInventory.bool(map.get("packageReady"),
+			"current-runtime-migration", "packageReady");
+		for (String field : Arrays.asList("preparedSourceFingerprintSha256",
+			"discoveryReportSha256", "conversionPlanFingerprintSha256",
+			"conversionPlanSha256", "conversionReportSha256",
+			"discoveryReconciliationSha256", "outputPackageFingerprintSha256")) {
+			String value = string(map, field);
+			if (packageReady ? !WorldBuilderBoundedInventory.isHash(value) : !value.isEmpty())
+				throw refusal("Canonical map readiness and " + field + " disagree.");
+		}
+		if (!packageReady && !mapPaths.isEmpty()) throw refusal(
+			"Unavailable canonical map migration cannot carry an output inventory.");
+		if (packageReady && (mapPaths.isEmpty()
+			|| !mapPaths.contains("migration/output/map/conversion/conversion-plan.json")
+			|| !mapPaths.contains("migration/output/map/conversion/conversion-report.json")
+			|| !mapPaths.contains("migration/output/map/conversion/"
+				+ WorldBuilderDiscoveryReconciliation.FILE_NAME)
+			|| !mapPaths.contains("migration/output/map/conversion/package/manifest.json")))
+			throw refusal("Canonical map inventory omits required conversion evidence.");
 		Map<String,Object> staged = object(plan.get("stagedExecution"));
 		if (syntheticOnly) {
 			WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
