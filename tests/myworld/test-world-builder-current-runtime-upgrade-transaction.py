@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import hashlib
-import base64
 import json
+import os
 import shutil
 import sqlite3
 import subprocess
 import tempfile
 import unittest
 import warnings
-import zlib
+import zipfile
 from pathlib import Path
 
 try:
@@ -77,6 +77,83 @@ def materialize_synthetic_bundle_payloads(provider_root: Path) -> None:
                 )
 
 
+def build_provider_state_migration_core(provider_root: Path, build_root: Path) -> Path:
+    """Build only the locked provider migrator into a deterministic fixture fat JAR."""
+    source = (
+        PROVIDER / "server/src/com/openrsc/server/database/CurrentBaseStateMigration.java"
+    )
+    json_jar = PROVIDER / "server/lib/json-20190722.jar"
+    sqlite_jar = PROVIDER / "server/lib/sqlite-jdbc-3.34.0.jar"
+    classes = build_root / "provider-migrator-classes"
+    classes.mkdir()
+    subprocess.run(
+        ["javac", "-source", "8", "-target", "8", "-cp",
+         f"{json_jar}:{sqlite_jar}", "-d", str(classes), str(source)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    destination = (
+        provider_root / "output/current-platform/current-base-v1/server/core.jar"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    entries: dict[str, bytes] = {}
+    for path in sorted(classes.rglob("*")):
+        if path.is_file():
+            entries[path.relative_to(classes).as_posix()] = path.read_bytes()
+    for dependency in (json_jar, sqlite_jar):
+        with zipfile.ZipFile(dependency) as archive:
+            for name in sorted(archive.namelist()):
+                upper = name.upper()
+                if name.endswith("/") or name in entries:
+                    continue
+                if upper == "META-INF/MANIFEST.MF" or upper.endswith((".SF", ".RSA", ".DSA")):
+                    continue
+                entries[name] = archive.read(name)
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, (2024, 1, 2, 3, 4, 6))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, entries[name])
+    return destination
+
+
+def build_fake_migration_core(provider_root: Path, build_root: Path) -> Path:
+    source = build_root / "fake-provider/com/openrsc/server/database/CurrentBaseStateMigration.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package com.openrsc.server.database;
+public final class CurrentBaseStateMigration {
+  public static void main(String[] args) throws Exception {
+    String mode = System.getenv("WORLD_BUILDER_FAKE_MIGRATOR_MODE");
+    if ("timeout".equals(mode)) { Thread.sleep(5000L); return; }
+    if ("oversized".equals(mode)) {
+      StringBuilder value = new StringBuilder();
+      for (int i = 0; i < 70000; i++) value.append('x');
+      System.out.print(value.toString()); return;
+    }
+    System.exit(2);
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    classes = build_root / "fake-provider-classes"
+    classes.mkdir()
+    subprocess.run(
+        ["javac", "-source", "8", "-target", "8", "-d", str(classes), str(source)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    destination = (
+        provider_root / "output/current-platform/current-base-v1/server/core.jar"
+    )
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(classes.rglob("*.class")):
+            info = zipfile.ZipInfo(path.relative_to(classes).as_posix(),
+                                   (2024, 1, 2, 3, 4, 6))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, path.read_bytes())
+    return destination
+
+
 class CurrentRuntimeUpgradeTransactionTest(unittest.TestCase):
     maxDiff = None
 
@@ -105,6 +182,7 @@ import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -156,19 +234,45 @@ public final class CurrentUpgradeHarness {
         if ("profile-migration".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
             System.out.print(WorldBuilderJsonDocuments.pretty(
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation()
-                    .migrationPlan(target, classification)));
+                    .migrationPlan(target, classification, composition)));
         } else if ("profile-migration-stage".equals(operation)
-            || "profile-migration-stage-tamper".equals(operation)) {
+            || "profile-migration-stage-tamper".equals(operation)
+            || "profile-migration-provider-refusal".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
             WorldBuilderCurrentRuntimeExecutionProfile profile =
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation();
-            Map<String,Object> migration = profile.migrationPlan(target, classification);
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> migration = profile.migrationPlan(
+                target, classification, composition);
             Path stage = transactions.resolve(transactionId);
             Files.createDirectory(stage);
             Files.createDirectory(stage.resolve("migration"));
+            for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+                if (!("runtime/server/core.jar".equals(artifact.bundlePath)
+                    || "contracts/runtime/current-base-v1/state-migration.json"
+                        .equals(artifact.bundlePath))) continue;
+                Path destination = stage.resolve(artifact.bundlePath);
+                Files.createDirectories(destination.getParent());
+                Files.copy(artifact.source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+            }
+            if ("profile-migration-provider-refusal".equals(operation)) {
+                if ("contract-tamper".equals(failures)) {
+                    Files.write(stage.resolve(
+                        "contracts/runtime/current-base-v1/state-migration.json"),
+                        new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("tool-tamper".equals(failures)) {
+                    Files.write(stage.resolve("runtime/server/core.jar"),
+                        new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("provider-timeout".equals(failures)) {
+                    WorldBuilderPreservationStagedMigrator.processTimeoutSeconds = 1L;
+                }
+            }
             Map<String,Object> execution = (Map<String,Object>)migration.get("stagedExecution");
             WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
                 (Map<String,Object>)migration.get("typedConfiguration"), execution);
@@ -188,7 +292,7 @@ public final class CurrentUpgradeHarness {
                         PosixFilePermission.OTHERS_READ));
                 }
             }
-            WorldBuilderPreservationStagedMigrator.verify(stage, execution);
+            WorldBuilderPreservationStagedMigrator.verify(target, stage, execution);
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
@@ -238,6 +342,9 @@ public final class CurrentUpgradeHarness {
         (cls.provider_root / "scripts").mkdir()
         shutil.copy2(provider_tool, cls.provider_root / "scripts/current-platform-composition.py")
         materialize_synthetic_bundle_payloads(cls.provider_root)
+        cls.migration_core = build_provider_state_migration_core(
+            cls.provider_root, cls.shared_root
+        )
         shutil.copytree(EXTENSION / "modules", cls.provider_root / "current-platform/modules")
         shutil.copytree(EXTENSION / "payload", cls.provider_root / "current-platform/synthetic-fixtures")
         overlay = json.loads((EXTENSION / "synthetic-installable-overlay-v1.json").read_text())
@@ -253,6 +360,15 @@ public final class CurrentUpgradeHarness {
         cls.provider_script = cls.provider_root / "scripts/current-platform-composition.py"
         cls.identity = cls._resolve(cls.provider_script, cls.catalog, cls.provider_root,
                                     cls.shared_root / "synthetic-base.json")
+        cls.behavior_root = cls.shared_root / "provider-behavior"
+        shutil.copytree(cls.provider_root, cls.behavior_root)
+        build_fake_migration_core(cls.behavior_root, cls.shared_root)
+        cls.behavior_catalog = cls.behavior_root / "current-platform"
+        cls.behavior_identity = cls._resolve(
+            cls.behavior_root / "scripts/current-platform-composition.py",
+            cls.behavior_catalog, cls.behavior_root,
+            cls.shared_root / "provider-behavior.json",
+        )
         cls.candidate_root = cls.shared_root / "noninstallable-artifact-candidate"
         shutil.copytree(cls.provider_root, cls.candidate_root)
         candidate_variant_path = (
@@ -312,6 +428,7 @@ public final class CurrentUpgradeHarness {
         self, operation: str, target: Path, workspace: Path, txid: str,
         failures: str = "-", identity: Path | None = None,
         catalog: Path | None = None, adapter: Path | None = None,
+        environment: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["java", "-cp", str(self.classes),
@@ -321,6 +438,7 @@ public final class CurrentUpgradeHarness {
              str(adapter or CONTRACTS / "input-adapter-preservation-v1.json"),
              str(CONTRACTS / "project-capability-v1.json"), txid],
             cwd=ROOT, text=True, capture_output=True, check=False,
+            env=environment,
         )
 
     def assert_plan_schema(self, plan: dict) -> None:
@@ -484,9 +602,8 @@ public final class CurrentUpgradeHarness {
             for item in plan["executionProfile"]["executionReadinessConditions"]
         }
         self.assertTrue(readiness["typed-configuration-staging"])
-        self.assertTrue(readiness["closed-sqlite-snapshot-staging"])
-        self.assertTrue(readiness["single-sector-packed-map-parity"])
-        self.assertFalse(readiness["provider-state-schema-migration-row"])
+        self.assertTrue(readiness["closed-sqlite-current-schema-migration"])
+        self.assertTrue(readiness["provider-state-schema-migration-row"])
         self.assertFalse(readiness["complete-canonical-map-package"])
         self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
@@ -515,7 +632,7 @@ public final class CurrentUpgradeHarness {
         )
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-        self.assertIn("Production activation requires executable configuration",
+        self.assertIn("complete PackedConverter map packaging",
                       refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
@@ -624,14 +741,14 @@ public final class CurrentUpgradeHarness {
         map_source.write_bytes(bytes(48 * 48 * 10))
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
-        database.write_bytes(zlib.decompress(base64.b64decode(
-            "eNrt17FqAkEQBuDZQ0gl2oiVMKWi2OQFcoYlSE6j5wpayaobOLLehbtVEGws86i+hReSs7CxFv+P+Vlmd+YBdjIOImf4M0k32vEzVUkIemEmIu8/BZGndNXf4lF391P+Ha4cKC8AAAAAAACAh3MU4qneaIjj1OmlNXq1Sraxy4rTew2lryQrvxdILm65Ga25P1TyTYY8CvsDP5zzu5x3eJuZNNYbw0rOFA8/8kyDoMPZV2TtwiVO28ti8dr6+5ufKC8AAAAAAAAAuHc1UaK2F8U7EzuzXnxbvTep8M/7EDnk"
-        )))
+        schema = (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+        with sqlite3.connect(database) as writable:
+            writable.executescript(schema)
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         self.assertEqual("ok", connection.execute("PRAGMA integrity_check").fetchone()[0])
         connection.close()
         self.assertEqual(
-            "cf9b51d21a6222cc4dd5936538b98e53621fce1bb1f6fc91582c7896a69bc158",
+            "301063f734b269573782995b1aa8ea32edba569dd95276bc9a35db680692f623",
             hashlib.sha256(database.read_bytes()).hexdigest(),
         )
         workspace = self.workspace()
@@ -655,10 +772,10 @@ public final class CurrentUpgradeHarness {
         )
         self.assertTrue(execution["typedConfigurationReady"])
         self.assertTrue(execution["sqliteSnapshotReady"])
-        self.assertFalse(execution["sqliteSchemaMigrationReady"])
+        self.assertTrue(execution["sqliteSchemaMigrationReady"])
         self.assertFalse(execution["mariaDbMigrationReady"])
-        self.assertTrue(execution["canonicalMapSectorReady"])
-        self.assertEqual(3, len(execution["stagedOutputs"]))
+        self.assertFalse(execution["canonicalMapSectorReady"])
+        self.assertEqual(1, len(execution["stagedOutputs"]))
         self.assertIn(
             "server/inc/sqlite/preservation.db",
             {record["relativePath"] for record in plan["preimageInventory"]},
@@ -676,9 +793,24 @@ public final class CurrentUpgradeHarness {
             self.assertEqual(record["size"], output.stat().st_size)
             self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
             self.assertEqual(0o600, output.stat().st_mode & 0o777)
-        self.assertEqual(database.read_bytes(), (
-            workspace / "staged-output/migration/output/state/preservation.db"
-        ).read_bytes())
+        migrated = workspace / "staged-output/migration/output/state/current-base.db"
+        evidence_path = workspace / (
+            "staged-output/migration/output/state/"
+            "current-base-migration-evidence.json"
+        )
+        self.assertNotEqual(database.read_bytes(), migrated.read_bytes())
+        evidence = json.loads(evidence_path.read_text())
+        self.assertEqual("verified", evidence["status"])
+        self.assertTrue(evidence["sourceUnchanged"])
+        self.assertEqual(evidence["sourceStateSha256"],
+                         evidence["stagedSourceProjectionSha256"])
+        with sqlite3.connect(migrated) as migrated_db:
+            self.assertEqual(
+                "preservation-retro-to-current-base-v1",
+                migrated_db.execute(
+                    "SELECT migration_row_id FROM current_base_migrations"
+                ).fetchone()[0],
+            )
         self.assertEqual(before, tree_snapshot(target))
         for tamper in ("path", "hash", "mode"):
             with self.subTest(staged_output_tamper=tamper):
@@ -723,6 +855,56 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual("rolled-back", receipt["status"])
                 self.assertTrue(receipt["rollbackComplete"])
                 self.case.cleanup(); self.setUp()
+
+    def test_provider_migrator_binding_timeout_output_and_refusal_are_fail_closed(self) -> None:
+        cases = (
+            ("contract-tamper", self.identity, self.catalog, None,
+             "manifest differs from the reviewed inventory"),
+            ("tool-tamper", self.identity, self.catalog, None,
+             "server runtime differs from the reviewed inventory"),
+            ("provider-timeout", self.behavior_identity, self.behavior_catalog,
+             "timeout", "bounded timeout"),
+            ("provider-oversized", self.behavior_identity, self.behavior_catalog,
+             "oversized", "exceeded its output bound"),
+            ("provider-schema-refusal", self.identity, self.catalog, None,
+             "unsupported or customized sqlite source schema"),
+        )
+        for index, (failure, identity, catalog, behavior, diagnostic) in enumerate(cases):
+            with self.subTest(failure=failure):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("preservation-t0")
+                database = target / "server/inc/sqlite/preservation.db"
+                database.parent.mkdir(parents=True)
+                if failure == "provider-schema-refusal":
+                    with sqlite3.connect(database) as connection:
+                        connection.execute("CREATE TABLE custom_state(value INTEGER)")
+                else:
+                    schema = (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+                    with sqlite3.connect(database) as connection:
+                        connection.executescript(schema)
+                before = tree_snapshot(target)
+                workspace = self.workspace()
+                environment = dict(os.environ)
+                if behavior:
+                    environment["WORLD_BUILDER_FAKE_MIGRATOR_MODE"] = behavior
+                failures = failure
+                if failure == "provider-oversized":
+                    failures = "provider-oversized"
+                result = self.run_harness(
+                    "profile-migration-provider-refusal", target, workspace,
+                    "provider-refusal", failures=failures, identity=identity,
+                    catalog=catalog, environment=environment,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(diagnostic, result.stderr)
+                stage = workspace / "provider-refusal"
+                self.assertFalse((stage / "migration/output/state/current-base.db").exists())
+                self.assertFalse((stage / (
+                    "migration/output/state/current-base-migration-evidence.json"
+                )).exists())
+                self.assertFalse((stage / "migration/provider-state-migration-output.log").exists())
+                self.assertEqual(before, tree_snapshot(target))
 
     def test_production_preview_rejects_target_selected_state_paths_zero_write(self) -> None:
         target = self.target("preservation-t0")

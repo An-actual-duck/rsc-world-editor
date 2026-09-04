@@ -136,6 +136,7 @@
             "requiredStateMigrationContractId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
             "requiredStateMigrationRowId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
             "requiredProviderArtifactRoles": {"type": "array", "minItems": 3, "maxItems": 3, "uniqueItems": true, "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}},
+            "providerStateMigration": {"$ref": "#/$defs/providerStateMigration"},
             "typedConfigurationReady": {"type": "boolean"},
             "sqliteSnapshotReady": {"type": "boolean"},
             "sqliteSchemaMigrationReady": {"type": "boolean"},
@@ -153,12 +154,34 @@
       "required": ["relativePath", "kind", "sourceRelativePath", "sourceSha256", "size", "sha256", "mode"],
       "properties": {
         "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
-        "kind": {"enum": ["typed-configuration", "sqlite-state-snapshot", "canonical-terrain-sector"]},
+        "kind": {"const": "typed-configuration"},
         "sourceRelativePath": {"type": "string", "maxLength": 4096},
         "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
         "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "mode": {"const": "0600"}
+      }
+    },
+    "providerStateMigration": {
+      "type": "object", "additionalProperties": false,
+      "required": ["contractBundlePath", "contractSha256", "toolBundlePath",
+        "toolSha256", "toolArtifactRole", "mainClass", "migrationRowId", "engine",
+        "sourceRelativePath", "sourceSha256", "stageRelativePath",
+        "evidenceRelativePath", "evidenceSchemaId"],
+      "properties": {
+        "contractBundlePath": {"const": "contracts/runtime/current-base-v1/state-migration.json"},
+        "contractSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "toolBundlePath": {"const": "runtime/server/core.jar"},
+        "toolSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "toolArtifactRole": {"const": "server-runtime"},
+        "mainClass": {"const": "com.openrsc.server.database.CurrentBaseStateMigration"},
+        "migrationRowId": {"const": "preservation-retro-to-current-base-v1"},
+        "engine": {"const": "sqlite"},
+        "sourceRelativePath": {"const": "server/inc/sqlite/preservation.db"},
+        "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "stageRelativePath": {"const": "migration/output/state/current-base.db"},
+        "evidenceRelativePath": {"const": "migration/output/state/current-base-migration-evidence.json"},
+        "evidenceSchemaId": {"const": "current-base-state-migration-evidence-v1"}
       }
     },
     "preimage": {

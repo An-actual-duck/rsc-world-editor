@@ -1,11 +1,13 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.FileVisitResult;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -18,15 +20,26 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
 
 /** Built-in, data-only Preservation staging. No target byte selects executable code. */
 final class WorldBuilderPreservationStagedMigrator {
 	static final String SQLITE_SOURCE = "server/inc/sqlite/preservation.db";
 	static final String CONFIG_OUTPUT =
 		"migration/output/config/current-base-configuration.json";
-	static final String SQLITE_OUTPUT = "migration/output/state/preservation.db";
-	static final String MAP_OUTPUT = "migration/output/map/0_0_0.terrain";
+	static final String SQLITE_OUTPUT = "migration/output/state/current-base.db";
+	static final String SQLITE_EVIDENCE =
+		"migration/output/state/current-base-migration-evidence.json";
+	static final String STATE_CONTRACT_BUNDLE =
+		"contracts/runtime/current-base-v1/state-migration.json";
+	static final String STATE_TOOL_BUNDLE = "runtime/server/core.jar";
+	static final String STATE_MAIN_CLASS =
+		"com.openrsc.server.database.CurrentBaseStateMigration";
+	private static final String STATE_CONTRACT_SHA256 =
+		"0b653f5c2da880cc66ce3d8fc9a43fa03c89ba1d87792207c537ef59aca6ec99";
 	private static final long MAX_SQLITE_BYTES = 4294967296L;
+	static long processTimeoutSeconds = 120L; // package-private sealed test seam
 	private static final byte[] SQLITE_MAGIC = new byte[] {
 		'S','Q','L','i','t','e',' ','f','o','r','m','a','t',' ','3',0
 	};
@@ -34,43 +47,30 @@ final class WorldBuilderPreservationStagedMigrator {
 	private WorldBuilderPreservationStagedMigrator() {}
 
 	static Map<String,Object> plan(Path target, Map<String,Object> typed,
-		String mapRelative) throws WorldBuilderContractException {
+		String mapRelative, WorldBuilderProviderCatalog.Composition composition)
+		throws WorldBuilderContractException {
 		List<Object> outputs = new ArrayList<Object>();
 		byte[] config = WorldBuilderJsonDocuments.pretty(typed)
 			.getBytes(StandardCharsets.UTF_8);
 		outputs.add(output(CONFIG_OUTPUT, "typed-configuration", "", "",
 			config.length, WorldBuilderHashes.sha256(config), "0600"));
 
-		Path map = target.resolve(mapRelative);
+		// Complete Preservation map conversion must use WorldBuilderPackedConverter.
+		// A raw 23,040-byte sector is not a representative public intake package.
 		boolean mapReady = false;
-		if (safeRegular(map)) {
-			try {
-				if (Files.size(map) == WorldBuilderPackedTerrainCodec.BYTE_COUNT) {
-					byte[] source = Files.readAllBytes(map);
-					byte[] layered = WorldBuilderPackedTerrainCodec.toLayered(source);
-					WorldBuilderPackedTerrainCodec.requireExactReverse(source, layered);
-					outputs.add(output(MAP_OUTPUT, "canonical-terrain-sector", mapRelative,
-						WorldBuilderHashes.sha256(source), layered.length,
-						WorldBuilderHashes.sha256(layered), "0600"));
-					mapReady = true;
-				}
-			} catch (IOException failure) {
-				throw drift(mapRelative, "Legacy map could not be inventoried.", failure);
-			}
-		}
 
 		Path sqlite = target.resolve(SQLITE_SOURCE);
 		boolean sqlitePresent = Files.exists(sqlite, LinkOption.NOFOLLOW_LINKS);
 		if (sqlitePresent) {
 			requireClosedSqliteSnapshot(target, sqlite);
-			try {
-				outputs.add(output(SQLITE_OUTPUT, "sqlite-state-snapshot", SQLITE_SOURCE,
-					WorldBuilderHashes.sha256(sqlite), Files.size(sqlite),
-					WorldBuilderHashes.sha256(sqlite), "0600"));
-			} catch (IOException failure) {
-				throw drift(SQLITE_SOURCE, "SQLite snapshot could not be inventoried.", failure);
-			}
 		}
+		Map<String,Object> provider = providerStateBinding(composition);
+		provider.put("engine", "sqlite");
+		provider.put("sourceRelativePath", SQLITE_SOURCE);
+		provider.put("sourceSha256", sqlitePresent ? fileHash(sqlite, SQLITE_SOURCE) : "");
+		provider.put("stageRelativePath", SQLITE_OUTPUT);
+		provider.put("evidenceRelativePath", SQLITE_EVIDENCE);
+		provider.put("evidenceSchemaId", "current-base-state-migration-evidence-v1");
 
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("implementationId", "preservation-staged-data-migrator-v1");
@@ -80,15 +80,15 @@ final class WorldBuilderPreservationStagedMigrator {
 		roles.add("state-migration-manifest"); roles.add("contract-schema");
 		roles.add("server-runtime");
 		result.put("requiredProviderArtifactRoles", roles);
+		result.put("providerStateMigration", provider);
 		result.put("typedConfigurationReady", Boolean.TRUE);
 		result.put("sqliteSnapshotReady", Boolean.valueOf(sqlitePresent));
-		result.put("sqliteSchemaMigrationReady", Boolean.FALSE);
+		result.put("sqliteSchemaMigrationReady", Boolean.valueOf(sqlitePresent));
 		result.put("mariaDbMigrationReady", Boolean.FALSE);
 		result.put("canonicalMapSectorReady", Boolean.valueOf(mapReady));
 		result.put("stagedOutputs", outputs);
 		List<Object> blockers = new ArrayList<Object>();
 		if (!sqlitePresent) blockers.add("reviewed-offline-sqlite-snapshot-not-found");
-		blockers.add("provider-current-base-state-migration-v1-row-required");
 		blockers.add("closed-mariadb-snapshot-and-restore-contract-required");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
 		blockers.add("staged-and-installed-executable-verification-required");
@@ -113,26 +113,11 @@ final class WorldBuilderPreservationStagedMigrator {
 			if ("typed-configuration".equals(kind)) {
 				if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) throw blocked(
 					"Typed configuration bytes must be supplied by the bound migration plan.");
-				continue;
-			} else if ("canonical-terrain-sector".equals(kind)) {
-				Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(
-					string(record, "sourceRelativePath"));
-				requireSource(source, record);
-				byte[] legacy = Files.readAllBytes(source);
-				byte[] layered = WorldBuilderPackedTerrainCodec.toLayered(legacy);
-				WorldBuilderPackedTerrainCodec.requireExactReverse(legacy, layered);
-				Files.write(destination, layered, StandardOpenOption.CREATE_NEW,
-					StandardOpenOption.WRITE);
-			} else if ("sqlite-state-snapshot".equals(kind)) {
-				Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(
-					string(record, "sourceRelativePath"));
-				requireClosedSqliteSnapshot(target, source);
-				requireSource(source, record);
-				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			} else throw blocked("Migration output kind is not compiled into this migrator.");
 			setMode(destination, string(record, "mode"));
 			requireOutput(destination, record);
 		}
+		invokeSqlite(target, stage, object(execution.get("providerStateMigration")));
 	}
 
 	static void writeTypedConfiguration(Path stage, Map<String,Object> typed,
@@ -153,7 +138,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		requireOutput(destination, record);
 	}
 
-	static void verify(Path stage, Map<String,Object> execution)
+	static void verify(Path target, Path stage, Map<String,Object> execution)
 		throws IOException, WorldBuilderContractException {
 		final Path root = stage.resolve("migration/output");
 		final Set<String> expectedFiles = new HashSet<String>();
@@ -177,6 +162,19 @@ final class WorldBuilderPreservationStagedMigrator {
 				"Staged migration output is missing.");
 			requireOutput(output, record);
 		}
+		Map<String,Object> state = object(execution.get("providerStateMigration"));
+		for (String key : Arrays.asList("stageRelativePath", "evidenceRelativePath")) {
+			String stagedRelative = string(state, key);
+			if (!stagedRelative.startsWith("migration/output/")) throw blocked(
+				"Provider state-migration output escaped its compiled namespace.");
+			String relative = stagedRelative.substring("migration/output/".length());
+			expectedFiles.add(relative);
+			int slash = relative.lastIndexOf('/');
+			while (slash > 0) {
+				expectedDirectories.add(relative.substring(0, slash));
+				slash = relative.lastIndexOf('/', slash - 1);
+			}
+		}
 		final Set<String> actualFiles = new HashSet<String>();
 		final Set<String> actualDirectories = new HashSet<String>();
 		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
@@ -199,6 +197,261 @@ final class WorldBuilderPreservationStagedMigrator {
 		if (!expectedFiles.equals(actualFiles)
 			|| !expectedDirectories.equals(actualDirectories)) throw blocked(
 			"Staged migration output tree has extra or missing paths.");
+		verifySqlite(target, stage, object(execution.get("providerStateMigration")));
+	}
+
+	private static Map<String,Object> providerStateBinding(
+		WorldBuilderProviderCatalog.Composition composition)
+		throws WorldBuilderContractException {
+		if (composition == null) throw blocked(
+			"Provider composition is required for production state migration.");
+		WorldBuilderProviderCatalog.Artifact contract = null;
+		WorldBuilderProviderCatalog.Artifact tool = null;
+		for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+			String role = string(artifact.inventory, "role");
+			if ("state-migration-manifest".equals(role)) {
+				if (contract != null || !STATE_CONTRACT_BUNDLE.equals(artifact.bundlePath))
+					throw blocked("Provider state-migration manifest role is ambiguous.");
+				contract = artifact;
+			} else if ("server-runtime".equals(role)) {
+				if (tool != null || !STATE_TOOL_BUNDLE.equals(artifact.bundlePath))
+					throw blocked("Provider state-migration tool role is ambiguous.");
+				tool = artifact;
+			}
+		}
+		if (contract == null || tool == null) throw blocked(
+			"Provider composition omits the closed state-migration manifest or server runtime.");
+		String contractHash = string(contract.inventory, "sha256");
+		if (!STATE_CONTRACT_SHA256.equals(contractHash)) throw blocked(
+			"Provider state-migration manifest is not the compiled reviewed contract.");
+		validateStateContract(contract.source);
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("contractBundlePath", contract.bundlePath);
+		result.put("contractSha256", contractHash);
+		result.put("toolBundlePath", tool.bundlePath);
+		result.put("toolSha256", string(tool.inventory, "sha256"));
+		result.put("toolArtifactRole", "server-runtime");
+		result.put("mainClass", STATE_MAIN_CLASS);
+		result.put("migrationRowId", "preservation-retro-to-current-base-v1");
+		return result;
+	}
+
+	private static void validateStateContract(Path path)
+		throws WorldBuilderContractException {
+		Map<String,Object> contract;
+		try {
+			contract = WorldBuilderJsonDocuments.readObject(path);
+		} catch (IOException failure) {
+			throw drift(STATE_CONTRACT_BUNDLE,
+				"Provider state-migration manifest could not be read.", failure);
+		} catch (WorldBuilderDiscoveryException failure) {
+			throw drift(STATE_CONTRACT_BUNDLE,
+				"Provider state-migration manifest is malformed.", failure);
+		}
+		WorldBuilderBoundedInventory.exactKeys(contract, "preservation-migration",
+			"schemaId", "manifestType", "migrationRowId", "targetStateContractId",
+			"supportedEngines", "transformations", "invocation", "evidenceContract");
+		if (!"current-base-state-migration-v1".equals(string(contract, "schemaId"))
+			|| !"current-base-state-migration".equals(string(contract, "manifestType"))
+			|| !"preservation-retro-to-current-base-v1".equals(
+				string(contract, "migrationRowId"))
+			|| !"canonical-public-state-v1".equals(
+				string(contract, "targetStateContractId"))) throw blocked(
+			"Provider state-migration manifest identity changed.");
+		Map<String,Object> invocation = object(contract.get("invocation"));
+		WorldBuilderBoundedInventory.exactKeys(invocation, "preservation-migration",
+			"toolArtifactRole", "mainClass", "arguments");
+		if (!"server-runtime".equals(string(invocation, "toolArtifactRole"))
+			|| !STATE_MAIN_CLASS.equals(string(invocation, "mainClass"))) throw blocked(
+			"Provider state-migration invocation is not compiled into the Editor.");
+		Map<String,Object> arguments = object(invocation.get("arguments"));
+		WorldBuilderBoundedInventory.exactKeys(arguments, "preservation-migration",
+			"common", "sqlite", "mariadb");
+		if (!array(arguments.get("common")).equals(
+				Arrays.<Object>asList("--contract", "--engine", "--evidence"))
+			|| !array(arguments.get("sqlite")).equals(
+				Arrays.<Object>asList("--source", "--stage"))
+			|| !array(arguments.get("mariadb")).equals(Arrays.<Object>asList(
+				"--host", "--port", "--source-schema", "--stage-schema",
+				"--user-env", "--password-env"))) throw blocked(
+			"Provider state-migration argument contract changed.");
+		boolean sqlite = false;
+		for (Object raw : array(contract.get("supportedEngines"))) {
+			Map<String,Object> engine = object(raw);
+			if ("sqlite".equals(string(engine, "engine"))) {
+				sqlite = "new-database-file".equals(string(engine, "stageMode"))
+					&& "forbidden-read-only".equals(string(engine, "sourceMutation"))
+					&& "none".equals(string(engine, "credentialPolicy"));
+			}
+		}
+		if (!sqlite) throw blocked("Provider SQLite state-migration row is incomplete.");
+	}
+
+	private static void invokeSqlite(Path target, Path stage, Map<String,Object> binding)
+		throws IOException, WorldBuilderContractException {
+		validateStateBinding(binding);
+		Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(
+			string(binding, "sourceRelativePath"));
+		requireClosedSqliteSnapshot(target, source);
+		if (!WorldBuilderHashes.sha256(source).equals(string(binding, "sourceSha256")))
+			throw blocked("SQLite source changed after preview.");
+		Path contract = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "contractBundlePath"), "preservation-migration");
+		Path tool = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "toolBundlePath"), "preservation-migration");
+		requireBoundProviderFile(contract, string(binding, "contractSha256"),
+			"state-migration manifest");
+		requireBoundProviderFile(tool, string(binding, "toolSha256"), "server runtime");
+		Path output = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "stageRelativePath"), "preservation-migration");
+		Path evidence = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "evidenceRelativePath"), "preservation-migration");
+		Files.createDirectories(output.getParent());
+		if (Files.exists(output, LinkOption.NOFOLLOW_LINKS)
+			|| Files.exists(evidence, LinkOption.NOFOLLOW_LINKS)) throw blocked(
+			"Provider state-migration outputs already exist.");
+		Path java = Paths.get(System.getProperty("java.home"), "bin",
+			System.getProperty("os.name", "").toLowerCase().contains("win")
+				? "java.exe" : "java");
+		List<String> command = Arrays.asList(java.toString(), "-cp", tool.toString(),
+			STATE_MAIN_CLASS, "--contract", contract.toString(), "--engine", "sqlite",
+			"--source", source.toString(), "--stage", output.toString(),
+			"--evidence", evidence.toString());
+		Path log = stage.resolve("migration/provider-state-migration-output.log");
+		if (Files.exists(log, LinkOption.NOFOLLOW_LINKS)) throw blocked(
+			"Provider state-migration diagnostic path already exists.");
+		Process process = new ProcessBuilder(command).directory(stage.toFile())
+			.redirectErrorStream(true).redirectOutput(log.toFile()).start();
+		boolean finished;
+		try {
+			finished = process.waitFor(processTimeoutSeconds, TimeUnit.SECONDS);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt(); process.destroyForcibly();
+			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
+			Files.deleteIfExists(log);
+			throw blocked("Provider state migration was interrupted.");
+		}
+		if (!finished) {
+			process.destroyForcibly();
+			try { process.waitFor(10L, TimeUnit.SECONDS); }
+			catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
+			Files.deleteIfExists(log);
+			throw blocked("Provider state migration exceeded its bounded timeout.");
+		}
+		long logSize = Files.size(log);
+		if (logSize > 65536L) {
+			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
+			Files.deleteIfExists(log);
+			throw blocked("Provider state migrator exceeded its output bound.");
+		}
+		byte[] captured = Files.readAllBytes(log);
+		Files.delete(log);
+		if (process.exitValue() != 0) {
+			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
+			String diagnostic = new String(captured, StandardCharsets.UTF_8)
+				.replace('\n', ' ').replace('\r', ' ').trim();
+			throw blocked("Provider state migration refused the source"
+				+ (diagnostic.isEmpty() ? "." : ": " + diagnostic));
+		}
+		setMode(output, "0600"); setMode(evidence, "0600");
+		if (!WorldBuilderHashes.sha256(source).equals(string(binding, "sourceSha256")))
+			throw blocked("Provider state migration changed its read-only source.");
+	}
+
+	private static void verifySqlite(Path target, Path stage, Map<String,Object> binding)
+		throws IOException, WorldBuilderContractException {
+		validateStateBinding(binding);
+		Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(
+			string(binding, "sourceRelativePath"));
+		Path output = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "stageRelativePath"), "preservation-migration");
+		Path evidencePath = WorldBuilderPortablePath.resolveContained(stage,
+			string(binding, "evidenceRelativePath"), "preservation-migration");
+		requireSqliteFile(output);
+		if (!"0600".equals(fileMode(output)) || !"0600".equals(fileMode(evidencePath)))
+			throw blocked("Provider state-migration output permissions changed.");
+		Map<String,Object> evidence;
+		try {
+			evidence = WorldBuilderJsonDocuments.readObject(evidencePath);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw blocked("Provider state-migration evidence is malformed.");
+		}
+		WorldBuilderBoundedInventory.exactKeys(evidence, "preservation-migration",
+			"schemaId", "manifestType", "migrationRowId", "engine", "contractSha256",
+			"sourceSchemaFingerprint", "sourceStateSha256",
+			"stagedSourceProjectionSha256", "sourceBeforeSha256", "sourceAfterSha256",
+			"sourceUnchanged", "stageLocation", "rollbackPolicy", "status");
+		String sourceHash = string(binding, "sourceSha256");
+		if (!"current-base-state-migration-evidence-v1".equals(
+				string(evidence, "schemaId"))
+			|| !"current-base-state-migration-evidence".equals(
+				string(evidence, "manifestType"))
+			|| !"preservation-retro-to-current-base-v1".equals(
+				string(evidence, "migrationRowId"))
+			|| !"sqlite".equals(string(evidence, "engine"))
+			|| !string(binding, "contractSha256").equals(
+				string(evidence, "contractSha256"))
+			|| !sourceHash.equals(string(evidence, "sourceBeforeSha256"))
+			|| !sourceHash.equals(string(evidence, "sourceAfterSha256"))
+			|| !WorldBuilderHashes.sha256(source).equals(sourceHash)
+			|| !WorldBuilderBoundedInventory.bool(evidence.get("sourceUnchanged"),
+				"preservation-migration", "sourceUnchanged")
+			|| !string(evidence, "sourceStateSha256").equals(
+				string(evidence, "stagedSourceProjectionSha256"))
+			|| !output.toString().equals(string(evidence, "stageLocation"))
+			|| !"discard-stage-only".equals(string(evidence, "rollbackPolicy"))
+			|| !"verified".equals(string(evidence, "status"))) throw blocked(
+			"Provider state-migration evidence failed its closed verification contract.");
+		for (String key : Arrays.asList("sourceSchemaFingerprint", "sourceStateSha256",
+			"stagedSourceProjectionSha256")) requireHash(string(evidence, key), key);
+	}
+
+	static void validateStateBinding(Map<String,Object> binding)
+		throws WorldBuilderContractException {
+		WorldBuilderBoundedInventory.exactKeys(binding, "preservation-migration",
+			"contractBundlePath", "contractSha256", "toolBundlePath", "toolSha256",
+			"toolArtifactRole", "mainClass", "migrationRowId", "engine",
+			"sourceRelativePath", "sourceSha256", "stageRelativePath",
+			"evidenceRelativePath", "evidenceSchemaId");
+		if (!STATE_CONTRACT_BUNDLE.equals(string(binding, "contractBundlePath"))
+			|| !STATE_CONTRACT_SHA256.equals(string(binding, "contractSha256"))
+			|| !STATE_TOOL_BUNDLE.equals(string(binding, "toolBundlePath"))
+			|| !"server-runtime".equals(string(binding, "toolArtifactRole"))
+			|| !STATE_MAIN_CLASS.equals(string(binding, "mainClass"))
+			|| !"preservation-retro-to-current-base-v1".equals(
+				string(binding, "migrationRowId"))
+			|| !"sqlite".equals(string(binding, "engine"))
+			|| !SQLITE_SOURCE.equals(string(binding, "sourceRelativePath"))
+			|| !SQLITE_OUTPUT.equals(string(binding, "stageRelativePath"))
+			|| !SQLITE_EVIDENCE.equals(string(binding, "evidenceRelativePath"))
+			|| !"current-base-state-migration-evidence-v1".equals(
+				string(binding, "evidenceSchemaId"))) throw blocked(
+			"Provider state-migration binding changed from the compiled profile.");
+		requireHash(string(binding, "toolSha256"), "toolSha256");
+		String sourceHash = string(binding, "sourceSha256");
+		if (!sourceHash.isEmpty()) requireHash(sourceHash, "sourceSha256");
+	}
+
+	private static void requireBoundProviderFile(Path path, String hash, String role)
+		throws IOException, WorldBuilderContractException {
+		if (!safeRegular(path) || !WorldBuilderHashes.sha256(path).equals(hash))
+			throw blocked("Staged provider " + role + " differs from the reviewed inventory.");
+	}
+
+	private static void requireHash(String value, String label)
+		throws WorldBuilderContractException {
+		if (!value.matches("[0-9a-f]{64}")) throw blocked(
+			"Provider state-migration " + label + " is not a SHA-256 value.");
+	}
+
+	private static String fileHash(Path path, String relative)
+		throws WorldBuilderContractException {
+		try {
+			return WorldBuilderHashes.sha256(path);
+		} catch (IOException failure) {
+			throw drift(relative, "Migration source could not be hashed.", failure);
+		}
 	}
 
 	private static void requireClosedSqliteSnapshot(Path target, Path source)
@@ -209,29 +462,35 @@ final class WorldBuilderPreservationStagedMigrator {
 				throw blocked("SQLite sidecar state exists; obtain one closed offline snapshot.");
 		}
 		try {
-			long size = Files.size(source);
-			if (size < 512L || size > MAX_SQLITE_BYTES || size % 512L != 0L)
-				throw blocked("SQLite snapshot size is unsupported or incomplete.");
-			byte[] header = new byte[100];
-			try (java.io.InputStream input = Files.newInputStream(source)) {
-				int offset = 0;
-				while (offset < header.length) {
-					int count = input.read(header, offset, header.length - offset);
-					if (count < 0) throw blocked("SQLite snapshot header is truncated.");
-					offset += count;
-				}
-			}
-			for (int index = 0; index < SQLITE_MAGIC.length; index++)
-				if (header[index] != SQLITE_MAGIC[index]) throw blocked(
-					"Durable state is not an exact SQLite 3 snapshot.");
-			int pageSize = (header[16] & 255) * 256 + (header[17] & 255);
-			if (pageSize == 1) pageSize = 65536;
-			if (pageSize < 512 || pageSize > 65536
-				|| (pageSize & (pageSize - 1)) != 0 || size % pageSize != 0)
-				throw blocked("SQLite page size or file length is inconsistent.");
+			requireSqliteFile(source);
 		} catch (IOException failure) {
 			throw drift(SQLITE_SOURCE, "SQLite snapshot could not be read.", failure);
 		}
+	}
+
+	private static void requireSqliteFile(Path source)
+		throws IOException, WorldBuilderContractException {
+		if (!safeRegular(source)) throw blocked("SQLite state is missing, linked, or non-regular.");
+		long size = Files.size(source);
+		if (size < 512L || size > MAX_SQLITE_BYTES || size % 512L != 0L)
+			throw blocked("SQLite snapshot size is unsupported or incomplete.");
+		byte[] header = new byte[100];
+		try (InputStream input = Files.newInputStream(source)) {
+			int offset = 0;
+			while (offset < header.length) {
+				int count = input.read(header, offset, header.length - offset);
+				if (count < 0) throw blocked("SQLite snapshot header is truncated.");
+				offset += count;
+			}
+		}
+		for (int index = 0; index < SQLITE_MAGIC.length; index++)
+			if (header[index] != SQLITE_MAGIC[index]) throw blocked(
+				"Durable state is not an exact SQLite 3 snapshot.");
+		int pageSize = (header[16] & 255) * 256 + (header[17] & 255);
+		if (pageSize == 1) pageSize = 65536;
+		if (pageSize < 512 || pageSize > 65536
+			|| (pageSize & (pageSize - 1)) != 0 || size % pageSize != 0)
+			throw blocked("SQLite page size or file length is inconsistent.");
 	}
 
 	private static void requireSource(Path source, Map<String,Object> record)

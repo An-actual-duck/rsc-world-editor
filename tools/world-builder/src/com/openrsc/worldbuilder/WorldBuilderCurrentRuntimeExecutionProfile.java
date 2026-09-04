@@ -66,7 +66,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
-			"Production activation requires executable configuration, durable-state and canonical-map migration plus staged and installed launch, handshake, login and gameplay verification.");
+			"Production activation remains disabled pending complete PackedConverter map packaging and staged/installed launch, handshake, login, map, state, restart and gameplay verification.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -116,9 +116,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			return result;
 		}
 		result.add(readiness("typed-configuration-staging", true));
-		result.add(readiness("closed-sqlite-snapshot-staging", true));
-		result.add(readiness("single-sector-packed-map-parity", true));
-		result.add(readiness("provider-state-schema-migration-row", false));
+		result.add(readiness("provider-state-schema-migration-row", true));
+		result.add(readiness("closed-sqlite-current-schema-migration", true));
 		result.add(readiness("closed-mariadb-snapshot-restore", false));
 		result.add(readiness("complete-canonical-map-package", false));
 		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));
@@ -169,7 +168,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return WorldBuilderJsonDocuments.canonical(value);
 	}
 
-	Map<String,Object> migrationPlan(Path target, Map<String,Object> classification)
+	Map<String,Object> migrationPlan(Path target, Map<String,Object> classification,
+		WorldBuilderProviderCatalog.Composition composition)
 		throws WorldBuilderContractException {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("schemaVersion", Long.valueOf(1));
@@ -205,7 +205,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.put("stagedExecution", syntheticOnly
 			? syntheticStagedExecution()
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
-				string(map, "sourceRelativePath")));
+				string(map, "sourceRelativePath"), composition));
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
 			"migrationPlanFingerprintSha256");
@@ -275,6 +275,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
 			"implementationId", "requiredStateMigrationContractId",
 			"requiredStateMigrationRowId", "requiredProviderArtifactRoles",
+			"providerStateMigration",
 			"typedConfigurationReady", "sqliteSnapshotReady",
 			"sqliteSchemaMigrationReady", "mariaDbMigrationReady",
 			"canonicalMapSectorReady", "stagedOutputs", "readinessBlockers");
@@ -289,6 +290,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			Arrays.<Object>asList("state-migration-manifest", "contract-schema",
 				"server-runtime"))) throw refusal(
 			"Production state-migration artifact roles changed.");
+		WorldBuilderPreservationStagedMigrator.validateStateBinding(
+			object(staged.get("providerStateMigration")));
 		List<String> kinds = new ArrayList<String>();
 		for (Object raw : array(staged.get("stagedOutputs"))) {
 			Map<String,Object> output = object(raw);
@@ -304,14 +307,6 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			if ("typed-configuration".equals(kind)) {
 				if (!WorldBuilderPreservationStagedMigrator.CONFIG_OUTPUT.equals(relative)
 					|| !source.isEmpty()) throw refusal("Typed configuration path changed.");
-			} else if ("canonical-terrain-sector".equals(kind)) {
-				if (!WorldBuilderPreservationStagedMigrator.MAP_OUTPUT.equals(relative)
-					|| !"client/cache/landscape.pack".equals(source))
-					throw refusal("Canonical map migration path changed.");
-			} else if ("sqlite-state-snapshot".equals(kind)) {
-				if (!WorldBuilderPreservationStagedMigrator.SQLITE_OUTPUT.equals(relative)
-					|| !WorldBuilderPreservationStagedMigrator.SQLITE_SOURCE.equals(source))
-					throw refusal("SQLite migration path changed.");
 			} else throw refusal("Production staged output kind is not compiled.");
 		}
 		if (!kinds.contains("typed-configuration")) throw refusal(
@@ -445,7 +440,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			delta(39L, "a8f2aab06f39f9ffeed028b9bdbf5a691e7a18e0900e5613fd5fb272be0d5a5f", "T1", "discard-generated", "Reviewed generated cache is reproducible and discarded.")));
 		rules.add(rule("legacy-sqlite-state",
 			WorldBuilderPreservationStagedMigrator.SQLITE_SOURCE, false, 0L, "", "database",
-			delta(8192L, "cf9b51d21a6222cc4dd5936538b98e53621fce1bb1f6fc91582c7896a69bc158", "T2B", "preserve-state", "Reviewed closed invented SQLite snapshot is staged byte-exact pending the provider schema-migration row.")));
+			delta(290816L, "301063f734b269573782995b1aa8ea32edba569dd95276bc9a35db680692f623", "T2B", "preserve-state", "Reviewed closed invented Preservation SQLite schema migrates through the provider row into Current Base state.")));
 		rules.add(rule("legacy-plugin-source", "server/plugins/Welcome.java", true, 63L,
 			"1b18e7c7c80198d069c8001944526a7d6411a45dbd36ce944530246d6f68b66f", "plugin-source"));
 		root.put("evidenceRules", rules); root.put("adapterManifestHash", ZERO_HASH);

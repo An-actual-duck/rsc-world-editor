@@ -397,7 +397,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		adapterReference.put("evidenceAuthority", string(adapter.root, "evidenceAuthority"));
 		plan.put("inputAdapter", adapterReference);
 		plan.put("executionProfile", profile.identity());
-		plan.put("migrationPlan", profile.migrationPlan(target, classification));
+		plan.put("migrationPlan", profile.migrationPlan(target, classification, composition));
 		Map<String,Object> projectReference = new LinkedHashMap<String,Object>();
 		projectReference.put("projectId", string(project.root, "projectId"));
 		projectReference.put("capabilityFingerprintSha256",
@@ -636,7 +636,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				object(migration.get("typedConfiguration")), execution);
 			WorldBuilderPreservationStagedMigrator.stage(preview.targetRoot, staging,
 				execution);
-			WorldBuilderPreservationStagedMigrator.verify(staging, execution);
+			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging, execution);
 		}
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
