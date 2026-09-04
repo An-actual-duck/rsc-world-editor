@@ -158,6 +158,27 @@ public final class CurrentUpgradeHarness {
         cls.provider_script = cls.provider_root / "scripts/current-platform-composition.py"
         cls.identity = cls._resolve(cls.provider_script, cls.catalog, cls.provider_root,
                                     cls.shared_root / "synthetic-base.json")
+        cls.candidate_root = cls.shared_root / "noninstallable-release-candidate"
+        shutil.copytree(cls.provider_root, cls.candidate_root)
+        candidate_variant_path = (
+            cls.candidate_root / "current-platform/variants/current-base-v1.json"
+        )
+        candidate_variant = json.loads(candidate_variant_path.read_text())
+        candidate_variant["releaseStatus"] = "release-candidate"
+        candidate_variant["installable"] = False
+        candidate_variant_path.write_text(json.dumps(candidate_variant, indent=2) + "\n")
+        candidate_bundle_path = (
+            cls.candidate_root / "current-platform/bundle-specs/current-base-v1.json"
+        )
+        candidate_bundle = json.loads(candidate_bundle_path.read_text())
+        candidate_bundle["installable"] = False
+        candidate_bundle_path.write_text(json.dumps(candidate_bundle, indent=2) + "\n")
+        cls.candidate_catalog = cls.candidate_root / "current-platform"
+        cls.candidate_identity = cls._resolve(
+            cls.candidate_root / "scripts/current-platform-composition.py",
+            cls.candidate_catalog, cls.candidate_root,
+            cls.shared_root / "noninstallable-release-candidate.json",
+        )
         cls.production_identity = cls._resolve(
             provider_tool, PROVIDER / "current-platform", PROVIDER,
             cls.shared_root / "production-base.json",
@@ -336,6 +357,9 @@ public final class CurrentUpgradeHarness {
              self.catalog, CONTRACTS / "input-adapter-preservation-v1.json", False),
             ("noninstallable", "preview", "preservation-t0", self.production_identity,
              PROVIDER / "current-platform", self.production_adapter, False),
+            ("release-candidate-noninstallable", "preview", "preservation-t0",
+             self.candidate_identity, self.candidate_catalog,
+             CONTRACTS / "input-adapter-preservation-v1.json", False),
         )
         for index, (name, operation, fixture, identity, catalog, adapter, offline) in enumerate(cases):
             with self.subTest(case=name):
