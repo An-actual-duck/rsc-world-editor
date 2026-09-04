@@ -692,7 +692,12 @@ post-install verification, automatic rollback, interrupted recovery evidence,
 and exact recovery. Preview and all refused classifications write nothing to
 the target or transaction directory. Map-only import remains unavailable until
 the resulting current ledger and installed provider artifact set both
-revalidate.
+revalidate. Rollback and recovery refuse destructive cleanup unless the ledger
+is byte-exact planned activation or preimage and the release is the exact
+transaction-owned artifact/activation tree. Map-import eligibility additionally
+requires the ledger launcher/build/map identities and strict activation marker
+to match the selected composition, project, adapter, semantic plan binding, and
+transaction receipt; all drift paths are zero-write refusals.
 
 This is executor architecture, not production upgrade support. It has no CLI or
 desktop apply route and refuses non-synthetic adapters. The current provider

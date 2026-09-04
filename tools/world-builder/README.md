@@ -199,15 +199,22 @@ preimage backup inventory, activation-last ledger publication, installed
 artifact verification, and automatic rollback/recovery evidence. It rejects
 `PORT_REQUIRED`, T5, non-installable provider compositions, non-synthetic
 adapters, changed confirmation identities, and offline uncertainty before
-target writes. This executor foundation is not permission to upgrade a real
-server: it does not yet contain a production Preservation adapter, canonical
+target writes. Rollback and recovery first prove the current ledger is the
+byte-exact planned activation or preimage and the complete release tree remains
+transaction-owned; extra, missing, linked, or changed evidence is preserved as
+`RECOVERY_REQUIRED` instead of overwritten or deleted. This executor foundation
+is not permission to upgrade a real server: it does not yet contain a
+production Preservation adapter, canonical
 map/configuration/database migrators, an executable provider bundle, staged
 launch/login/gameplay verification, or a public apply surface.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
 is exactly `CURRENT` and every installed provider artifact is revalidated
-against the selected composition. Ledger or artifact drift closes the gate.
+against the selected composition. The ledger launcher/build/map identities and
+strict activation marker must also match the selected composition, project,
+adapter, semantic plan binding, and transaction receipt. Any ledger, marker,
+or release-tree drift closes the gate without writes.
 
 A descriptor-backed server publishes
 `server/world-builder-capabilities.json` and maps a lowercase role to
