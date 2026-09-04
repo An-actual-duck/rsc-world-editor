@@ -7,13 +7,17 @@ import java.net.ServerSocket;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.channels.OverlappingFileLockException;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
+import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /** Target-scoped operation lock plus exclusive game/websocket port leases. */
 final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
@@ -26,25 +30,35 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		this.channel = channel; this.lock = lock; this.sockets = sockets;
 	}
 
-	static void inspect(Path target, Map<String,Object> typed)
+	static void inspect(Path target, Map<String,Object> typed,
+		boolean syntheticFixture)
 		throws IOException, WorldBuilderContractException {
-		try (WorldBuilderCurrentRuntimeOfflineLease ignored = acquire(target, typed)) {
+		try (WorldBuilderCurrentRuntimeOfflineLease ignored = acquire(target, typed,
+			syntheticFixture)) {
 			// Read-only preview proves the same locks can be held, then releases them.
 		}
 	}
 
 	static WorldBuilderCurrentRuntimeOfflineLease acquire(Path target,
-		Map<String,Object> typed) throws IOException, WorldBuilderContractException {
+		Map<String,Object> typed, boolean syntheticFixture)
+		throws IOException, WorldBuilderContractException {
 		Path root = target.toRealPath();
-		Path anchor = selectAnchor(root, typed);
+		Path anchor = selectAnchor(root, typed, syntheticFixture);
+		Object beforeIdentity = stableIdentity(anchor);
+		String beforeHash = WorldBuilderHashes.sha256(anchor);
 		FileChannel channel = FileChannel.open(anchor, StandardOpenOption.READ,
 			StandardOpenOption.WRITE, LinkOption.NOFOLLOW_LINKS);
 		FileLock lock = null;
 		List<ServerSocket> sockets = new ArrayList<ServerSocket>();
 		try {
+			if (!Objects.equals(beforeIdentity, stableIdentity(anchor))) throw refusal(
+				"Target operation-lock anchor identity changed while it was opened.");
 			try { lock = channel.tryLock(); }
 			catch (OverlappingFileLockException busy) { lock = null; }
 			if (lock == null) throw refusal("Another target transaction holds the reviewed configuration or ledger.");
+			if (!Objects.equals(beforeIdentity, stableIdentity(anchor))
+				|| !beforeHash.equals(channelSha256(channel))) throw refusal(
+					"The locked operation anchor is not the exact stable file that was reviewed.");
 			long game = integer(typed, "gamePort");
 			long websocket = integer(typed, "websocketPort");
 			if (game == websocket) throw refusal("Game and websocket ports must be distinct.");
@@ -60,18 +74,69 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		}
 	}
 
-	private static Path selectAnchor(Path target, Map<String,Object> typed)
+	private static Path selectAnchor(Path target, Map<String,Object> typed,
+		boolean syntheticFixture)
 		throws IOException, WorldBuilderContractException {
 		String configured = string(typed, "sourceRelativePath");
-		Path anchor = configured.isEmpty()
-			? target.resolve(".world-builder/runtime-ledger-v1.json")
-			: WorldBuilderPortablePath.resolveContained(target, configured,
+		Path anchor;
+		if (configured.isEmpty()) {
+			Path ledger = target.resolve(".world-builder/runtime-ledger-v1.json");
+			if (syntheticFixture) return requireSafeAnchor(target, ledger,
+				".world-builder/runtime-ledger-v1.json");
+			WorldBuilderCurrentRuntimeContracts.Document installed =
+				WorldBuilderCurrentRuntimeContracts.read(
+					WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER, ledger);
+			String launcher = WorldBuilderBoundedInventory.string(
+				installed.root.get("activeLauncherRelativePath"),
+				"current-runtime-offline", "activeLauncherRelativePath");
+			anchor = WorldBuilderPortablePath.resolveContained(target, launcher,
 				"current-runtime-offline");
+		} else {
+			anchor = WorldBuilderPortablePath.resolveContained(target, configured,
+				"current-runtime-offline");
+		}
+		return requireSafeAnchor(target, anchor, configured);
+	}
+
+	private static Path requireSafeAnchor(Path target, Path anchor, String relative)
+		throws IOException, WorldBuilderContractException {
 		if (!Files.isRegularFile(anchor, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(anchor) || !anchor.toRealPath().startsWith(target))
 			throw refusal("Target operation-lock anchor is missing or unsafe.");
-		WorldBuilderAdaptiveExporter.rejectHardLink(anchor, configured);
+		WorldBuilderAdaptiveExporter.rejectHardLink(anchor, relative);
 		return anchor;
+	}
+
+	private static Object stableIdentity(Path anchor)
+		throws IOException, WorldBuilderContractException {
+		BasicFileAttributes attributes = Files.readAttributes(anchor,
+			BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+		if (!attributes.isRegularFile() || attributes.isSymbolicLink()
+			|| attributes.fileKey() == null) throw refusal(
+				"Target operation-lock anchor has no stable regular-file identity.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(anchor,
+			anchor.getFileName().toString());
+		return attributes.fileKey();
+	}
+
+	private static String channelSha256(FileChannel channel) throws IOException {
+		long size = channel.size();
+		if (size < 0L || size > WorldBuilderContractLimits.MAX_JSON_BYTES)
+			throw new IOException("Operation-lock anchor exceeds its bounded size");
+		MessageDigest digest = WorldBuilderHashes.newDigest();
+		ByteBuffer buffer = ByteBuffer.allocate(8192);
+		channel.position(0L);
+		long readTotal = 0L;
+		while (true) {
+			int count = channel.read(buffer);
+			if (count < 0) break;
+			if (count == 0) continue;
+			readTotal += count;
+			buffer.flip(); digest.update(buffer); buffer.clear();
+		}
+		if (readTotal != size || channel.size() != size)
+			throw new IOException("Operation-lock anchor changed during channel reread");
+		return WorldBuilderHashes.hex(digest.digest());
 	}
 
 	private static ServerSocket bind(int port, String role)

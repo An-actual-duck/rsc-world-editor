@@ -140,7 +140,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			project, classification, transactionId, profile, packedSourceRoot,
 			packedDiscoveryReport);
 		if (inspectOffline) WorldBuilderCurrentRuntimeOfflineLease.inspect(target,
-			object(object(plan.get("migrationPlan")).get("typedConfiguration")));
+			object(object(plan.get("migrationPlan")).get("typedConfiguration")),
+			profile.syntheticOnly);
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
 			inputAdapter, projectCapability, profile, packedSourceRoot,
 			packedDiscoveryReport, plan);
@@ -171,7 +172,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
 			WorldBuilderCurrentRuntimeOfflineLease.acquire(reviewed.targetRoot,
-				object(object(reviewed.plan.get("migrationPlan")).get("typedConfiguration")))) {
+				object(object(reviewed.plan.get("migrationPlan")).get("typedConfiguration")),
+				reviewed.profile.syntheticOnly)) {
 		Path transaction = transactionPath(reviewed.transactionRoot,
 			string(reviewed.plan, "transactionId"));
 		if (Files.exists(transaction, LinkOption.NOFOLLOW_LINKS)) throw problem(
@@ -179,6 +181,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"The reviewed transaction identity is already in use.",
 			"Preserve the existing evidence and request a new transaction identity.");
 		Files.createDirectory(transaction);
+		WorldBuilderAdaptiveDurability.forceDirectory(transaction);
+		WorldBuilderAdaptiveDurability.forceDirectory(transaction.getParent());
 		Path backup = transaction.resolve("backup");
 		Path staging = transaction.resolve("staging");
 		Path receipt = transaction.resolve("receipt.json");
@@ -189,12 +193,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		try {
 			writeNew(planPath, reviewed.toJson());
 			Files.createDirectory(backup);
+			WorldBuilderAdaptiveDurability.forceDirectory(backup);
+			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
 			backupPreimage(reviewed, backup);
 			writeReceipt(receipt, receipt(reviewed.plan, "pending", false,
 				false, "", "backup-complete"));
 			observe("after-backup", backup);
 
 			Files.createDirectory(staging);
+			WorldBuilderAdaptiveDurability.forceDirectory(staging);
+			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
 			stageRelease(reviewed, staging);
 			writeReceipt(receipt, receipt(reviewed.plan, "pending", false,
 				false, "", "staging-verified"));
@@ -315,7 +323,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Restore the exact pending/recovery-required receipt and plan.");
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
 			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
-				object(object(plan.get("migrationPlan")).get("typedConfiguration")))) {
+				object(object(plan.get("migrationPlan")).get("typedConfiguration")),
+				bool(object(plan.get("executionProfile")), "syntheticOnly"))) {
 			rollback(target, plan, backup, true, true, Collections.<Path>emptyList());
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -383,8 +392,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderCurrentRuntimeContracts.read(
 				WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER,
 				safeExistingFile(target, LEDGER_RELATIVE));
-		String releaseRelative = RELEASE_PREFIX + composition.string("bundleInventoryHash");
-		String activationRelative = releaseRelative + "/activation.json";
+		String activationRelative = string(ledger.root, "activeLauncherRelativePath");
+		String releasePrefix = RELEASE_PREFIX + composition.string("bundleInventoryHash") + "/";
+		if (!activationRelative.startsWith(releasePrefix)
+			|| !activationRelative.endsWith("/activation.json")) return false;
+		String activationTransaction = activationRelative.substring(releasePrefix.length(),
+			activationRelative.length() - "/activation.json".length());
+		if (!activationTransaction.matches("[A-Za-z0-9._-]+")
+			|| !array(ledger.root.get("transactionReceiptIds")).contains(
+				activationTransaction)) return false;
+		String releaseRelative = activationRelative.substring(0,
+			activationRelative.length() - "/activation.json".length());
 		if (!activationRelative.equals(string(ledger.root,
 			"activeLauncherRelativePath"))) return false;
 		if (!profile.serverBuildId.equals(string(ledger.root, "serverBuildId"))
@@ -439,12 +457,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("semanticActions", semantic);
 		plan.put("semanticActionsHash", canonicalHash(semantic));
 		List<Object> artifacts = new ArrayList<Object>();
+		String releaseRelative = RELEASE_PREFIX + composition.string("bundleInventoryHash")
+			+ "/" + transactionId;
 		for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
 			Map<String,Object> action = new LinkedHashMap<String,Object>();
 			action.put("sourcePath", artifact.sourcePath);
 			action.put("bundlePath", artifact.bundlePath);
-			action.put("installRelativePath", RELEASE_PREFIX
-				+ composition.string("bundleInventoryHash") + "/" + artifact.bundlePath);
+			action.put("installRelativePath", releaseRelative + "/" + artifact.bundlePath);
 			action.put("mode", string(artifact.inventory, "mode"));
 			action.put("size", artifact.inventory.get("size"));
 			action.put("sha256", string(artifact.inventory, "sha256"));
@@ -453,7 +472,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("artifactPlan", artifacts);
 		validateProviderMigrationArtifactBinding(plan, artifacts, profile);
 		plan.put("artifactPlanHash", canonicalHash(artifacts));
-		String releaseRelative = RELEASE_PREFIX + composition.string("bundleInventoryHash");
 		plan.put("releaseRelativePath", releaseRelative);
 		plan.put("stagingPolicy", "external-same-filesystem-outside-active-target");
 		plan.put("activationLedgerRelativePath", LEDGER_RELATIVE);
@@ -655,10 +673,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Path destination = targetPath(backup, string(record, "backupRelativePath"));
 			Files.createDirectories(destination.getParent());
 			Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+			WorldBuilderAdaptiveDurability.forceFile(destination);
 			requireFileMatches(destination, record, relative);
 		}
 		writeNew(backup.resolve("preimage-inventory.json"),
 			WorldBuilderJsonDocuments.pretty(preview.plan.get("preimageInventory")));
+		WorldBuilderAdaptiveDurability.forceTreeDirectories(backup);
 	}
 
 	private void stageRelease(Preview preview, Path staging)
@@ -779,6 +799,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		try {
 			Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE,
 				StandardCopyOption.REPLACE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceFile(ledger);
+			WorldBuilderAdaptiveDurability.forceDirectory(ledger.getParent());
 		} catch (AtomicMoveNotSupportedException unsupported) {
 			Files.deleteIfExists(temporary);
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED, LEDGER_RELATIVE, true,
@@ -855,17 +877,25 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.createDirectories(ledger.getParent());
 			Path temporary = ledger.getParent().resolve(".runtime-ledger-v1.json.rollback");
 			Files.copy(source, temporary);
+			WorldBuilderAdaptiveDurability.forceFile(temporary);
 			Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE,
 				StandardCopyOption.REPLACE_EXISTING);
+			WorldBuilderAdaptiveDurability.forceFile(ledger);
+			WorldBuilderAdaptiveDurability.forceDirectory(ledger.getParent());
 		} else if (ledgerState == 1) {
 			requireRollbackLedgerState(ledger, ledgerRecord,
 				object(plan.get("activationLedger")));
 			Files.delete(ledger);
+			WorldBuilderAdaptiveDurability.forceDirectory(ledger.getParent());
 		}
-		if (exactTemporary) Files.delete(ledgerTemporary);
+		if (exactTemporary) {
+			Files.delete(ledgerTemporary);
+			WorldBuilderAdaptiveDurability.forceDirectory(ledgerTemporary.getParent());
+		}
 		if (releaseExists) {
 			verifyOwnedReleaseTree(target, plan);
 			deleteOwnedTree(release);
+			WorldBuilderAdaptiveDurability.forceDirectory(release.getParent());
 		}
 		List<Path> reversed = new ArrayList<Path>(createdTargetDirectories);
 		Collections.reverse(reversed);
@@ -972,7 +1002,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		binding.put("migrationPlan", source.get("migrationPlan"));
 		Map<String,Object> destination = object(source.get("destination"));
 		binding.put("releaseRelativePath", RELEASE_PREFIX
-			+ string(destination, "bundleInventoryHash"));
+			+ string(destination, "bundleInventoryHash") + "/"
+			+ string(source, "transactionId"));
 		return canonicalHash(binding);
 	}
 
@@ -1007,7 +1038,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"preimageInventoryHash");
 		requireHash(string(activation, "artifactPlanHash"), "artifactPlanHash");
 		requireHash(string(activation, "semanticActionsHash"), "semanticActionsHash");
-		if (!providerArtifactPlanHash(composition).equals(
+		if (!providerArtifactPlanHash(composition,
+			string(activation, "transactionId")).equals(
 			string(activation, "artifactPlanHash")))
 			throw activationMismatch("artifactPlanHash");
 		Map<String,Object> destination = object(activation.get("destination"));
@@ -1078,7 +1110,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	}
 
 	private static String providerArtifactPlanHash(
-		WorldBuilderProviderCatalog.Composition composition)
+		WorldBuilderProviderCatalog.Composition composition, String transactionId)
 		throws WorldBuilderContractException {
 		List<Object> artifacts = new ArrayList<Object>();
 		for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
@@ -1086,7 +1118,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			action.put("sourcePath", artifact.sourcePath);
 			action.put("bundlePath", artifact.bundlePath);
 			action.put("installRelativePath", RELEASE_PREFIX
-				+ composition.string("bundleInventoryHash") + "/" + artifact.bundlePath);
+				+ composition.string("bundleInventoryHash") + "/" + transactionId
+				+ "/" + artifact.bundlePath);
 			action.put("mode", artifact.inventory.get("mode"));
 			action.put("size", artifact.inventory.get("size"));
 			action.put("sha256", artifact.inventory.get("sha256"));
@@ -1273,6 +1306,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 					"Restore a safe target layout before retrying.");
 			} else {
 				Files.createDirectory(current); created.add(current);
+				WorldBuilderAdaptiveDurability.forceDirectory(current);
+				WorldBuilderAdaptiveDurability.forceDirectory(current.getParent());
 			}
 		}
 	}
@@ -1284,7 +1319,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Content-addressed release destination already exists.",
 			"Revalidate the installed release or use exact recovery.");
 		try {
+			WorldBuilderAdaptiveDurability.forceTree(staging);
 			Files.move(staging, release, StandardCopyOption.ATOMIC_MOVE);
+			WorldBuilderAdaptiveDurability.forceDirectory(release.getParent());
+			WorldBuilderAdaptiveDurability.forceDirectory(staging.getParent());
 		} catch (AtomicMoveNotSupportedException unsupported) {
 			throw problem(WorldBuilderErrorCodes.MUTATION_FAILED,
 				release.getFileName().toString(), false,
@@ -1385,22 +1423,45 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	}
 
 	private static void writeReceipt(Path path, Map<String,Object> receipt)
-		throws IOException {
+		throws IOException, WorldBuilderContractException {
 		Path temporary = path.getParent().resolve(".receipt.json.tmp");
+		if (Files.exists(temporary, LinkOption.NOFOLLOW_LINKS)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
+			"A prior receipt staging file exists and was preserved.",
+			"Keep the transaction offline and inspect its exact durable evidence.");
 		Files.write(temporary, WorldBuilderJsonDocuments.pretty(receipt)
-			.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE,
-			StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+			.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW,
+			StandardOpenOption.WRITE);
+		WorldBuilderAdaptiveDurability.forceFile(temporary);
 		try {
-			Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE,
-				StandardCopyOption.REPLACE_EXISTING);
+			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+				BasicFileAttributes current = Files.readAttributes(path,
+					BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+				if (!current.isRegularFile() || current.isSymbolicLink()
+					|| current.fileKey() == null) throw problem(
+						WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
+						"Durable receipt destination is not one stable regular file.",
+						"Preserve the transaction and request exact recovery.");
+				WorldBuilderAdaptiveExporter.rejectHardLink(path, "receipt.json");
+				Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE,
+					StandardCopyOption.REPLACE_EXISTING);
+			} else {
+				WorldBuilderAdaptiveAtomicFiles.moveNew(temporary, path,
+					OPERATION, "receipt.json");
+			}
+			WorldBuilderAdaptiveDurability.forceFile(path);
+			WorldBuilderAdaptiveDurability.forceDirectory(path.getParent());
 		} catch (AtomicMoveNotSupportedException unsupported) {
 			Files.deleteIfExists(temporary); throw unsupported;
 		}
 	}
 
-	private static void writeNew(Path path, String value) throws IOException {
+	private static void writeNew(Path path, String value)
+		throws IOException, WorldBuilderContractException {
 		Files.write(path, value.getBytes(StandardCharsets.UTF_8),
 			StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+		WorldBuilderAdaptiveDurability.forceFile(path);
+		WorldBuilderAdaptiveDurability.forceDirectory(path.getParent());
 	}
 
 	private void observe(String milestone, Path path) throws Exception {
@@ -1591,7 +1652,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Recovery plan has unsupported execution authority.",
 			"Restore the exact synthetic transaction plan.");
 		Map<String,Object> destination = object(plan.get("destination"));
-		String release = RELEASE_PREFIX + string(destination, "bundleInventoryHash");
+		String release = RELEASE_PREFIX + string(destination, "bundleInventoryHash")
+			+ "/" + string(plan, "transactionId");
 		if (!release.equals(string(plan, "releaseRelativePath"))) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "releaseRelativePath", true,
 			"Recovery release path is not the content-addressed destination.",

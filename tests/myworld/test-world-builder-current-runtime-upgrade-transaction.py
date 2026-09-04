@@ -224,9 +224,13 @@ public final class CurrentUpgradeHarness {
                         && selected(failures, "tamper-release-during-rollback")) {
                         Path releases = path.resolve(".world-builder/current-runtime/releases");
                         try (DirectoryStream<Path> entries = Files.newDirectoryStream(releases)) {
-                            Path release = entries.iterator().next();
-                            Files.write(release.resolve("unexpected.bin"), new byte[] {1},
-                                StandardOpenOption.CREATE_NEW);
+                            Path bundle = entries.iterator().next();
+                            try (DirectoryStream<Path> transactions =
+                                Files.newDirectoryStream(bundle)) {
+                                Path release = transactions.iterator().next();
+                                Files.write(release.resolve("unexpected.bin"), new byte[] {1},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
                         }
                     }
                     if (selected(failures, milestone)) {
