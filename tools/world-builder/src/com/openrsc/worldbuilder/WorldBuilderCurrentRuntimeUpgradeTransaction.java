@@ -224,6 +224,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
 		Path workspace = realDirectory(transactionRoot, "transaction-root");
+		if (workspace.startsWith(target) || target.startsWith(workspace)
+			|| !Files.getFileStore(target).equals(Files.getFileStore(workspace))) {
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "transaction-root", true,
+				"Recovery transaction evidence is not in an external same-filesystem directory.",
+				"Restore the exact sibling transaction directory used by preview.");
+		}
 		requireOffline(target);
 		Path transaction = transactionPath(workspace, transactionId);
 		Path planPath = safeExistingFile(transaction, "upgrade-plan.json");
@@ -235,11 +241,27 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Recovery plan is malformed.", "Restore the exact transaction evidence.", malformed);
 		}
 		validatePlanFingerprint(plan);
+		validateRecoveryPlan(plan);
 		if (!transactionId.equals(string(plan, "transactionId"))) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "transactionId", true,
 			"Recovery transaction identity does not match its directory.",
 			"Restore the exact transaction evidence.");
 		Path backup = transaction.resolve("backup");
+		Map<String,Object> priorReceipt;
+		try {
+			priorReceipt = WorldBuilderJsonDocuments.readObject(
+				safeExistingFile(transaction, "receipt.json"));
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
+				"Recovery receipt is malformed.", "Restore the exact receipt.", malformed);
+		}
+		validateReceiptFingerprint(priorReceipt);
+		if (!"recovery-required".equals(string(priorReceipt, "status"))
+			|| !string(plan, "planFingerprintSha256").equals(
+				string(priorReceipt, "planFingerprintSha256"))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
+			"Recovery receipt does not authorize this exact failed plan.",
+			"Restore the exact recovery-required receipt and plan.");
 		try {
 			rollback(target, plan, backup, true, true, Collections.<Path>emptyList());
 		} catch (WorldBuilderContractException failure) {
@@ -586,7 +608,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		if (ledgerRecord == null) throw new IOException("ledger preimage missing");
 		Path ledger = targetPath(target, LEDGER_RELATIVE);
-		if (bool(ledgerRecord, "present")) {
+		if (ledgerActivated && bool(ledgerRecord, "present")) {
 			Path source = safeExistingFile(backup, string(ledgerRecord, "backupRelativePath"));
 			requireFileMatches(source, ledgerRecord, LEDGER_RELATIVE);
 			Files.createDirectories(ledger.getParent());
@@ -594,17 +616,24 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.copy(source, temporary);
 			Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE,
 				StandardCopyOption.REPLACE_EXISTING);
-		} else if (Files.exists(ledger, LinkOption.NOFOLLOW_LINKS)) {
+		} else if (ledgerActivated && Files.exists(ledger, LinkOption.NOFOLLOW_LINKS)) {
 			if (Files.isSymbolicLink(ledger) || !Files.isRegularFile(ledger,
 				LinkOption.NOFOLLOW_LINKS)) throw new IOException("unsafe ledger during rollback");
 			Files.delete(ledger);
 		}
 		Path release = targetPath(target, string(plan, "releaseRelativePath"));
-		if (Files.exists(release, LinkOption.NOFOLLOW_LINKS)) deleteOwnedTree(release);
+		if (releasePublished && Files.exists(release, LinkOption.NOFOLLOW_LINKS))
+			deleteOwnedTree(release);
 		List<Path> reversed = new ArrayList<Path>(createdTargetDirectories);
 		Collections.reverse(reversed);
 		for (Path directory : reversed) if (Files.isDirectory(directory,
 			LinkOption.NOFOLLOW_LINKS) && isEmpty(directory)) Files.delete(directory);
+		Path parent = release.getParent();
+		while (parent != null && !parent.equals(target)) {
+			if (!Files.isDirectory(parent, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(parent) || !isEmpty(parent)) break;
+			Files.delete(parent); parent = parent.getParent();
+		}
 		verifyPreimage(target, plan);
 	}
 
@@ -911,6 +940,112 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		String confirmationIdentity() throws WorldBuilderContractException {
 			return string(plan, "confirmationIdentity");
 		}
+	}
+
+	private static void validateRecoveryPlan(Map<String,Object> plan)
+		throws WorldBuilderContractException {
+		WorldBuilderBoundedInventory.exactKeys(plan, OPERATION,
+			"schemaVersion", "manifestType", "transactionId", "classificationStatus",
+			"classificationTier", "classificationFingerprintSha256", "inputAdapter",
+			"projectCapability", "destination", "preimageInventory",
+			"preimageInventoryHash", "semanticActions", "semanticActionsHash",
+			"artifactPlan", "artifactPlanHash", "releaseRelativePath", "stagingPolicy",
+			"activationLedgerRelativePath", "activationLedger",
+			"verificationEvidenceHash", "mapImportAvailableBeforeApply",
+			"mutationOccurred", "confirmationIdentity", "planFingerprintSha256");
+		if (integer(plan, "schemaVersion") != 1L
+			|| !"world-builder-current-runtime-upgrade-plan".equals(
+				string(plan, "manifestType"))
+			|| !"UPGRADE_READY".equals(string(plan, "classificationStatus"))
+			|| !Arrays.asList("T0", "T1", "T2A", "T2B", "MANAGED_N").contains(
+				string(plan, "classificationTier"))
+			|| !"external-same-filesystem-outside-active-target".equals(
+				string(plan, "stagingPolicy"))
+			|| !LEDGER_RELATIVE.equals(string(plan, "activationLedgerRelativePath"))
+			|| bool(plan, "mapImportAvailableBeforeApply")
+			|| bool(plan, "mutationOccurred")) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "upgrade-plan", true,
+			"Recovery plan has unsupported execution authority.",
+			"Restore the exact synthetic transaction plan.");
+		Map<String,Object> destination = object(plan.get("destination"));
+		String release = RELEASE_PREFIX + string(destination, "bundleInventoryHash");
+		if (!release.equals(string(plan, "releaseRelativePath"))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "releaseRelativePath", true,
+			"Recovery release path is not the content-addressed destination.",
+			"Restore the exact synthetic transaction plan.");
+		Set<String> preimagePaths = new HashSet<String>();
+		boolean ledgerPresent = false;
+		for (Object raw : array(plan.get("preimageInventory"))) {
+			Map<String,Object> record = object(raw);
+			WorldBuilderBoundedInventory.exactKeys(record, OPERATION,
+				"relativePath", "present", "size", "sha256", "backupRelativePath");
+			String relative = WorldBuilderPortablePath.require(
+				string(record, "relativePath"), OPERATION);
+			if (!preimagePaths.add(WorldBuilderPortablePath.collisionKey(relative, OPERATION)))
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, true,
+					"Recovery preimage repeats or case-collides.",
+					"Restore the exact synthetic transaction plan.");
+			boolean present = bool(record, "present");
+			String backup = string(record, "backupRelativePath");
+			if (present != !backup.isEmpty()
+				|| present && !("files/" + relative).equals(backup)) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, true,
+				"Recovery backup path does not exactly derive from its preimage path.",
+				"Restore the exact synthetic transaction plan.");
+			if (LEDGER_RELATIVE.equals(relative)) ledgerPresent = true;
+		}
+		if (!ledgerPresent) throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+			LEDGER_RELATIVE, true, "Recovery plan omits the activation-ledger preimage.",
+			"Restore the exact synthetic transaction plan.");
+		Set<String> bundlePaths = new HashSet<String>();
+		for (Object raw : array(plan.get("artifactPlan"))) {
+			Map<String,Object> artifact = object(raw);
+			WorldBuilderBoundedInventory.exactKeys(artifact, OPERATION,
+				"sourcePath", "bundlePath", "installRelativePath", "mode", "size", "sha256");
+			String bundle = WorldBuilderPortablePath.require(
+				string(artifact, "bundlePath"), OPERATION);
+			if (!bundlePaths.add(WorldBuilderPortablePath.collisionKey(bundle, OPERATION))
+				|| !(release + "/" + bundle).equals(
+					string(artifact, "installRelativePath"))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, bundle, true,
+				"Recovery artifact path is duplicated or not derived from the release root.",
+				"Restore the exact synthetic transaction plan.");
+		}
+		Map<String,Object> ledger = object(plan.get("activationLedger"));
+		for (String field : Arrays.asList("platformReleaseId", "platformManifestHash",
+			"schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash",
+			"bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
+			"inputAdapterContractId")) if (!string(destination, field).equals(
+				string(ledger, field))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, field, true,
+			"Activation ledger does not bind the plan destination.",
+			"Restore the exact synthetic transaction plan.");
+		if (!canonicalHash(plan.get("preimageInventory")).equals(
+				string(plan, "preimageInventoryHash"))
+			|| !canonicalHash(plan.get("semanticActions")).equals(
+				string(plan, "semanticActionsHash"))
+			|| !canonicalHash(plan.get("artifactPlan")).equals(
+				string(plan, "artifactPlanHash"))) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "upgrade-plan", true,
+			"Recovery plan nested inventory hashes do not match.",
+			"Restore the exact synthetic transaction plan.");
+	}
+
+	private static void validateReceiptFingerprint(Map<String,Object> receipt)
+		throws WorldBuilderContractException {
+		WorldBuilderBoundedInventory.exactKeys(receipt, OPERATION,
+			"schemaVersion", "manifestType", "transactionId", "planFingerprintSha256",
+			"status", "mutationOccurred", "rollbackComplete", "recoveryRequired",
+			"preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
+			"failureType", "receiptFingerprintSha256");
+		String supplied = string(receipt, "receiptFingerprintSha256");
+		receipt.put("receiptFingerprintSha256", ZERO_HASH);
+		String expected = canonicalHash(receipt);
+		receipt.put("receiptFingerprintSha256", supplied);
+		if (!supplied.equals(expected)) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receiptFingerprintSha256", true,
+			"Recovery receipt fingerprint does not match its content.",
+			"Restore the exact sealed recovery receipt.");
 	}
 
 	static final class Result {

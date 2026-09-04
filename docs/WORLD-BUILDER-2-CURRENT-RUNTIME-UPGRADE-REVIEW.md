@@ -679,7 +679,28 @@ experience.
     atomically switch the managed-runtime pointer.
 12. Repeat normal launch/login/map verification against the installed target.
 13. Write the active ledger and successful receipt last. On any earlier
-    failure, restore the exact before-state or leave a precise recovery record.
+   failure, restore the exact before-state or leave a precise recovery record.
+
+The Editor now contains a package-private synthetic transaction foundation for
+the safe structural subset of this sequence. Against sealed synthetic
+installable fixtures only, it implements semantic preview for T0, T1, T2A,
+T2B, and managed-N; binds the exact provider composition, project capability,
+input adapter, classification, predecessor inventory, staged artifacts, and
+activation ledger; requires an exact plan-specific confirmation identity; and
+proves external side-by-side staging, exact backups, activation-last,
+post-install verification, automatic rollback, interrupted recovery evidence,
+and exact recovery. Preview and all refused classifications write nothing to
+the target or transaction directory. Map-only import remains unavailable until
+the resulting current ledger and installed provider artifact set both
+revalidate.
+
+This is executor architecture, not production upgrade support. It has no CLI or
+desktop apply route and refuses non-synthetic adapters. The current provider
+catalog remains foundation-only/non-installable, and the synthetic overlay has
+no server/client executable. Steps 6 through 10 still require production map,
+configuration, database, state, build, launch, handshake, login, and gameplay
+implementations plus their release evidence before any real target can be
+upgraded.
 
 ## Fixture and executable matrix
 

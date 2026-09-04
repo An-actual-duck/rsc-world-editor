@@ -191,6 +191,24 @@ The repository currently ships only synthetic recognition fixtures, not a
 production Preservation-family fingerprint set, so do not point this command at
 a real server and infer upgrade support from fixture results.
 
+The next transaction layer is also deliberately synthetic-only and has no CLI
+or desktop route. Its package-private regression harness proves zero-write
+semantic preview for T0/T1/T2A/T2B and managed-N, an exact composition/project/
+adapter/classification-bound plan, external same-filesystem staging, exact
+preimage backup inventory, activation-last ledger publication, installed
+artifact verification, and automatic rollback/recovery evidence. It rejects
+`PORT_REQUIRED`, T5, non-installable provider compositions, non-synthetic
+adapters, changed confirmation identities, and offline uncertainty before
+target writes. This executor foundation is not permission to upgrade a real
+server: it does not yet contain a production Preservation adapter, canonical
+map/configuration/database migrators, an executable provider bundle, staged
+launch/login/gameplay verification, or a public apply surface.
+
+`Import Map Changes` remains a separate transaction. The synthetic harness
+keeps its gate closed before activation and opens it only when classification
+is exactly `CURRENT` and every installed provider artifact is revalidated
+against the selected composition. Ledger or artifact drift closes the gate.
+
 A descriptor-backed server publishes
 `server/world-builder-capabilities.json` and maps a lowercase role to
 `server/world-builder-configs/<role>.json`. Compiled adapters—not target data—

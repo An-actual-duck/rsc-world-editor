@@ -464,6 +464,8 @@ validate_application_paths() {
 		adaptive-contract-definitions-v1.schema.json \
 		current-input-adapter-v1.schema.json \
 		current-project-capability-v1.schema.json \
+		current-runtime-upgrade-plan-v1.schema.json \
+		current-runtime-upgrade-receipt-v1.schema.json \
 		current-target-classification-v1.schema.json \
 		current-target-runtime-ledger-v1.schema.json \
 		conversion-plan-v1.schema.json conversion-report-v1.schema.json \
