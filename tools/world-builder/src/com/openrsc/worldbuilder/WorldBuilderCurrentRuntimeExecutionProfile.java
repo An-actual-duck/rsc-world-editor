@@ -28,12 +28,17 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 	final String mapMigrationId;
 	final String activationManifestType;
 	final boolean syntheticOnly;
+	final boolean executionReady;
+	final String executionReadinessStatus;
+	final String executionReadinessReason;
 
 	private WorldBuilderCurrentRuntimeExecutionProfile(String profileId,
 		WorldBuilderCurrentRuntimeContracts.Document adapter, String migratorId,
 		String serverBuildId, String clientBuildId, String mapPackageId,
 		String configurationMigrationId, String stateMigrationId,
-		String mapMigrationId, String activationManifestType, boolean syntheticOnly) {
+		String mapMigrationId, String activationManifestType, boolean syntheticOnly,
+		boolean executionReady, String executionReadinessStatus,
+		String executionReadinessReason) {
 		this.profileId = profileId; this.adapter = adapter; this.migratorId = migratorId;
 		this.serverBuildId = serverBuildId; this.clientBuildId = clientBuildId;
 		this.mapPackageId = mapPackageId;
@@ -41,6 +46,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		this.stateMigrationId = stateMigrationId; this.mapMigrationId = mapMigrationId;
 		this.activationManifestType = activationManifestType;
 		this.syntheticOnly = syntheticOnly;
+		this.executionReady = executionReady;
+		this.executionReadinessStatus = executionReadinessStatus;
+		this.executionReadinessReason = executionReadinessReason;
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile preservation()
@@ -56,7 +64,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"current-canonical-map-v1", "preservation-typed-configuration-v1",
 			"preservation-durable-state-boundary-v1",
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
-			"world-builder-current-runtime-activation", false);
+			"world-builder-current-runtime-activation", false, false,
+			"migration-and-verification-not-implemented",
+			"Production activation requires executable configuration, durable-state and canonical-map migration plus staged and installed launch, handshake, login and gameplay verification.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -74,7 +84,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"synthetic-current-server-r1", "synthetic-current-client-r1",
 			"synthetic-canonical-map-v1", "synthetic-preservation-config-v1",
 			"synthetic-preservation-data-v1", "synthetic-preservation-map-v1",
-			"world-builder-synthetic-current-activation", true);
+			"world-builder-synthetic-current-activation", true, true,
+			"synthetic-regression-ready",
+			"Only the sealed synthetic transaction harness implements and verifies this profile.");
 	}
 
 	Map<String,Object> identity() {
@@ -89,6 +101,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.put("mapMigrationId", mapMigrationId);
 		result.put("activationManifestType", activationManifestType);
 		result.put("syntheticOnly", Boolean.valueOf(syntheticOnly));
+		result.put("executionReady", Boolean.valueOf(executionReady));
+		result.put("executionReadinessStatus", executionReadinessStatus);
+		result.put("executionReadinessReason", executionReadinessReason);
 		return result;
 	}
 
@@ -109,12 +124,17 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			expected.put("mapMigrationId", "synthetic-preservation-map-v1");
 			expected.put("activationManifestType", "world-builder-synthetic-current-activation");
 			expected.put("syntheticOnly", Boolean.TRUE);
+			expected.put("executionReady", Boolean.TRUE);
+			expected.put("executionReadinessStatus", "synthetic-regression-ready");
+			expected.put("executionReadinessReason", "Only the sealed synthetic transaction harness implements and verifies this profile.");
 			if (canonical(expected).equals(canonical(identity))) return new WorldBuilderCurrentRuntimeExecutionProfile(
 				"synthetic-current-upgrade-v1", null, "synthetic-preservation-migrator-v1",
 				"synthetic-current-server-r1", "synthetic-current-client-r1",
 				"synthetic-canonical-map-v1", "synthetic-preservation-config-v1",
 				"synthetic-preservation-data-v1", "synthetic-preservation-map-v1",
-				"world-builder-synthetic-current-activation", true);
+				"world-builder-synthetic-current-activation", true, true,
+				"synthetic-regression-ready",
+				"Only the sealed synthetic transaction harness implements and verifies this profile.");
 		}
 		throw refusal("Transaction execution profile is not a compiled reviewed identity.");
 	}

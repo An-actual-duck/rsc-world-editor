@@ -142,8 +142,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Review a fresh preview and provide its complete confirmationIdentity.");
 		if (!bool(reviewed.plan, "activationAuthorized")) throw problem(
 			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "destination", false,
-			"The reviewed provider composition is inspectable but not installable.",
-			"Wait for a released installable provider composition and preview again.");
+			bool(object(reviewed.plan.get("destination")), "installable")
+				? string(object(reviewed.plan.get("executionProfile")),
+					"executionReadinessReason")
+				: "The reviewed provider composition is inspectable but not installable.",
+			bool(object(reviewed.plan.get("destination")), "installable")
+				? "Keep the target offline; production apply remains disabled until the compiled migrators and executable verifiers are implemented and tested."
+				: "Wait for a released installable provider composition and preview again.");
 		Preview fresh = refresh(reviewed);
 		if (!fresh.fingerprint().equals(reviewed.fingerprint())) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "upgrade-plan", false,
@@ -433,7 +438,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("mapImportAvailableBeforeApply", Boolean.FALSE);
 		plan.put("mutationOccurred", Boolean.FALSE);
 		plan.put("activationAuthorized", Boolean.valueOf(composition.installable
-			&& "UPGRADE_READY".equals(string(classification, "status"))));
+			&& "UPGRADE_READY".equals(string(classification, "status"))
+			&& profile.executionReady));
 		plan.put("confirmationIdentity", "UPGRADE:" + transactionId + ":"
 			+ string(classification, "classificationFingerprintSha256") + ":"
 			+ canonicalHash(artifacts));

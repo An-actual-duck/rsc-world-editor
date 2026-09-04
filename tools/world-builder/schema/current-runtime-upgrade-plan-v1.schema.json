@@ -72,8 +72,11 @@
   "allOf": [
     {
       "if": {"properties": {"classificationStatus": {"const": "NOT_INSTALLABLE"}}},
-      "then": {"properties": {"activationAuthorized": {"const": false}}},
-      "else": {"properties": {"activationAuthorized": {"const": true}}}
+      "then": {"properties": {"activationAuthorized": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"executionProfile": {"properties": {"executionReady": {"const": false}}}}},
+      "then": {"properties": {"activationAuthorized": {"const": false}}}
     }
   ],
   "$defs": {
@@ -81,7 +84,8 @@
       "type": "object", "additionalProperties": false,
       "required": ["profileId", "migratorId", "serverBuildId", "clientBuildId",
         "mapPackageId", "configurationMigrationId", "stateMigrationId",
-        "mapMigrationId", "activationManifestType", "syntheticOnly"],
+        "mapMigrationId", "activationManifestType", "syntheticOnly",
+        "executionReady", "executionReadinessStatus", "executionReadinessReason"],
       "properties": {
         "profileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "migratorId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
@@ -92,7 +96,10 @@
         "stateMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "mapMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "activationManifestType": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
-        "syntheticOnly": {"type": "boolean"}
+        "syntheticOnly": {"type": "boolean"},
+        "executionReady": {"type": "boolean"},
+        "executionReadinessStatus": {"enum": ["synthetic-regression-ready", "migration-and-verification-not-implemented"]},
+        "executionReadinessReason": {"type": "string", "minLength": 1, "maxLength": 1024}
       }
     },
     "migrationPlan": {

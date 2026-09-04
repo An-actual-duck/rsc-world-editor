@@ -379,8 +379,10 @@ without imposing its gameplay or content on Base users.
   verification, rollback, and interrupted recovery. Target documents cannot
   select executable adapters or migration identities. This item remains open:
   the production provider is still non-installable, so real apply is a
-  zero-write refusal pending an installable bundle, staged runtime verification,
-  project migration, broader reviewed fingerprints, and UI consent.
+  zero-write refusal. A separate compiled execution-readiness gate remains false
+  even if future provider metadata becomes installable, pending executable
+  migrators, staged and installed runtime verification, project migration,
+  broader reviewed fingerprints, and UI consent.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

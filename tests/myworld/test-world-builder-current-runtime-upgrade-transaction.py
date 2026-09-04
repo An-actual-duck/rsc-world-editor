@@ -440,6 +440,9 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("production-reviewed", plan["inputAdapter"]["evidenceAuthority"])
         self.assertEqual("preservation-family-upgrade-v1",
                          plan["executionProfile"]["profileId"])
+        self.assertFalse(plan["executionProfile"]["executionReady"])
+        self.assertEqual("migration-and-verification-not-implemented",
+                         plan["executionProfile"]["executionReadinessStatus"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
         self.assertEqual("named-profile",
@@ -447,6 +450,27 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("exact-packed-to-layered-v2-u16",
                          plan["migrationPlan"]["mapMigration"]["migrationId"])
         self.assertTrue(plan["migrationPlan"]["durableState"])
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+        installable_preview = self.run_harness(
+            "preview-production", target, workspace, "production-installable-provider",
+            identity=self.identity, catalog=self.catalog,
+        )
+        self.assertEqual(0, installable_preview.returncode, installable_preview.stderr)
+        installable_plan = json.loads(installable_preview.stdout)
+        self.assertEqual("UPGRADE_READY", installable_plan["classificationStatus"])
+        self.assertTrue(installable_plan["destination"]["installable"])
+        self.assertFalse(installable_plan["executionProfile"]["executionReady"])
+        self.assertFalse(installable_plan["activationAuthorized"])
+        refused = self.run_harness(
+            "apply-production", target, workspace, "production-installable-provider",
+            identity=self.identity, catalog=self.catalog,
+        )
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+        self.assertIn("Production activation requires executable configuration",
+                      refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 

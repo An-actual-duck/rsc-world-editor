@@ -213,9 +213,12 @@ transaction-owned; extra, missing, linked, or changed evidence is preserved as
 does not yet authorize a real upgrade: the locked Current Base provider remains
 `installable:false`. Production preview reports `NOT_INSTALLABLE`, while apply
 fails before creating transaction evidence or touching the target. Activation
-remains unavailable until the provider publishes an installable composition
-and staged server/client launch, login, gameplay, map, and durable-state
-verification are completed. There is no desktop route yet.
+also has an independent compiled `executionReady:false` gate: changing a future
+provider composition to `installable:true` cannot silently enable apply.
+Activation remains unavailable until executable configuration/durable-state/map
+migrators and staged plus installed server/client launch, handshake, login,
+gameplay, map, and state verifiers are implemented and reviewed. There is no
+desktop route yet.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
