@@ -1,24 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://rsc-world-editor.invalid/world-builder/current-runtime-upgrade-plan-v1.schema.json",
-  "title": "World Builder synthetic current-runtime upgrade plan v1",
+  "title": "World Builder current-runtime upgrade plan v1",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "schemaVersion", "manifestType", "transactionId", "classificationStatus",
     "classificationTier", "classificationFingerprintSha256", "inputAdapter",
+    "executionProfile", "migrationPlan",
     "projectCapability", "destination", "preimageInventory",
     "preimageInventoryHash", "semanticActions", "semanticActionsHash",
     "artifactPlan", "artifactPlanHash", "releaseRelativePath", "stagingPolicy",
     "activationLedgerRelativePath", "activationLedger",
     "verificationEvidenceHash", "mapImportAvailableBeforeApply",
-    "mutationOccurred", "confirmationIdentity", "planFingerprintSha256"
+    "mutationOccurred", "activationAuthorized", "confirmationIdentity", "planFingerprintSha256"
   ],
   "properties": {
     "schemaVersion": {"const": 1},
     "manifestType": {"const": "world-builder-current-runtime-upgrade-plan"},
     "transactionId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
-    "classificationStatus": {"const": "UPGRADE_READY"},
+    "classificationStatus": {"enum": ["UPGRADE_READY", "NOT_INSTALLABLE"]},
     "classificationTier": {"enum": ["T0", "T1", "T2A", "T2B", "MANAGED_N"]},
     "classificationFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "inputAdapter": {
@@ -28,9 +29,11 @@
         "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "adapterManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "inputAdapterContractId": {"const": "world-builder-input-adapter-v1"},
-        "evidenceAuthority": {"const": "synthetic-fixture"}
+        "evidenceAuthority": {"enum": ["synthetic-fixture", "production-reviewed"]}
       }
     },
+    "executionProfile": {"$ref": "#/$defs/executionProfile"},
+    "migrationPlan": {"$ref": "#/$defs/migrationPlan"},
     "projectCapability": {
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "capabilityFingerprintSha256"],
@@ -62,10 +65,60 @@
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "mapImportAvailableBeforeApply": {"const": false},
     "mutationOccurred": {"const": false},
+    "activationAuthorized": {"type": "boolean"},
     "confirmationIdentity": {"type": "string", "pattern": "^UPGRADE:[A-Za-z0-9._-]+:[0-9a-f]{64}:[0-9a-f]{64}$", "maxLength": 512},
     "planFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"classificationStatus": {"const": "NOT_INSTALLABLE"}}},
+      "then": {"properties": {"activationAuthorized": {"const": false}}}
+    },
+    {
+      "if": {"properties": {"executionProfile": {"properties": {"executionReady": {"const": false}}}}},
+      "then": {"properties": {"activationAuthorized": {"const": false}}}
+    }
+  ],
   "$defs": {
+    "executionProfile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["profileId", "migratorId", "serverBuildId", "clientBuildId",
+        "mapPackageId", "configurationMigrationId", "stateMigrationId",
+        "mapMigrationId", "activationManifestType", "syntheticOnly",
+        "executionReady", "executionReadinessStatus", "executionReadinessReason"],
+      "properties": {
+        "profileId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "migratorId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "serverBuildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "clientBuildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "mapPackageId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "configurationMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "stateMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "mapMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "activationManifestType": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "syntheticOnly": {"type": "boolean"},
+        "executionReady": {"type": "boolean"},
+        "executionReadinessStatus": {"enum": ["synthetic-regression-ready", "migration-and-verification-not-implemented"]},
+        "executionReadinessReason": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "migrationPlan": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "manifestType", "migratorId",
+        "configurationMigrationId", "typedConfiguration", "durableStateMigrationId",
+        "durableState", "mapMigration", "migrationPlanFingerprintSha256"],
+      "properties": {
+        "schemaVersion": {"const": 1},
+        "manifestType": {"const": "world-builder-current-runtime-migration-plan"},
+        "migratorId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "configurationMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "typedConfiguration": {"type": "object"},
+        "durableStateMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "durableState": {"type": "array", "maxItems": 8192, "items": {"type": "object"}},
+        "mapMigration": {"type": "object"},
+        "migrationPlanFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
     "preimage": {
       "type": "object", "additionalProperties": false,
       "required": ["relativePath", "present", "size", "sha256", "backupRelativePath"],

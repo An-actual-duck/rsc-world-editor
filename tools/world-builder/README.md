@@ -190,26 +190,35 @@ should map to a provider-owned current module. Unknown code, unregistered module
 ports, mixed ledgers, unsafe paths, and unrecognized bytes fail before mutation.
 The adapter ID must be explicitly admitted by the selected variant's
 `inputAdapterRecommendations`; a recommended variant alone is insufficient.
-The repository currently ships only synthetic recognition fixtures, not a
-production Preservation-family fingerprint set, so do not point this command at
-a real server and infer upgrade support from fixture results.
+The repository now includes a narrow reviewed built-in `preservation-family-v1`
+adapter/migrator profile. It recognizes only compiled exact evidence rules;
+unknown layouts and executable customization remain zero-write blockers. A
+target file cannot supply an adapter, migrator, build identity, migration ID,
+or executable code.
 
-The next transaction layer is also deliberately synthetic-only and has no CLI
-or desktop route. Its package-private regression harness proves zero-write
-semantic preview for T0/T1/T2A/T2B and managed-N, an exact composition/project/
-adapter/classification-bound plan, external same-filesystem staging, exact
-preimage backup inventory, activation-last ledger publication, installed
+The supported `preview-current-runtime-upgrade`,
+`apply-current-runtime-upgrade`, and `recover-current-runtime-upgrade` CLI
+commands share that closed profile and transaction engine. Preview is
+zero-write and emits typed legacy configuration, explicit precedence/alias
+translations, durable-state boundaries, canonical-map conversion identity,
+exact preimage inventory, content-addressed external staging, and an exact
+confirmation identity. Apply preserves activation-last publication, installed
 artifact verification, and automatic rollback/recovery evidence. It rejects
-`PORT_REQUIRED`, T5, non-installable provider compositions, non-synthetic
-adapters, changed confirmation identities, and offline uncertainty before
-target writes. Rollback and recovery first prove the current ledger is the
+`PORT_REQUIRED`, T5, changed confirmation identities, target-supplied adapters,
+and offline uncertainty before target writes. Rollback and recovery first prove
+the current ledger is the
 byte-exact planned activation or preimage and the complete release tree remains
 transaction-owned; extra, missing, linked, or changed evidence is preserved as
 `RECOVERY_REQUIRED` instead of overwritten or deleted. This executor foundation
-is not permission to upgrade a real server: it does not yet contain a
-production Preservation adapter, canonical
-map/configuration/database migrators, an executable provider bundle, staged
-launch/login/gameplay verification, or a public apply surface.
+does not yet authorize a real upgrade: the locked Current Base provider remains
+`installable:false`. Production preview reports `NOT_INSTALLABLE`, while apply
+fails before creating transaction evidence or touching the target. Activation
+also has an independent compiled `executionReady:false` gate: changing a future
+provider composition to `installable:true` cannot silently enable apply.
+Activation remains unavailable until executable configuration/durable-state/map
+migrators and staged plus installed server/client launch, handshake, login,
+gameplay, map, and state verifiers are implemented and reviewed. There is no
+desktop route yet.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
