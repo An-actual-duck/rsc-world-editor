@@ -709,6 +709,16 @@ def tree_bytes(root: Path, excluded: Path | None = None) -> dict[str, tuple]:
     return result
 
 
+def write_deterministic_zip_entry(
+    archive: zipfile.ZipFile, name: str, payload: bytes | str
+) -> None:
+    entry = zipfile.ZipInfo(name, (2024, 1, 2, 3, 4, 6))
+    entry.create_system = 3
+    entry.external_attr = 0o100644 << 16
+    entry.compress_type = zipfile.ZIP_STORED
+    archive.writestr(entry, payload)
+
+
 def make_runtime(root: Path, scenery_count: int = 4) -> Path:
     runtime = root / "builder-runtime"
     launcher = runtime / "launcher/world-builder-tools.jar"
@@ -860,20 +870,22 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
             path.write_bytes(FIXTURE_HOST_DECODER_SOURCE)
         elif path.suffix == ".jar":
             with zipfile.ZipFile(path, "w") as archive:
-                entry = zipfile.ZipInfo("fixture/Runtime.class", (2024, 1, 2, 3, 4, 6))
-                archive.writestr(entry, b"fixture")
+                write_deterministic_zip_entry(
+                    archive, "fixture/Runtime.class", b"fixture"
+                )
         else:
             path.write_bytes(("fixture " + role + "\n").encode("utf-8"))
     for jar in (server / "core.jar", server / "plugins.jar", client / "Open_RSC_Client.jar"):
         with zipfile.ZipFile(jar, "w") as archive:
-            entry = zipfile.ZipInfo("META-INF/MANIFEST.MF", (2024, 1, 2, 3, 4, 6))
-            archive.writestr(entry, "Manifest-Version: 1.0\n\n")
+            write_deterministic_zip_entry(
+                archive, "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n"
+            )
             if jar.name == "core.jar":
                 for path, payload in FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items():
-                    archive.writestr(path, payload)
+                    write_deterministic_zip_entry(archive, path, payload)
             elif jar.name == "Open_RSC_Client.jar":
                 for path, payload in FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items():
-                    archive.writestr(path, payload)
+                    write_deterministic_zip_entry(archive, path, payload)
     return runtime
 
 
