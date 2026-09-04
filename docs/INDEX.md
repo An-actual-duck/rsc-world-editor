@@ -14,6 +14,7 @@ evidence, or an active product decision.
 | [AI Workspaces](AI-WORKSPACES.md) | Detailed manager/worker workflow | Activating, handing off, integrating, rescuing, or releasing work |
 | [Independent Runtime Provider](RUNTIME-PROVIDER.md) | Current repository boundary and adoption route | Work crosses into `rsc-world-editor-runtime` |
 | [Automatic Updates](AUTO-UPDATES.md) | Current updater safety boundary | Changing update selection, replacement, rollback, or preservation |
+| [Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md) | Active replacement architecture and acceptance plan | Upgrading legacy or customized targets to the one current server/client runtime |
 | [Reliability and Iteration Plan](WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md) | Active ordered worklist | Planning the current import repair and maintainability work |
 | [Maintainability Audit](WORLD-BUILDER-2-MAINTAINABILITY-AUDIT.md) | Measured 2026-08-30 audit and recommendations | Reducing storage, test, navigation, documentation, or AI cost |
 

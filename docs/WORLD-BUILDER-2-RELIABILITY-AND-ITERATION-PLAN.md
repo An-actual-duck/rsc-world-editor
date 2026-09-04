@@ -16,6 +16,19 @@ stop-gap was applied manually to the separate Core checkout. It restored that
 server but is evidence, not the long-term import design. The disposable
 pre-fix Core copy is the reproducible target for this work.
 
+### Current architecture decision — 2026-09-04
+
+The package-driven pinned-prebuilt-core candidate is rejected. It preserves
+divergent target source while preventing that source from rebuilding, cannot
+compile the customized target's plugins against the installed generic core,
+and does not provide an existing project's N-to-N+1 runtime migration. Checked
+items and owner checkpoints below remain historical records of the strategies
+they actually exercised; they do not validate the later pinned-core strategy.
+
+The active replacement direction, evidence review, Preservation fixture role,
+upgrade-first product model, staged plan, and strategy-bound release gate are
+maintained in [World Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+
 ## Product decisions
 
 - Remove **Undo Last Server Import** from World Builder 2. This does not remove
