@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "manifestType": "world-builder-current-upgrade-fixture-set",
   "contractsInventorySha256": "37e41fe33fb74c06f499812e2fd7382d13eb19ef9ddf3955cedfe4f7851d2f8b",
-  "providerExtensionInventorySha256": "2a3c3ea35ef9e5f03d03bdece6c96245e342efd69d9848f4f8a2a4b12d2a66aa",
+  "providerExtensionInventorySha256": "eabc0932d2f2ff28df307ce7fe626cf2492001f58617fc558430044aa87b1ff6",
   "targets": [
     {"id": "generated-state-t1", "treeSha256": "21b5cdfcdf8abaebdbca4c40b6f182beed1b4bc59df76f1cb924eb8b14171b24"},
     {"id": "light-config-t2a", "treeSha256": "39fbd44f3aaa1387554f850985e05f472e1d7be2faba40167708a95d12fdddac"},
@@ -14,5 +14,5 @@
     {"id": "unported-extension-t3", "treeSha256": "8d0d055eb3d6a769c318ac2fe8ef4127bd77f05097c3043ca5596163a61dca06"},
     {"id": "unsafe-t5", "treeSha256": "56c49abda82ed6719dca49cd4b7fc54e0864adad0bf21b4afcbb052dfb8b282e"}
   ],
-  "fixtureSetFingerprintSha256": "b03e5e9fb3593e4e3c1070357e19fe09e4634efb85025498675fc9efa824e697"
+  "fixtureSetFingerprintSha256": "7616b8e1740e11cfeab2ed0ce06883e9e67d99e525513cb824e8e3c0c62f9101"
 }
