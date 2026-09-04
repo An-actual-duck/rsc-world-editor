@@ -115,7 +115,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		if (!composition.installable) throw problem(
 			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "destination", false,
-			"A foundation-only provider composition cannot authorize activation.",
+			"A non-installable provider composition cannot authorize activation.",
 			"Select a released installable bundle; inspection alone is not activation authority.");
 
 		Map<String,Object> plan = buildPlan(target, workspace, composition, adapter,

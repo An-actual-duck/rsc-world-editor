@@ -18,5 +18,6 @@ installable overlay to the locked provider catalog. A second synthetic module
 depends on the first so omission, conflict, and deterministic load-order
 refusals are executable. The extension is non-production and
 non-installable as shipped; tests apply it only inside a temporary directory.
-The provider's real foundation-only Base and Advanced compositions remain
-`installable: false` and must never authorize upgrade or activation.
+The provider's real artifact-candidate Base and foundation-only Advanced
+compositions remain `installable: false` and must never authorize upgrade or
+activation.

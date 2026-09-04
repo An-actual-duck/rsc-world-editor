@@ -97,6 +97,21 @@ def bind_fingerprint(value: dict, field: str) -> dict:
     return result
 
 
+def materialize_synthetic_bundle_payloads(provider_root: Path) -> None:
+    """Fill build-only artifact paths inside a disposable provider test copy."""
+    catalog = provider_root / "current-platform"
+    for spec_path in sorted((catalog / "bundle-specs").glob("*.json")):
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        for artifact in spec["artifacts"]:
+            source = provider_root / artifact["sourcePath"]
+            if not source.exists():
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text(
+                    f"synthetic-only payload for {artifact['sourcePath']}\n",
+                    encoding="utf-8",
+                )
+
+
 class CurrentRuntimeFoundationTest(unittest.TestCase):
     maxDiff = None
 
@@ -109,21 +124,28 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         cls.temp_directory = tempfile.TemporaryDirectory(
             prefix="world-builder-current-runtime-"
         )
-        cls.production_base_identity = cls.resolve_with(
-            PROVIDER_TOOL, PROVIDER_CATALOG, PROVIDER,
-            "current-base-v1", "production-current-base-v1.json"
-        )
-        cls.advanced_identity = cls.resolve_with(
-            PROVIDER_TOOL, PROVIDER_CATALOG, PROVIDER,
-            "current-advanced-v1", "production-current-advanced-v1.json"
-        )
-        cls.provider_root = Path(cls.temp_directory.name) / "provider"
-        shutil.copytree(PROVIDER_CATALOG, cls.provider_root / "current-platform")
-        (cls.provider_root / "scripts").mkdir()
+        cls.candidate_root = Path(cls.temp_directory.name) / "candidate-provider"
+        shutil.copytree(PROVIDER_CATALOG, cls.candidate_root / "current-platform")
+        (cls.candidate_root / "scripts").mkdir()
         shutil.copy2(
             PROVIDER_TOOL,
-            cls.provider_root / "scripts/current-platform-composition.py",
+            cls.candidate_root / "scripts/current-platform-composition.py",
         )
+        materialize_synthetic_bundle_payloads(cls.candidate_root)
+        cls.candidate_catalog = cls.candidate_root / "current-platform"
+        cls.candidate_tool = (
+            cls.candidate_root / "scripts/current-platform-composition.py"
+        )
+        cls.candidate_identity = cls.resolve_with(
+            cls.candidate_tool, cls.candidate_catalog, cls.candidate_root,
+            "current-base-v1", "artifact-candidate-current-base-v1.json"
+        )
+        cls.advanced_identity = cls.resolve_with(
+            cls.candidate_tool, cls.candidate_catalog, cls.candidate_root,
+            "current-advanced-v1", "current-advanced-v1.json"
+        )
+        cls.provider_root = Path(cls.temp_directory.name) / "provider"
+        shutil.copytree(cls.candidate_root, cls.provider_root)
         shutil.copytree(
             EXTENSION / "modules",
             cls.provider_root / "current-platform/modules",
@@ -370,7 +392,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             (provider_schema_root / "current-composition-identity-v1.schema.json").read_text()
         )
         for identity in (
-            self.production_base_identity,
+            self.candidate_identity,
             self.base_identity,
             self.advanced_identity,
             self.module_identity,
@@ -575,7 +597,28 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual(3, failure.returncode)
         self.assertIn("unsafe", failure.stderr.lower())
 
-    def test_foundation_only_provider_identity_never_grants_activation_authority(self) -> None:
+    def test_locked_artifact_candidate_never_grants_activation_authority(self) -> None:
+        variant = json.loads(
+            (PROVIDER_CATALOG / "variants/current-base-v1.json").read_text()
+        )
+        bundle = json.loads(
+            (PROVIDER_CATALOG / "bundle-specs/current-base-v1.json").read_text()
+        )
+        profile = json.loads(
+            (PROVIDER_CATALOG / "runtime/current-base-v1/profile.json").read_text()
+        )
+        self.assertEqual("artifact-candidate", variant["releaseStatus"])
+        self.assertFalse(variant["installable"])
+        self.assertFalse(bundle["installable"])
+        self.assertEqual(
+            [
+                "content-neutral-server-config-and-definitions-v1",
+                "transactional-state-migration-row-v1",
+                "base-gameplay-state-runtime-execution-v1",
+                "runtime-enforced-server-client-startup-handshake-v1",
+            ],
+            profile["installabilityBlockers"],
+        )
         adapter = json.loads(EDITOR_CONTRACTS["input-adapter"].read_text())
         adapter["adapterId"] = "preservation-family-v1"
         adapter = bind_fingerprint(adapter, "adapterManifestHash")
@@ -584,7 +627,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         target = TARGETS / "preservation-t0"
         before = target_snapshot(target)
         result = self.classify(
-            target, self.production_base_identity, PROVIDER_CATALOG,
+            target, self.candidate_identity, self.candidate_catalog,
             adapter=adapter_path,
         )
         self.assertEqual(3, result.returncode, result.stderr)
@@ -594,15 +637,15 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual("T0", report["tier"])
         self.assertFalse(report["mutationOccurred"])
         self.assertFalse(report["destination"]["installable"])
-        self.assertTrue(any("foundation-only" in action for action in report["actions"]))
+        self.assertTrue(any("non-installable" in action for action in report["actions"]))
 
         current_target = self.current_target(
-            self.production_base_identity, "foundation-current-target",
+            self.candidate_identity, "artifact-candidate-current-target",
             adapter_id="preservation-family-v1",
         )
         before = target_snapshot(current_target)
         result = self.classify(
-            current_target, self.production_base_identity, PROVIDER_CATALOG,
+            current_target, self.candidate_identity, self.candidate_catalog,
             adapter=adapter_path,
         )
         self.assertEqual(3, result.returncode, result.stderr)
@@ -619,6 +662,10 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             (
                 "foundation-marked-installable", "variant", "releaseStatus",
                 "foundation-contract-only", "cannot be installable",
+            ),
+            (
+                "artifact-candidate-marked-installable", "variant", "releaseStatus",
+                "artifact-candidate", "cannot be installable",
             ),
         )
         for name, document, field, value, message in cases:

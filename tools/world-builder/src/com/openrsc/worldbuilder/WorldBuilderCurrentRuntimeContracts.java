@@ -350,7 +350,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 		if (!composition.installable && "UPGRADE_READY".equals(status)) {
 			status = "NOT_INSTALLABLE";
 			actions.clear();
-			actions.add("The selected provider composition is foundation-only; select a released installable bundle before preview or mutation.");
+			actions.add("The selected provider composition is non-installable; select a released installable bundle before preview or mutation.");
 		}
 		return classification(status, tier, composition,
 			adapter, project, null, evidence, actions);
@@ -416,14 +416,14 @@ final class WorldBuilderCurrentRuntimeContracts {
 			adapter, project, ledgerDocument, Collections.<Evidence>emptyList(),
 			Collections.singletonList(composition.installable
 				? "Permit map-only import after normal ledger and artifact revalidation."
-				: "The exact ledger names a foundation-only composition; refuse activation until an installable provider bundle is selected."));
+				: "The exact ledger names a non-installable composition; refuse activation until an installable provider bundle is selected."));
 		if (predecessors.contains(release) && sameVariant && sameAdapter) return classification(
 			composition.installable ? "UPGRADE_READY" : "NOT_INSTALLABLE",
 			"MANAGED_N", composition, adapter, project,
 			ledgerDocument, Collections.<Evidence>emptyList(), Collections.singletonList(
 				composition.installable
 					? "Advance the trusted managed predecessor within its selected variant using a reviewed N-to-N+1 plan."
-					: "The selected destination is foundation-only; select an installable provider bundle before N-to-N+1 preview."));
+					: "The selected destination is non-installable; select an installable provider bundle before N-to-N+1 preview."));
 		List<Evidence> evidence = Collections.singletonList(new Evidence(
 			"target-ledger", string(adapter, "targetLedgerRelativePath", "classify-ledger"),
 			"T5", "blocker", "", "Installed ledger is not the exact current composition or a trusted same-variant predecessor.",
