@@ -216,16 +216,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Path release = targetPath(reviewed.targetRoot,
 				string(reviewed.plan, "releaseRelativePath"));
 			ensureParents(reviewed.targetRoot, release.getParent(), createdTargetDirectories);
-			moveNewDirectory(staging, release);
 			releasePublished = true;
+			moveNewDirectory(staging, release);
 			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
 				false, "", "release-published"));
 			observe("after-release-published", release);
 
 			Path ledger = targetPath(reviewed.targetRoot, LEDGER_RELATIVE);
 			ensureParents(reviewed.targetRoot, ledger.getParent(), createdTargetDirectories);
-			writeActivationLedger(ledger, object(reviewed.plan.get("activationLedger")));
 			ledgerActivated = true;
+			writeActivationLedger(ledger, object(reviewed.plan.get("activationLedger")));
 			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
 				false, "", "ledger-activated"));
 			observe("after-ledger-activated", ledger);
@@ -321,6 +321,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
 			"Recovery receipt does not authorize this exact interrupted plan.",
 			"Restore the exact pending/recovery-required receipt and plan.");
+		Path pendingReceiptTemporary = validatePendingReceiptTemporary(
+			transaction, plan);
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
 			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
 				object(object(plan.get("migrationPlan")).get("typedConfiguration")),
@@ -336,6 +338,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Keep the target offline and retry exact recovery.", interrupted);
 		}
 		verifyPreimage(target, plan);
+		if (pendingReceiptTemporary != null) {
+			Files.delete(pendingReceiptTemporary);
+			WorldBuilderAdaptiveDurability.forceDirectory(
+				pendingReceiptTemporary.getParent());
+		}
 		Path receipt = transaction.resolve("receipt.json");
 		writeReceipt(receipt, receipt(plan, "rolled-back", true, true, "",
 			"recovered-exact-preimage"));
@@ -712,6 +719,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.pretty(preview.plan.get("migrationPlan")));
 		if (!preview.profile.syntheticOnly) {
 			Map<String,Object> migration = object(preview.plan.get("migrationPlan"));
+			Map<String,Object> execution = object(migration.get("stagedExecution"));
+			Map<String,Object> runtimeLayout = object(execution.get("runtimeLayout"));
+			if (bool(runtimeLayout, "ready"))
+				WorldBuilderCurrentRuntimeLayout.materialize(staging, runtimeLayout);
 			Map<String,Object> map = object(migration.get("mapMigration"));
 			if (bool(map, "packageReady")) {
 				if (preview.packedSourceRoot == null || preview.packedDiscoveryReport == null)
@@ -756,7 +767,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 						"Packed conversion result differs from the reviewed semantic preview.",
 						"Discard staging and preview the immutable source again.");
 			}
-			Map<String,Object> execution = object(migration.get("stagedExecution"));
 			WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(staging,
 				object(migration.get("typedConfiguration")), execution);
 			WorldBuilderPreservationStagedMigrator.stage(preview.targetRoot, staging,
@@ -799,6 +809,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		try {
 			Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE,
 				StandardCopyOption.REPLACE_EXISTING);
+			if (Boolean.parseBoolean(System.getProperty(
+				"worldbuilder.currentRuntime.testLedgerPostMoveForceFailure", "false")))
+				throw new IOException("injected ledger post-move force failure");
 			WorldBuilderAdaptiveDurability.forceFile(ledger);
 			WorldBuilderAdaptiveDurability.forceDirectory(ledger.getParent());
 		} catch (AtomicMoveNotSupportedException unsupported) {
@@ -1189,6 +1202,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		List<Map<String,Object>> migrationOutputs = new ArrayList<Map<String,Object>>();
 		if (expectedMigration != null) {
 			Map<String,Object> execution = object(expectedMigration.get("stagedExecution"));
+			if (execution.containsKey("runtimeLayout")) {
+				Map<String,Object> layout = object(execution.get("runtimeLayout"));
+				if (bool(layout, "ready")) for (Object raw : array(layout.get("outputs"))) {
+					Map<String,Object> output = object(raw);
+					String relative = string(output, "relativePath");
+					expectedFiles.add(relative);
+					addParentDirectories(relative, expectedDirectories);
+					migrationOutputs.add(output);
+				}
+			}
 			for (Object raw : array(execution.get("stagedOutputs"))) {
 				Map<String,Object> output = object(raw);
 				String relative = string(output, "relativePath");
@@ -1321,6 +1344,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		try {
 			WorldBuilderAdaptiveDurability.forceTree(staging);
 			Files.move(staging, release, StandardCopyOption.ATOMIC_MOVE);
+			if (Boolean.parseBoolean(System.getProperty(
+				"worldbuilder.currentRuntime.testReleasePostMoveForceFailure", "false")))
+				throw new IOException("injected release post-move force failure");
 			WorldBuilderAdaptiveDurability.forceDirectory(release.getParent());
 			WorldBuilderAdaptiveDurability.forceDirectory(staging.getParent());
 		} catch (AtomicMoveNotSupportedException unsupported) {
@@ -1742,6 +1768,38 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receiptFingerprintSha256", true,
 			"Recovery receipt fingerprint does not match its content.",
 			"Restore the exact sealed recovery receipt.");
+	}
+
+	private static Path validatePendingReceiptTemporary(Path transaction,
+		Map<String,Object> plan) throws IOException, WorldBuilderContractException {
+		Path temporary = transaction.resolve(".receipt.json.tmp");
+		if (!Files.exists(temporary, LinkOption.NOFOLLOW_LINKS)) return null;
+		BasicFileAttributes attributes = Files.readAttributes(temporary,
+			BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+		if (!attributes.isRegularFile() || attributes.isSymbolicLink()) throw problem(
+			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt-temporary", true,
+			"Interrupted receipt staging evidence is linked or unsafe.",
+			"Preserve the transaction directory for reviewed recovery.");
+		WorldBuilderAdaptiveExporter.rejectHardLink(temporary, ".receipt.json.tmp");
+		Map<String,Object> receipt;
+		try {
+			receipt = WorldBuilderJsonDocuments.readObject(temporary);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+				"receipt-temporary", true,
+				"Interrupted receipt staging evidence is malformed.",
+				"Preserve the transaction directory for reviewed recovery.", malformed);
+		}
+		validateReceiptFingerprint(receipt);
+		String status = string(receipt, "status");
+		if (!("pending".equals(status) || "recovery-required".equals(status))
+			|| !string(plan, "transactionId").equals(string(receipt, "transactionId"))
+			|| !string(plan, "planFingerprintSha256").equals(
+				string(receipt, "planFingerprintSha256"))) throw problem(
+				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt-temporary", true,
+				"Interrupted receipt staging does not belong to this recoverable plan.",
+				"Preserve both receipt files for reviewed recovery; no overwrite is authorized.");
+		return temporary;
 	}
 
 	static final class Result {

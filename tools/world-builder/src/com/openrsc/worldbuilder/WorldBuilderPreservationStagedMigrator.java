@@ -2,6 +2,7 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.FileVisitResult;
@@ -90,14 +91,28 @@ final class WorldBuilderPreservationStagedMigrator {
 		result.put("mariaDbMigrationReady", Boolean.FALSE);
 		result.put("canonicalMapPackageReady", Boolean.valueOf(mapReady));
 		result.put("stagedOutputs", outputs);
+		Map<String,Object> runtimeLayout;
+		try {
+			runtimeLayout = WorldBuilderCurrentRuntimeLayout.inspect(composition);
+		} catch (IOException unavailable) {
+			runtimeLayout = WorldBuilderCurrentRuntimeLayout.unavailable(
+				"provider-runtime-artifacts-not-built");
+		} catch (WorldBuilderContractException unavailable) {
+			runtimeLayout = WorldBuilderCurrentRuntimeLayout.unavailable(
+				"provider-runtime-layout-contract-not-satisfied");
+		}
+		result.put("runtimeLayout", runtimeLayout);
 		List<Object> blockers = new ArrayList<Object>();
+		blockers.addAll(array(typed.get("configurationBlockers")));
 		if ("sqlite".equals(engine) && !sqlitePresent)
 			blockers.add("reviewed-offline-sqlite-snapshot-not-found");
 		if ("mariadb".equals(engine))
 			blockers.add("mariadb-external-stage-rollback-not-implemented");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
 		blockers.add("activation-bound-generated-state-inventory-required");
-		blockers.add("runnable-current-runtime-layout-materialization-required");
+		if (!WorldBuilderBoundedInventory.bool(runtimeLayout.get("ready"),
+				"preservation-migration", "ready"))
+			blockers.add("runnable-current-runtime-layout-materialization-required");
 		blockers.add("provider-installed-execution-verifier-contract-required");
 		result.put("readinessBlockers", blockers);
 		return result;
@@ -363,36 +378,41 @@ final class WorldBuilderPreservationStagedMigrator {
 			STATE_MAIN_CLASS, "--contract", contract.toString(), "--engine", "sqlite",
 			"--source", source.toString(), "--stage", output.toString(),
 			"--evidence", evidence.toString());
-		Path log = stage.resolve("migration/provider-state-migration-output.log");
-		if (Files.exists(log, LinkOption.NOFOLLOW_LINKS)) throw blocked(
-			"Provider state-migration diagnostic path already exists.");
 		Process process = new ProcessBuilder(command).directory(stage.toFile())
-			.redirectErrorStream(true).redirectOutput(log.toFile()).start();
+			.redirectErrorStream(true).start();
+		BoundedProcessOutput outputCapture = new BoundedProcessOutput(
+			process.getInputStream(), process);
+		Thread outputThread = new Thread(outputCapture,
+			"world-builder-state-migration-output");
+		outputThread.setDaemon(true); outputThread.start();
 		boolean finished;
 		try {
 			finished = process.waitFor(processTimeoutSeconds, TimeUnit.SECONDS);
 		} catch (InterruptedException interrupted) {
-			Thread.currentThread().interrupt(); process.destroyForcibly();
+			Thread.currentThread().interrupt();
+			if (!terminate(process)) throw blocked(
+				"Interrupted provider state migration could not be stopped; preserve staging.");
+			joinOutput(outputThread);
 			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
-			Files.deleteIfExists(log);
 			throw blocked("Provider state migration was interrupted.");
 		}
 		if (!finished) {
-			process.destroyForcibly();
-			try { process.waitFor(10L, TimeUnit.SECONDS); }
-			catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); }
+			if (!terminate(process)) throw blocked(
+				"Timed-out provider state migration could not be stopped; preserve staging.");
+			joinOutput(outputThread);
 			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
-			Files.deleteIfExists(log);
 			throw blocked("Provider state migration exceeded its bounded timeout.");
 		}
-		long logSize = Files.size(log);
-		if (logSize > 65536L) {
+		joinOutput(outputThread);
+		if (outputCapture.failure != null) {
 			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
-			Files.deleteIfExists(log);
+			throw blocked("Provider state migrator output could not be read safely.");
+		}
+		if (outputCapture.exceeded) {
+			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
 			throw blocked("Provider state migrator exceeded its output bound.");
 		}
-		byte[] captured = Files.readAllBytes(log);
-		Files.delete(log);
+		byte[] captured = outputCapture.bytes();
 		if (process.exitValue() != 0) {
 			Files.deleteIfExists(output); Files.deleteIfExists(evidence);
 			String diagnostic = new String(captured, StandardCharsets.UTF_8)
@@ -403,6 +423,57 @@ final class WorldBuilderPreservationStagedMigrator {
 		setMode(output, "0600"); setMode(evidence, "0600");
 		if (!WorldBuilderHashes.sha256(source).equals(string(binding, "sourceSha256")))
 			throw blocked("Provider state migration changed its read-only source.");
+	}
+
+	private static boolean terminate(Process process) {
+		process.destroyForcibly();
+		try {
+			return process.waitFor(10L, TimeUnit.SECONDS);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt(); return !process.isAlive();
+		}
+	}
+
+	private static void joinOutput(Thread outputThread)
+		throws WorldBuilderContractException {
+		try {
+			outputThread.join(10_000L);
+		} catch (InterruptedException interrupted) {
+			Thread.currentThread().interrupt(); throw blocked(
+				"Provider state migration output collection was interrupted.");
+		}
+		if (outputThread.isAlive()) throw blocked(
+			"Provider state migration output collector did not stop.");
+	}
+
+	private static final class BoundedProcessOutput implements Runnable {
+		private static final int LIMIT = 65536;
+		private final InputStream input;
+		private final Process process;
+		private final ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+		volatile boolean exceeded;
+		volatile IOException failure;
+
+		BoundedProcessOutput(InputStream input, Process process) {
+			this.input = input; this.process = process;
+		}
+
+		@Override public void run() {
+			byte[] buffer = new byte[4096];
+			try (InputStream stream = input) {
+				for (int read; (read = stream.read(buffer)) >= 0;) {
+					if (read == 0) continue;
+					if (bytes.size() + read > LIMIT) {
+						exceeded = true; process.destroyForcibly(); return;
+					}
+					bytes.write(buffer, 0, read);
+				}
+			} catch (IOException problem) {
+				if (!exceeded) failure = problem;
+			}
+		}
+
+		synchronized byte[] bytes() { return bytes.toByteArray(); }
 	}
 
 	private static void verifySqlite(Path target, Path stage, Map<String,Object> binding)

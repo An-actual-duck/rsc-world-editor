@@ -143,6 +143,7 @@
             "mariaDbMigrationReady": {"type": "boolean"},
             "canonicalMapPackageReady": {"type": "boolean"},
             "stagedOutputs": {"type": "array", "maxItems": 64, "uniqueItems": true, "items": {"$ref": "#/$defs/migrationOutput"}},
+            "runtimeLayout": {"$ref": "#/$defs/runtimeLayout"},
             "readinessBlockers": {"type": "array", "maxItems": 32, "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}}
           }
         },
@@ -196,6 +197,39 @@
         "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
         "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "mode": {"const": "0600"}
+      }
+    },
+    "runtimeLayout": {
+      "type": "object", "additionalProperties": false,
+      "required": ["layoutId", "serverRootRelativePath", "clientRootRelativePath",
+        "outputs", "outputInventoryHash", "ready"],
+      "properties": {
+        "layoutId": {"const": "current-base-runnable-layout-v1"},
+        "serverRootRelativePath": {"const": "installed/server"},
+        "clientRootRelativePath": {"const": "installed/client"},
+        "outputs": {"type": "array", "maxItems": 8192, "uniqueItems": true,
+          "items": {"$ref": "#/$defs/runtimeLayoutOutput"}},
+        "outputInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+        "ready": {"type": "boolean"},
+        "reason": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"}
+      },
+      "allOf": [
+        {"if": {"properties": {"ready": {"const": true}}},
+          "then": {"not": {"required": ["reason"]}}},
+        {"if": {"properties": {"ready": {"const": false}}},
+          "then": {"required": ["reason"]}}
+      ]
+    },
+    "runtimeLayoutOutput": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relativePath", "kind", "source", "size", "sha256", "mode"],
+      "properties": {
+        "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "kind": {"enum": ["server-runtime", "server-plugins", "server-content", "client-runtime", "client-content"]},
+        "source": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
+        "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "mode": {"type": "string", "pattern": "^[0-7]{4}$"}
       }
     },
     "providerStateMigration": {

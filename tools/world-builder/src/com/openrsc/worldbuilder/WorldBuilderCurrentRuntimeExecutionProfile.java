@@ -314,9 +314,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		Map<String,Object> typed = object(plan.get("typedConfiguration"));
 		WorldBuilderBoundedInventory.exactKeys(typed, "current-runtime-migration",
 			"schemaVersion", "manifestType", "sourceRelativePath", "precedence",
-			"duplicatePolicy", "serverName", "experienceRate", "bindAddress",
+			"duplicatePolicy", "serverName", "experienceRate", "combatExperienceRate",
+			"skillingExperienceRate", "bindAddress",
 			"gamePort", "websocketPort", "databaseMigration", "externalSecretReferences",
-			"sourceInventory", "untranslatedKeys", "translations");
+			"sourceInventory", "untranslatedKeys", "configurationBlockers", "translations");
 		if (!"world-builder-current-base-configuration".equals(
 				string(typed, "manifestType"))
 			|| !"first-value-wins".equals(string(typed, "duplicatePolicy")))
@@ -343,6 +344,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 						"Typed configuration untranslated-key inventory is invalid.");
 			priorUntranslated = (String)raw;
 		}
+		for (Object raw : array(typed.get("configurationBlockers")))
+			WorldBuilderBoundedInventory.identifier(raw, "current-runtime-migration",
+				"configurationBlockers");
 		Map<String,Object> map = object(plan.get("mapMigration"));
 		WorldBuilderBoundedInventory.exactKeys(map, "current-runtime-migration",
 			"migrationId", "sourceRelativePath", "destinationRole", "executionBoundary",
@@ -426,7 +430,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"providerStateMigration",
 			"typedConfigurationReady", "sqliteSnapshotReady",
 			"sqliteSchemaMigrationReady", "mariaDbMigrationReady",
-			"canonicalMapPackageReady", "stagedOutputs", "readinessBlockers");
+			"canonicalMapPackageReady", "stagedOutputs", "runtimeLayout",
+			"readinessBlockers");
 		if (!"preservation-staged-data-migrator-v1".equals(
 			string(staged, "implementationId"))
 			|| !"current-base-state-migration-v1".equals(
@@ -440,6 +445,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"Production state-migration artifact roles changed.");
 		WorldBuilderPreservationStagedMigrator.validateStateBinding(
 			object(staged.get("providerStateMigration")));
+		WorldBuilderCurrentRuntimeLayout.validatePlan(object(staged.get("runtimeLayout")));
 		List<String> kinds = new ArrayList<String>();
 		for (Object raw : array(staged.get("stagedOutputs"))) {
 			Map<String,Object> output = object(raw);
@@ -481,6 +487,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			empty.put("duplicatePolicy", "first-value-wins");
 			empty.put("serverName", "Preservation");
 			empty.put("experienceRate", Long.valueOf(1));
+			empty.put("combatExperienceRate", Long.valueOf(1));
+			empty.put("skillingExperienceRate", Long.valueOf(1));
 			empty.put("bindAddress", "127.0.0.1");
 			empty.put("gamePort", Long.valueOf(43594));
 			empty.put("websocketPort", Long.valueOf(43494));
@@ -488,6 +496,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			empty.put("externalSecretReferences", new ArrayList<Object>());
 			empty.put("sourceInventory", new ArrayList<Object>());
 			empty.put("untranslatedKeys", new ArrayList<Object>());
+			empty.put("configurationBlockers", new ArrayList<Object>());
 			empty.put("translations", new ArrayList<Object>());
 			return empty;
 		}
@@ -498,6 +507,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		List<Object> translations = new ArrayList<Object>();
 		List<Object> sourceInventory = new ArrayList<Object>();
 		List<Object> untranslated = new ArrayList<Object>();
+		boolean ambiguousColonValue = false;
+		boolean nullOverwriteValue = false;
 		List<Path> sources = new ArrayList<Path>();
 		if (productionLayout) {
 			if (!Files.isRegularFile(connections, LinkOption.NOFOLLOW_LINKS)
@@ -537,8 +548,12 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			int comment = value.indexOf('#');
 			if (comment >= 0) value = value.substring(0, comment).trim();
 			if (value.isEmpty() && line.endsWith(":")) continue; // section heading
+			if (colon == separator && value.indexOf(':') >= 0)
+				ambiguousColonValue = true;
 			String canonical = alias(legacy);
 			if (canonical == null) {
+				if (value.isEmpty() || "null".equalsIgnoreCase(value))
+					nullOverwriteValue = true;
 				if (!untranslated.contains(legacy)) untranslated.add(legacy);
 				continue;
 			}
@@ -558,18 +573,11 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			? values.get("serverName") : "Preservation";
 		if (name.isEmpty() || name.length() > 80) throw refusal(
 			"Translated server name is empty or exceeds 80 characters.");
-		if (values.containsKey("combatExperienceRate")
-			&& values.containsKey("skillingExperienceRate")
-			&& !values.get("combatExperienceRate").equals(
-				values.get("skillingExperienceRate"))) throw refusal(
-				"Current Base cannot collapse different combat and skilling rates into one setting.");
-		if (!values.containsKey("experienceRate")) {
-			if (values.containsKey("combatExperienceRate")) values.put(
-				"experienceRate", values.get("combatExperienceRate"));
-			else if (values.containsKey("skillingExperienceRate")) values.put(
-				"experienceRate", values.get("skillingExperienceRate"));
-		}
-		long experience = integer(values, "experienceRate", 1L, 100L, 1L);
+		long legacyExperience = integer(values, "experienceRate", 1L, 100L, 1L);
+		long combatExperience = integer(values, "combatExperienceRate", 1L, 100L,
+			legacyExperience);
+		long skillingExperience = integer(values, "skillingExperienceRate", 1L, 100L,
+			legacyExperience);
 		long port = integer(values, "gamePort", 1L, 65535L, 43594L);
 		long websocketPort = integer(values, "websocketPort", 1L, 65535L, 43494L);
 		if (port == websocketPort) throw refusal(
@@ -589,7 +597,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			: (Files.exists(local, LinkOption.NOFOLLOW_LINKS)
 				? "local-replaces-named-profile" : "named-profile"));
 		typed.put("duplicatePolicy", "first-value-wins");
-		typed.put("serverName", name); typed.put("experienceRate", Long.valueOf(experience));
+		typed.put("serverName", name);
+		typed.put("experienceRate", Long.valueOf(legacyExperience));
+		typed.put("combatExperienceRate", Long.valueOf(combatExperience));
+		typed.put("skillingExperienceRate", Long.valueOf(skillingExperience));
 		typed.put("bindAddress", bind); typed.put("gamePort", Long.valueOf(port));
 		typed.put("websocketPort", Long.valueOf(websocketPort));
 		Map<String,Object> database = databaseMigration(values);
@@ -607,6 +618,14 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		});
 		typed.put("sourceInventory", sourceInventory);
 		typed.put("untranslatedKeys", untranslated);
+		List<Object> configurationBlockers = new ArrayList<Object>();
+		if (!untranslated.isEmpty())
+			configurationBlockers.add("untranslated-legacy-configuration-keys");
+		if (ambiguousColonValue)
+			configurationBlockers.add("ambiguous-three-part-colon-values");
+		if (nullOverwriteValue)
+			configurationBlockers.add("legacy-null-overwrite-semantics");
+		typed.put("configurationBlockers", configurationBlockers);
 		typed.put("translations", translations);
 		return typed;
 	}

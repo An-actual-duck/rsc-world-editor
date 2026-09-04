@@ -308,6 +308,33 @@ public final class CurrentUpgradeHarness {
             WorldBuilderPreservationStagedMigrator.verify(target, stage, execution,
                 (Map<String,Object>)migration.get("mapMigration"));
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
+        } else if ("runtime-layout".equals(operation)
+            || "runtime-layout-tamper".equals(operation)
+            || "runtime-layout-extra".equals(operation)) {
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> layout = WorldBuilderCurrentRuntimeLayout.inspect(composition);
+            Path release = transactions.resolve(transactionId);
+            Files.createDirectory(release);
+            for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+                String role = (String)artifact.inventory.get("role");
+                if (!(role.equals("server-runtime") || role.equals("server-plugins")
+                    || role.equals("server-content") || role.equals("client-runtime")
+                    || role.equals("client-content"))) continue;
+                Path destination = release.resolve(artifact.bundlePath);
+                Files.createDirectories(destination.getParent());
+                Files.copy(artifact.source, destination);
+            }
+            WorldBuilderCurrentRuntimeLayout.materialize(release, layout);
+            if ("runtime-layout-tamper".equals(operation)) {
+                Files.write(release.resolve("installed/server/conf/server/settings.txt"),
+                    new byte[] {32}, StandardOpenOption.APPEND);
+            } else if ("runtime-layout-extra".equals(operation)) {
+                Files.write(release.resolve("installed/client/unexpected.bin"),
+                    new byte[] {1}, StandardOpenOption.CREATE_NEW);
+            }
+            WorldBuilderCurrentRuntimeLayout.verify(release, layout);
+            System.out.print(WorldBuilderJsonDocuments.pretty(layout));
         } else if ("lease-anchor-replaced".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
                 transaction.preview(target, transactions, catalog,
@@ -430,6 +457,29 @@ public final class CurrentUpgradeHarness {
             cls.behavior_root / "scripts/current-platform-composition.py",
             cls.behavior_catalog, cls.behavior_root,
             cls.shared_root / "provider-behavior.json",
+        )
+        cls.layout_root = cls.shared_root / "provider-layout"
+        shutil.copytree(cls.provider_root, cls.layout_root)
+        for relative, records in (
+            ("output/current-platform/current-base-v1/server/content.zip", {
+                "connections.conf": b"db_type: sqlite\n",
+                "current-base.conf": b"server_port: 43594\n",
+                "conf/server/settings.txt": b"current base server content\n",
+            }),
+            ("output/current-platform/current-base-v1/client/content.zip", {
+                "Cache/config.txt": b"current base client content\n",
+                "Cache/audio/silence.dat": b"invented audio fixture\n",
+            }),
+        ):
+            archive = cls.layout_root / relative
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+                for name, payload in sorted(records.items()):
+                    output.writestr(name, payload)
+        cls.layout_catalog = cls.layout_root / "current-platform"
+        cls.layout_identity = cls._resolve(
+            cls.layout_root / "scripts/current-platform-composition.py",
+            cls.layout_catalog, cls.layout_root,
+            cls.shared_root / "provider-layout.json",
         )
         cls.candidate_root = cls.shared_root / "noninstallable-artifact-candidate"
         shutil.copytree(cls.provider_root, cls.candidate_root)
@@ -855,6 +905,8 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("local-replaces-named-profile", typed["precedence"])
         self.assertEqual("Local Realm", typed["serverName"])
         self.assertEqual(3, typed["experienceRate"])
+        self.assertEqual(3, typed["combatExperienceRate"])
+        self.assertEqual(3, typed["skillingExperienceRate"])
         self.assertEqual(43595, typed["gamePort"])
         self.assertEqual("localhost", typed["bindAddress"])
         self.assertEqual("first-value-wins", typed["duplicatePolicy"])
@@ -898,7 +950,7 @@ public final class CurrentUpgradeHarness {
             "  server_port: 43596\n"
             "  ws_server_port: 43496\n"
             "  combat_exp_rate: 1\n"
-            "  skilling_exp_rate: 1\n"
+            "  skilling_exp_rate: 2\n"
             "  member_world: true\n",
             encoding="utf-8",
         )
@@ -914,7 +966,13 @@ public final class CurrentUpgradeHarness {
         )
         self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
         self.assertEqual("0.0.0.0", typed["bindAddress"])
+        self.assertEqual(1, typed["combatExperienceRate"])
+        self.assertEqual(2, typed["skillingExperienceRate"])
         self.assertEqual(["member_world", "monitor_ip"], typed["untranslatedKeys"])
+        self.assertIn(
+            "untranslated-legacy-configuration-keys",
+            typed["configurationBlockers"],
+        )
         self.assertEqual(
             ["server/connections.conf", "server/preservation.conf"],
             [item["relativePath"] for item in typed["sourceInventory"]],
@@ -923,6 +981,29 @@ public final class CurrentUpgradeHarness {
             source = target / item["relativePath"]
             self.assertEqual(source.stat().st_size, item["size"])
             self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), item["sha256"])
+
+    def test_provider_runtime_layout_is_exactly_materialized_and_verified(self) -> None:
+        target = self.target("preservation-t0")
+        for operation in ("runtime-layout", "runtime-layout-tamper", "runtime-layout-extra"):
+            with self.subTest(operation=operation):
+                workspace = self.case_root / (operation + "-transactions")
+                workspace.mkdir()
+                result = self.run_harness(
+                    operation, target, workspace, operation,
+                    identity=self.layout_identity, catalog=self.layout_catalog,
+                )
+                if operation == "runtime-layout":
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    layout = json.loads(result.stdout)
+                    self.assertTrue(layout["ready"])
+                    self.assertGreater(len(layout["outputs"]), 5)
+                    paths = {item["relativePath"] for item in layout["outputs"]}
+                    self.assertIn("installed/server/core.jar", paths)
+                    self.assertIn("installed/server/conf/server/settings.txt", paths)
+                    self.assertIn("installed/client/Cache/config.txt", paths)
+                else:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
 
     def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
         target = self.target("preservation-t0")
@@ -1248,12 +1329,40 @@ public final class CurrentUpgradeHarness {
         receipt = json.loads((workspace / txid / "receipt.json").read_text())
         self.assertEqual("pending", receipt["status"])
         self.assertEqual("release-published", receipt["failureType"])
+        receipt_temporary = workspace / txid / ".receipt.json.tmp"
+        receipt_temporary.write_bytes((workspace / txid / "receipt.json").read_bytes())
         self.assertNotEqual(before, tree_snapshot(target))
         recovered = self.run_harness("recover", target, workspace, txid)
         self.assertEqual(0, recovered.returncode, recovered.stderr)
         self.assertEqual(before, tree_snapshot(target))
+        self.assertFalse(receipt_temporary.exists())
         receipt = json.loads((workspace / txid / "receipt.json").read_text())
         self.assertEqual("rolled-back", receipt["status"])
+
+    def test_post_publication_force_failures_roll_back_exact_target(self) -> None:
+        properties = (
+            "worldbuilder.currentRuntime.testReleasePostMoveForceFailure",
+            "worldbuilder.currentRuntime.testLedgerPostMoveForceFailure",
+        )
+        for index, property_name in enumerate(properties):
+            with self.subTest(property_name=property_name):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                environment = dict(os.environ)
+                environment["JAVA_TOOL_OPTIONS"] = "-D" + property_name + "=true"
+                result = self.run_harness(
+                    "apply", target, workspace, f"post-move-force-{index}",
+                    environment=environment,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(before, tree_snapshot(target))
+                receipt = json.loads(
+                    (workspace / f"post-move-force-{index}" / "receipt.json").read_text()
+                )
+                self.assertEqual("rolled-back", receipt["status"])
 
     def test_rollback_preserves_observer_drift_without_destructive_cleanup(self) -> None:
         for index, tamper in enumerate((
