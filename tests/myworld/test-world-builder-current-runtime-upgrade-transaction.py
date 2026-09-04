@@ -657,12 +657,15 @@ public final class CurrentUpgradeHarness {
             ("marker-project", "activation", "project"),
             ("marker-adapter", "activation", "adapter"),
             ("marker-plan", "activation", "plan"),
+            ("marker-execution-profile", "activation", "execution-profile"),
+            ("marker-migration", "activation", "migration"),
             ("ledger-launcher", "ledger", "activeLauncherRelativePath"),
             ("ledger-server-build", "ledger", "serverBuildId"),
             ("ledger-map", "ledger", "activeMapPackageId"),
             ("extra-release-file", "release", "extra"),
             ("missing-release-file", "release", "missing"),
             ("tampered-release-file", "release", "tampered"),
+            ("tampered-migration-plan", "release", "migration"),
             ("extra-release-directory", "release", "extra-directory"),
             ("linked-release-file", "release", "symlink"),
         )
@@ -686,6 +689,10 @@ public final class CurrentUpgradeHarness {
                         )
                     elif field == "adapter":
                         marker["inputAdapter"]["adapterId"] = "different-synthetic-v1"
+                    elif field == "execution-profile":
+                        marker["executionProfile"]["migratorId"] = "target-selected-migrator"
+                    elif field == "migration":
+                        marker["migrationPlan"]["migratorId"] = "target-selected-migrator"
                     else:
                         marker["planBindingHash"] = "f" * 64
                     marker_path.write_text(json.dumps(marker))
@@ -707,6 +714,9 @@ public final class CurrentUpgradeHarness {
                         artifact.unlink()
                     elif field == "tampered":
                         artifact.write_bytes(artifact.read_bytes() + b"tampered")
+                    elif field == "migration":
+                        migration = release / "migration/migration-plan.json"
+                        migration.write_bytes(migration.read_bytes() + b" ")
                     elif field == "extra-directory":
                         (release / "unexpected-directory").mkdir()
                     else:

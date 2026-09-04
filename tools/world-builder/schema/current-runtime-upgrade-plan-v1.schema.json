@@ -69,6 +69,13 @@
     "confirmationIdentity": {"type": "string", "pattern": "^UPGRADE:[A-Za-z0-9._-]+:[0-9a-f]{64}:[0-9a-f]{64}$", "maxLength": 512},
     "planFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"classificationStatus": {"const": "NOT_INSTALLABLE"}}},
+      "then": {"properties": {"activationAuthorized": {"const": false}}},
+      "else": {"properties": {"activationAuthorized": {"const": true}}}
+    }
+  ],
   "$defs": {
     "executionProfile": {
       "type": "object", "additionalProperties": false,

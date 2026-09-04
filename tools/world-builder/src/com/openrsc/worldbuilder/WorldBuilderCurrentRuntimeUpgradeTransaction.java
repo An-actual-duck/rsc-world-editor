@@ -361,10 +361,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			|| !profile.clientBuildId.equals(string(ledger.root, "clientBuildId"))
 			|| !profile.mapPackageId.equals(
 				string(ledger.root, "activeMapPackageId"))) return false;
-		verifyProviderReleaseTree(target, releaseRelative, composition.artifacts, null, null);
 		Map<String,Object> activation = readObject(
 			safeExistingFile(target, activationRelative), activationRelative);
 		validateActivation(activation, composition, adapter.root, project.root, ledger.root);
+		verifyProviderReleaseTree(target, releaseRelative, composition.artifacts,
+			activation, object(activation.get("migrationPlan")));
 		return true;
 	}
 
@@ -832,6 +833,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Map<String,Object> executionProfile = object(activation.get("executionProfile"));
 		WorldBuilderCurrentRuntimeExecutionProfile compiledProfile =
 			WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(executionProfile);
+		compiledProfile.validateMigrationPlan(object(activation.get("migrationPlan")));
 		if (integer(activation, "schemaVersion") != 1L
 			|| !string(executionProfile, "activationManifestType").equals(
 				string(activation, "manifestType"))
@@ -1420,6 +1422,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		Map<String,Object> ledger = object(plan.get("activationLedger"));
 		Map<String,Object> migration = object(plan.get("migrationPlan"));
+		profile.validateMigrationPlan(migration);
 		if (!profile.migratorId.equals(string(migration, "migratorId"))
 			|| !profile.serverBuildId.equals(string(ledger, "serverBuildId"))
 			|| !profile.clientBuildId.equals(string(ledger, "clientBuildId"))

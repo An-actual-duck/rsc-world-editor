@@ -161,6 +161,49 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return result;
 	}
 
+	void validateMigrationPlan(Map<String,Object> plan)
+		throws WorldBuilderContractException {
+		WorldBuilderBoundedInventory.exactKeys(plan, "current-runtime-migration",
+			"schemaVersion", "manifestType", "migratorId", "configurationMigrationId",
+			"typedConfiguration", "durableStateMigrationId", "durableState",
+			"mapMigration", "migrationPlanFingerprintSha256");
+		if (WorldBuilderBoundedInventory.integer(plan.get("schemaVersion"),
+				"current-runtime-migration", "schemaVersion") != 1L
+			|| !"world-builder-current-runtime-migration-plan".equals(
+				string(plan, "manifestType"))
+			|| !migratorId.equals(string(plan, "migratorId"))
+			|| !configurationMigrationId.equals(
+				string(plan, "configurationMigrationId"))
+			|| !stateMigrationId.equals(string(plan, "durableStateMigrationId")))
+			throw refusal("Migration plan does not match its compiled profile.");
+		Map<String,Object> typed = object(plan.get("typedConfiguration"));
+		WorldBuilderBoundedInventory.exactKeys(typed, "current-runtime-migration",
+			"schemaVersion", "manifestType", "sourceRelativePath", "precedence",
+			"duplicatePolicy", "serverName", "experienceRate", "bindAddress",
+			"gamePort", "externalSecretReferences", "translations");
+		if (!"world-builder-current-base-configuration".equals(
+				string(typed, "manifestType"))
+			|| !"first-value-wins".equals(string(typed, "duplicatePolicy")))
+			throw refusal("Typed configuration has unsupported execution semantics.");
+		Map<String,Object> map = object(plan.get("mapMigration"));
+		WorldBuilderBoundedInventory.exactKeys(map, "current-runtime-migration",
+			"migrationId", "sourceRelativePath", "destinationRole", "executionBoundary");
+		if (!mapMigrationId.equals(string(map, "migrationId")))
+			throw refusal("Map migration does not match its compiled profile.");
+		for (Object raw : array(plan.get("durableState"))) {
+			Map<String,Object> record = object(raw);
+			WorldBuilderBoundedInventory.exactKeys(record, "current-runtime-migration",
+				"role", "relativePath", "sourceSha256", "policy");
+		}
+		String supplied = string(plan, "migrationPlanFingerprintSha256");
+		Map<String,Object> copy = new LinkedHashMap<String,Object>(plan);
+		copy.put("migrationPlanFingerprintSha256", ZERO_HASH);
+		String expected = WorldBuilderHashes.sha256(canonical(copy)
+			.getBytes(StandardCharsets.UTF_8));
+		if (!expected.equals(supplied)) throw refusal(
+			"Migration plan fingerprint does not match its content.");
+	}
+
 	private Map<String,Object> typedConfiguration(Path target)
 		throws WorldBuilderContractException {
 		Path local = target.resolve("server/conf/local.conf");
@@ -291,13 +334,16 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return root;
 	}
 
+	@SafeVarargs
 	private static Map<String,Object> rule(String role, String path, boolean required,
 		long size, String hash, String kind, Map<String,Object>... deltas) {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("role", role); result.put("relativePath", path);
 		result.put("required", Boolean.valueOf(required)); result.put("baselineSize", Long.valueOf(size));
 		result.put("baselineSha256", hash); result.put("evidenceKind", kind);
-		result.put("recognizedDeltas", new ArrayList<Object>(Arrays.<Object>asList(deltas)));
+		List<Object> recognized = new ArrayList<Object>();
+		for (Map<String,Object> delta : deltas) recognized.add(delta);
+		result.put("recognizedDeltas", recognized);
 		return result;
 	}
 
