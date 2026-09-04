@@ -31,6 +31,10 @@ final class WorldBuilderCurrentRuntimeLayout {
 	static Map<String,Object> inspect(WorldBuilderProviderCatalog.Composition composition)
 		throws IOException, WorldBuilderContractException {
 		Map<String,WorldBuilderProviderCatalog.Artifact> roles = requiredRoles(composition);
+		for (WorldBuilderProviderCatalog.Artifact artifact : roles.values())
+			if (!Files.getFileStore(artifact.source).supportsFileAttributeView("posix"))
+				throw failure(artifact.sourcePath,
+					"Runnable layout requires reviewed POSIX private-mode enforcement.");
 		List<Object> outputs = new ArrayList<Object>();
 		addFile(outputs, roles.get("server-runtime"),
 			"installed/server/core.jar", "server-runtime");
@@ -93,21 +97,33 @@ final class WorldBuilderCurrentRuntimeLayout {
 		throws IOException, WorldBuilderContractException {
 		validatePlan(plan);
 		Set<String> expected = new HashSet<String>();
+		Set<String> expectedDirectories = new HashSet<String>();
+		expectedDirectories.add("installed");
 		for (Object raw : array(plan.get("outputs"))) {
 			Map<String,Object> record = object(raw);
 			String relative = string(record, "relativePath");
 			expected.add(relative);
+			addParentDirectories(relative, expectedDirectories);
 			Path path = WorldBuilderPortablePath.resolveContained(release, relative, OPERATION);
 			BasicFileAttributes attributes = Files.readAttributes(path,
 				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
 			if (!attributes.isRegularFile() || attributes.isSymbolicLink()
 				|| attributes.size() != integer(record, "size")
-				|| !WorldBuilderHashes.sha256(path).equals(string(record, "sha256")))
+				|| !WorldBuilderHashes.sha256(path).equals(string(record, "sha256"))
+				|| !fileMode(path).equals(string(record, "mode")))
 				throw failure(relative, "Runnable layout output differs from its reviewed bytes.");
 		}
 		final Path installed = release.resolve("installed");
 		final Set<String> seen = new HashSet<String>();
+		final Set<String> seenDirectories = new HashSet<String>();
 		Files.walkFileTree(installed, new java.nio.file.SimpleFileVisitor<Path>() {
+			@Override public java.nio.file.FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isDirectory() || attributes.isSymbolicLink())
+					throw new IOException("unsafe runnable layout directory");
+				seenDirectories.add(release.relativize(directory).toString().replace('\\', '/'));
+				return java.nio.file.FileVisitResult.CONTINUE;
+			}
 			@Override public java.nio.file.FileVisitResult visitFile(Path file,
 				BasicFileAttributes attributes) throws IOException {
 				if (!attributes.isRegularFile() || attributes.isSymbolicLink())
@@ -116,7 +132,8 @@ final class WorldBuilderCurrentRuntimeLayout {
 				return java.nio.file.FileVisitResult.CONTINUE;
 			}
 		});
-		if (!seen.equals(expected)) throw failure("installed",
+		if (!seen.equals(expected) || !seenDirectories.equals(expectedDirectories))
+			throw failure("installed",
 			"Runnable layout has missing or extra files.");
 	}
 
@@ -154,7 +171,8 @@ final class WorldBuilderCurrentRuntimeLayout {
 		WorldBuilderProviderCatalog.Artifact artifact, String destinationRoot,
 		String kind) throws IOException, WorldBuilderContractException {
 		Set<String> names = new HashSet<String>();
-		Set<String> folded = new HashSet<String>();
+		Set<String> files = new HashSet<String>();
+		Map<String,String> folded = new LinkedHashMap<String,String>();
 		long total = 0L;
 		int count = 0;
 		try (ZipFile archive = new ZipFile(artifact.source.toFile())) {
@@ -164,9 +182,9 @@ final class WorldBuilderCurrentRuntimeLayout {
 				if (++count > MAX_ARCHIVE_ENTRIES || entry.isDirectory())
 					throw failure(artifact.bundlePath, "Provider content archive shape is unbounded.");
 				String name = WorldBuilderPortablePath.require(entry.getName(), OPERATION);
-				String key = WorldBuilderPortablePath.collisionKey(name, OPERATION);
-				if (!names.add(name) || !folded.add(key)) throw failure(name,
-					"Provider content archive repeats or case-collides a path.");
+				if (!names.add(name)) throw failure(name,
+					"Provider content archive repeats a path.");
+				registerArchivePath(name, files, folded);
 				Digest digest = digest(archive.getInputStream(entry), entry.getSize());
 				total = Math.addExact(total, digest.size);
 				if (total > WorldBuilderContractLimits.MAX_INVENTORY_TOTAL_BYTES)
@@ -177,6 +195,26 @@ final class WorldBuilderCurrentRuntimeLayout {
 		}
 		if (count == 0) throw failure(artifact.bundlePath,
 			"Provider content archive is empty.");
+	}
+
+	private static void registerArchivePath(String name, Set<String> files,
+		Map<String,String> folded) throws WorldBuilderContractException {
+		String[] segments = name.split("/");
+		String current = "";
+		for (int index = 0; index < segments.length; index++) {
+			current = current.isEmpty() ? segments[index] : current + "/" + segments[index];
+			String key = WorldBuilderPortablePath.collisionKey(current, OPERATION);
+			String prior = folded.put(key, current);
+			if (prior != null && !prior.equals(current)) throw failure(name,
+				"Provider archive contains a case-colliding path segment.");
+			if (index < segments.length - 1 && files.contains(key)) throw failure(name,
+				"Provider archive places a child below a file path.");
+			if (index == segments.length - 1) {
+				for (String existing : folded.keySet()) if (existing.startsWith(key + "/"))
+					throw failure(name, "Provider archive file collides with a directory path.");
+				files.add(key);
+			}
+		}
 	}
 
 	private static Digest digest(InputStream raw, long declared)
@@ -303,13 +341,30 @@ final class WorldBuilderCurrentRuntimeLayout {
 				Path destination = WorldBuilderPortablePath.resolveContained(release,
 					string(record, "relativePath"), OPERATION);
 				Files.createDirectories(destination.getParent());
-				try (InputStream input = archive.getInputStream(entry)) {
-					Files.copy(input, destination);
-				}
+				copyBounded(archive.getInputStream(entry), destination,
+					integer(record, "size"));
 				setMode(destination, string(record, "mode"));
 				requireRecord(destination, record);
 			}
 		}
+	}
+
+	private static void copyBounded(InputStream raw, Path destination, long expected)
+		throws IOException, WorldBuilderContractException {
+		byte[] buffer = new byte[8192]; long total = 0L;
+		try (InputStream input = raw;
+			java.io.OutputStream output = Files.newOutputStream(destination,
+				StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+			for (int read; (read = input.read(buffer)) >= 0;) {
+				if (read == 0) continue;
+				total = Math.addExact(total, read);
+				if (total > expected) throw failure(destination.getFileName().toString(),
+					"Provider archive output exceeded its reviewed size.");
+				output.write(buffer, 0, read);
+			}
+		}
+		if (total != expected) throw failure(destination.getFileName().toString(),
+			"Provider archive output ended before its reviewed size.");
 	}
 
 	private static void requireRecord(Path path, Map<String,Object> record)
@@ -335,6 +390,19 @@ final class WorldBuilderCurrentRuntimeLayout {
 		for (int index = 0; index < masks.length; index++)
 			if ((bits & masks[index]) != 0) permissions.add(flags[index]);
 		Files.setPosixFilePermissions(path, permissions);
+	}
+
+	private static String fileMode(Path path) throws IOException {
+		Object raw = Files.getAttribute(path, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+		return String.format("%04o", Integer.valueOf(((Number)raw).intValue() & 0777));
+	}
+
+	private static void addParentDirectories(String relative, Set<String> values) {
+		int slash = relative.lastIndexOf('/');
+		while (slash > 0) {
+			values.add(relative.substring(0, slash));
+			slash = relative.lastIndexOf('/', slash - 1);
+		}
 	}
 
 	@SuppressWarnings("unchecked") private static Map<String,Object> object(Object value)

@@ -310,7 +310,9 @@ public final class CurrentUpgradeHarness {
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("runtime-layout".equals(operation)
             || "runtime-layout-tamper".equals(operation)
-            || "runtime-layout-extra".equals(operation)) {
+            || "runtime-layout-extra".equals(operation)
+            || "runtime-layout-empty-directory".equals(operation)
+            || "runtime-layout-mode".equals(operation)) {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
             Map<String,Object> layout = WorldBuilderCurrentRuntimeLayout.inspect(composition);
@@ -332,9 +334,46 @@ public final class CurrentUpgradeHarness {
             } else if ("runtime-layout-extra".equals(operation)) {
                 Files.write(release.resolve("installed/client/unexpected.bin"),
                     new byte[] {1}, StandardOpenOption.CREATE_NEW);
+            } else if ("runtime-layout-empty-directory".equals(operation)) {
+                Files.createDirectory(release.resolve("installed/client/unexpected-empty"));
+            } else if ("runtime-layout-mode".equals(operation)) {
+                Files.setPosixFilePermissions(
+                    release.resolve("installed/server/conf/server/settings.txt"),
+                    EnumSet.of(PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.GROUP_READ));
             }
             WorldBuilderCurrentRuntimeLayout.verify(release, layout);
             System.out.print(WorldBuilderJsonDocuments.pretty(layout));
+        } else if ("map-boundary".equals(operation)
+            || "map-boundary-tamper".equals(operation)
+            || "map-boundary-extra".equals(operation)
+            || "map-boundary-source-drift".equals(operation)) {
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> migration = transaction.inspectReviewedPreservationMigration(
+                target, composition, packedSource, packedReport);
+            Map<String,Object> map = (Map<String,Object>)migration.get("mapMigration");
+            Path stage = transactions.resolve(transactionId);
+            Files.createDirectory(stage);
+            if ("map-boundary-source-drift".equals(operation)) {
+                try (java.util.stream.Stream<Path> paths = Files.walk(packedSource)) {
+                    Path changed = paths.filter(Files::isRegularFile).sorted().findFirst().get();
+                    Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
+                }
+            }
+            transaction.stageReviewedPreservationMap(
+                packedSource, packedReport, stage, map);
+            if ("map-boundary-tamper".equals(operation)) {
+                Files.write(stage.resolve(
+                    "migration/output/map/conversion/package/manifest.json"),
+                    new byte[] {32}, StandardOpenOption.APPEND);
+            } else if ("map-boundary-extra".equals(operation)) {
+                Files.write(stage.resolve(
+                    "migration/output/map/conversion/unexpected.bin"),
+                    new byte[] {1}, StandardOpenOption.CREATE_NEW);
+            }
+            transaction.verifyReviewedPreservationMap(stage, map);
+            System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("lease-anchor-replaced".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
                 transaction.preview(target, transactions, catalog,
@@ -481,6 +520,28 @@ public final class CurrentUpgradeHarness {
             cls.layout_catalog, cls.layout_root,
             cls.shared_root / "provider-layout.json",
         )
+        cls.layout_collision_contracts = []
+        for collision_name, entries in (
+            ("parent-case", {"Dir/a.txt": b"a", "dir/b.txt": b"b"}),
+            ("file-prefix", {"node": b"file", "node/child.txt": b"child"}),
+        ):
+            collision_root = cls.shared_root / ("provider-layout-" + collision_name)
+            shutil.copytree(cls.layout_root, collision_root)
+            archive = collision_root / (
+                "output/current-platform/current-base-v1/server/content.zip"
+            )
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+                for name, payload in entries.items():
+                    output.writestr(name, payload)
+            collision_catalog = collision_root / "current-platform"
+            collision_identity = cls._resolve(
+                collision_root / "scripts/current-platform-composition.py",
+                collision_catalog, collision_root,
+                cls.shared_root / ("provider-layout-" + collision_name + ".json"),
+            )
+            cls.layout_collision_contracts.append(
+                (collision_catalog, collision_identity)
+            )
         cls.candidate_root = cls.shared_root / "noninstallable-artifact-candidate"
         shutil.copytree(cls.provider_root, cls.candidate_root)
         candidate_variant_path = (
@@ -537,6 +598,10 @@ public final class CurrentUpgradeHarness {
         return path
 
     def complete_packed_source(self) -> tuple[Path, Path]:
+        target, source, report = self.complete_packed_target_source()
+        return source, report
+
+    def complete_packed_target_source(self) -> tuple[Path, Path, Path]:
         module_path = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
         specification = importlib.util.spec_from_file_location(
             "current_upgrade_packed_fixture", module_path
@@ -550,7 +615,16 @@ public final class CurrentUpgradeHarness {
         parent.mkdir()
         target = helper.fixture(parent)
         source, report, _ = helper.discover_and_copy(target, parent)
-        return source, report
+        configuration = target / "server/conf/preservation.conf"
+        configuration.parent.mkdir(parents=True, exist_ok=True)
+        configuration.write_text(
+            "server_name: Preservation Map Fixture\n"
+            "server_port: 43594\n"
+            "ws_server_port: 43494\n"
+            "db_type: sqlite\n",
+            encoding="utf-8",
+        )
+        return target, source, report
 
     def run_harness(
         self, operation: str, target: Path, workspace: Path, txid: str,
@@ -984,7 +1058,10 @@ public final class CurrentUpgradeHarness {
 
     def test_provider_runtime_layout_is_exactly_materialized_and_verified(self) -> None:
         target = self.target("preservation-t0")
-        for operation in ("runtime-layout", "runtime-layout-tamper", "runtime-layout-extra"):
+        for operation in (
+            "runtime-layout", "runtime-layout-tamper", "runtime-layout-extra",
+            "runtime-layout-empty-directory", "runtime-layout-mode",
+        ):
             with self.subTest(operation=operation):
                 workspace = self.case_root / (operation + "-transactions")
                 workspace.mkdir()
@@ -1004,6 +1081,15 @@ public final class CurrentUpgradeHarness {
                 else:
                     self.assertNotEqual(0, result.returncode)
                     self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+        for index, (catalog, identity) in enumerate(self.layout_collision_contracts):
+            workspace = self.case_root / f"runtime-layout-collision-{index}"
+            workspace.mkdir()
+            refused = self.run_harness(
+                "runtime-layout", target, workspace, "collision",
+                identity=identity, catalog=catalog,
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("CODE=CONVERSION_BLOCKED", refused.stderr)
 
     def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
         target = self.target("preservation-t0")
@@ -1136,6 +1222,55 @@ public final class CurrentUpgradeHarness {
         self.assertEqual(target_before, tree_snapshot(target))
         self.assertEqual(source_before, tree_snapshot(packed_source))
         self.assertEqual(workspace_before, tree_snapshot(workspace))
+
+    def test_exact_target_packed_map_boundary_stages_and_rejects_drift(self) -> None:
+        target, packed_source, packed_report = self.complete_packed_target_source()
+        target_before = tree_snapshot(target)
+        source_before = tree_snapshot(packed_source)
+        workspace = self.workspace()
+        staged = self.run_harness(
+            "map-boundary", target, workspace, "map-positive",
+            packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertEqual(0, staged.returncode, staged.stderr)
+        map_plan = json.loads(staged.stdout)["mapMigration"]
+        self.assertTrue(map_plan["packageReady"])
+        self.assertGreater(map_plan["terrainCount"], 1)
+        self.assertGreater(map_plan["placementCount"], 0)
+        self.assertGreater(len(map_plan["outputInventory"]), 8)
+        for record in map_plan["outputInventory"]:
+            output = workspace / "map-positive" / record["relativePath"]
+            self.assertEqual(record["size"], output.stat().st_size)
+            self.assertEqual(
+                record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest()
+            )
+            self.assertEqual(0o600, output.stat().st_mode & 0o777)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        for operation in ("map-boundary-tamper", "map-boundary-extra"):
+            failure_workspace = self.case_root / (operation + "-transactions")
+            failure_workspace.mkdir()
+            failed = self.run_harness(
+                operation, target, failure_workspace, operation,
+                packed_source=packed_source, packed_report=packed_report,
+            )
+            self.assertNotEqual(0, failed.returncode)
+            self.assertIn("CODE=TARGET_DRIFT", failed.stderr)
+            self.assertEqual(target_before, tree_snapshot(target))
+            self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        drift_source = self.case_root / "map-drift-source"
+        shutil.copytree(packed_source, drift_source)
+        drift_workspace = self.case_root / "map-drift-transactions"
+        drift_workspace.mkdir()
+        drift = self.run_harness(
+            "map-boundary-source-drift", target, drift_workspace, "map-drift",
+            packed_source=drift_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, drift.returncode)
+        self.assertIn("CODE=", drift.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
 
     def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
         fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
@@ -1363,6 +1498,34 @@ public final class CurrentUpgradeHarness {
                     (workspace / f"post-move-force-{index}" / "receipt.json").read_text()
                 )
                 self.assertEqual("rolled-back", receipt["status"])
+
+    def test_recovery_reconciles_exact_final_receipt_temporaries(self) -> None:
+        for index, status in enumerate(("successful", "rolled-back")):
+            with self.subTest(status=status):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                txid = "final-temp-" + status
+                environment = dict(os.environ)
+                environment["JAVA_TOOL_OPTIONS"] = (
+                    "-Dworldbuilder.currentRuntime.testReceiptHaltStatus=" + status
+                )
+                failures = "-" if status == "successful" else "after-ledger-activated"
+                halted = self.run_harness(
+                    "apply", target, workspace, txid, failures=failures,
+                    environment=environment,
+                )
+                self.assertEqual(92, halted.returncode)
+                self.assertTrue((workspace / txid / ".receipt.json.tmp").is_file())
+                recovered = self.run_harness("recover", target, workspace, txid)
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                receipt = json.loads((workspace / txid / "receipt.json").read_text())
+                self.assertEqual(status, receipt["status"])
+                self.assertFalse((workspace / txid / ".receipt.json.tmp").exists())
+                if status == "rolled-back":
+                    self.assertEqual(before, tree_snapshot(target))
 
     def test_rollback_preserves_observer_drift_without_destructive_cleanup(self) -> None:
         for index, tamper in enumerate((
