@@ -36,6 +36,42 @@ FIXTURE_HOST_DECODER_CLASS = (
     b"MAX_UNDECIDED_CUSTOM_FRAME_LENGTH\0"
     b"Truncated undecided custom-client frame\0"
 )
+FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES = {
+    "com/openrsc/server/net/RSCProtocolDecoder.class": FIXTURE_HOST_DECODER_CLASS,
+    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class": (
+        b"world-builder-configs/installed-server.json\0"
+        b"world-builder-installed-server-profile\0"
+    ),
+    "com/openrsc/server/io/NativeLayeredTerrainChunk.class": (
+        b"LEGACY_TILE_WIRE_BYTES\0WIDE_TILE_WIRE_BYTES\0copyWireBytesPerTile\0"
+    ),
+    "com/openrsc/server/GameStateUpdater.class": (
+        b"visual-layered-sector-v2-u16\0structural-layered-sector-v2-u16\0"
+    ),
+    "com/openrsc/server/io/NativeLayeredWorldPackage.class": (
+        b"layered-world-placements-v3\0layered-world-placements-v4\0"
+    ),
+}
+FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES = {
+    "orsc/WorldBuilderInstalledClientProfile.class": (
+        b"fixture-current-host-client"
+    ),
+    "orsc/WorldBuilderTerrainBootstrap.class": b"fixture-current-host-client",
+    "orsc/NativeLayeredTerrainChunk.class": (
+        b"raw-layered-sector-v1\0LEGACY_TILE_WIRE_BYTES\0"
+        b"raw-layered-sector-v2-u16\0visual-layered-sector-v2-u16\0"
+        b"structural-layered-sector-v2-u16\0WIDE_TILE_WIRE_BYTES\0"
+    ),
+    "orsc/NativeLayeredTerrainPacketDecoder.class": (
+        b"visual-layered-sector-v2-u16\0structural-layered-sector-v2-u16\0"
+    ),
+}
+FIXTURE_PINNED_SERVER_BUILD = """<project name="target-server" default="compile-and-run" basedir=".">
+    <!-- Preserve the verified World Builder core.jar during target launches. -->
+    <available file="conf/world-builder/installed-runtime-capability-v3.json" property="world.builder.pinned.host.runtime"/>
+    <target name="compile_core" unless="world.builder.pinned.host.runtime"/>
+</project>
+"""
 
 
 def standalone_seed_sector() -> bytes:
@@ -216,12 +252,12 @@ def installed_v2_capability() -> dict:
 
 def host_runtime_capability() -> dict:
     return {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "manifestType": "world-builder-host-runtime-capability",
-        "capabilityId": "world-builder-host-runtime-capability-v2",
+        "capabilityId": "world-builder-host-runtime-capability-v3",
         "integrationModel": "host-integrated-core-v1",
         "profileId": "world-builder-installed",
-        "serverBuildId": "rsc-world-editor-runtime-host-server-v2",
+        "serverBuildId": "rsc-world-editor-runtime-host-server-v3",
         "clientBuildId": "rsc-world-editor-runtime-host-client-v1",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "serverBootstrapId": "world-builder-installed-server-profile-v1",
@@ -232,50 +268,192 @@ def host_runtime_capability() -> dict:
         "coordinateModel": "signed-layered-v1",
         "encodingVersions": [1, 2, 3, 4],
         "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
-        "requiredHostCapabilities": [{
+        "requiredHostCapabilities": [
+          {
             "capabilityId": "undecided-custom-client-framing-v1",
-            "sourceIntegration": {
+            "sourceAlignment": {
+                "payloadScope": "project-runtime",
                 "payloadRelativePath": (
                     "server/conf/world-builder/host-integration/"
                     "RSCProtocolDecoder.java"
                 ),
+                "targetScope": "target-root",
                 "targetRelativePath": (
                     "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
                 ),
                 "payloadSha256": hashlib.sha256(
                     FIXTURE_HOST_DECODER_SOURCE
                 ).hexdigest(),
+                "replacementPolicy": "replace-trusted-preimage-or-preserve",
                 "acceptedBeforeSha256": [hashlib.sha256(
                     FIXTURE_HOST_DECODER_LEGACY_SOURCE
                 ).hexdigest()],
             },
-            "artifactProbe": {
-                "targetRelativePath": "server/core.jar",
+            "artifactProbes": [{
+                "archive": "server-core",
                 "archiveEntryPath": (
                     "com/openrsc/server/net/RSCProtocolDecoder.class"
                 ),
-                "payloadEntrySha256": hashlib.sha256(
-                    FIXTURE_HOST_DECODER_CLASS
-                ).hexdigest(),
-                "requiredClassSymbols": [
+                "requiredClassMarkers": [
                     "decodeUndecidedCustomFrame",
                     "MAX_UNDECIDED_CUSTOM_FRAME_LENGTH",
                     "Truncated undecided custom-client frame",
                 ],
+            }],
+          },
+          {
+            "capabilityId": "pinned-prebuilt-host-core-v1",
+            "buildIntegration": {
+                "targetScope": "target-root",
+                "targetRelativePath": "server/build.xml",
+                "guardCapabilityRelativePath": (
+                    "conf/world-builder/installed-runtime-capability-v3.json"
+                ),
+                "guardProperty": "world.builder.pinned.host.runtime",
+                "guardedTarget": "compile_core",
+                "policy": (
+                    "skip-obsolete-source-recompile-while-capability-installed"
+                ),
             },
-        }],
-        "activation": {
-            "serverProfileRelativePath": (
-                "server/world-builder-configs/installed-server.json"
+            "artifactProbes": [{
+                "archive": "server-core",
+                "archiveEntryPath": (
+                    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class"
+                ),
+                "requiredClassMarkers": [
+                    "world-builder-configs/installed-server.json",
+                    "world-builder-installed-server-profile",
+                ],
+            }],
+          },
+        ],
+        "packageEncodingCapabilities": [
+            {
+                "encodingVersion": 1,
+                "capabilityId": "native-layered-terrain-wire-v1",
+                "encodings": ["raw-layered-sector-v1"],
+                "artifactProbes": [
+                    {
+                        "archive": "server-core",
+                        "archiveEntryPath": (
+                            "com/openrsc/server/io/NativeLayeredTerrainChunk.class"
+                        ),
+                        "requiredClassMarkers": [
+                            "LEGACY_TILE_WIRE_BYTES", "copyWireBytesPerTile",
+                        ],
+                    },
+                    {
+                        "archive": "client-runtime",
+                        "archiveEntryPath": "orsc/NativeLayeredTerrainChunk.class",
+                        "requiredClassMarkers": [
+                            "raw-layered-sector-v1", "LEGACY_TILE_WIRE_BYTES",
+                        ],
+                    },
+                ],
+            },
+            {
+                "encodingVersion": 2,
+                "capabilityId": "native-layered-terrain-wire-v2-u16",
+                "encodings": [
+                    "raw-layered-sector-v2-u16",
+                    "visual-layered-sector-v2-u16",
+                    "structural-layered-sector-v2-u16",
+                ],
+                "artifactProbes": [
+                    {
+                        "archive": "server-core",
+                        "archiveEntryPath": (
+                            "com/openrsc/server/io/NativeLayeredTerrainChunk.class"
+                        ),
+                        "requiredClassMarkers": [
+                            "WIDE_TILE_WIRE_BYTES", "copyWireBytesPerTile",
+                        ],
+                    },
+                    {
+                        "archive": "server-core",
+                        "archiveEntryPath": "com/openrsc/server/GameStateUpdater.class",
+                        "requiredClassMarkers": [
+                            "visual-layered-sector-v2-u16",
+                            "structural-layered-sector-v2-u16",
+                        ],
+                    },
+                    {
+                        "archive": "client-runtime",
+                        "archiveEntryPath": "orsc/NativeLayeredTerrainChunk.class",
+                        "requiredClassMarkers": [
+                            "raw-layered-sector-v2-u16",
+                            "visual-layered-sector-v2-u16",
+                            "structural-layered-sector-v2-u16",
+                            "WIDE_TILE_WIRE_BYTES",
+                        ],
+                    },
+                    {
+                        "archive": "client-runtime",
+                        "archiveEntryPath": (
+                            "orsc/NativeLayeredTerrainPacketDecoder.class"
+                        ),
+                        "requiredClassMarkers": [
+                            "visual-layered-sector-v2-u16",
+                            "structural-layered-sector-v2-u16",
+                        ],
+                    },
+                ],
+            },
+            {
+                "encodingVersion": 3,
+                "capabilityId": "layered-placement-runtime-v3",
+                "encodings": ["layered-world-placements-v3"],
+                "artifactProbes": [{
+                    "archive": "server-core",
+                    "archiveEntryPath": (
+                        "com/openrsc/server/io/NativeLayeredWorldPackage.class"
+                    ),
+                    "requiredClassMarkers": ["layered-world-placements-v3"],
+                }],
+            },
+            {
+                "encodingVersion": 4,
+                "capabilityId": "layered-placement-runtime-v4",
+                "encodings": ["layered-world-placements-v4"],
+                "artifactProbes": [{
+                    "archive": "server-core",
+                    "archiveEntryPath": (
+                        "com/openrsc/server/io/NativeLayeredWorldPackage.class"
+                    ),
+                    "requiredClassMarkers": ["layered-world-placements-v4"],
+                }],
+            },
+        ],
+        "receiptMigration": {
+            "authoritativeTargetRelativePath": (
+                "server/conf/world-builder/installed-runtime-capability-v3.json"
             ),
-            "clientProfileRelativePaths": [
+            "retiredTargetRelativePaths": [
+                "server/conf/world-builder/installed-runtime-capability-v1.json",
+                "server/conf/world-builder/installed-runtime-capability-v2.json",
+            ],
+            "requiresSingleAuthoritativeReceipt": True,
+        },
+        "activation": {
+            "serverProfile": {
+                "targetRelativePath": (
+                    "server/world-builder-configs/installed-server.json"
+                ),
+                "installedBy": "import-map-changes",
+                "requiredWhen": "map-package-active",
+            },
+            "clientProfileAlternatives": [
                 "Client_Base/world-builder-configs/installed-client.json",
                 "client/world-builder-configs/installed-client.json",
             ],
             "requiresExactManifestSha256": True,
             "requiresExactInventorySha256": False,
-            "replacesLegacyTerrain": False,
-            "replacesLegacyPlacements": False,
+            "legacyDataPolicy": {
+                "deletesLegacyTerrainFiles": False,
+                "deletesLegacyPlacementFiles": False,
+                "terrainRuntimeAuthority": "native-layered-package",
+                "placementRuntimeAuthority": "native-layered-package",
+            },
             "ordinaryImportOwnership": [
                 "content-addressed-map-package",
                 "world-builder-map-selection",
@@ -691,27 +869,11 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
             entry = zipfile.ZipInfo("META-INF/MANIFEST.MF", (2024, 1, 2, 3, 4, 6))
             archive.writestr(entry, "Manifest-Version: 1.0\n\n")
             if jar.name == "core.jar":
-                archive.writestr(
-                    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
-                    b"fixture-current-host-server",
-                )
-                archive.writestr(
-                    "com/openrsc/server/io/NativeLayeredWorldPackage.class",
-                    b"fixture-current-host-server",
-                )
-                archive.writestr(
-                    "com/openrsc/server/net/RSCProtocolDecoder.class",
-                    FIXTURE_HOST_DECODER_CLASS,
-                )
+                for path, payload in FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items():
+                    archive.writestr(path, payload)
             elif jar.name == "Open_RSC_Client.jar":
-                archive.writestr(
-                    "orsc/WorldBuilderInstalledClientProfile.class",
-                    b"fixture-current-host-client",
-                )
-                archive.writestr(
-                    "orsc/WorldBuilderTerrainBootstrap.class",
-                    b"fixture-current-host-client",
-                )
+                for path, payload in FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items():
+                    archive.writestr(path, payload)
     return runtime
 
 

@@ -125,12 +125,12 @@ or `Start World Builder.cmd` on Windows. The main window has four actions:
   earlier. Select it from the project list populated in the main window, then
   continue editing its independent working copy.
 - **Upgrade Target Runtime** is the explicit migration for an affected backup or
-  older target. It integrates the versioned custom-login decoder into one exact
-  supported target source file, installs the current server core, matching
-  player client, and v3 host capability, then removes retired shadow/overlay
-  JARs. All other source, maps, configuration, definitions, plugins, databases,
-  build files, and assets remain untouched. A conflicting decoder customization
-  is refused for reviewed reconciliation instead of overwritten.
+  older target. It installs the exact prebuilt server core, matching player
+  client, and package-driven v3 host capability; guards the target Ant build
+  from recompiling obsolete core source; and removes superseded receipts and
+  retired shadow/overlay JARs. Known old login source is aligned, while missing,
+  newer, or customized source is preserved. Other source, maps, configuration,
+  definitions, plugins, databases, and assets remain untouched.
 - **Import Map Changes** installs only the selected project's saved map package
   and World Builder-owned activation profiles. If it reports
   `RUNTIME_UPGRADE_REQUIRED`, run the separate runtime upgrade first and retry

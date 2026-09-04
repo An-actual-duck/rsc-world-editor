@@ -20,8 +20,10 @@ from adaptive_project_test_support import (
     CANONICAL_VOID_TILE,
     CANONICAL_VOID_SECTOR,
     EMPTY_LANGUAGE_BUNDLES,
-    FIXTURE_HOST_DECODER_CLASS,
+    FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES,
     FIXTURE_HOST_DECODER_SOURCE,
+    FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES,
+    FIXTURE_PINNED_SERVER_BUILD,
     REQUIRED_DATABASE_PATCHES,
     RUNTIME_ALLOWLIST,
     STANDALONE_INITIAL_LOCATION,
@@ -1523,6 +1525,14 @@ public final class FakeAdaptiveClient {
             capture_output=True,
             text=True,
         )
+        with zipfile.ZipFile(runtime / "server/core.jar", "a") as archive:
+            for entry, marker in FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items():
+                archive.writestr(entry, marker)
+        with zipfile.ZipFile(
+            runtime / "Client_Base/Open_RSC_Client.jar", "a"
+        ) as archive:
+            for entry, marker in FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items():
+                archive.writestr(entry, marker)
         return runtime
 
     def discover(self, target: Path, destination: Path) -> dict:
@@ -4965,6 +4975,9 @@ public final class UpgradeNpcPlacements {
             )
             decoder_source.parent.mkdir(parents=True, exist_ok=True)
             decoder_source.write_bytes(FIXTURE_HOST_DECODER_SOURCE)
+            (target / "server/build.xml").write_text(
+                FIXTURE_PINNED_SERVER_BUILD, encoding="utf-8"
+            )
             selected = json.loads((
                 target / "server/world-builder-configs/primary.json"
             ).read_text(encoding="utf-8"))
@@ -4972,19 +4985,10 @@ public final class UpgradeNpcPlacements {
                 selected["clientRuntimeRelativePath"]
             ).parts[0]
             archives = (
-                (
-                    target / "server/core.jar",
-                    (
-                        "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
-                        "com/openrsc/server/io/NativeLayeredWorldPackage.class",
-                    ),
-                ),
+                (target / "server/core.jar", FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES),
                 (
                     client_root / "Open_RSC_Client.jar",
-                    (
-                        "orsc/WorldBuilderInstalledClientProfile.class",
-                        "orsc/WorldBuilderTerrainBootstrap.class",
-                    ),
+                    FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES,
                 ),
             )
             for archive_path, entries in archives:
@@ -4993,13 +4997,8 @@ public final class UpgradeNpcPlacements {
                     archive.writestr(
                         "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n"
                     )
-                    for entry in entries:
-                        archive.writestr(entry, b"host-integrated-runtime")
-                    if archive_path == target / "server/core.jar":
-                        archive.writestr(
-                            "com/openrsc/server/net/RSCProtocolDecoder.class",
-                            FIXTURE_HOST_DECODER_CLASS,
-                        )
+                    for entry, marker in entries.items():
+                        archive.writestr(entry, marker)
             installation = target / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)

@@ -96,7 +96,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 
 		WorldBuilderRuntimeCompatibility.Upgrade upgrade =
 			WorldBuilderRuntimeCompatibility.prepareTargetUpgrade(
-				project, target, configuration);
+				project, target, configuration, export.packageValue);
 		requireInstallEncodingSupport(upgrade.encodingVersions, export.packageValue);
 		List<Action> actions = new ArrayList<Action>(
 			WorldBuilderRuntimeCompatibility.bindTransaction(upgrade, transactionId));
@@ -493,12 +493,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"runtime-compatibility-gameplay-overlay-retirement".equals(role);
 			boolean legacyCapabilityRetirement =
 				"runtime-compatibility-legacy-capability-retirement".equals(role);
+			boolean supersededCapabilityRetirement =
+				"runtime-compatibility-superseded-capability-retirement".equals(role);
 			boolean legacyOverlayRetirement =
 				"runtime-compatibility-legacy-overlay-retirement".equals(role);
 			boolean serverConfiguration =
 				"runtime-compatibility-server-configuration".equals(role);
 			boolean serverBuildGuard =
 				"runtime-compatibility-server-build-guard".equals(role);
+			boolean pinnedServerBuild =
+				"runtime-compatibility-pinned-server-build".equals(role);
 			boolean serverBuildOverlay =
 				"runtime-compatibility-server-build-overlay".equals(role);
 				boolean clientProfile =
@@ -551,6 +555,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 						: legacyCapabilityRetirement
 							? WorldBuilderRuntimeCompatibility.LEGACY_CAPABILITY_DESTINATION
 								.equals(destination)
+						: supersededCapabilityRetirement
+							? WorldBuilderRuntimeCompatibility.CAPABILITY_DESTINATION
+								.equals(destination)
 						: legacyOverlayRetirement
 							? WorldBuilderRuntimeCompatibility.LEGACY_MANAGED_SERVER_DESTINATION
 								.equals(destination)
@@ -559,6 +566,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 							|| serverConfiguration && WorldBuilderRuntimeCompatibility
 							.CONFIGURATION_DESTINATION.equals(destination)
 						|| serverBuildGuard && WorldBuilderRuntimeCompatibility
+							.BUILD_DESTINATION.equals(destination)
+						|| pinnedServerBuild && WorldBuilderRuntimeCompatibility
 							.BUILD_DESTINATION.equals(destination)
 						|| serverBuildOverlay && WorldBuilderRuntimeCompatibility
 							.BUILD_DESTINATION.equals(destination)
@@ -599,7 +608,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 					: serverLoginSource
 						? "working/runtime/server/conf/world-builder/host-integration/RSCProtocolDecoder.java"
 						: "";
-			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement
+			String contentRelative = legacyCapabilityRetirement
+				|| supersededCapabilityRetirement || legacyOverlayRetirement
 				|| retiredShadowRetirement || gameplayOverlayRetirement
 				? ""
 				: clientSourceUpgrade
@@ -623,7 +633,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 										: serverProfile ? ".json"
 										: serverLoginSource ? ".java"
 									: serverConfiguration ? ".conf"
-										: serverBuildGuard || serverBuildOverlay
+						: serverBuildGuard || pinnedServerBuild || serverBuildOverlay
 											|| clientBuildOverlay ? ".xml" : ".jar");
 			FileState before = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("before"), "before"));
@@ -642,7 +652,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			}
 			FileState after = storedFileState(
 				WorldBuilderAdaptiveExporter.object(value.get("after"), "after"));
-			if (legacyCapabilityRetirement || legacyOverlayRetirement
+			if (legacyCapabilityRetirement || supersededCapabilityRetirement
+				|| legacyOverlayRetirement
 				|| retiredShadowRetirement || gameplayOverlayRetirement) {
 				if (!before.present || after.present) throw problem(
 					WorldBuilderErrorCodes.RECOVERY_REQUIRED,
@@ -658,6 +669,21 @@ final class WorldBuilderAdaptiveMutationProfile {
 					content = WorldBuilderRuntimeCompatibility.profileBytes(
 						serverProfile, WorldBuilderAdaptiveExporter.string(
 							storedPlan, "mutationProfileId"), export.packageValue);
+				} else if (pinnedServerBuild) {
+					Path current = safeExistingFile(target, destination,
+						"installed server pinned-core build guard");
+					byte[] currentBytes = Files.readAllBytes(current);
+					if (after.size == currentBytes.length
+						&& after.sha256.equals(WorldBuilderHashes.sha256(currentBytes))) {
+						content = currentBytes;
+					} else if (before.present && before.size == currentBytes.length
+						&& before.sha256.equals(WorldBuilderHashes.sha256(currentBytes))) {
+						content = WorldBuilderRuntimeCompatibility.renderPinnedServerBuild(
+							new String(currentBytes, StandardCharsets.UTF_8))
+							.getBytes(StandardCharsets.UTF_8);
+					} else {
+						content = currentBytes;
+					}
 				} else {
 				Path source = serverConfiguration || serverBuildGuard
 					|| serverBuildOverlay || clientProfile || clientBuildOverlay
@@ -671,7 +697,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 						: clientSourceProfile || clientSourceBootstrap || clientSourceUpgrade
 							? "installed client bootstrap source"
 						: clientSourceTransform ? "installed client transformed source"
-						: serverBuildGuard ? "installed server build guard"
+						: serverBuildGuard || pinnedServerBuild
+							? "installed server build guard"
 							: serverBuildOverlay ? "installed server build overlay"
 							: "installed server launch configuration")
 				: WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,

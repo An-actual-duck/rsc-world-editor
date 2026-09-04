@@ -32,22 +32,15 @@ def write_runtime_jar(path: Path, payload: bytes) -> None:
         archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
         archive.writestr("target/RuntimeMarker.class", payload)
         if path.name == "core.jar":
-            archive.writestr(
-                "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
-                payload,
-            )
-            archive.writestr(
-                "com/openrsc/server/io/NativeLayeredWorldPackage.class", payload
-            )
-            archive.writestr(
-                "com/openrsc/server/net/RSCProtocolDecoder.class",
-                project_support.FIXTURE_HOST_DECODER_CLASS,
-            )
+            for entry, marker in (
+                project_support.FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items()
+            ):
+                archive.writestr(entry, marker)
         else:
-            archive.writestr(
-                "orsc/WorldBuilderInstalledClientProfile.class", payload
-            )
-            archive.writestr("orsc/WorldBuilderTerrainBootstrap.class", payload)
+            for entry, marker in (
+                project_support.FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items()
+            ):
+                archive.writestr(entry, marker)
 
 
 def add_client_upgrade_source(client_root: Path) -> None:
@@ -106,6 +99,9 @@ def add_current_host_capability(target: Path) -> None:
     source = target / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_bytes(project_support.FIXTURE_HOST_DECODER_SOURCE)
+    (target / "server/build.xml").write_text(
+        project_support.FIXTURE_PINNED_SERVER_BUILD, encoding="utf-8"
+    )
 
 HARNESS = r"""
 package com.openrsc.worldbuilder;
@@ -1053,9 +1049,31 @@ class MapMigrationChoiceTest(unittest.TestCase):
 
         exported = self.run_cli("export-adaptive", "--project", project)
         self.assertEqual(exported.returncode, 0, exported.stderr)
+        export_root = json.loads(exported.stdout)["exportDirectory"]
+        refused = self.run_cli(
+            "import-adaptive", "--project", project,
+            "--export", export_root, "--target-root", target,
+        )
+        self.assertEqual(3, refused.returncode, refused.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+        upgrade_preview = self.run_cli(
+            "upgrade-target-runtime", "--project", project,
+            "--export", export_root, "--target-root", target,
+        )
+        self.assertEqual(0, upgrade_preview.returncode, upgrade_preview.stderr)
+        upgrade_plan = json.loads(upgrade_preview.stdout)
+        upgraded = self.run_cli(
+            "upgrade-target-runtime", "--project", project,
+            "--export", export_root, "--target-root", target,
+            "--confirm", "UPGRADE",
+            "--transaction-id", upgrade_plan["transactionId"],
+            "--plan-sha256", upgrade_plan["planFingerprintSha256"],
+        )
+        self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+        target_after_upgrade = LIFECYCLE.tree_bytes(target)
         preview = self.run_cli(
             "import-adaptive", "--project", project,
-            "--export", json.loads(exported.stdout)["exportDirectory"],
+            "--export", export_root,
             "--target-root", target,
         )
         self.assertEqual(preview.returncode, 0, preview.stderr)
@@ -1074,7 +1092,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             action["role"].startswith("retire-legacy-landscape-")
             for action in preview_plan["actions"]
         ))
-        self.assertEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
+        self.assertEqual(target_after_upgrade, LIFECYCLE.tree_bytes(target))
 
         plan_path = self.root / "primary-packed-retirement-plan.json"
         target_server_runtime = (target / "server/core.jar").read_bytes()
@@ -1091,7 +1109,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             capture_output=True,
         )
         self.assertEqual(transaction.returncode, 0, transaction.stderr)
-        self.assertNotEqual(target_after_creation, LIFECYCLE.tree_bytes(target))
+        self.assertNotEqual(target_after_upgrade, LIFECYCLE.tree_bytes(target))
         self.assertEqual(
             target_server_runtime,
             (target / "server/core.jar").read_bytes(),
@@ -1100,7 +1118,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
             target_client_runtime,
             (target / "client/Open_RSC_Client.jar").read_bytes(),
         )
-        self.assertTrue((
+        self.assertFalse((
             target / "server/conf/world-builder/installed-runtime-capability-v1.json"
         ).is_file())
         self.assertFalse((

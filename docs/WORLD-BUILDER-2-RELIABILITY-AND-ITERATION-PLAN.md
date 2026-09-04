@@ -326,14 +326,14 @@ may be changed fundamentally to achieve that result.
 - [x] Make the explicit runtime upgrader install the exact current
   host-integrated server/client pair and retire the earlier class-shadowing
   overlays before a separate map-only Import.
-- [x] Bind host integration to the versioned undecided custom-client framing
-  source/artifact capability, update the one supported decoder source
-  transactionally, refuse source conflicts, and reject a rebuilt core that
-  loses the framing behavior before Import.
+- [x] Bind host integration to package-driven server/client artifact probes,
+  align only a known old decoder source, preserve newer/custom source, and
+  guard the target Ant build so it cannot overwrite the exact prebuilt core.
 - [x] Refuse ordinary Import while a retired provider can shadow target-owned
   classes. Runtime upgrade replaces the authoritative core/client archives and
-  v3 capability while preserving plugins, definitions, databases, source,
-  build files, configuration, maps, and assets.
+  authoritative v3 capability while retiring v1/v2 receipts and preserving
+  plugins, definitions, databases, unrelated source/build behavior,
+  configuration, maps, and assets.
 - [x] Replace installed-v1 preservation with a bounded one-way migration and
   remove obsolete runtime branches after migration and rollback coverage are
   proven.

@@ -26,23 +26,24 @@ class AdaptiveTransactionTest(unittest.TestCase):
             archive.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n")
             archive.writestr("target/RuntimeMarker.class", payload)
             if path.name == "core.jar":
-                archive.writestr(
-                    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
-                    payload,
-                )
-                archive.writestr(
-                    "com/openrsc/server/io/NativeLayeredWorldPackage.class",
-                    payload,
-                )
-                archive.writestr(
-                    "com/openrsc/server/net/RSCProtocolDecoder.class",
-                    project_support.FIXTURE_HOST_DECODER_CLASS,
-                )
+                for entry, marker in (
+                    project_support.FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items()
+                ):
+                    archive.writestr(entry, marker)
             else:
-                archive.writestr(
-                    "orsc/WorldBuilderInstalledClientProfile.class", payload
-                )
-                archive.writestr("orsc/WorldBuilderTerrainBootstrap.class", payload)
+                for entry, marker in (
+                    project_support.FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items()
+                ):
+                    archive.writestr(entry, marker)
+
+    @staticmethod
+    def rewrite_runtime_entry(path: Path, entry: str, payload: bytes):
+        with zipfile.ZipFile(path, "r") as archive:
+            values = {name: archive.read(name) for name in archive.namelist()}
+        values[entry] = payload
+        with zipfile.ZipFile(path, "w") as archive:
+            for name, value in values.items():
+                archive.writestr(name, value)
 
     @classmethod
     def setUpClass(cls):
@@ -1041,6 +1042,32 @@ public final class AdaptiveTransactionFailureHarness {
         declaration["sha256"] = hashlib.sha256(payload).hexdigest()
         project_support.write_json(manifest_path, manifest)
 
+    def add_fixture_v1_sector(self, package: Path) -> None:
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        wide = manifest["terrainSectors"][0]
+        source_payload = (package / wide["path"]).read_bytes()
+        if wide["encoding"] == "raw-layered-sector-v2-u16":
+            legacy_payload = b"".join(
+                source_payload[offset + 1 : offset + 11]
+                for offset in range(0, len(source_payload), 11)
+            )
+        else:
+            self.assertEqual("raw-layered-sector-v1", wide["encoding"])
+            legacy_payload = source_payload
+        legacy_path = package / "terrain/creator/lp0/xp1-yp0.raw"
+        legacy_path.parent.mkdir(parents=True, exist_ok=True)
+        legacy_path.write_bytes(legacy_payload)
+        legacy = dict(wide)
+        legacy.update({
+            "encoding": "raw-layered-sector-v1",
+            "path": "terrain/creator/lp0/xp1-yp0.raw",
+            "sectorX": 1,
+            "sha256": hashlib.sha256(legacy_payload).hexdigest(),
+        })
+        manifest["terrainSectors"].append(legacy)
+        project_support.write_json(manifest_path, manifest)
+
     def set_fixture_ground_overlay(self, package: Path, overlay: int) -> None:
         manifest_path = package / "manifest.json"
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -1113,6 +1140,7 @@ public final class mudclient {
         source_placement_v4=False,
         working_elevation=None,
         working_npc_respawn=None,
+        mixed_v1_terrain=False,
         target_runtime_archives=False,
         preserved_installed_v1=False,
         preserved_installed_v2=False,
@@ -1154,9 +1182,15 @@ public final class mudclient {
         decoder_source.parent.mkdir(parents=True, exist_ok=True)
         if not decoder_source.exists():
             decoder_source.write_bytes(project_support.FIXTURE_HOST_DECODER_SOURCE)
+        (target / "server/build.xml").write_text(
+            project_support.FIXTURE_PINNED_SERVER_BUILD, encoding="utf-8"
+        )
         if source_placement_v4:
             self.upgrade_fixture_placements_to_v4(target / "server/maps/active")
             self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
+        if mixed_v1_terrain:
+            self.add_fixture_v1_sector(target / "server/maps/active")
+            self.add_fixture_v1_sector(target / "client/maps/active")
         if target_runtime_archives:
             self.write_runtime_jar(
                 target / "server/core.jar", b"target-server-runtime"
@@ -1371,7 +1405,7 @@ public final class mudclient {
     def test_import_mutates_only_map_and_owned_activation_state(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-narrow-import-") as temp:
             target, installation, project, export = self.target_project(
-                Path(temp), target_runtime_archives=True, target_build_file=True,
+                Path(temp), target_runtime_archives=True,
                 target_client_build_file=True,
             )
             custom_plugin = target / "server/plugins/custom-game-content.jar"
@@ -1496,7 +1530,10 @@ public final class mudclient {
                     "final class TargetCustomization {}\n", encoding="utf-8"
                 )
                 (target / "server/build.xml").write_text(
-                    "<project name=\"affected-target-build\"/>\n", encoding="utf-8"
+                    "<project name=\"affected-target-build\">\n"
+                    "    <target name=\"compile_core\"></target>\n"
+                    "</project>\n",
+                    encoding="utf-8",
                 )
 
             target, installation, project, export = self.target_project(
@@ -1515,7 +1552,6 @@ public final class mudclient {
                     "server/plugins.jar",
                     "server/inc/sqlite/live.db",
                     "server/src/TargetCustomization.java",
-                    "server/build.xml",
                 )
             }
 
@@ -1560,6 +1596,10 @@ public final class mudclient {
             )
             for relative, expected in preserved.items():
                 self.assertEqual(expected, (target / relative).read_bytes(), relative)
+            self.assertIn(
+                'unless="world.builder.pinned.host.runtime"',
+                (target / "server/build.xml").read_text(encoding="utf-8"),
+            )
 
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -1659,7 +1699,7 @@ public final class mudclient {
                 before_refusal, project_support.tree_bytes(target, installation)
             )
 
-    def test_runtime_upgrade_refuses_conflicting_login_decoder_source(self):
+    def test_runtime_upgrade_preserves_custom_login_decoder_source(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-login-source-conflict-") as temp:
             def customize_decoder(target):
                 (target / (
@@ -1672,16 +1712,28 @@ public final class mudclient {
                 )
 
             target, installation, project, export = self.target_project(
-                Path(temp), target_mutator=customize_decoder,
+                Path(temp), target_runtime_archives=True,
+                target_build_file=True, target_mutator=customize_decoder,
             )
-            before = project_support.tree_bytes(target, installation)
-            refused = self.run_cli(
+            source = (
+                target / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+            )
+            custom_source = source.read_bytes()
+            preview = self.run_cli(
                 "upgrade-target-runtime", "--project", project,
                 "--export", export, "--target-root", target,
             )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("unsupported or conflicting modification", refused.stderr)
-            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target, preview=preview,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            self.assertEqual(custom_source, source.read_bytes())
+            self.assertIn(
+                'unless="world.builder.pinned.host.runtime"',
+                (target / "server/build.xml").read_text(encoding="utf-8"),
+            )
 
     def test_import_requires_host_integrated_runtime_before_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-required-") as temp:
@@ -1728,7 +1780,7 @@ public final class mudclient {
             self.assertIn("differs from the pinned project runtime", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
-    def test_import_preserves_v1_metadata_across_repeated_map_updates(self):
+    def test_runtime_upgrade_retires_v1_metadata_before_repeated_map_updates(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
             target, _, project, export = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -1763,6 +1815,18 @@ public final class mudclient {
             )
             client_build_file.write_text(guarded_client_build, encoding="utf-8")
 
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            self.assertFalse(capability.exists())
             preview = self.run_cli(
                 "import-adaptive", "--project", project, "--export", export,
                 "--target-root", target,
@@ -1784,9 +1848,17 @@ public final class mudclient {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(before_server, server.read_bytes())
-            self.assertEqual(before_client, client.read_bytes())
-            self.assertTrue(capability.exists())
+            upgraded_server = server.read_bytes()
+            upgraded_client = client.read_bytes()
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                upgraded_server,
+            )
+            self.assertEqual(
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                upgraded_client,
+            )
+            self.assertFalse(capability.exists())
             installed_v2 = (
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v2.json"
@@ -1820,9 +1892,9 @@ public final class mudclient {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(before_server, server.read_bytes())
-            self.assertEqual(before_client, client.read_bytes())
-            self.assertTrue(capability.exists())
+            self.assertEqual(upgraded_server, server.read_bytes())
+            self.assertEqual(upgraded_client, client.read_bytes())
+            self.assertFalse(capability.exists())
             self.assertFalse(installed_v2.exists())
             self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
             self.assertEqual(
@@ -1922,6 +1994,11 @@ public final class mudclient {
             exported = self.run_cli("export-adaptive", "--project", project)
             self.assertEqual(0, exported.returncode, exported.stderr)
             export = Path(json.loads(exported.stdout)["exportDirectory"])
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
                 "--export", export, "--target-root", target,
@@ -1931,7 +2008,7 @@ public final class mudclient {
                 target
                 / "server/world-builder-runtime/world-builder-managed-runtime.jar"
             ).exists())
-            self.assertTrue((
+            self.assertFalse((
                 target
                 / "server/conf/world-builder/installed-runtime-capability-v1.json"
             ).is_file())
@@ -1944,7 +2021,7 @@ public final class mudclient {
                 / "server/conf/world-builder/installed-runtime-capability-v3.json"
             ).is_file())
 
-    def test_import_preserves_v2_metadata_and_runtime_archives(self):
+    def test_import_retires_v2_metadata_and_preserves_runtime_archives(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v2-upgrade-") as temp:
             target, _, project, _ = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -1971,6 +2048,17 @@ public final class mudclient {
             self.assertEqual(0, exported.returncode, exported.stderr)
             export = Path(json.loads(exported.stdout)["exportDirectory"])
 
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
             preview = self.run_cli(
                 "import-adaptive", "--project", project, "--export", export,
                 "--target-root", target,
@@ -1993,16 +2081,21 @@ public final class mudclient {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(before_server, server.read_bytes())
+            upgraded_server = server.read_bytes()
+            upgraded_client = client.read_bytes()
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                upgraded_server,
+            )
             self.assertFalse((
                 target
                 / "server/world-builder-runtime/world-builder-managed-runtime.jar"
             ).exists())
-            self.assertEqual(before_client, client.read_bytes())
             self.assertEqual(
-                project_support.installed_v2_capability(),
-                json.loads(capability.read_text(encoding="utf-8")),
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                upgraded_client,
             )
+            self.assertFalse(capability.exists())
 
             project_support.change_working_terrain(project)
             saved = self.run_cli("save-project", "--project", project)
@@ -2015,10 +2108,10 @@ public final class mudclient {
                 "--export", second_export, "--target-root", target,
             )
             self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(before_server, server.read_bytes())
-            self.assertEqual(before_client, client.read_bytes())
+            self.assertEqual(upgraded_server, server.read_bytes())
+            self.assertEqual(upgraded_client, client.read_bytes())
 
-    def test_import_preserves_custom_host_runtime_archives(self):
+    def test_runtime_upgrade_replaces_custom_host_runtime_archives_exactly(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-v2-") as temp:
             target, _, project, _ = self.target_project(
                 Path(temp), target_runtime_archives=True,
@@ -2053,6 +2146,17 @@ public final class mudclient {
             self.assertEqual(0, exported.returncode, exported.stderr)
             export = Path(json.loads(exported.stdout)["exportDirectory"])
 
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
             preview = self.run_cli(
                 "import-adaptive", "--project", project, "--export", export,
                 "--target-root", target,
@@ -2074,8 +2178,16 @@ public final class mudclient {
                 "--export", export, "--target-root", target, preview=preview,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(before_server, server.read_bytes())
-            self.assertEqual(before_client, client.read_bytes())
+            self.assertEqual(
+                (project / "working/runtime/server/core.jar").read_bytes(),
+                server.read_bytes(),
+            )
+            self.assertEqual(
+                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
+                client.read_bytes(),
+            )
+            self.assertNotEqual(before_server, server.read_bytes())
+            self.assertNotEqual(before_client, client.read_bytes())
 
     def test_import_writes_only_host_activation_profiles_before_map_selection(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:
@@ -2145,7 +2257,7 @@ public final class mudclient {
             )
             self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
             self.assertEqual(
-                "rsc-world-editor-runtime-host-server-v2",
+                "rsc-world-editor-runtime-host-server-v3",
                 capability["serverBuildId"],
             )
             self.assertEqual(
@@ -2459,7 +2571,8 @@ public final class mudclient {
     def test_host_runtime_supports_current_wide_and_placement_encodings(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-wide-loader-") as temp:
             target, installation, project, export = self.target_project(
-                Path(temp), supported_encodings=(1, 3), working_elevation=300
+                Path(temp), supported_encodings=(1, 3), working_elevation=300,
+                working_npc_respawn=30, mixed_v1_terrain=True,
             )
             before = project_support.tree_bytes(target, installation)
             preview = self.run_cli(
@@ -2471,8 +2584,12 @@ public final class mudclient {
                 (export / "package/manifest.json").read_text(encoding="utf-8")
             )
             self.assertEqual(
-                {"raw-layered-sector-v2-u16"},
+                {"raw-layered-sector-v1", "raw-layered-sector-v2-u16"},
                 {entry["encoding"] for entry in manifest["terrainSectors"]},
+            )
+            self.assertEqual(
+                {"layered-world-placements-v4"},
+                {entry["encoding"] for entry in manifest["placementSets"]},
             )
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
@@ -2495,6 +2612,42 @@ public final class mudclient {
                 {"layered-world-placements-v4"},
                 {entry["encoding"] for entry in manifest["placementSets"]},
             )
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+
+    def test_host_runtime_probes_only_encodings_required_by_selected_package(self):
+        game_state_entry = "com/openrsc/server/GameStateUpdater.class"
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-v1-probes-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), supported_encodings=(1, 3), working_elevation=200,
+            )
+            self.rewrite_runtime_entry(
+                target / "server/core.jar", game_state_entry,
+                b"target-without-wide-terrain-markers",
+            )
+            before = project_support.tree_bytes(target, installation)
+            preview = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+
+        with tempfile.TemporaryDirectory(prefix="adaptive-import-v2-probes-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), working_elevation=300, mixed_v1_terrain=True,
+            )
+            self.rewrite_runtime_entry(
+                target / "server/core.jar", game_state_entry,
+                b"target-without-wide-terrain-markers",
+            )
+            before = project_support.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive", "--project", project, "--export", export,
+                "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+            self.assertIn("selected package", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
     def test_export_preview_import_and_exact_undo(self):

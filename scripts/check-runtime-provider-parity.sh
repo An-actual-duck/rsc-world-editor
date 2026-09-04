@@ -111,12 +111,12 @@ import sys
 
 capability = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "manifestType": "world-builder-host-runtime-capability",
-    "capabilityId": "world-builder-host-runtime-capability-v2",
+    "capabilityId": "world-builder-host-runtime-capability-v3",
     "integrationModel": "host-integrated-core-v1",
     "profileId": "world-builder-installed",
-    "serverBuildId": "rsc-world-editor-runtime-host-server-v2",
+    "serverBuildId": "rsc-world-editor-runtime-host-server-v3",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
     "packageSchemaId": "layered-world-package-v1",
@@ -132,38 +132,65 @@ for key, value in expected.items():
 if capability.get("encodingVersions") != [1, 2, 3, 4]:
     raise SystemExit("FAIL: Installed runtime encoding contract drifted")
 required = capability.get("requiredHostCapabilities")
-if not isinstance(required, list) or len(required) != 1:
+if not isinstance(required, list) or [item.get("capabilityId") for item in required] != [
+    "undecided-custom-client-framing-v1",
+    "pinned-prebuilt-host-core-v1",
+]:
     raise SystemExit("FAIL: Installed runtime host capability set drifted")
 framing = required[0]
-if framing.get("capabilityId") != "undecided-custom-client-framing-v1":
-    raise SystemExit("FAIL: Installed runtime login-framing capability drifted")
-source = framing.get("sourceIntegration", {})
+source = framing.get("sourceAlignment", {})
 if source.get("payloadRelativePath") != (
     "server/conf/world-builder/host-integration/RSCProtocolDecoder.java"
 ) or source.get("targetRelativePath") != (
     "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
 ):
-    raise SystemExit("FAIL: Installed runtime login source integration drifted")
-artifact = framing.get("artifactProbe", {})
-if artifact.get("targetRelativePath") != "server/core.jar" or (
-    artifact.get("archiveEntryPath")
-    != "com/openrsc/server/net/RSCProtocolDecoder.class"
+    raise SystemExit("FAIL: Installed runtime login source alignment drifted")
+if source.get("replacementPolicy") != "replace-trusted-preimage-or-preserve":
+    raise SystemExit("FAIL: Installed runtime source preservation policy drifted")
+artifact = framing.get("artifactProbes", [{}])[0]
+if artifact.get("archive") != "server-core" or artifact.get("archiveEntryPath") != (
+    "com/openrsc/server/net/RSCProtocolDecoder.class"
 ):
     raise SystemExit("FAIL: Installed runtime login artifact probe drifted")
+build = required[1].get("buildIntegration", {})
+if build != {
+    "targetScope": "target-root",
+    "targetRelativePath": "server/build.xml",
+    "guardCapabilityRelativePath": "conf/world-builder/installed-runtime-capability-v3.json",
+    "guardProperty": "world.builder.pinned.host.runtime",
+    "guardedTarget": "compile_core",
+    "policy": "skip-obsolete-source-recompile-while-capability-installed",
+}:
+    raise SystemExit("FAIL: Installed runtime pinned-core build integration drifted")
+matrix = capability.get("packageEncodingCapabilities", [])
+if [item.get("encodingVersion") for item in matrix] != [1, 2, 3, 4] or any(
+    not item.get("artifactProbes") for item in matrix
+):
+    raise SystemExit("FAIL: Installed runtime package capability evidence drifted")
+migration = capability.get("receiptMigration", {})
+if migration.get("retiredTargetRelativePaths") != [
+    "server/conf/world-builder/installed-runtime-capability-v1.json",
+    "server/conf/world-builder/installed-runtime-capability-v2.json",
+]:
+    raise SystemExit("FAIL: Installed runtime receipt migration drifted")
 activation = capability.get("activation", {})
-if activation.get("serverProfileRelativePath") != (
+if activation.get("serverProfile", {}).get("targetRelativePath") != (
     "server/world-builder-configs/installed-server.json"
 ):
     raise SystemExit("FAIL: Host server activation-profile path drifted")
-if activation.get("clientProfileRelativePaths") != [
+if activation.get("clientProfileAlternatives") != [
     "Client_Base/world-builder-configs/installed-client.json",
     "client/world-builder-configs/installed-client.json",
 ]:
     raise SystemExit("FAIL: Host client activation-profile paths drifted")
-if activation.get("replacesLegacyTerrain") is not False or (
-    activation.get("replacesLegacyPlacements") is not False
-):
-    raise SystemExit("FAIL: Ordinary Import must not retire legacy target data")
+legacy = activation.get("legacyDataPolicy", {})
+if legacy != {
+    "deletesLegacyTerrainFiles": False,
+    "deletesLegacyPlacementFiles": False,
+    "terrainRuntimeAuthority": "native-layered-package",
+    "placementRuntimeAuthority": "native-layered-package",
+}:
+    raise SystemExit("FAIL: Installed runtime legacy-data authority drifted")
 if activation.get("ordinaryImportOwnership") != [
     "content-addressed-map-package",
     "world-builder-map-selection",

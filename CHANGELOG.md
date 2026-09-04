@@ -8,20 +8,27 @@ from the Spoiled Milk repository before this dedicated repository was created.
 
 ## World Builder 2 - in development
 
-- Versioned the required undecided custom-client framing capability and bound
-  it to the exact integration source, accepted historical source, compiled
-  decoder entry, and semantic class probes. Runtime upgrade now patches the
-  supported target decoder source transactionally so a normal server rebuild
-  cannot silently restore the login stall; conflicting decoder customizations
-  fail closed, and Import detects a regressed rebuilt core before mutation.
+- Replaced the broad host-runtime claim with a package-driven v3 capability
+  matrix. Import now proves the server and player-client class behavior needed
+  by each selected terrain/placement encoding, including mixed legacy and
+  unsigned-16 terrain, visual/structural scene packets, and placement v3/v4.
+- Runtime upgrade now installs one exact prebuilt host core and guards the
+  target Ant `compile_core` target while its authoritative v3 receipt exists,
+  preventing obsolete target source from silently replacing wide-terrain and
+  login behavior. Known old login decoder source is aligned transactionally;
+  missing, newer, or customized source is preserved.
+- Runtime upgrade retires superseded v1/v2 capability receipts atomically and
+  records explicit activation ownership: legacy terrain/placement files remain
+  physically present, while the selected native layered package is the runtime
+  authority.
 - Split runtime migration from ordinary Import. The explicit, offline
   `UPGRADE` transaction accepts an affected backup as its before-state, backs
   up and replaces only the pinned host-integrated `core.jar`, matching player
   client, and v3 capability, removes retired shadow/overlay JARs, verifies the
   result, and lets the following map-only Import chain from its receipt. Maps,
   configuration, definitions, plugins, databases, sources, build files, and
-  assets outside the one bounded decoder source integration remain untouched by
-  the runtime upgrade.
+  assets outside the bounded decoder/build integration remain untouched by the
+  runtime upgrade.
 - Added adaptive discovery, deterministic packed conversion, UUID project
   creation/selection, compatible layered adoption, and standalone empty mode.
 - Pinned the generic adaptive loader/authoring runtime capability while keeping

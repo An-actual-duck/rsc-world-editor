@@ -152,15 +152,24 @@ path and require typing IMPORT exactly.
 Import never upgrades the target runtime. If it reports
 RUNTIME_UPGRADE_REQUIRED, preserve the affected offline target or backup,
 create a fresh isolated project from that exact state if necessary, and choose
-"Upgrade Target Runtime". This separate UPGRADE transaction integrates the
-versioned custom-login framing source into one exact supported target decoder,
-then replaces core.jar, the matching Open_RSC_Client.jar, and host runtime
-capability with the exact current project runtime. It backs up every changed
-file and removes the retired World Builder shadow/overlay JARs. All other
-source, map packages, configuration, definitions, databases, plugins, build
-files, and assets remain unchanged. A decoder source with an unknown or
-conflicting hash is refused without mutation. After the upgrade succeeds, keep
-the target offline and run Import Map Changes as a second reviewed transaction.
+"Upgrade Target Runtime". This separate UPGRADE transaction installs the exact
+current prebuilt core.jar, matching Open_RSC_Client.jar, and package-driven v3
+host capability. It patches the target Ant compile_core target with a
+receipt-bound guard so ordinary startup cannot rebuild old source over the
+verified host core. A known old custom-login decoder source is aligned
+transactionally; missing, newer, or customized decoder source is preserved.
+The transaction retires superseded v1/v2 receipts and retired World Builder
+shadow/overlay JARs, backing up every changed file. Other source, map packages,
+configuration, definitions, databases, plugins, and assets remain unchanged.
+After the upgrade succeeds, keep the target offline and run Import Map Changes
+as a second reviewed transaction.
+
+The v3 receipt proves concrete server and player-client behavior for each map
+encoding. Import checks only the capabilities required by the selected package,
+including mixed legacy/unsigned-16 terrain, visual and structural scene data,
+and placement v3/v4. Existing legacy terrain and placement files are not
+deleted; while the installed profile is active, the selected native layered
+package is the runtime authority.
 
 Back up the complete target server before Import and verify that backup can be
 restored. World Builder does not offer an action to reverse a completed import.
