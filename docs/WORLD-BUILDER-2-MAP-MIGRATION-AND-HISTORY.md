@@ -4,17 +4,21 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Split-map signed-layer preservation correction implemented; verification and owner GUI validation pending |
+| Status | Split-map signed-layer preservation correction implemented; target-runtime policy superseded by the current Base/Advanced upgrade design |
 | Captured | 2026-08-27 |
+| Last reconciled | 2026-09-04, separate adaptable runtime upgrade and map-import actions |
 | Product | World Builder 2 only |
 | Immediate objective | Convert a detected legacy custom landscape into one complete layered project and expose safe export/import in the desktop GUI |
 | Follow-up objective | Add understandable project-save history and verified restore |
-| Current priority | Owner-validate the implemented split-map workflow before resuming detached-camera work |
+| Current priority | Preserve implemented map/history behavior while replacing the rejected target-runtime path with adaptable Base/Advanced upgrades |
 
 This document extends the implemented adaptive map workflow. It does not
 reinterpret frozen schemas, weaken exact conversion, or authorize destructive
 target cleanup. The existing transaction engine remains the authority for
-target preview, backup, import, recovery, and undo.
+target preview, backup, import, and recovery. Its earlier combined
+runtime/map-action wording is superseded by the separate adaptable upgrade and
+map-import design in [World Builder 2 Current Runtime Upgrade
+Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 ## Product outcome
 
@@ -25,17 +29,19 @@ A typical creator should be able to:
 3. answer a simple legacy-landscape migration question when applicable;
 4. create and edit one isolated layered project;
 5. export its complete layered map without using a terminal;
-6. install it through **Upgrade Server and Import Map** in the same desktop
-   application, allowing that one transaction to bring the target to the
-   current managed runtime contract; and
-7. recover an interrupted target import through that GUI; and
-8. browse and restore earlier project revisions without understanding package
+6. when needed, run **Upgrade Target Runtime** to move the historical server,
+   client, and selected behavior to Current Base or Current Advanced;
+7. run **Import Map Changes** only after the target ledger proves that the
+   current composition is installed;
+8. recover an interrupted target transaction through that GUI; and
+9. browse and restore earlier project revisions without understanding package
    paths or map encodings.
 
-The ordinary launcher retains exactly three primary actions: **Create New
-Project**, **Detect Server Map**, and **Continue Working on Selected Project**.
-Migration, export, import, backup, and recovery belong to the selected project
-and do not add competing project-creation buttons.
+The ordinary launcher exposes five primary actions: **Detect Server Map**,
+**Continue Working on Selected Project**, **Upgrade Target Runtime**, **Import
+Map Changes**, and **Restore Project Backup**. Standalone-empty creation and
+alternate supported sources remain bounded discovery choices rather than
+untyped map-file import.
 
 ## Existing foundation
 
@@ -51,13 +57,15 @@ The following are already implemented:
 - a complete mutable layered working package;
 - target-independent complete layered export;
 - target mutation preview, exact confirmation, offline checks, verified
-  backups, durable receipts, rollback, recovery, and exact last-import undo;
-- separate Linux and Windows scripts for Import, Undo, and Recovery; and
+  backups, durable receipts, automatic failure rollback, interrupted Recovery,
+  and retained historical reversal internals;
+- separate Linux and Windows scripts for Import and Recovery; and
 - copy-on-write project save publication and startup recovery.
 
 The migration choice, immutable lineage, complete-project export action, GUI
-Import/Undo/Recovery projection, recoverable legacy retirement, and
-creator-facing project revision history are implemented. Destination
+Import/Recovery projection, recoverable legacy retirement, removal of the
+completed-import Undo surface, and creator-facing project revision history are
+implemented. Destination
 selection/reveal for complete exports remains future launcher polish; the
 current GUI reports the immutable generated export path.
 
@@ -163,7 +171,8 @@ Detected…** retains explicit selection at each genuinely distinct authority.
 
 - **Yes** creates the project by composing verified legacy sectors over the
   already selected layered target, opens the resulting layered world, and
-  records capability-gated retirement intent for a later explicit import.
+  records capability-gated conversion/retirement intent for the planned
+  **Upgrade Target Runtime** action.
 - **No** still permits ordinary project creation from the selected map
   authority, but records no retirement intent.
 - Closing or cancelling the prompt creates nothing and changes nothing.
@@ -246,23 +255,32 @@ selection; complete map export publishes the entire selected project's world.
 
 ## Import, upgrade, and recovery in the GUI
 
-### Upgrade Server and Import Map
+### Separate runtime upgrade and map import
 
-The existing adaptive transaction engine is exposed inside the desktop
-application rather than reimplemented in Swing. The selected project must be
-closed before import. **Upgrade Server and Import Map** is a visible selected-project
-action on the main launcher as well as a File-menu recovery path. The GUI:
+The checked-in desktop exposes separate **Upgrade Target Runtime** and **Import
+Map Changes** buttons, but the former still invokes the rejected candidate.
+Under the planned replacement contract, both actions will reuse the existing
+adaptive transaction engine rather than reimplementing it in Swing. The selected
+project must be closed before either target action. They will use separate
+reviewed plans: runtime upgrade may change gameplay/runtime composition, while
+map import changes only the selected map package and World Builder-owned
+activation. The replacement GUI will:
 
-1. exports or selects the exact current complete project export;
-2. rediscovers the attached target and rejects drift;
-3. acquires every required offline signal;
-4. displays a readable summary with expandable exact plan details;
-5. identifies the managed runtime upgrade, package installation, configuration
-   activation, backups, and any proposed legacy retirement separately;
-6. requests final confirmation only after displaying that plan;
-7. applies the exact in-memory plan through the existing transaction engine;
-8. shows the verified receipt and installed client/map identity; and
-9. offers Recovery when an interrupted transaction requires it.
+1. lock and verify the selected target-derived project; for Map Import only,
+   export or select the exact current complete project map, while runtime
+   upgrade uses the frozen discovery/target evidence and attested current
+   composition;
+2. rediscover the attached target and reject drift;
+3. acquire every required offline signal;
+4. display a readable summary with expandable exact plan details;
+5. identify the destination variant/modules, package installation,
+   configuration/state migration, backups, and—for runtime upgrade only—any
+   proposed legacy retirement;
+6. request final confirmation only after displaying that plan;
+7. apply the exact in-memory plan through the existing transaction engine;
+8. show the verified target ledger or map receipt and installed client/map
+   identity; and
+9. offer Recovery when an interrupted transaction requires it.
 
 **Restore Project Backup** changes only the Editor's isolated working world and
 never reverses a server import. Completed server imports have no end-user Undo
@@ -280,11 +298,15 @@ Friendly labels must retain the same transaction UUID, plan fingerprint, write
 ordering, verification, and no-force guarantees as the CLI. The GUI never
 manufactures a second, weaker import path.
 
-### Recoverable legacy retirement
+### Historical retirement foundation reused by runtime upgrade
 
-For a project with verified migration lineage, the import plan may retire the
-legacy server/client `Custom_Landscape.orsc` copies only when the compiled
-adapter and target capability prove all of the following:
+The earlier combined Import plan could retire legacy server/client
+`Custom_Landscape.orsc` copies for a project with verified migration lineage.
+Under the replacement, this exact safety foundation belongs to **Upgrade Target
+Runtime** during first canonical map/runtime uplift; later **Import Map Changes**
+does not retire legacy loaders or runtime inputs. The upgrade plan may retire
+the copies only when the compiled adapter and target capability prove all of the
+following:
 
 - the exact files are the migrated source identities;
 - the new layered package is valid at both bounded destinations;
@@ -300,9 +322,10 @@ installed and verified before activation; activation changes occur in the
 adapter's safe order; retirement is verified and receipt-bound. Failure
 restores the complete before-state.
 
-When capability evidence is incomplete, import keeps the legacy archives and
-explains why. File presence alone does not duplicate terrain once the layered
-loader is sole authority, so safety takes precedence over cosmetic cleanup.
+When capability evidence is incomplete, runtime upgrade blocks before mutation
+and explains the missing evidence or required port. File presence alone never
+authorizes retirement, and ordinary map Import cannot be used as a compatibility
+workaround.
 
 ### Recovery
 
@@ -321,12 +344,13 @@ is an additional safe interface, not removal of the recovery escape hatch.
 | Concept | Purpose | Existing state |
 | --- | --- | --- |
 | Save publication recovery | Restore the working package after an interrupted or failed save | Implemented internally |
-| Server transaction backup | Restore target files/configuration during rollback or exact Undo | Implemented and script-accessible |
+| Server transaction backup | Restore target files/configuration during automatic failure rollback or interrupted Recovery | Implemented for rollback/Recovery; historical reversal evidence remains internal |
 | Project revision history | Let a creator return to an earlier authored world | Implemented in the selected-project GUI |
 
 Calling all three “backup” in casual UI is acceptable only when each screen
 states which world is affected. Loading a project revision never mutates a
-server. Undoing an import never silently changes the current project.
+server. A completed import has no current Undo action and never changes the
+project's working state implicitly.
 
 ### Revision creation
 
@@ -402,12 +426,15 @@ The target remains untouched until a later explicit Import.
 - Prove exact packed conversion and complete layered export using fixtures and
   the owner's currently available split-map validation case.
 
-### Increment 2 — complete export and target transactions in the GUI
+### Increment 2 — historical combined-action implementation record
 
 - Add selected-project **Export Complete Map Package…**.
-- Add **Upgrade Server and Import Map…** through the existing engine.
+- Added the former **Upgrade Server and Import Map…** projection through the
+  existing engine; this was later split and its pinned-core destination was
+  rejected.
 - Add readable and expandable transaction previews.
-- Add GUI Undo and Recovery while retaining the scripts.
+- Added the former GUI Undo and Recovery projection; completed-import Undo was
+  later removed while Recovery and internal rollback were retained.
 - Add capability-gated, recoverable legacy retirement to the mutation plan.
 - Exercise Linux GUI behavior and Java-level Windows-equivalent contracts;
   owner visual review uses no screenshots.
@@ -425,8 +452,8 @@ risk-appropriate test gate before the next begins.
 
 ## Acceptance criteria
 
-- **MH-01:** The primary launcher still presents exactly three ordinary project
-  actions.
+- **MH-01:** The development launcher presents the five documented primary
+  actions without reviving the rejected combined target action.
 - **MH-02:** A matching legacy archive produces one clear Yes/No prompt after
   required map selection; cancellation creates nothing.
 - **MH-03:** Yes converts legacy terrain plus effective placements/content into
@@ -439,10 +466,12 @@ risk-appropriate test gate before the next begins.
 - **MH-06:** GUI Import uses the existing exact transaction plan and cannot
   bypass offline, confirmation, backup, receipt, verification, rollback, or
   no-force rules.
-- **MH-07:** Legacy retirement occurs only for exact migration identities under
-  a compatible mutation profile and remains fully undoable.
-- **MH-08:** GUI Undo and Recovery produce the same plans and results as their
-  script/CLI counterparts.
+- **MH-07:** Upgrade Target Runtime retires legacy inputs only for exact
+  migration identities under a compatible mutation profile and remains covered
+  by automatic failure rollback or interrupted Recovery; map Import does not
+  perform that retirement.
+- **MH-08:** GUI Recovery produces the same plan/result as its script/CLI
+  counterpart, and no completed-import Undo action or package script exists.
 - **MH-09:** Project history distinguishes creative revisions from server
   transaction backups and internal crash recovery.
 - **MH-10:** Load Backup creates a pre-restore revision, validates before
@@ -458,7 +487,8 @@ risk-appropriate test gate before the next begins.
 - Arbitrary two-map overlay or timestamp-based per-tile merging.
 - Guessing that a same-named archive belongs to the selected server map.
 - Executing target JARs, scripts, plugins, or configuration-supplied commands.
-- Deleting legacy terrain without exact verified backup and undo authority.
+- Deleting legacy terrain without exact verified backup and rollback/Recovery
+  authority.
 - Loading a project backup directly into a server.
 - Silently pruning creator history.
 - Treating region snapshots as complete map backups.
@@ -471,6 +501,6 @@ risk-appropriate test gate before the next begins.
 | --- | --- | --- |
 | Legacy packed detection/conversion | Implemented | Owner validation on additional real-world targets |
 | Complete layered export | GUI action implemented | Optional destination/reveal experience |
-| Target import/undo/recovery | Prominent GUI projection implemented | Owner visual validation and release testing |
-| Legacy retirement | Implemented and transaction-tested | Owner validation of automatic active-layer association on the real split-map workflow |
+| Target Import/Recovery | Prominent GUI projection implemented; completed-import Undo removed | Replacement composition gate, owner visual validation, and release testing |
+| Legacy retirement | Historical transaction mechanics implemented/tested; replacement ownership planned | Integrate into Upgrade Target Runtime and validate the real split-map workflow |
 | Project revision history | Implemented with prominent Restore Backup access, content-addressed storage, and recovery | Owner GUI validation and additional long-running real-project use |

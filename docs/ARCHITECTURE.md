@@ -4,44 +4,96 @@
 
 RSC World Editor is a local, isolated editing appliance. Adaptive World Builder
 2 is designed as a standalone, server-agnostic drop-in folder placed directly
-inside a compatible game/server root. It discovers that target's active map,
-definitions, and capabilities, then adopts or converts copies into a project
-owned by World Builder. It uses a compatible game client, server, terrain
-format, definitions, collision rules, and authoritative world-editor protocol,
-but it never connects to or edits a public server.
+inside a recognized game/server root. It currently discovers that target's
+active map, definitions, and capabilities, then adopts or converts copies into a
+project owned by World Builder. Planned destination resolution additionally
+classifies the historical runtime and customization tier. A recognized target
+that is not already current will be eligible for a separate previewed
+transactional upgrade to the appropriate current server/client composition once
+the replacement gate is implemented. World Builder never connects to or edits a
+public server.
 
 The repository is divided into four layers:
 
 - `tools/world-builder/` contains Java tooling for target discovery,
   conversion, UUID project lifecycle, process supervision, export, import,
-  rollback, recovery, and undo.
+  rollback, recovery, and retained historical transaction reversal.
 - `release/world-builder/` preserves the frozen packed-map v1 package assets.
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
-- The independent runtime-provider revision in `runtime-provider.lock` supplies a frozen
-  compiled client/server runtime, integrated editor implementation, and one
-  supported adapter source. It is an external generic build/runtime dependency,
-  not this product's identity or target content and not part of this
-  repository's manager/worker system. Runtime source is developed in the
-  separate `rsc-world-editor-runtime` repository rather than Core-Framework.
+- The independent runtime-provider revision in `runtime-provider.lock`
+  currently supplies a frozen compiled editing runtime, integrated editor
+  implementation, and supported adapter sources. The active replacement design
+  makes it the source of the current runtime platform and provider-owned
+  compositions/modules. It is an external versioned build/runtime dependency,
+  not target world/player state and not part of this repository's
+  manager/worker system. Public Editor packaging remains
+  target-content-neutral. Runtime source is developed in the separate
+  `rsc-world-editor-runtime` repository rather than Core-Framework.
+
+## Current runtime generation and public adaptability
+
+The replacement upgrade architecture maintains one current engine/API/protocol/
+schema generation and release train. It does not require one gameplay
+composition for every owner:
+
+- **Current Base** is the conservative public default for Preservation-like and
+  lightly customized servers, including targets with no prior layered-map
+  support.
+- **Current Advanced** is the owner's reviewed Spoiled Milk composition on the
+  same platform generation.
+- **Current modules** provide explicitly versioned optional code, data, or
+  coordinated server/client features through declared APIs, dependencies,
+  conflicts, configuration/state migrations, and exact manifests.
+- **Input adapters** recognize and translate historical layouts into a current
+  composition. They never remain installed or define another runtime version.
+
+The runtime identity is `(platformReleaseId, platformManifestHash, variantId,
+variantManifestHash, moduleSetHash, bundleInventoryHash)`. `moduleSetHash`
+commits to the canonical ordered module-manifest and module-payload roots;
+`bundleInventoryHash` commits to the complete resolved composition. Variants
+share the project format, canonical layered-map engine, target ledger, upgrade
+engine, transaction safety, and release gates.
+Adding another historical layout adds an adapter; adding portable current
+behavior adds a module. Neither creates a legacy-runtime branch or permits
+target classes to shadow the platform.
+
+Most public inputs are expected to be near the sealed Preservation baseline.
+Discovery must therefore work without an existing World Builder receipt,
+classify light configuration/data/plugin changes, and convert legacy packed
+maps and placements into the canonical current package. The advanced Core
+lineage is an upper-bound behavior fixture and informs reusable platform/module
+work; it is not the public default.
+
+This architecture is the active replacement direction, not a claim that the
+rejected pinned-core candidate implements it. The complete design and gates are
+in [World Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 ## Durable and replaceable state
 
-An installed package has two fundamentally different classes of files.
+An installed package has three conceptual classes of files.
 
 Durable World Builder 2 state includes `projects/<uuid>/`,
 `project-registry.json`, `active-project.json`, and each project's source,
-working package, generated runtime state, exports, backups, receipts,
-diagnostics, logs, and settings. The historical v2-alpha `workspace/` is also durable and is
-preserved without implicit migration. Durable state must survive application
-updates and is never committed here.
+working package, authored history/capability requirements, exports, backups,
+receipts, diagnostics, logs, and settings. The historical v2-alpha `workspace/`
+is also durable and is preserved without implicit migration. Durable state must
+survive application updates and is never committed here.
+
+Project-local authoring runtime binaries and reproducible generated runtime
+state are a replaceable cache selected by the current application, not project
+identity or target-upgrade authority. This separation is planned and must be
+introduced through a lossless project-schema migration. Until that migration is
+implemented and verified, the updater continues preserving all existing
+project runtime state rather than guessing which bytes are reconstructible.
 
 Replaceable application state includes the packaged Java runtime, launcher
-tooling, client/server binaries, schemas, scripts, documentation, and only the
-runtime/default-catalog files named in `RUNTIME-ASSET-ALLOWLIST.txt`. Terrain,
-placements, layered packages, projects, and generated operational state can
-never enter this layer. Release and updater work may replace it only after the
-Builder is closed and the replacement has been verified.
+tooling, client/server platform and current composition bundles, schemas,
+scripts, documentation, and only the runtime/default-catalog files named in
+`RUNTIME-ASSET-ALLOWLIST.txt`. Terrain, placements, layered packages, projects,
+target-derived modules, and generated operational state can never enter this
+layer. Release and updater work may replace it only after the Builder is closed
+and the replacement has been verified.
 
 Each v2 package inventories that replaceable layer in
 `PACKAGE-MANIFEST.sha256`. Updates back up and remove only paths owned by the
@@ -62,9 +114,12 @@ write a target. Adaptive export locks and revalidates that project, copies its
 complete working package, independently validates the stage, and atomically
 publishes a unique deterministic result without target access.
 
-Target mutation begins only after a fresh capability/source-lineage check and
-all compiled offline evidence. Adapter code—not target JSON or a receipt—owns
-the bounded content-addressed server/client destinations and selected-
+Under the replacement design, target-runtime migration is a separate
+**Upgrade Target Runtime** transaction. The map transaction described here
+begins only after the target ledger proves that the current composition is
+installed and after a fresh capability/source-lineage check and all compiled
+offline evidence. Adapter code—not target JSON or a receipt—owns the bounded
+content-addressed server/client map-package destinations and selected-
 configuration path. Preview binds a real transaction UUID to exact before and
 after bytes, backups, receipt, free space, activation order, and verification.
 Direct CLI apply must repeat that preview's exact transaction UUID and plan
@@ -76,15 +131,18 @@ authority, generated activation bytes, and every copied backup; directory
 entries are then forced from the deepest backup directory through its parent.
 Only after that ordering succeeds does it publish and directory-force the
 pending receipt. A provider that cannot force directories is refused before
-transaction artifacts or target mutation. Import then publishes verified
+transaction artifacts or target mutation. Import then publishes verified map
 package content, activates configuration last, and verifies
 both selected packages. Failures restore the exact before state or leave a
 blocking recovery receipt.
 
-Undo independently rebuilds the successful import plan from immutable project
-evidence, its exact historical export, compiled profile, durable plan, and
-receipt. Mutable working state may be saved and exported after the import; it
-is preserved byte-for-byte and is not substituted for that historical export.
+The source retains a historical exact completed-import reversal engine and
+readers for old receipts, but no current desktop action or v2 package script
+exposes completed-import Undo. Those internals independently rebuild the
+successful import plan from immutable project evidence, its exact historical
+export, compiled profile, durable plan, and receipt. Mutable working state may
+be saved and exported after the import; it is preserved byte-for-byte and is not
+substituted for that historical export.
 Reconstruction recognizes both the current native-inventory content address and
 the earlier logical-package content address, but only when the validated durable
 plan selects one of those two addresses at both compiled package roots. It never
@@ -105,11 +163,12 @@ preserved and refused. Standalone origin is checked before target resolution
 for import, undo, and recovery. The historical workspace transaction continues
 to use its existing fixed-layout contracts.
 
-The planned desktop lifecycle extension retains this exact transaction engine
-while adding GUI Import, Undo, and Recovery; complete project export; exact
-legacy-landscape migration lineage and recoverable retirement; and a separate
-immutable project revision history with verified restore. These user-facing
-surfaces and their separation from transaction backups are specified in
+The desktop lifecycle retains the transaction engine for GUI Import and
+Recovery, complete project export, exact legacy-landscape migration lineage,
+recoverable retirement, and a separate immutable project revision history with
+verified **Restore Project Backup**. Completed-import Undo was deliberately
+removed; project restore never changes a target. These user-facing surfaces and
+their separation from transaction backups are specified in
 [World Builder 2 Map Migration, GUI Transactions, and Project
 History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md).
 
@@ -124,12 +183,14 @@ the target without making normal non-root Linux imports fail on system services
 or a harmless terminal. Java and ambiguous target-root processes remain
 blocked. Process exits and empty kernel-thread command lines are handled separately.
 
-Phase 6 permits successive imports only as an exact verified chain. A later
-saved/exported working state may use the latest successful unreverted import as
-its before-state when both installed package trees and the active configuration
-still match byte-for-byte. Each Undo restores the immediately preceding chain
-generation. Drift, missing history, ambiguous relocation, or an unrelated
-detached target is refused before mutation.
+The retained historical Phase 6 reversal contract permits successive imports
+only as an exact verified chain. A later saved/exported working state may use
+the latest successful unreverted import as its before-state when both installed
+package trees and the active configuration still match byte-for-byte. Its
+internal reversal path restores the immediately preceding chain generation.
+Drift, missing history, ambiguous relocation, or an unrelated detached target
+is refused before mutation. No current user-facing Undo action exposes that
+path.
 
 There is deliberately no force-import path.
 
@@ -138,12 +199,16 @@ There is deliberately no force-import path.
 The editor spans client and server code, so duplicating the full game source in
 this repository would create the same drift this repository is intended to
 prevent. Instead, releases use the exact dependency revision already selected
-in `runtime-provider.lock`. The release build refuses a different revision, and
-dependency-update/release checks verify its published capability, required
-runtime surfaces, and protocol. CI and ordinary builds never search for newer
-provider work. When an assigned product objective includes runtime work, the
-product manager may publish the tested independent runtime commit and adopt it
-through the bounded lock/parity/full-suite workflow.
+in `runtime-provider.lock`. The release build refuses a different revision.
+Current dependency-update/release checks verify its published capability,
+required runtime surfaces, and protocol; the replacement gate additionally
+verifies the platform generation, platform/variant/module manifests, and closed
+bundle inventory. All packaged current compositions come from that one exact
+provider revision; no target chooses an unpinned provider branch. CI and
+ordinary builds never
+search for newer provider work. When an assigned product objective includes
+runtime work, the product manager may publish the tested independent runtime
+commit and adopt it through the bounded lock/parity/full-suite workflow.
 
 ## Product-generation boundary
 
@@ -157,15 +222,16 @@ than attempting an implicit conversion.
 ## Adaptive map workflow
 
 The approved World Builder 2 architecture makes each editable project derive
-from the compatible target server selected at first launch, or from an explicit
+from the recognized target server selected at first launch, or from an explicit
 standalone empty origin. Production adaptive releases contain no terrain,
 world package, or static placements. Supported packed maps are converted
 deterministically into isolated signed-layered projects; editing and saving
-remain inside World Builder until an administrator runs the explicit
-transactional import script. Compatibility means a documented capability or
-repository-owned adapter, not arbitrary-server binary patching. See [World
-Builder 2 Adaptive Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative
-contracts, phases, tests, and acceptance criteria.
+remain inside World Builder until an administrator runs an explicit
+transactional target action. Historical input support means a documented
+capability or repository-owned migration adapter, not arbitrary-server binary
+patching or another active runtime. See [World Builder 2 Adaptive Map
+Workflow](ADAPTIVE-MAP-WORKFLOW.md) for the normative contracts, phases, tests,
+and acceptance criteria.
 
 The built-in packed OpenRSC adapter derives the authentic boundary,
 ground-item, NPC, and scenery location set from the selected server
@@ -186,7 +252,7 @@ Phases 0-3 are implemented and merged on published `main` at
 atomic project creation and selection, immutable source snapshot v2, layered
 adoption, contained packed conversion, deterministic standalone empty
 generation, save/reopen, portability/detachment, project-only supervision, and
-immediate standalone import/undo refusal. The Linux and Windows v2 launchers
+immediate standalone target-operation refusal. The Linux and Windows v2 launchers
 now use adaptive parent-target discovery instead of a fixed config or packaged
 world.
 
@@ -198,8 +264,9 @@ runtime/default-catalog allowlist, no-world archive validation, and durable
 Linux/Windows updater boundary. Phase 6 supplies complete adaptive export,
 compiled mutation profiles, exact preview/import, durable receipt/backup
 authority, reverse rollback, explicit recovery, changed-after refusal, and
-exact undo for layered and packed-origin projects. Owner-native Phase 4 and
-Phase 7 release validation passed for v0.2.0-alpha.1, opening its production
+historical exact reversal internals for layered and packed-origin projects. The
+completed-import Undo surface was removed later. Owner-native Phase 4 and Phase
+7 release validation passed for v0.2.0-alpha.1, opening its production
 packaging gate while preserving the rebuild-after-acceptance rule. Publication
 consumed that version-bound gate; development `main` is closed for the next
 release while the immutable release tag retains the accepted marker.

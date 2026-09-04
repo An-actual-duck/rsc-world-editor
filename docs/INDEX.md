@@ -14,17 +14,17 @@ evidence, or an active product decision.
 | [AI Workspaces](AI-WORKSPACES.md) | Detailed manager/worker workflow | Activating, handing off, integrating, rescuing, or releasing work |
 | [Independent Runtime Provider](RUNTIME-PROVIDER.md) | Current repository boundary and adoption route | Work crosses into `rsc-world-editor-runtime` |
 | [Automatic Updates](AUTO-UPDATES.md) | Current updater safety boundary | Changing update selection, replacement, rollback, or preservation |
-| [Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md) | Active replacement architecture and acceptance plan | Upgrading legacy or customized targets to the one current server/client runtime |
-| [Reliability and Iteration Plan](WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md) | Active ordered worklist | Planning the current import repair and maintainability work |
+| [Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md) | Active replacement architecture, public adaptability, and acceptance plan | Upgrading Preservation-like or advanced targets to the current platform generation |
+| [Reliability and Iteration Plan](WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md) | Active ordered worklist and historical incident record | Planning the adaptable runtime replacement, map-import reliability, or maintainability work |
 | [Maintainability Audit](WORLD-BUILDER-2-MAINTAINABILITY-AUDIT.md) | Measured 2026-08-30 audit and recommendations | Reducing storage, test, navigation, documentation, or AI cost |
 
 ## Implemented workflow and contract references
 
 | Document | Status and authority | Read when |
 | --- | --- | --- |
-| [Adaptive Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) | Detailed implemented design with historical phase narrative | Discovery, project lifecycle, export/import/recovery, or target safety changes |
+| [Adaptive Map Workflow](ADAPTIVE-MAP-WORKFLOW.md) | Mixed implemented map/project contract, historical phases, and planned upgrade reconciliation | Discovery, project lifecycle, export/import/recovery, or target safety changes |
 | [Format-Aware Discovery](WORLD-BUILDER-2-FORMAT-AWARE-DISCOVERY.md) | Implemented discovery/profile design; some release labels are historical | Adding or diagnosing target layouts and content reconciliation |
-| [Map Migration and History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md) | Mixed implemented and pending lifecycle design | Legacy landscape migration, project revisions, or GUI transaction actions |
+| [Map Migration and History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md) | Implemented map/history work with superseded target-runtime policy called out | Legacy landscape migration, project revisions, or GUI transaction actions |
 | [Region Snapshots](WORLD-BUILDER-2-REGION-SNAPSHOTS.md) | Implemented region engine and interactive workflow with remaining polish | Region Copy/Cut/Paste, portable bundles, or Region Paste Undo |
 | [Custom Content Bundles](WORLD-BUILDER-2-CUSTOM-CONTENT-BUNDLES.md) | Versioned implemented bundle contract | Definition/asset portability and bundle compatibility |
 | [Portable Item Providers](WORLD-BUILDER-2-PORTABLE-ITEM-PROVIDERS.md) | Implemented provider contract and compatibility guidance | Item visuals or portable provider discovery |

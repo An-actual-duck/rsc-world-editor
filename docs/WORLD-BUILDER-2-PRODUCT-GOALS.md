@@ -6,10 +6,10 @@
 | --- | --- |
 | Status | Living product direction and readiness assessment |
 | Captured | 2026-08-14 |
-| Last reconciled | 2026-08-27, after extending exact split-map relocation to terrain and all static placement families |
+| Last reconciled | 2026-09-04, after defining public Base/Advanced runtime adaptability and light-customization intake |
 | Product | World Builder 2 only |
 | Implementation authorization | None; this document does not start or assign work |
-| Current focus | Legacy `Custom_Landscape.orsc` incorporation, combined export, safe target import, retirement, and recovery validation |
+| Current focus | Adaptable current-generation target upgrades: Preservation-like Base intake, Advanced owner migration, canonical maps, and transactional cutover |
 | Longer themes | Fluid tools, creator content, detached authoring, and safe declarative object actions |
 
 This document records intended product outcomes while the design is still free
@@ -19,8 +19,9 @@ the overall direction here or explicitly record why it changed.
 
 World Builder should feel like a creative application that happens to render
 through an RSC client, not like ordinary gameplay with administrator commands
-attached. It should remain content-neutral, project-local, reversible, and safe
-for creators who do not understand the underlying map encodings.
+attached. It should remain content-neutral, project-local in its authoring
+model, transactionally fail-safe, and approachable for creators who do not
+understand the underlying map encodings.
 
 ## Readiness language
 
@@ -32,6 +33,42 @@ for creators who do not understand the underlying map encodings.
   split into implementation increments after a focused review.
 - **Foundational design required** means an important storage, identity,
   compatibility, or runtime decision must be settled before implementation.
+
+## Public adaptability and runtime upgrades
+
+World Builder is intended for other server owners as well as the owner's
+advanced Spoiled Milk game. Most public targets are expected to be
+Preservation-like, have no World Builder map upgrade, and contain only light
+configuration, data, or plugin customization. That common path should be the
+simplest supported upgrade rather than inheriting every Advanced game feature.
+
+The product direction is one current managed platform generation with a small
+set of explicit first-party compositions:
+
+- **Current Base** upgrades Preservation-like targets to the canonical layered
+  map engine, typed configuration/state model, and matching current client while
+  retaining validated light customizations.
+- **Current Advanced** carries the owner's deliberately selected game behavior
+  on the same platform and release train.
+- **Current modules** express portable optional behavior/data with versioned
+  APIs, dependencies, client/schema requirements, migrations, and tests.
+- **Input adapters** recognize historical layouts and transform them once into
+  a current composition. They are not runtime variants and do not remain on the
+  active classpath.
+
+Discovery should ordinarily say which historical input was found, which current
+composition is recommended, which customizations will be retained or retired,
+whether a plugin needs provider review, and what matching-client/database/map
+changes are required. Technical hashes belong behind details. Unknown behavior
+fails before mutation with an exportable sanitized dossier so support for a new
+adapter or module can be added without exposing credentials, player data, or
+private maps/assets.
+
+This is upgrade-first adaptability: support more inputs, normalize them into
+the current platform, then retire their old loaders/builds/runtimes. It is not a
+promise to run every historical server indefinitely. The active architecture
+and acceptance matrix are in [World Builder 2 Current Runtime Upgrade
+Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 ## Current foundation
 
@@ -64,8 +101,8 @@ World Builder 2 already provides a substantial base for these goals:
   gestures, Lines, Rectangles, scenery Place/Move/Rotate/Remove, NPC
   Place/Remove, and ground-item Place/Remove, with toolbar controls and
   `Ctrl+Z`/`Ctrl+Y`;
-- project-local save, close, reopen, export, transactional import, recovery,
-  and exact undo;
+- project-local save, close, reopen, export, transactional import, automatic
+  failure rollback, and interrupted Recovery, with no completed-import Undo;
 - explicit `Custom_Landscape.orsc` incorporation and guarded retirement
   lineage for both layered-plus-packed and primary-packed discovery paths,
   including deterministic composition over an automatically associated layered base so
@@ -125,14 +162,14 @@ recovery, live activation, and all four placement families are tested. The
 visible **Copy inspected** action still copies inspected field values and must
 not be mistaken for Region Copy.
 
-## Current product focus — interaction before tool count
+## Secondary editor roadmap — interaction before tool count
 
-The next tool release should establish one responsive interaction foundation
-and then build additional tools on it. Adding many independent commands first
-would preserve the current delayed feel and multiply input-state, preview,
-transaction, and undo paths.
+After the runtime-upgrade roadblock is cleared, the next editor-focused work
+should continue one responsive interaction foundation and then build additional
+tools on it. Adding many independent commands first would preserve the current
+delayed feel and multiply input-state, preview, transaction, and undo paths.
 
-The intended order for the active product focus is:
+The intended order for that secondary tool stream is:
 
 1. establish a deterministic development terrain seed, a reusable local
    sandbox, and automated long-held/repeated-area scribble coverage;
@@ -152,9 +189,9 @@ The intended order for the active product focus is:
    and owner-validated.
 
 Detached-camera work, deeper world quiescence, quick-house presets, creator
-materials, and declarative object actions remain important, but they must not
-displace this immediate interaction milestone unless the product owner changes
-the priority again.
+materials, and declarative object actions remain important. Within the secondary
+editor stream, they should continue to build on the shared interaction
+foundation unless the product owner reprioritizes them.
 
 ### Development-only reusable test environment
 
@@ -709,13 +746,14 @@ generates provider evidence internally, moves manual provider/file selection
 behind Advanced/Recovery, and uses the currently observed incomplete-scenery
 import as a mandatory end-to-end regression case.
 
-The next conversion and lifecycle increment is specified in
+The completed conversion and lifecycle increment was specified in
 [World Builder 2 Map Migration, GUI Transactions, and Project
-History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). It retains the
-launcher's three primary actions, adds a simple post-selection legacy-landscape
-migration choice, exposes complete project export and the existing safe target
-transactions in the GUI, makes migrated legacy retirement recoverable, and
-separates creative project history from server-import backups.
+History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). It added a simple
+post-selection legacy-landscape migration choice, complete project export and
+safe target transactions in the GUI, recoverable migration evidence, and a
+clear separation between creative project history and server-import backups.
+Its former combined runtime/map destination is superseded by the current
+Base/Advanced design.
 
 ### Ordered region selection
 
@@ -837,27 +875,31 @@ dependencies, and incompatible-custom-content reports are implemented. Import
 and export do not mutate the working world. Material/sprite payload bundling
 remains blocked until its separate capability exists.
 
-## Immediate delivery sequence
+## Historical completed map/history delivery sequence
 
-The current product objective proceeds in three reviewable increments:
+The former map/history objective proceeded in three reviewable increments:
 
 1. **Implemented:** streamlined legacy-landscape migration choice and immutable
    migration/retirement lineage, with exact temporary fixtures retained;
-2. **Implemented, pending owner validation:** complete project export and the
-   existing target Import, Undo, and Recovery transaction engine in the desktop
-   GUI, including capability-gated and fully reversible legacy retirement; and
+2. **Implemented historically:** complete project export and the target Import/
+   Recovery transaction engine in the desktop GUI, including capability-gated
+   legacy retirement; completed-import Undo was subsequently removed; and
 3. **Implemented, pending owner validation:** immutable project revision
    history, a selected-project backup browser, and verified Load Backup.
 
-This sequence temporarily takes priority over the broader tool roadmap below.
-It does not reduce the importance or readiness of the already implemented
-fluid-tool and region-sharing work. Detached-camera Builder design remains a
+This sequence no longer sets current priority; the adaptable runtime objective
+at the top of this document does. The completed work does not reduce the
+importance or readiness of the already implemented fluid-tool and region-sharing
+work. Detached-camera Builder design remains a
 later objective until this workflow has passed real-target validation and is
 available in a fresh release.
 
 ## Recommended dependency order
 
-This is a technical dependency order, not an assignment or fixed release plan:
+The Current Base/Advanced replacement, target ledger, and upgrade gate are the
+active prerequisite described at the top of this document. The following is the
+secondary editor-feature dependency order after that roadblock; it is not an
+assignment or fixed release plan:
 
 1. Maintain the implemented immutable terrain seed, persistent development
    sandbox, recoverable reset, and isolated automated fixture cloning alongside
@@ -877,9 +919,10 @@ This is a technical dependency order, not an assignment or fixed release plan:
 7. Maintain the implemented Editor-owned ordered selection, marker UI, local
    snapshot, copy/cut/paste, ghost preview, strict import/export, live
    activation, and durable last-Paste Undo boundaries.
-8. Owner-validate and release the implemented legacy `Custom_Landscape.orsc`
-   incorporation, combined export, safe target import, reversible retirement,
-   and project-history workflow.
+8. Preserve and owner-validate the implemented legacy
+   `Custom_Landscape.orsc` incorporation and project-history foundation while
+   moving canonical uplift/retirement into Upgrade Target Runtime and keeping
+   later Import map-only.
 9. Design and implement the detached camera anchor and the quiescent Builder
    execution profile.
 10. Use selection, lines, rectangles, and snapshots to build the conversion
@@ -917,8 +960,8 @@ material-sharing model that custom materials later have to replace.
 | Packed-to-layered exact conversion | Available for supported profile | More adapters and polished UX |
 | Legacy landscape migration | Implemented and fixture-tested | Owner validation on additional real-world targets |
 | Complete map export in GUI | Selected-project action implemented | Optional destination/reveal UX polish |
-| GUI server Import/Undo/Recovery | Implemented over the exact transaction engines | Owner visual validation and release testing |
-| Recoverable legacy retirement | Implemented and transaction-tested | Owner validation on the real split-map workflow |
+| GUI server Import/Recovery | Implemented over the exact transaction engine; completed-import Undo removed | Replacement runtime composition gate and fresh release testing |
+| Recoverable legacy retirement | Historical transaction mechanics implemented/tested; replacement ownership planned | Integrate into Upgrade Target Runtime and validate the real split-map workflow |
 | Project backup history | Implemented with content-addressed revisions and interruption recovery | Owner GUI validation and long-running storage feedback |
 | Outlier-assisted conversion | Partially ready | Repair-project model, workbench, reviewed transform decisions |
 | Region copy/cut/paste | Interactive Copy/Paste/Cut, live activation, and consolidated UI owner-validated; exact one-step Paste Undo implemented pending owner validation | Richer placement ghosts, rotation/mirroring, and integration with general operation history |

@@ -8,15 +8,33 @@ from the Spoiled Milk repository before this dedicated repository was created.
 
 ## World Builder 2 - in development
 
+- Rejected the unreleased pinned-generic-core target-upgrade candidate after
+  real customized-host compilation evidence proved that it installs a binary
+  incompatible with retained source/plugins and cannot support project/runtime
+  N-to-N+1 upgrades.
+- Defined one planned current platform generation with Current Base for the
+  common Preservation-like/light-customization path, Current Advanced for the
+  owner's reviewed game, explicit current modules, bounded historical input
+  adapters, and composition-bound release evidence.
+- Added a T0-T5 customization model, destination-resolution report, stable
+  target-runtime ledger direction, canonical legacy-map uplift, and
+  side-by-side transactional cutover plan for adaptable public upgrades.
+- Reconciled the current product decision that completed-import Undo has no
+  desktop action or v2 package script. Automatic failure rollback, interrupted
+  Recovery, exact transaction evidence, and project-only backup restore remain.
+
+The next four bullets record the superseded unreleased pinned-core experiment;
+they are historical implementation facts, not the active design or accepted
+release behavior:
+
 - Replaced the broad host-runtime claim with a package-driven v3 capability
-  matrix. Import now proves the server and player-client class behavior needed
-  by each selected terrain/placement encoding, including mixed legacy and
-  unsigned-16 terrain, visual/structural scene packets, and placement v3/v4.
-- Runtime upgrade now installs one exact prebuilt host core and guards the
-  target Ant `compile_core` target while its authoritative v3 receipt exists,
-  preventing obsolete target source from silently replacing wide-terrain and
-  login behavior. Known old login decoder source is aligned transactionally;
-  missing, newer, or customized source is preserved.
+  matrix whose marker probes claimed the server/client behavior needed by each
+  selected terrain/placement encoding. Later review established that those
+  probes did not prove executable class identity, linkage, launch, or login.
+- Made the candidate install one exact prebuilt host core and guard the target
+  Ant `compile_core` target while its v3 receipt exists. The candidate declared
+  transactional alignment of one known old login decoder, but the referenced
+  source payload was absent and its test hashed the target source instead.
 - Runtime upgrade retires superseded v1/v2 capability receipts atomically and
   records explicit activation ownership: legacy terrain/placement files remain
   physically present, while the selected native layered package is the runtime
@@ -41,7 +59,9 @@ from the Spoiled Milk repository before this dedicated repository was created.
   changed-after refusal, and successful-receipt-authorized exact undo for
   layered and converted packed origins. Undo deactivates configuration before
   package removal and restores packages before rollback reactivation.
-  Standalone target operations stop with `NO_TARGET` before target resolution.
+  This records the historical implementation; its completed-import user surface
+  was removed later. Standalone target operations stop with `NO_TARGET` before
+  target resolution.
 - Made installed-map Import fail closed before preview or mutation when a
   managed server provider duplicates any class from the target's `core.jar` or
   retained `server/lib` archives. Target libraries and `core.jar` now remain
@@ -68,9 +88,10 @@ from the Spoiled Milk repository before this dedicated repository was created.
   Linux/Windows LWJGL native inputs, and exclusion of generated IP-ban state.
 - Made the v2-only updater discover prereleases from the published release
   list while ignoring drafts, v1, malformed tags, and downgrades.
-- Kept public adaptive release publication disabled pending owner-native and
-  final Phase 7 real-archive cross-platform validation and acceptance; the
-  frozen v1.1.0 assets and release channel remain unchanged.
+- Initially kept public adaptive release publication disabled pending
+  owner-native and final Phase 7 real-archive cross-platform validation and
+  acceptance. Later accepted adaptive releases opened and consumed their own
+  exact gates; the frozen v1.1.0 assets and release channel remain unchanged.
 
 ## v1.1.0 - 2026-07-17
 

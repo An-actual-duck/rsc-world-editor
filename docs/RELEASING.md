@@ -12,7 +12,8 @@ world-source identity `target-adaptive-v1`, and package assets under
 remains unchanged historical evidence; it does not approve the adaptive
 package design. The
 [`v0.2.0-alpha.1 adaptive validation record`](releases/world-builder-v2-v0.2.0-alpha.1-validation.md)
-was accepted on 2026-08-14 and authorizes a fresh production rebuild.
+was accepted and consumed by that historical release on 2026-08-14. It does not
+authorize a new production rebuild or a changed runtime strategy.
 
 ## Release gate
 
@@ -42,6 +43,51 @@ exact commit in `runtime-provider.lock`. Packaging never checks for a newer
 provider commit and never manages the provider's branches or workers. An
 explicit dependency-update task uses `check-runtime-provider-parity.sh` to verify the
 published ref, capability document, runtime surfaces, and protocol.
+
+### Planned current-platform composition gate
+
+The rejected pinned-core target upgrade may not open another release gate. The
+replacement gate must bind executable evidence to the exact current platform,
+variant, module set, and input adapter rather than only the provider commit:
+
+```text
+attestation-v1(
+  editorCommit,
+  providerCommit,
+  upgradeEngineHash,
+  strategyManifestHash,
+  platformReleaseId,
+  platformManifestHash,
+  variantId,
+  variantManifestHash,
+  moduleSetHash,
+  bundleInventoryHash,
+  inputAdapterManifestHash,
+  projectSchemaHash,
+  predecessorLedgerSchemaHash,
+  targetLedgerSchemaHash,
+  fixtureHash,
+  requiredScenarioSetHash
+)
+```
+
+The canonical attestation hash is the evidence key. Nested platform, variant,
+module-set, bundle, adapter, ledger, fixture, and scenario hashes transitively
+bind their schemas and closed payload inventories; readable IDs alone are not
+release authority.
+
+Required rows include sealed Preservation to Current Base, light
+configuration/data customization, a maintained extension module, a recognized
+but unported extension returning `PORT_REQUIRED`, zero-write unknown executable
+customization, sanitized Core lineage to Current Advanced, Base and Advanced
+N-to-N+1, and reversible module add/update/remove. Base must pass its positive
+canonical public gameplay/state sentinels and prove that Advanced-only gameplay,
+client UI, assets, and schema effects are absent. A shared-platform change
+invalidates every variant; a variant/module change invalidates rows using it;
+an adapter change invalidates its input family. Required executable rows may not
+be skipped and must pass twice before acceptance. This is a planned gate
+extension and is not implemented by the current release schema. See [World
+Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 ## Restricted pre-gate candidate command
 
@@ -104,7 +150,7 @@ The production packager requires and verifies:
 - exact `rsc-world-editor-v2`, `World Builder 2`, and `target-adaptive-v1`
   identity plus both source commits;
 - only files named by the checked-in runtime/default-catalog allowlist,
-  repository schemas, launch/import/recovery/undo scripts, documentation, and
+  repository schemas, launch/import/recovery scripts, documentation, and
   platform JRE;
 - one user/world-empty Builder-only database seed whose only nonempty tables
   are reviewed migration metadata, generic recovery questions, and SQLite
@@ -172,10 +218,11 @@ Before adding a new adaptive `RELEASE-READY` record:
 5. Run Linux and PowerShell update success, incompatibility, installation
    failure, and rollback fixtures. Perform the available native platform smoke
    check and record any reviewed launcher-only platform limitation explicitly.
-6. Validate Phase 6 export/import/rollback/recovery/undo against disposable
-   offline layered and packed-origin targets, including exact preview,
-   server/client distribution identity, changed-after refusal, standalone
-   refusal, and injected failures at mutation boundaries.
+6. Validate Phase 6 export/import/rollback/recovery and retained historical
+   reversal-reader compatibility against disposable offline layered and
+   packed-origin targets, including exact preview, server/client distribution
+   identity, changed-after refusal, standalone refusal, injected failures at
+   mutation boundaries, and proof that no completed-import Undo surface ships.
 7. Record the exact source commits, commands, artifact hashes, compatibility
    matrix, owner report, remaining limitations, and accepted candidate commit
    in a new adaptive validation record.

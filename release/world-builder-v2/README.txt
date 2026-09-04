@@ -16,15 +16,24 @@ CURRENT STATUS
 Adaptive discovery, packed conversion, layered adoption, standalone empty
 creation, UUID project lifecycle, content-neutral packaging, and durable update
 preservation are implemented. Phase 6 complete export, compiled target import,
-verified rollback/recovery, changed-after refusal, and exact undo are also
-implemented. The generic Phase 4 client/server capability is published and
-pinned. This update adds portable region snapshot copy/cut/paste primitives,
-lossless unsigned 16-bit terrain elevation, foreground-aware elevated-terrain
-picking, a contextual two-column editor toolbar, a persistent desktop project
-screen, portable custom-content providers, full project-backed client
-presentation options, and remembered Builder position after the initial
+verified rollback/recovery, and changed-after refusal are also implemented.
+Completed-import Undo was removed; retained reversal internals are not a public
+action or package script. The generic Phase 4 client/server capability is
+published and pinned. This update adds portable region snapshot copy/cut/paste
+primitives, lossless unsigned 16-bit terrain elevation, foreground-aware
+elevated-terrain picking, a contextual two-column editor toolbar, a persistent
+desktop project screen, portable custom-content providers, full project-backed
+client presentation options, and remembered Builder position after the initial
 120,648 spawn. Exact archive, packaged-runtime, transaction, and owner-run
 native validation are required for every accepted release candidate.
+
+The later development-only package-driven v3 pinned-core target upgrade is
+rejected and must not be used to open a new release gate. The replacement
+direction is one current platform generation with a conservative Current Base
+for Preservation-like/lightly customized public servers, Current Advanced for
+the owner's reviewed game, explicit current modules, and bounded historical
+input adapters. This README must be reconciled again with the implemented
+composition manifests before a new package is released.
 
 INSTALLATION
 ------------
@@ -48,10 +57,14 @@ Linux: run "Start World Builder.sh". Windows: double-click
 "Start World Builder.cmd". Both open the World Builder desktop project screen;
 no terminal interaction is required.
 
-Choose New Empty World, Use Detected Server Map, Open Existing Project, or
-Select Another Supported Source. Closing or cancelling a screen changes
-nothing. The advanced launch-adaptive command remains available for headless
-CLI automation.
+Development main presents Detect Server Map, Continue Working on Selected
+Project, Upgrade Target Runtime, Import Map Changes, and Restore Project Backup.
+The checked-in upgrade action is the rejected candidate described below and is
+not a supported public migration. With no recognized adjacent server, Detect
+Server Map offers a labelled New Empty World. Select Another Supported Source
+and project-folder browsing remain under Advanced / Recovery. Closing or
+cancelling a screen changes nothing. The advanced launch-adaptive command
+remains available for headless CLI automation.
 
 Servers with custom item or NPC content should distribute one data-only folder:
 
@@ -59,7 +72,7 @@ Servers with custom item or NPC content should distribute one data-only folder:
     world-builder-provider/
     World Builder 2/
 
-Use Detected Server Map selects that provider automatically. If the server
+Detect Server Map selects that provider automatically. If the server
 maintainer distributes it separately, choose Select Another Supported Source,
 then Choose complete provider package, and select the
 world-builder-provider folder itself. Do not browse for an internal JSON file.
@@ -74,9 +87,10 @@ diagnostics folder. No selected target JAR is executed for discovery.
 
 The project screen always shows the World Builder installation folder and its
 registered projects, so starting a second extracted copy cannot be mistaken for
-reopening the first copy. Open Existing Project means a validated project under
-this installation's projects/ folder. Select Another Supported Source accepts a
-server/source directory; it does not guess an arbitrary individual map file.
+reopening the first copy. Continue Working on Selected Project means a validated
+project under this installation's projects/ folder. Select Another Supported
+Source accepts a server/source directory; it does not guess an arbitrary
+individual map file.
 The compatibility preview identifies packed, layered, standalone, or blocked
 input and says whether confirming will create a new isolated project or open an
 existing one.
@@ -99,9 +113,9 @@ second "Open now?" prompt.
 When matching server/client Custom_Landscape.orsc files are the selected packed
 map or coexist with a compatible layered target, the launcher asks whether to
 incorporate them. Yes converts exact verified packed terrain and records guarded
-retirement intent for a later compatible import; project creation does not
-change the server. No creates from the selected authority without retirement
-intent.
+conversion/retirement evidence for the planned Upgrade Target Runtime action;
+project creation does not change the server. No creates from the selected
+authority without retirement intent.
 
 Project creation writes beneath:
 
@@ -139,49 +153,62 @@ updates its fingerprint. It never reads or writes the target. Source corruption,
 unsaved manifest drift, linked runtime state, or concurrent project operations
 fail closed.
 
-Close World Builder and stop the private target server completely before either
-target operation. Select the project and choose "Import Map Changes". Import
-exports the active saved project, revalidates the immutable source and target,
-acquires every advertised offline signal, and displays one readable preview
-with an actual transaction ID, content-addressed map destinations,
+Close World Builder and stop the private target server completely before any
+supported target operation. Select the project and choose "Import Map Changes".
+Import exports the active saved project, revalidates the immutable source and
+target, acquires every advertised offline signal, and displays one readable
+preview with an actual transaction ID, content-addressed map destinations,
 configuration changes, backups, receipt, free-space requirement, and
 verification steps. Nothing is changed until you confirm that complete plan.
 The packaged Import Map Changes scripts provide the equivalent command-line
 path and require typing IMPORT exactly.
 
-Import never upgrades the target runtime. If it reports
-RUNTIME_UPGRADE_REQUIRED, preserve the affected offline target or backup,
-create a fresh isolated project from that exact state if necessary, and choose
-"Upgrade Target Runtime". This separate UPGRADE transaction installs the exact
-current prebuilt core.jar, matching Open_RSC_Client.jar, and package-driven v3
-host capability. It patches the target Ant compile_core target with a
-receipt-bound guard so ordinary startup cannot rebuild old source over the
-verified host core. A known old custom-login decoder source is aligned
-transactionally; missing, newer, or customized decoder source is preserved.
-The transaction retires superseded v1/v2 receipts and retired World Builder
-shadow/overlay JARs, backing up every changed file. Other source, map packages,
-configuration, definitions, databases, plugins, and assets remain unchanged.
-After the upgrade succeeds, keep the target offline and run Import Map Changes
-as a second reviewed transaction.
+If Import reports RUNTIME_UPGRADE_REQUIRED, stop and preserve the offline target.
+Do not invoke the checked-in development runtime-upgrade command: that candidate
+copied a generic core/client over divergent source and guarded the old build,
+and its v3 receipt/marker evidence is insufficient.
 
-The v3 receipt proves concrete server and player-client behavior for each map
-encoding. Import checks only the capabilities required by the selected package,
-including mixed legacy/unsigned-16 terrain, visual and structural scene data,
-and placement v3/v4. Existing legacy terrain and placement files are not
-deleted; while the installed profile is active, the selected native layered
-package is the runtime authority.
+PLANNED TARGET-RUNTIME REPLACEMENT (NOT IMPLEMENTED IN THIS RELEASE)
+-------------------------------------------------------------------
+
+Under the replacement contract, Import will proceed only as a map-only action
+when the target ledger proves that its selected current runtime composition is
+installed.
+
+The replacement "Upgrade Target Runtime" will first identify a historical input
+adapter and customization tier, then recommend a current destination:
+
+- Preservation-like targets with no map upgrade default to Current Base;
+- supported local/configuration/data changes are translated and retained;
+- maintained portable behavior resolves to explicit current modules;
+- recognized plugin source without a registered port returns PORT_REQUIRED with
+  zero writes;
+- the owner's reviewed lineage resolves to Current Advanced; and
+- unknown executable/client/core/build changes block before mutation until a
+  current provider port exists.
+
+Its reviewed preview will name retained, retired, mapped, and blocking behavior
+as well as matching-client, canonical map-conversion, configuration, database,
+and target-ledger changes. A variant/module-set change requires explicit
+consent. The complete current composition and migrated state will be verified
+side-by-side before an atomic launcher switch; old runtime files will remain
+only in the exact rollback backup.
+
+EXISTING MAP TRANSACTION SAFETY
+-------------------------------
 
 Back up the complete target server before Import and verify that backup can be
 restored. World Builder does not offer an action to reverse a completed import.
 
-Confirmed Import file-forces its exact plan, created-directory authority,
-activation content, and every verified backup, then forces their directory
-entries before publishing and forcing the pending receipt. A filesystem/Java
-provider that cannot provide that ordering is refused before transaction
-artifacts or target mutation. Import publishes verified server and client
-package content first. Import requires the separate runtime upgrade to have
-established the exact host-integrated runtime contract first. It then verifies
-every changed map and activation byte and both package selections. Before
+The implemented map transaction file-forces its exact plan, created-directory
+authority, activation content, and every verified backup, then forces their
+directory entries before publishing and forcing the pending receipt. A
+filesystem/Java provider that cannot provide that ordering is refused before
+transaction artifacts or target mutation. Import publishes verified server-side
+and client-side map package content first. Once the replacement is implemented,
+Import will additionally require the separate runtime upgrade to have
+established the exact current-composition target ledger. It verifies every
+changed map and activation byte and both map-package selections. Before
 restarting, distribute the exact reported client/map identity to every player.
 Later Detect Server Map runs recognize that exact packed-profile installation
 as the active compatible layered map, so the edit/import/detect cycle does not
@@ -189,7 +216,7 @@ fall back to the retired packed representation.
 
 Later saved exports may be imported directly over the exact latest installed
 state. Before Import B, World Builder verifies Import A's complete server/client
-package trees, active configuration, receipt, plan, and export. Any drift or
+map-package trees, active configuration, receipt, plan, and export. Any drift or
 unrelated detached server is refused rather than guessed, and working project
 bytes are never rolled back by a server import.
 
@@ -199,15 +226,14 @@ transaction. Keep the complete project/backups/receipts and run "Recover Map
 Transaction"; review its exact plan and type RECOVER. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
-There is no force option. The separate runtime upgrade uses the exact pinned
-host-integrated server and client archives and a machine-checkable login-
-framing source/artifact capability. It preserves every target source except the
-one supported decoder integration, plus definitions, plugins, databases, build
-files, configuration, custom assets, and map content. Runtime upgrade and map
-activation each have their own exact preview, backup, rollback, receipt, and
-verification transaction.
-Standalone projects can save and export, but Import, Undo, and Recovery return
-NO_TARGET before resolving, accessing, or locking any target path.
+There is no force option. The replacement keeps runtime upgrade and map
+activation under separate exact preview, backup, rollback/recovery, receipt, and
+verification authority. Historical source/plugins will be evidence to classify,
+not executable inputs to the installed runtime. Successful migration will leave
+one active current server/client composition; adding another historical source
+layout will add an input adapter rather than another active runtime.
+Standalone projects can save and export, but Import and Recovery return NO_TARGET
+before resolving, accessing, or locking any target path.
 
 HISTORICAL V2 ALPHA
 -------------------
@@ -245,7 +271,7 @@ REQUIREMENTS AND LIMITS
   potentially relevant Java process requires both readable cmdline and cwd
   evidence; conclusively non-Java processes may name the target, hide cwd, or
   have a cwd below the target without being misidentified as its Java server.
-- Import, Undo, and Recovery require a filesystem/Java provider capable of
+- Import and Recovery require a filesystem/Java provider capable of
   forcing transaction directory entries; unsupported providers fail before
   target mutation.
 - The preferred local port is 43615. New desktop-created projects use it when
@@ -256,9 +282,11 @@ REQUIREMENTS AND LIMITS
   compatible client/map identity reported by each successful Import.
 - World Editor v1 remains frozen with separate identity, update channel,
   install folder, workspace, and artifacts.
-- Region snapshot storage, portable bundles, and atomic copy/cut/paste are
-  implemented, but the in-game ordered-marker and ghost-preview interface is
-  still planned; current access is through the included tooling contract.
+- Region snapshot storage, portable bundles, ordered world markers, interactive
+  Copy/Cut/Paste, ghost/collision preview, live activation, and graphical
+  cross-project Import/Export are implemented and owner-validated. Exact
+  last-Paste Undo is implemented but still needs owner validation; richer
+  placement ghosts, rotation, and mirroring remain future work.
 - Easy drop-in custom wall and floor material packs are not implemented in
   this release; their approved design remains planned for a later release.
 - Native Windows application and PowerShell updater execution were not claimed;

@@ -6,6 +6,55 @@ Spoiled Milk in
 This repository consumes one exact published provider commit through
 `runtime-provider.lock`; it never watches or imports Core-Framework branches.
 
+## Planned current platform, variants, modules, and adapters
+
+The replacement design assigns the provider one current
+engine/API/protocol/schema generation and release train. A future exact locked
+revision may publish a small set of current compositions while the public Editor
+package remains free of target worlds and private user state, rather than
+forcing one gameplay configuration on every server:
+
+- **Current Base** is the conservative public composition for
+  Preservation-like/lightly customized targets.
+- **Current Advanced** is the reviewed Spoiled Milk composition built on the
+  same platform generation.
+- **Modules** are optional maintained code/data/server-client features with
+  exact manifests, platform API requirements, dependencies/conflicts,
+  migrations, provenance, and semantic tests.
+- **Editor-owned input adapters** recognize and translate historical target
+  layouts into a current composition; provider manifests and fixtures supply
+  runtime-side identities, payload roles, and migration capabilities. Adapters
+  are migration inputs, not installed runtimes.
+
+No target map, private asset, credential, player/database state, or other user
+content is embedded in a public World Builder archive. Base and Advanced need
+not expose identical gameplay or client interfaces. Non-redistributable
+Advanced inputs remain local target-derived modules/state and are never silently
+promoted into the provider.
+
+Every composition has identity `(platformReleaseId, platformManifestHash,
+variantId, variantManifestHash, moduleSetHash, bundleInventoryHash)`, a closed
+artifact inventory, and a matching server/client handshake. `moduleSetHash`
+binds the canonical ordered module manifests and payload roots; the bundle hash
+binds the resolved composition. Variants share the canonical map engine,
+project and target-ledger contracts, upgrade engine, safety guarantees, and
+release gates.
+A same-generation Advanced build variant may temporarily carry behavior below
+the extension boundary, but it must have an explicit path toward reusable
+platform hooks/modules and cannot become a per-target fork.
+
+Core-derived behavior is reviewed and deliberately ported into the provider;
+the provider does not merge Core history, inspect live Core state, copy private
+content, or load old target classes. Public Base releases must pass the positive
+canonical public gameplay/state contract selected from Preservation-derived
+fixtures and prove that Advanced-only gameplay, assets, UI, configuration, and
+schema effects are absent. See [World Builder 2 Current Runtime Upgrade
+Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+
+The exact provider currently locked by this repository does not yet implement
+this composition/module contract; its pinned-core target-upgrade strategy is
+rejected.
+
 ## Product-level coordination and local ownership
 
 ```text

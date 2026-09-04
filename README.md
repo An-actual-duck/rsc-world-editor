@@ -3,18 +3,21 @@
 RSC World Editor is the home of two deliberately separated product
 generations. The adaptive World Builder 2 contract is a standalone,
 server-agnostic drop-in editor: put its complete folder directly inside a
-compatible RSC game/server root, launch it, and it discovers that installation's
-active map and definitions. It copies, adopts, or converts those inputs into an
+recognized RSC game/server root, launch it, and it discovers that installation's
+active map, definitions, and current capability evidence. Planned destination
+resolution will additionally classify the historical runtime and customization
+tier. World Builder copies, adopts, or converts map/content inputs into an
 isolated project; editing and saving stay inside World Builder until the user
-explicitly runs the transactional import command.
+explicitly runs a transactional target action.
 
 The downloadable application is published from this repository. Its in-game
 editing runtime is compiled from the separately managed
 [RSC World Editor Runtime](https://github.com/An-actual-duck/rsc-world-editor-runtime).
-That exact pinned checkout is a generic build/runtime dependency and supported
-adapter source; it is not World Builder 2's product identity, target world, or
-bundled map. Runtime development is intentionally independent from Spoiled
-Milk/Core-Framework.
+That exact pinned checkout currently supplies the editing runtime and supported
+adapter surfaces; under the active replacement direction it will supply the
+current runtime platform and provider-owned compositions/modules. It is not
+World Builder 2's target world or bundled map. Runtime development is
+intentionally independent from Spoiled Milk/Core-Framework.
 
 ## Product generations
 
@@ -36,15 +39,22 @@ v1 channel. The current adaptive release is `v0.7.0-alpha.88`, accepted and
 published on 2026-09-03. Production artifacts were rebuilt from its published
 gate commit rather than promoted from restricted validation archives.
 
+The later development-only pinned-generic-core upgrade candidate is rejected
+and has not opened another release gate. Current upgrade direction is one
+managed platform generation with Current Base for Preservation-like/lightly
+customized public servers and Current Advanced for the owner's reviewed game,
+plus explicit current modules and bounded historical input adapters. See
+[Current Runtime Upgrade Review](docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+
 ## Repository status
 
 This repository contains:
 
 - the standalone project discovery, launch, export, import, rollback, recovery,
-  and exact undo tools;
+  and retained historical transaction-reversal internals;
 - separate checksum-verified v1 and v2 update channels, with v2 preserving all
   adaptive projects and historical creator state;
-- Linux and Windows launch/import/recovery/undo packaging assets;
+- Linux and Windows launch/import/recovery packaging assets;
 - versioned project, export, and receipt schemas;
 - deterministic unit and filesystem-transaction tests;
 - release tooling tied to an explicit independent runtime-provider revision; and
@@ -84,57 +94,70 @@ The complete legacy instructions are maintained in
 World Builder 2's instructions are kept separately in
 [`release/world-builder-v2/README.txt`](release/world-builder-v2/README.txt).
 
-The adaptive v2 product contract is:
+The following describes development `main`, not the Alpha.88 launcher UI. The
+published Alpha.88 package has four main buttons and the historical combined
+**Upgrade Server and Import Map** action; its accepted evidence does not validate
+the later rejected pinned-core candidate or the planned replacement below.
+
+The released adaptive map/project safety foundation and the planned replacement
+target-upgrade contract on development `main` are:
 
 1. Put the complete `World Builder 2` folder directly inside a compatible
    game/server root and launch it. The desktop screen offers Detect Server Map,
    Continue Working on Selected Project, Upgrade Target Runtime, Import Map
    Changes, and Restore Project Backup; the command-line workflow remains
    available for automation.
-2. Let World Builder discover the target's active map, definitions, and
-   compatibility evidence; unsupported or ambiguous layouts fail with a
-   report instead of being guessed.
+2. Let World Builder discover the target's active map, definitions, and current
+   capability evidence; unsupported or ambiguous layouts fail with a report
+   instead of being guessed. Planned destination resolution additionally
+   classifies the historical runtime/customization tier and recommends a
+   current composition.
 3. Adopt compatible layered data or convert a supported packed map into an
    isolated project. A production adaptive archive supplies no map, world, or
    static placements of its own.
 4. Edit, save, close, and reopen only the project copy under World Builder.
-5. Change the target only with the two explicit reviewed actions. **Upgrade
-   Target Runtime** is used when an affected or older target needs the current
-   host-integrated core/client runtime. **Import Map Changes** then installs and
-   activates only the edited map package and World Builder-owned profiles.
+5. Change the target only with explicit reviewed actions. The checked-in
+   **Upgrade Target Runtime** implementation is a rejected development
+   candidate and is not a supported migration. Its replacement will stage and
+   verify the selected current Base/Advanced server/client composition, migrate
+   supported state/content, and retire the historical runtime. **Import Map
+   Changes** then installs only the edited map package and World Builder-owned
+   activation after the future target ledger proves that the current composition
+   is installed.
 6. Keep the target offline and use Recovery if an interrupted rollback is
    explicitly reported. Administrators must make and verify a complete server
    backup before import; there is no end-user Undo action. Standalone empty
    projects have no target transaction path.
 7. Later saved exports may be imported directly over the project's exact latest
-   installed state. Each import verifies that complete server/client package and
-   active configuration as its before-state without changing the Editor's later
-   working bytes.
+   installed map state. Each import verifies the complete server/client map
+   package pair and active configuration as its before-state without changing
+   the Editor's later working bytes.
 
 ## Using World Builder 2
 
 Put the complete `World Builder 2` folder directly inside the game/server root,
 beside `server/` and `Client_Base/`, then run `Start World Builder.sh` on Linux
-or `Start World Builder.cmd` on Windows. The main window has four actions:
+or `Start World Builder.cmd` on Windows. The main window has five actions:
 
 - **Detect Server Map** is the starting point for a server that has not been
   opened with this copy of World Builder. It finds every recognizable map file
-  and lets you choose which one to adopt into an isolated editing project. In a
-  normal installation, choose the most recently modified map when prompted.
+  and lets you choose which one to adopt into an isolated editing project. In
+  installations with more than one genuinely valid candidate, review the named
+  configuration and evidence; do not select by timestamp alone.
 - **Continue Working on Selected Project** reopens a project that was started
   earlier. Select it from the project list populated in the main window, then
   continue editing its independent working copy.
-- **Upgrade Target Runtime** is the explicit migration for an affected backup or
-  older target. It installs the exact prebuilt server core, matching player
-  client, and package-driven v3 host capability; guards the target Ant build
-  from recompiling obsolete core source; and removes superseded receipts and
-  retired shadow/overlay JARs. Known old login source is aligned, while missing,
-  newer, or customized source is preserved. Other source, maps, configuration,
-  definitions, plugins, databases, and assets remain untouched.
+- **Upgrade Target Runtime** is visible because the rejected development
+  candidate remains in the source tree, but it must not be run against a real
+  target. Its replacement will classify Preservation-like local/data/plugin
+  changes, recommend Current Base or Current Advanced plus explicit modules,
+  show retained/retired/blocking behavior, stage the complete matching
+  server/client and state migrations, then activate them transactionally.
 - **Import Map Changes** installs only the selected project's saved map package
   and World Builder-owned activation profiles. If it reports
-  `RUNTIME_UPGRADE_REQUIRED`, run the separate runtime upgrade first and retry
-  Import while the target remains offline.
+  `RUNTIME_UPGRADE_REQUIRED`, stop and preserve the offline target; do not invoke
+  the rejected upgrade candidate. Retry only after a composition-gated
+  replacement is implemented and released.
 - **Restore Project Backup** loads an earlier saved state into the selected
   project without changing the server. World Builder creates automatic project
   backups when an editing session starts and closes; the backup screen also
@@ -269,7 +292,8 @@ content-neutral package identity, exact no-world runtime allowlist, and durable
 Linux/Windows update boundary. Phase 6 implements deterministic complete
 export, compiled server/client mutation plans, offline preview/import, durable
 backups and receipts, verified rollback/recovery, changed-after refusal, and
-exact undo for adopted and converted projects. Phase 7 archive,
+historical exact reversal internals for adopted and converted projects. The
+completed-import Undo action/script was removed later. Phase 7 archive,
 packaged-runtime, transaction, and owner-native validation passed for the exact
 candidate recorded in the accepted
 [v0.5.0-alpha.11 adaptive validation record](docs/releases/world-builder-v2-v0.5.0-alpha.11-validation.md).
@@ -294,8 +318,9 @@ implementation work.
 
 The active reliability audit and ordered worklist for shorter development
 feedback, removal of completed server-import Undo, explicit backup guidance,
-and complete map-plus-runtime compatibility installation is recorded in [World
-Builder 2 Reliability and Iteration Plan](docs/WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md).
+the adaptable current-runtime replacement, and ledger-gated map-only Import is
+recorded in [World Builder 2 Reliability and Iteration
+Plan](docs/WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md).
 
 Development now integrates the runtime v2 unsigned 16-bit elevation contract:
 v1 terrain remains readable and is promoted losslessly for editing, while v2

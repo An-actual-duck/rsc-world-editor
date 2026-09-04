@@ -18,13 +18,24 @@ Builder 2 and `rsc-world-editor-v2`.
 Adaptive discovery, lossless packed conversion, UUID projects, isolated
 working copies, save/reopen, a generic pinned runtime capability, content-
 neutral packaging, deterministic export, bounded target import, verified
-rollback/recovery, exact undo, and durable application updates are implemented. Native
+rollback/recovery, retained historical reversal internals, and durable
+application updates are implemented. Native
 adaptive launch now prepares independent server/client runtime copies beneath
 each UUID project and supervises the pinned generic runtime against only that
 project's layered working package. Owner-run target-backed and standalone
-visual/edit/save/reopen validation is still pending; that acceptance gate and
-final release validation remain separate from the implemented launch and Phase
-6 transaction paths.
+visual/edit/save/reopen validation passed for accepted releases; every later
+candidate still requires fresh version-bound native and final release
+validation.
+
+The project-local generic runtime in that paragraph is the current authoring
+runtime, not the accepted destination for every target server. The later
+development-only pinned-core target-upgrade candidate is rejected. The planned
+replacement resolves Preservation-like servers to Current Base, the owner's
+reviewed lineage to Current Advanced, and portable custom behavior to explicit
+current modules on one platform generation. Until its manifests, target ledger,
+migrations, and executable gate are implemented, `upgrade-target-runtime` must
+not be presented as a supported public migration. See
+[`docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md`](../../docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 Build the standalone tools with:
 
@@ -54,11 +65,15 @@ source control or a release archive.
 
 ## Desktop project launcher
 
-The packaged Linux and Windows launchers use `desktop-launch`. It opens a
-project screen with four explicit paths: **New Empty World**, **Use Detected
-Server Map**, **Open Existing Project**, and **Select Another Supported
-Source**. Cancelling any chooser or confirmation returns without creating a
-project or starting child processes.
+The packaged Linux and Windows launchers use `desktop-launch`. Development
+`main` opens a project screen with five primary actions: **Detect Server Map**,
+**Continue Working on Selected Project**, **Upgrade Target Runtime**, **Import
+Map Changes**, and **Restore Project Backup**. The upgrade button still invokes
+the rejected development candidate and must not be treated as a supported
+public migration. **New Empty World** is offered as a labelled outcome when no
+server is recognized; **Select Another Supported Source** and project-folder
+browsing live under **Advanced / Recovery**. Cancelling any chooser or
+confirmation returns without creating a project or starting child processes.
 
 While an editor session is running, the project launcher remains open and
 refuses to exit. Close the editor normally so the supervisor can stop the
@@ -279,10 +294,12 @@ is reported detached and cannot later be installed until the exact compatible
 target is supplied and verified.
 
 Existing standalone projects retain their immutable catalog and remain on their
-original compatibility contract. They are never silently rewritten from a
-newer application runtime. Create a separate standalone project to adopt a new
-packaged definition catalog, then explicitly move creator-owned edits through a
-reviewed export workflow when compatibility has been established.
+original compatibility contract under the current implementation and are never
+silently rewritten. The replacement architecture instead adds a lossless
+project-schema migration and treats the project-local authoring runtime as a
+rebuildable cache, so routine current-to-next upgrades will not require project
+recreation. Until that migration is implemented and verified, preserve the
+existing project/runtime bytes exactly.
 
 Application updates use the same command with `--validate-only`. That mode
 verifies the selected project and optional target evidence without refreshing
@@ -445,22 +462,20 @@ java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
 
 The apply call independently recompiles that exact identity before creating
 transaction artifacts and emits exactly one result JSON document. The desktop
-**Upgrade Server and Import Map** action keeps one reviewed plan in memory and
-requires one explicit confirmation after showing its complete summary. The
-packaged `Import Map Changes` scripts retain literal, untrimmed `IMPORT` input
-for command-line and recovery use.
+now separates **Upgrade Target Runtime** from **Import Map Changes** so a
+runtime/variant/module transition and a map-only transaction have distinct
+preview and consent. The packaged `Import Map Changes` scripts retain literal,
+untrimmed `IMPORT` input for command-line and recovery use.
 
 Import reacquires the project and all target offline evidence, rediscovers the
-same adapter/capability/source lineage, rejects drift, writes verified project-
-owned backups and a durable pending `import-receipt-v3`, stages and verifies
-server/client package files on the target filesystem, and activates the
-configuration last. It then verifies every byte, both selected packages, and
-the configuration semantics. The result names the exact client package an
-administrator must distribute before restart. When an install-capable packed
-descriptor has completed that transition, later detection recognizes its exact
-content-addressed server/client packages as a compatible layered target. A new
-project can therefore be created from the installed map without restoring or
-reconverting the retired packed source.
+same adapter/capability/source lineage, and rejects drift. Under the replacement
+contract it first requires a trusted current target ledger, then writes verified
+project-owned backups and a pending map receipt, stages the content-addressed
+map package, and activates World-Builder-owned configuration last. The current
+development implementation still carries the rejected pinned-core package/
+receipt assumptions and is not release evidence for this replacement. Later
+detection must recognize the exact installed current composition and layered
+map without restoring or reconverting the retired packed source.
 
 Back up and verify the complete target server before importing. There is no
 end-user action to reverse a completed import.
@@ -480,9 +495,10 @@ Apply that reviewed plan in a second call with `--confirm RECOVER`, its emitted
 `--transaction-id`, and its emitted `--plan-sha256`. Recovery accepts only paths
 and states that match the independently rebuilt compiled transaction, and it
 deletes only exact derivable staging content. There is no `--force` path.
-Standalone projects may export normally, but import, undo, and recovery return
+Standalone projects may export normally, but current Import and Recovery return
 `NO_TARGET` before a target path is resolved, accessed, locked, backed up, or
-receipted. A compiled `process-scan` offline requirement currently needs a
+receipted; the retained historical reversal command has the same origin guard.
+A compiled `process-scan` offline requirement currently needs a
 readable Linux `/proc` view and fails closed when that process view is absent or
 unavailable. A process merely having its working directory below the target is
 not treated as the server when readable command and process-name evidence prove

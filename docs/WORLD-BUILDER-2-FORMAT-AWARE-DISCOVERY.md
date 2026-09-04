@@ -1,7 +1,7 @@
 # World Builder 2 Format-Aware Discovery and Streamlined Launch
 
-Status: **implemented and released for recognized layouts; compatibility
-profiles remain extensible**
+Status: **implemented and released for recognized map layouts; historical input
+adapters and current destination resolution remain extensible**
 
 Product: `rsc-world-editor-v2` / **World Builder 2**
 
@@ -14,8 +14,14 @@ The owner validated the adjacent-server workflow against a real target without
 screenshots, including project creation, launch, custom content, save/reopen,
 and the formerly missing scenery case. Unfamiliar or ambiguous formats can
 still require Advanced/Recovery guidance; adding another neutral adapter is
-continuing compatibility work, not an incomplete phase of the released
+continuing input-adapter work, not an incomplete phase of the released
 recognized-layout path.
+
+Direction reconciliation (2026-09-04): public server migration now distinguishes
+historical input adapters from Current Base/Advanced destination compositions.
+The destination-resolution additions below are planned upgrade work; they do
+not retroactively claim that the released map-discovery phases upgrade a target
+runtime.
 
 This document is the implementation guide for making ordinary server adoption
 automatic. It records the intended user experience, discovery architecture,
@@ -24,6 +30,11 @@ criteria. It is deliberately server-neutral and must not acquire behavior tied
 to one named game or private-server repository.
 
 ## Product outcome
+
+The next three-action description records the released Phase 4 discovery UI.
+Development `main` later added separate target-upgrade, map-import, and project-
+restore controls and currently has five primary buttons; the replacement runtime
+semantics behind the upgrade button remain planned.
 
 An ordinary user places World Builder in the root of their game/server,
 launches it, and sees three primary actions:
@@ -126,6 +137,31 @@ typical summary should say, for example:
 > Server map found. 1 map, 5 definition families, 18,420 placements, and 4
 > custom asset groups are ready. The server will remain unchanged.
 
+Planned destination resolution will compile a separate read-only report for a
+later target upgrade. It will record:
+
+- detected historical input adapter/runtime and customization tier;
+- recommended current Base or Advanced variant and the reason;
+- required and optional current modules;
+- each relevant delta as `preserved-data`, `mapped-to-platform`,
+  `mapped-to-module`, `retired`, or `blocker`;
+- features/data that the upgrade will add, change, or remove;
+- matching-client, map-conversion, configuration, and database impact; and
+- the proposed target-ledger transition.
+
+The common external case is a Preservation-like server with no prior layered
+map support and light customization. It should be recognized without Git
+metadata and summarized in product language, for example:
+
+> This Preservation-like server will upgrade to Current Base. Three content
+> customizations will be retained; one plugin needs review. The server remains
+> unchanged until a separate upgrade preview is confirmed.
+
+The owner's advanced Core lineage is a distinct Current Advanced destination,
+not the default for every detected server. Input adapter and destination
+variant are independent so supporting another historical layout does not add
+another active runtime.
+
 If more than one complete active source is plausible, show friendly candidates
 with useful configuration labels and evidence—not raw directory selection—and
 require an explicit choice. If no adjacent server root exists, offer **Advanced:
@@ -137,12 +173,14 @@ This creates the existing standalone empty world. It requires a project name
 and optional advanced location only. Server detection and provider controls do
 not appear in this flow.
 
-### Progressive disclosure
+### Planned upgrade disclosure
 
-The primary window should not show provider paths, definition fingerprints,
-cache paths, archive selectors, or schema terminology. Relevant surfaces are:
+The planned upgrade view should not show provider paths, definition
+fingerprints, cache paths, archive selectors, or schema terminology. Relevant
+surfaces will be:
 
-- **Compatibility details** — human summary, family counts, and warnings;
+- **Upgrade details** — recommended current composition, retained/retired
+  behavior, family counts, client/database impact, and warnings;
 - **Technical details** — exact files, hashes, adapters, record provenance, and
   error codes;
 - **Advanced/Recovery** — alternate server root, explicit provider package,

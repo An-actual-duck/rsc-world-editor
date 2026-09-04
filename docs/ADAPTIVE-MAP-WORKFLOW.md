@@ -7,6 +7,7 @@
 | Status | Phases 0-7 are implemented; the adaptive v0.2.0-alpha.1 release completed owner-native validation and was published |
 | Product/release readiness | Released foundation; the next production release gate is deliberately closed |
 | Approved | 2026-08-01 |
+| Last reconciled | 2026-09-04; map/project foundations retained, pinned-core target-upgrade policy superseded |
 | Product | World Builder 2 only |
 | Legacy v1 | Frozen and out of scope |
 | Repository reviewed | Implemented history through the accepted adaptive v0.2.0-alpha.1 release and later published management updates |
@@ -16,6 +17,14 @@ Approval establishes this document as the implementation plan. It does not by
 itself authorize a dependency update, release-gate change, migration of user
 state, publication, deployment, or live-server work. Implementation remains
 subject to the phase boundaries and AI guardrails below.
+
+Direction reconciliation (2026-09-04): completed-import **Undo** references in
+the historical inventories, algorithms, phases, and acceptance records below
+describe retained transaction-reversal internals or a superseded user surface.
+Current World Builder 2 exposes no completed-import Undo action or package
+script. Automatic failure rollback and explicit interrupted-transaction Recovery
+remain mandatory, and **Restore Project Backup** affects only the isolated
+project.
 
 The words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are normative. A
 future implementation MUST add versioned contracts rather than changing the
@@ -39,7 +48,9 @@ must make compatible RSC world creation approachable:
    change the target server.
 6. When ready, an administrator runs the explicit import/install script. That
    script checks that the server and client support the layered loader, installs
-   the map data and configuration transactionally, and can undo the change.
+   the map data and configuration transactionally, rolls back an incomplete
+   failure, and preserves exact evidence for interrupted Recovery. It does not
+   offer completed-import Undo.
 7. The administrator is responsible for distributing the matching updated
    client and map content to players.
 
@@ -101,7 +112,8 @@ preflight for the checkout role. It MUST also:
 5. preserve source-snapshot verification, offline-target checks, exact preview
    and confirmation, drift detection, backups, receipts, post-write
    verification, partial-failure rollback, changed-after-import protection,
-   undo, and no-force behavior;
+   interrupted Recovery, retained historical reversal evidence, and no-force
+   behavior;
 6. never test against user/server data or an external live checkout; and
 7. never merge, release, tag, publish, deploy, or open a release gate as an
    incidental implementation step.
@@ -184,17 +196,18 @@ Each invariant has a stable ID so future plans and tests can cite it.
 - **INV-09 — Determinism.** Identical declared inputs and tool versions produce
   byte-identical conversion output, manifests, reports, and hashes. Absolute
   paths and timestamps do not affect identities.
-- **INV-10 — Explicit target mutation.** Only the target-backed import/install
-  or undo command may change server/client data, after exact preview and
-  confirmation.
+- **INV-10 — Explicit target mutation.** Only Upgrade Target Runtime, Import Map
+  Changes, automatic failure rollback, or explicit interrupted Recovery may
+  change target server/client data under their exact reviewed authority.
 - **INV-11 — Bounded authority.** Target metadata may select a compiled adapter
   but cannot authorize arbitrary paths, commands, configuration edits, or
   binary replacement.
-- **INV-12 — Transaction safety.** Import retains offline checks, target drift
-  detection, backups, receipts, verification, rollback, undo,
-  changed-after-import refusal, and no force option.
-- **INV-13 — Standalone cannot import.** A standalone empty project's import
-  and undo commands fail before target discovery, locking, backup, or mutation.
+- **INV-12 — Transaction safety.** Target operations retain offline checks,
+  target drift detection, backups, receipts, verification, automatic failure
+  rollback, interrupted Recovery, changed-after refusal, and no force option.
+- **INV-13 — Standalone has no target operations.** Upgrade, Import, and
+  Recovery for a standalone empty project fail before target discovery, locking,
+  backup, or mutation; retained historical reversal has the same origin guard.
 - **INV-14 — Additive projects.** Creating, converting, selecting, or replacing
   a project MUST NOT delete or overwrite another project.
 - **INV-15 — Durable updates.** Updates preserve projects, exports, backups,
@@ -274,8 +287,9 @@ project. Its first launch:
 4. uses the versioned default Builder definition/rendering catalog;
 5. materializes and validates terrain sectors as the creator authors them;
 6. saves and exports a normal complete layered package; and
-7. disables Import and Undo with the message that the project has no compatible
-   target server.
+7. makes Upgrade Target Runtime, Import Map Changes, and Recovery return
+   `NO_TARGET` before target access; the retained historical reversal command
+   has the same origin guard.
 
 The empty baseline is generated inside the project. Its map bytes MUST NOT be
 stored in or copied from the release archive. Except for the neutral 3-by-3
@@ -292,14 +306,17 @@ project**, but the project remains visibly unattached and cannot import.
 ### D. Reopen, move, or replace projects
 
 World Builder records projects by UUID, not display name or absolute server
-path. The desktop launcher's primary surface contains only **Create New
-Project**, **Detect Server Map**, and **Continue Working on Selected Project**.
-The current/most-recent project is selected by default. Alternate source roots,
+path. Development `main` has five primary actions: **Detect Server Map**,
+**Continue Working on Selected Project**, **Upgrade Target Runtime**, **Import
+Map Changes**, and **Restore Project Backup**. The current/most-recent project is
+selected by default. Standalone-empty creation, alternate source roots,
 registered-project folder browsing, provider choices, diagnostic export, and
-cache recovery live under **Advanced / Recovery**. Existing-project selection
-validates and selects the UUID project before starting the same supervised
-client/server path used by CLI automation. Cancellation does not create,
-select, or launch anything.
+cache recovery are bounded discovery outcomes or live under **Advanced /
+Recovery**. Existing-project selection validates and selects the UUID project
+before starting the same supervised client/server path used by CLI automation.
+Cancellation does not create, select, or launch anything. The checked-in
+runtime-upgrade button remains a rejected candidate until the replacement gate
+is implemented.
 
 The source chooser selects a directory for the compiled adaptive discovery
 adapters, not an untyped individual map file. The existing-project chooser
@@ -311,37 +328,57 @@ Moving the complete World Builder folder or a complete closed project preserves
 it because internal manifests use relative paths. If the original target moved
 or changed, the project MAY still open, edit, save, and export in a prominent
 detached state. Import remains blocked until fresh discovery proves exact
-target lineage. A server update creates a new project; it never silently
-rebases an old one.
+target lineage. Unmanaged source-map, definition, or configuration drift creates
+a new target-derived project; it never silently rebases an old one. The planned
+managed runtime-only N-to-N+1 path instead migrates project schema and rebuildable
+runtime cache without changing authored lineage or requiring project recreation.
 
 ### E. Install a finished target-backed map
 
 The adaptive transaction engine is the only supported path that changes the
-server/client. It is currently exposed by the Import script and may also be
-projected through the desktop GUI without creating a second mutation path. It:
+server/client. Its exact backup, rollback, recovery, and no-force mechanics are
+retained, but the later pinned-core runtime-selection policy is rejected and
+must not be released. The replacement keeps runtime upgrade and map activation
+as two separately previewed actions governed by the
+[current-runtime upgrade review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
-1. verifies the project's source, conversion, working package, and export;
-2. rediscovers the target and rejects drift;
-3. verifies the target capability, installs the pinned content-neutral server
-   runtime, and applies the bounded installed-client source/bootstrap upgrade
-   without replacing the target client's version, definitions, or assets;
-4. shows exact runtime replacements, server/client package destinations, and
-   configuration changes;
-5. requires the administrator to confirm `IMPORT`;
-6. backs up every affected file and records expected absence;
-7. installs the package and related data, changes activation/configuration
-   last, and verifies both server and client selections;
-8. writes a durable receipt for verification and later compatible imports; and
-9. reminds the administrator which client/map identity must be distributed to
+Under the planned replacement contract, **Upgrade Target Runtime** will first
+resolve the historical input and customization tier to Current Base or Current
+Advanced, plus the reviewed module set. Only after the target ledger proves that
+the current composition is installed may **Import Map Changes** apply the
+project-owned package. Map Import will:
+
+1. verify the project's source, conversion, working package, and export;
+2. rediscover the target and reject drift;
+3. verify the current target ledger, matching server/client composition, and
+   exact package capability, or return `RUNTIME_UPGRADE_REQUIRED` without
+   mutation;
+4. show exact server/client map destinations and configuration changes;
+5. require the administrator to confirm `IMPORT`;
+6. back up every affected file and record expected absence;
+7. install the package and related data, change activation/configuration
+   last, and verify both server and client selections;
+8. write a durable receipt for verification and later compatible imports; and
+9. remind the administrator which client/map identity must be distributed to
    players.
 
-The approved post-release GUI and migration extension is specified in
+The implemented post-release GUI and migration foundation is specified in
 [World Builder 2 Map Migration, GUI Transactions, and Project
-History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). A migrated
-`Custom_Landscape.orsc` may be retired only by a compiled capability-gated
-mutation profile after exact conversion, package installation, verified
-backup, and safe activation. Automatic failure rollback restores its exact bytes and configuration;
-file-name detection alone never authorizes removal.
+History](WORLD-BUILDER-2-MAP-MIGRATION-AND-HISTORY.md). Under the replacement,
+**Upgrade Target Runtime** reuses its exact conversion, backup, activation, and
+Recovery machinery to retire a migrated `Custom_Landscape.orsc` and its loader
+only after installing the canonical current map/runtime pair. Later **Import Map
+Changes** remains map-only. Automatic failure rollback restores the exact bytes
+and configuration; file-name detection alone never authorizes removal.
+
+#### Superseded installed-v1/runtime integration record
+
+The installed-v1 paragraph and later runtime-changing Import paragraph in this
+subsection record the former retention/source-transformation policy. The
+intervening desktop port-selection paragraph remains current. The historical
+runtime paragraphs are not normative for the replacement: runtime migration
+belongs to **Upgrade Target Runtime**, old runtime/client executables retire
+after verified cutover, and **Import Map Changes** remains map-only.
 
 An exact installed v1 target capability deliberately defers that retirement:
 the target-specific runtime archives and both legacy landscape archives remain
@@ -477,17 +514,42 @@ replace semantics.
 
 ## Adapter and capability model
 
-World Builder uses a small generic core plus versioned repository-owned
-adapters. A well-known target descriptor SHOULD be
-`server/world-builder-capabilities.json`. The descriptor selects an adapter and
-declares versioned facts; it is not executable and cannot authorize arbitrary
-writes.
+World Builder currently uses a small generic discovery/transaction core plus
+versioned repository-owned map/input adapters. An input adapter recognizes and
+translates a historical layout and state; it does not select permanent gameplay
+policy and does not remain installed. The replacement upgrade architecture adds
+a separate destination resolver for a provider-owned current variant/module
+composition.
+
+A well-known target descriptor SHOULD be
+`server/world-builder-capabilities.json`. The descriptor supplies evidence for
+an adapter and declares versioned facts; it is not executable, cannot authorize
+arbitrary writes, and cannot supply an unknown runtime module.
 
 A built-in probe MAY recognize a narrowly defined common layout when the
 descriptor is absent. This provides low-friction onboarding for existing
 servers. If zero layouts match, discovery explains how to add/support an
 adapter. If multiple configurations or layouts match, the UI presents a simple
 choice and does not guess by filename, timestamp, or alphabetical order.
+
+The planned current-generation output model distinguishes:
+
+- **Current Base**, the conservative public composition for
+  Preservation-like/lightly customized targets;
+- **Current Advanced**, the owner's reviewed composition on the same platform
+  generation;
+- **modules**, optional maintained behavior/data with a namespaced stable SPI,
+  exact dependencies/conflicts, configuration/state migrations, client parts,
+  and semantic tests; and
+- **input adapters**, which may be numerous because they execute only at the
+  migration boundary rather than expanding the active runtime matrix.
+
+Adding a source layout requires an adapter, not a variant. Adding portable
+behavior requires a current module, not an old-runtime branch. A module cannot
+shadow or replace platform classes; behavior below the extension seam first
+requires a reviewed platform hook or bounded first-party current variant.
+Unknown executable plugins are reported and refused before mutation rather than
+dynamically imported.
 
 ### Capability contract
 
@@ -510,20 +572,36 @@ weaken path containment, file limits, offline checks, or mutation boundaries.
 A target that can load layered terrain but cannot edit existing levels or
 represent required placements is not editing-compatible.
 
-### Initial adapters
+For future upgraded targets, the authoritative current runtime identity is
+`(platformReleaseId, platformManifestHash, variantId, variantManifestHash,
+moduleSetHash, bundleInventoryHash)`. `moduleSetHash` commits to the canonical
+ordered module manifests and payload roots; the bundle hash commits to the
+complete resolved composition. Project identity retains authored maps/content/
+history and declared capability/module requirements, not an exact runtime
+payload or Core identity. A separate stable target ledger records the selected
+current composition, exact server/client hashes, state/configuration migrations,
+active map, and predecessor receipt so later N-to-N+1 upgrades do not require
+project recreation.
 
-1. A successor to `spoiled-milk-repository-v1` handles the reviewed legacy
-   packed layout and its exact map-composition rules without leaking those
-   rules into the generic core.
-2. A generic signed-layered adapter validates an active
+### Planned upgrade adapter set
+
+1. A sealed Preservation-family adapter recognizes the common legacy packed
+   layout without Git metadata, classifies expected local/configuration/data/
+   plugin changes, and defaults to Current Base.
+2. A successor to `spoiled-milk-repository-v1` handles the reviewed advanced
+   packed/layered layout and exact composition rules, then resolves to Current
+   Advanced without leaking those rules into the generic core.
+3. A generic signed-layered adapter validates an active
    `layered-world-package-v1` without hardcoding package ID, version, hash,
    levels, or counts.
-3. Standalone empty mode uses a built-in `empty-world-v1` origin generator, not
+4. Standalone empty mode uses a built-in `empty-world-v1` origin generator, not
    a target adapter.
 
 Adding support for another server SHOULD require one adapter, capability
-fixtures, conversion/parity fixtures when packed, and one bounded install
-profile. It MUST NOT require copying that server's world into this repository.
+fixtures, customization-classification fixtures, conversion/parity fixtures
+when packed, and a destination-resolution matrix against current variants and
+modules. It MUST NOT require copying that server's world into this repository
+or publishing another historical runtime.
 
 ## Versioned contracts
 
@@ -549,6 +627,33 @@ Absolute target path may appear as display metadata but is excluded from the
 source fingerprint. Discovery never inventories credentials, databases, logs,
 player data, or unrelated server files.
 
+### Planned destination resolution and target ledger
+
+`destination-resolution-v1` consumes the read-only discovery evidence plus a
+separate redacted upgrade inventory. It records:
+
+- selected input adapter and historical runtime identity;
+- T0-T5 customization tier and evidence for the highest-risk active delta;
+- recommended current platform/variant/module identity and explanation;
+- component dispositions: preserved data, mapped platform/module behavior,
+  retirement, verification-only, or blocker;
+- configuration/database/map/client migration IDs and semantic impact;
+- explicit-consent requirements for variant/module-set changes; and
+- the proposed predecessor-to-current target-ledger transition.
+
+Secret values and player/content bytes are neither embedded nor hashed into a
+shareable diagnostic; only safe schema/role/count or redacted local evidence is
+retained. The destination report is advisory until a later exact transaction
+preview revalidates all local evidence.
+
+`target-runtime-ledger-v1` is stable installation state independent of any one
+project. It records `(platformReleaseId, platformManifestHash, variantId,
+variantManifestHash, moduleSetHash, bundleInventoryHash)`, exact server/client
+composition hashes, state/configuration migrations, active map identity,
+predecessor ledger/receipt, and executable verification evidence. Project
+receipts remain project/map scoped. This split allows old projects and managed
+targets to advance N-to-N+1 without recreation.
+
 ### Project and source snapshot
 
 `project-manifest-v2` records:
@@ -566,7 +671,8 @@ player data, or unrelated server files.
 configuration evidence, every active world input, required absence,
 definitions/runtime evidence, conversion plan/report, and immutable layered
 baseline. It rejects extra/missing/changed files and all unsafe entries before
-launch, save commit, export, import preview/apply, or undo.
+launch, save commit, export, runtime-upgrade/map-import preview or apply,
+Recovery, or retained historical reversal.
 
 A standalone manifest has no adapter, target locator, target fingerprint,
 selected configuration, import profile, or receipt lineage. It binds the exact
@@ -678,7 +784,7 @@ Only compiled adapter code can create a `target-mutation-plan-v1`. It lists:
 Target data can select a named profile but cannot supply raw writable paths or
 commands.
 
-### Receipt and undo
+### Receipt, rollback, and recovery
 
 Adaptive imports require a new receipt schema. It MUST NOT reinterpret the
 checked-in packed v1 schema or the current layered receipt mode. It records:
@@ -809,8 +915,9 @@ tests, and product approval. There is never a generic force flag.
 5. Publish the project and registry atomically.
 6. On save, materialize changed sectors/placements and validate a standard
    layered package. Export behaves normally.
-7. Import and undo inspect `origin` first and fail with `NO_TARGET` before any
-   target path is resolved or lock is acquired.
+7. Upgrade, Import, and Recovery inspect `origin` first and fail with
+   `NO_TARGET` before any target path is resolved or lock is acquired; the
+   retained historical reversal command has the same guard.
 
 Existing standalone projects keep their immutable, versioned catalog and are
 not silently migrated or rewritten when application runtime definitions change.
@@ -824,7 +931,14 @@ create exactly one generated sector containing `120,648`, with canonical void
 outside the exact visibility seed; it remains generated structural state, not
 a shipped map.
 
-### Import/install
+### Superseded Phase 6 import/install algorithm
+
+The following algorithm records the shipped pre-replacement transaction. It is
+retained as mechanical evidence only. Its unchanged-older-runtime projection,
+Import-owned legacy retirement, and completed-import reversal language are not
+the current destination policy. The replacement first runs **Upgrade Target
+Runtime** for canonical uplift/retirement and then permits a map-only **Import
+Map Changes** only when the target ledger proves the current composition.
 
 1. Reject standalone origin before target access.
 2. Lock the target-backed project; verify immutable source, conversion,
@@ -860,7 +974,8 @@ a shipped map.
     administrator must distribute.
 15. Rediscovery through an install-capable packed descriptor recognizes only
     its exact content-addressed post-import server/client packages as layered,
-    while retaining the original adapter as transition and undo authority.
+    while retaining the original adapter as historical transition/reversal
+    authority.
 16. On any failure, roll back in reverse safe order and verify the complete
     before inventory. If rollback cannot verify, retain recovery state and
     block new transactions.
@@ -873,8 +988,8 @@ not the Editor's distinct internal package-lineage fingerprint.
 The adapter determines the exact bounded path. Existing packed source maps are
 backed up and retained unless versioned migration lineage and a separately
 approved mutation profile explicitly authorize recoverable retirement. Such
-treatment remains receipt-bound, rollback-safe, and exactly undoable; it is
-never an unrecorded deletion.
+treatment remains receipt-bound and covered by exact rollback, Recovery, and
+historical reversal evidence; it is never an unrecorded deletion.
 
 ### Isolated validation before import
 
@@ -911,11 +1026,11 @@ receipt. It never starts, stops, or modifies the target server.
 | Immutable source changes | Refuse launch/save/export/import; never reconstruct silently from target or working state. |
 | Isolated runtime cannot load baseline | Keep diagnostics, publish no ready project, and leave target unchanged. |
 | Target moves or drifts | Mark project detached; allow isolated edit/export, but block import. |
-| Standalone import/undo | Fail immediately with `NO_TARGET`; no target path, lock, backup, or receipt is created. |
-| Loader/server/client capability missing | Refuse import and identify the exact compatible runtime required; do not patch binaries. |
+| Standalone target operation | Upgrade, Import, and Recovery fail immediately with `NO_TARGET`; no target path, lock, backup, or receipt is created. |
+| Loader/server/client capability missing | Return `RUNTIME_UPGRADE_REQUIRED` and identify the recommended current composition/module or unresolved port; do not patch or load legacy binaries. |
 | Import fails before mutation | Record a safe failed/no-change result; target remains exact. |
 | Import partially fails | Restore verified backups and activation in safe order; verify before state. Block new transactions if recovery is uncertain. |
-| Undo sees changed-after-import data | Refuse before mutation and list changed paths; no force mode. |
+| Retained historical reversal sees changed-after-import data | Refuse before mutation and list changed paths; no force mode. |
 | Update cannot support a selected project | Restore/retain the old managed layer and preserve every project; do not rewrite compatibility metadata. |
 
 Errors MUST contain a stable code, operation, project UUID when available,
@@ -934,8 +1049,10 @@ MUST redact credentials and must not tell users to delete a project or backup.
   lineage agreement.
 - Replacing the active project changes one atomic selection pointer. It does
   not replace project data.
-- A server update creates a fresh target-derived project. Automatic rebase or
-  file copying is forbidden.
+- Unmanaged source-map, definition, or configuration drift creates a fresh
+  target-derived project; automatic rebase or file copying is forbidden. A
+  trusted managed runtime N-to-N+1 upgrade migrates project schema and replaces
+  only rebuildable runtime cache without recreating authored project identity.
 - A closed complete project can be moved or backed up. Detached projects remain
   editable/exportable but not importable.
 - A standalone project remains standalone even if later moved into a server
@@ -1006,7 +1123,7 @@ concludes that only a link is needed.
 | `docs/RELEASING.md` | Remove bundled reviewed-package prerequisites; add no-world archive inspection, compatibility matrix, empty-mode checks, and adaptive owner validation. |
 | `docs/WORLD-BUILDER-2-CUSTOM-MATERIALS.md` | Build materials on project UUIDs, origin, adapter capability, and definition identity. Use project-relative inbox/pack paths and extend whatever adaptive export/receipt schema is current rather than assuming the old workspace/schema numbers. |
 | `tools/world-builder/README.md` | Replace fixed config/workspace/five-file/profile examples with discover, project selection, conversion, empty creation, layered export/install, and recovery commands. |
-| `release/world-builder-v2/README.txt` | Give nontechnical target-backed and standalone instructions, supported-layout errors, admin/client responsibility, import/undo, and no bundled-world statement. |
+| `release/world-builder-v2/README.txt` | Give nontechnical target-backed and standalone instructions, supported-layout errors, admin/client responsibility, Import/Recovery, verified-backup warning, and no bundled-world statement. |
 | `release/updater-v2/README-AUTO-UPDATE.txt` | Explain project durability, adaptive identity, historical workspace handling, and post-update compatibility validation. |
 | `release/world-builder-v2/ASSET-SOURCES.txt` | Remove eliminated world/package provenance and continue documenting every shipped runtime/default-catalog asset. |
 | Historical alpha validation | Keep unchanged; a new adaptive release gets a new record. |
@@ -1047,7 +1164,7 @@ bundle fingerprint before this path can become release-ready.
 | `test-world-builder-runtime-preparation.py` | Test target-layered adoption, packed conversion baseline, standalone empty layer 0/start 120,648, project registry, content-neutral runtime, generated-state confinement, and target preservation. |
 | `test-world-builder-supervision.py` | Add selected-project/origin/capability/detached cases; retain loopback, source verification, locking, journal, and orderly shutdown. |
 | `test-world-builder-export.py` | Replace fixed five-file output with deterministic complete layered exports for adopted, converted, and empty origins. |
-| `test-world-builder-import.py` | Generalize destination/config/marker behavior through mutation profiles; add standalone immediate refusal while retaining exact preview, confirmation, offline, drift, backups, receipts, injected failure, rollback, undo, changed-after, Windows paths, and no-force tests. |
+| `test-world-builder-import.py` | Generalize destination/config/marker behavior through mutation profiles; add standalone immediate refusal while retaining exact preview, confirmation, offline, drift, backups, receipts, injected failure, rollback, Recovery, historical reversal-reader, changed-after, Windows-path, and no-force tests. |
 | `test-world-builder-v2-release.py` | Prove zero terrain, placement, layered package, creator, or operational data—including renamed payloads—while preserving lock, dirty dependency, marker, native, provenance, archive, and independence checks. |
 | `test-world-builder-v2-updater.py` | Replace managed bundled-package identity with adaptive identity and preserve multiple projects, registry/selection, historical `workspace/`, unknown paths, and rollback byte-for-byte on Linux and PowerShell. |
 | `test-world-builder-product-generations.py` | Update v2 world-source expectations; retain strict v1/v2 identity, channel, archive, install-folder, and workspace isolation. |
@@ -1063,9 +1180,9 @@ publication and rollback, all three origins, source/baseline protection,
 portable detach/reattach, multiple selection, save/reopen, standalone
 no-target refusal, project-only supervision, generated-state confinement, and
 unsafe mutable paths. `test-world-builder-adaptive-transactions.py` now covers
-complete export, layered and packed-origin preview/import/undo, standalone
-isolation, free-space/no-force/changed-after refusal, partial rollback, and
-explicit recovery after injected rollback failure.
+complete export, layered and packed-origin preview/import/historical reversal,
+standalone isolation, free-space/no-force/changed-after refusal, partial
+rollback, and explicit Recovery after injected rollback failure.
 
 ## Existing implementation-file impact
 
@@ -1082,19 +1199,19 @@ explicit recovery after injected rollback failure.
 | `WorldBuilderProcessSupervisor.java` | Run one selected layered project, start empty mode at layer 0 and the content-neutral Lumbridge coordinate 120,648, retain loopback/process/source locks, confine generated state. |
 | `WorldBuilderConfigWriter.java` | Render only adapter-approved isolated and target profiles; retain duplicate-key and exact semantic verification. |
 | `WorldBuilderExporter.java`, `WorldBuilderExportBundle.java`, `WorldBuilderExportManifest.java` | Preserve historical readers; export complete generic layered projects with lineage. |
-| `WorldBuilderImporter.java`, `WorldBuilderTargetOfflineLease.java` | Keep transaction engine; consume bounded adapter server/client mutation and offline plans; reject standalone before target access. |
+| `WorldBuilderImporter.java`, `WorldBuilderTargetOfflineLease.java` | Keep transaction primitives; give runtime upgrade and map-only Import separate bounded plans and consent; reject standalone before target access. |
 | `WorldBuilderImportReceipt.java` and receipt schemas | Preserve historical readers and add a strict adaptive receipt. |
 | `WorldBuilderLayeredPackage.java`, `WorldBuilderLayeredReview.java` | Separate generic package validation from the hardcoded Spoiled Milk identity/counts. |
 | `WorldBuilderLayeredDraftWriter.java`, `WorldBuilderLayeredTerrainDraftJournal.java` | Author target-derived existing levels and empty-generated sectors under project lock when runtime capability exists. |
 | `WorldBuilderLayeredExporter.java`, `WorldBuilderLayeredImportConfiguration.java` | Use generic export/mutation contracts rather than fixed package/profile/path/marker/config. |
 | `WorldBuilderJsonDocuments.java`, `WorldBuilderHashes.java` | Supply bounded canonical JSON, safe paths, and deterministic hashing without weakening exact parsing. |
-| `WorldBuilderCli.java` | Expose simple auto-launch plus advanced report/project/convert/validate/export/import/undo commands. No force command. |
+| `WorldBuilderCli.java` | Expose simple auto-launch plus advanced report/project/convert/validate/runtime-upgrade/map-import/Recovery commands; retain old reversal only for historical receipt compatibility. No force command. |
 | v2 release/updater launchers | Keep parent-target detection; add safe no-server empty mode and active-project selection; remove fixed config/package/workspace. |
 | `release/world-builder-v2/world-builder-runtime.conf` | Become a content-neutral isolated template; target/empty origin supplies world and compatible catalog selections. |
 | `scripts/package-world-builder-v2-release.sh` | Explicit no-world allowlists and adaptive identity while retaining all release safeguards. |
 | v2 Linux/PowerShell updater | Preserve adaptive/historical state and validate content-neutral managed identity equivalently. |
 
-## Phased implementation plan
+## Historical phased implementation plan
 
 No phase begins until this document is explicitly approved. Each phase gets a
 focused branch, temporary fixtures, checkpoints, complete relevant tests, and a
@@ -1382,7 +1499,7 @@ publication, and deployment remain separate manager decisions.
 | Capability parser, built-in adapters, discovery, reports, project registry | Truthful capability descriptor and stable build/definition/protocol IDs |
 | Source snapshots, empty generator, isolated preparation, portability | Client/server ability to load and author the declared representation |
 | Deterministic static-data conversion, package writing, parity reports | Effective composition interface when plugins/runtime decide active data |
-| Layered export, mutation planning, import/undo transaction, receipts | Layered loader, collision/population, protocol, existing-level and void authoring |
+| Layered export, separate upgrade/map mutation planning, Import/Recovery transactions, receipts, historical reversal readers | Layered loader, collision/population, protocol, existing-level and void authoring |
 | Content-neutral packaging, updater, docs, fixtures, release validation | Player-client compatibility/handshake and upstream runtime tests |
 
 World Builder can convert only static data whose meaning it can prove. Loader
@@ -1408,10 +1525,11 @@ project bytes before and after. Required coverage includes:
   state; save/reopen; and generated-state confinement;
 - no-world release canaries and updater durable-path attacks;
 - complete deterministic layered export;
-- standalone import/undo immediate refusal;
-- target-backed exact preview/confirmation, loader refusal, offline refusal,
-  drift, free-space/locks, backups, injected partial failures, recovery,
-  verification, undo, changed-after refusal, and no force;
+- standalone Upgrade/Import/Recovery immediate refusal;
+- target-backed separate upgrade/map preview and confirmation, target-ledger and
+  loader refusal, offline refusal, drift, free-space/locks, backups, injected
+  partial failures, Recovery, verification, historical reversal-reader
+  compatibility, changed-after refusal, and no force;
 - Linux/PowerShell updater equivalence and historical workspace preservation;
   and
 - frozen v1/v2 identity and channel isolation.
@@ -1435,9 +1553,10 @@ Use disposable copies, never a live/public server:
   detached behavior;
 - software/OpenGL terrain, levels, collision, boundaries, scenery, NPCs,
   ground items, save/reopen, and reconnect;
-- exact import preview, compatible server/client check, administrator player
-  distribution message, apply, verification, owner restart, and undo;
-- interruption and rollback recovery; and
+- separate exact runtime-upgrade and map-import previews, compatible
+  server/client check, administrator player-distribution message, apply,
+  verification, and owner restart;
+- interruption, automatic rollback, and explicit Recovery; and
 - update from historical v2-alpha state with preservation policy verified.
 
 AI sessions MUST ask the owner to perform and report visual inspection rather
@@ -1461,22 +1580,25 @@ than capture or judge screenshots themselves.
   standalone empty project at layer 0, coordinate 120,648, centered within
   generated structural void, with the exact neutral 3-by-3 visibility seed and
   no creator-authored world.
-- **AC-08:** Saving an empty project creates a valid package/export; Import and
-  Undo fail before target access.
+- **AC-08:** Saving an empty project creates a valid package/export; Upgrade,
+  Import, and Recovery fail before target access.
 - **AC-09:** Source snapshots are complete/immutable, working state is isolated,
   and create/edit/save/close/reopen leave target bytes unchanged.
 - **AC-10:** Multiple projects coexist and portable/detached project identity
   does not depend on an absolute path.
 - **AC-11:** Export contains the complete deterministic working layered package
   and compatibility/conversion lineage.
-- **AC-12:** Import requires exact compatible server/client loader capability,
-  installs only adapter-approved package/config data, and identifies the client
-  content administrators must distribute.
-- **AC-13:** Import/undo preserve offline, preview, confirmation, drift,
-  backups, receipts, verification, rollback, changed-after, and no-force
-  contracts through every injected failure.
-- **AC-14:** Server updates never cause implicit rebase, attachment, conversion,
-  or installation.
+- **AC-12:** Import requires an exact current-composition target ledger,
+  installs only adapter-approved map package/activation data, and identifies the
+  client/map content administrators must distribute.
+- **AC-13:** Upgrade, Import, automatic rollback, and Recovery preserve offline,
+  preview, confirmation, drift, backups, receipts, verification, changed-after,
+  and no-force contracts through every injected failure; no completed-import
+  Undo surface ships.
+- **AC-14:** Unmanaged server drift never causes implicit rebase, attachment,
+  conversion, or installation. A trusted explicit managed runtime upgrade may
+  migrate project schema and rebuildable runtime cache without recreating
+  authored project identity.
 - **AC-15:** Updaters preserve all projects, historical v2 state, and unknown
   files and never cross-update v1.
 - **AC-16:** `git diff --check`, focused tests, `./scripts/test.sh`, automated
@@ -1499,12 +1621,12 @@ than capture or judge screenshots themselves.
 | Dynamic/plugin data cannot convert | Output differs at runtime | Static-data boundary and runtime composition capability; visible blocker, no approximation |
 | Empty world runtime cannot address void | Standalone mode fails before first tile | Explicit upstream void-authoring contract; canonical generated origin sector if required; layer 0/origin tests |
 | Default catalog makes standalone output target-specific | Empty projects are not automatically portable | Version/catalog identity in project/export; no import attachment in first phase; future compatibility mapping requires design |
-| Target drift/server update | Old project overwrites new world | Fresh discovery, exact lineage, detached editing only, target import blocked |
+| Target drift or unmanaged server update | Old project overwrites new world | Fresh discovery, exact lineage, detached editing only, target Import blocked; use the separately reviewed managed upgrade path when eligible |
 | Updater owns project state | Creator data loss | Durable denylist plus unknown-file refusal, archive validation, byte-for-byte update/rollback fixtures |
 | Historical v2 workspace mismatch | Existing work becomes inaccessible | Preserve byte-for-byte; bounded matching-runtime access or refuse update; no implicit migration |
 | Cross-platform paths/atomics | Windows-only failures or corruption | Portable canonical paths, no display placeholders in path APIs, Linux/Windows fixtures, verified atomic fallback |
-| Missing loader/client support | Imported package cannot run | Capability check before preview/apply; no binary patching; exact upgrade requirement and admin distribution notice |
-| Partial import/rollback failure | Target left uncertain | Pending receipt before mutation, package first/config last, verified backups, reverse rollback, recovery lock |
+| Missing loader/client support | Imported package cannot run | Current-ledger check before Import; recommend the exact reviewed runtime composition/port; never patch an unknown binary |
+| Partial upgrade/import rollback failure | Target left uncertain | Pending receipt before mutation, safe activation order, verified backups, reverse rollback, Recovery lock |
 | Multiple full projects consume disk | Interrupted creation or storage pressure | Exact size/free-space preflight, unique staging, no implicit deletion, later explicit archival workflow |
 
 ## Approval record
@@ -1516,9 +1638,13 @@ The product owner approved this document on 2026-08-01 after confirming that:
 - target installation requires compatible layered-loader server/client code
   and the administrator distributes matching player content; and
 - launching without a recognizable server/map creates a standalone empty
-  project at layer `0`, coordinate `120,648`, whose import and undo paths are
+  project at layer `0`, coordinate `120,648`, whose target-operation paths are
   disabled. The owner requested this familiar, centered start correction on
   2026-08-13 after native candidate testing exposed the old coordinate edge.
+
+That approval record predates removal of completed-import Undo and the current
+Base/Advanced replacement decision; the reconciled invariants and current-
+runtime review govern new work.
 
 This approval does not approve a dependency change, release-gate change, tag,
 publication, deployment, live-server work, or implementation outside the

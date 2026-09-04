@@ -12,22 +12,40 @@ repository boundary.
 The product objective is to **upgrade the server**, not preserve an old runtime
 indefinitely. World Builder, its runtime provider, the target server, and the
 matching player client may be changed at a fundamental level when that produces
-the best version of the owner's game and tool. Existing architecture, file
-formats, loader versions, profiles, and historical implementation choices are
-inputs to understand; they are not permanent design constraints.
+the best version of the owner's game and an adaptable public tool. Existing
+architecture, file formats, loader versions, profiles, and historical
+implementation choices are inputs to understand; they are not permanent design
+constraints.
 
-- Prefer one current managed runtime and a clear migration/cutover path over a
-  growing matrix of active legacy runtime versions.
-- Import is expected to upgrade an older managed target to the current
-  compatible server/client runtime transactionally when an upgrade is needed.
-  Do not refuse merely because the target is old when an exact trusted upgrade
-  path can be built.
+- Prefer one current managed runtime generation and release train over a
+  growing matrix of active legacy runtime versions. One generation may publish
+  a small explicit set of provider-owned current variants/modules from the same
+  platform contract; it does not require identical gameplay, assets, or client
+  UI for every server.
+- Treat Preservation-like servers with no map upgrades and light customization
+  as the normal public intake. They should upgrade to the conservative Current
+  Base composition. The owner's advanced Core lineage should exercise Current
+  Advanced and reusable modules without becoming mandatory public behavior.
+- Keep input adapters, current variants, and optional modules separate. A new
+  historical layout adds a bounded migration adapter, portable behavior adds a
+  current module, and a named first-party composition adds a reviewed variant;
+  none creates a permanent old-runtime branch.
+- **Upgrade Target Runtime** is expected to upgrade an older managed target to
+  the current selected server/client composition transactionally when an upgrade
+  is needed, including canonical map conversion when the old target has no World
+  Builder map support. **Import Map Changes** remains a separate map-only
+  transaction after the target ledger proves that the current composition is
+  installed. Do not refuse merely because the target is old when an exact
+  trusted upgrade path can be built.
 - Legacy compatibility is a bounded bridge for retaining user-authored data and
   reaching the current version. It is not a reason to fossilize an obsolete
   runtime or make the owner manually avoid new World Builder features.
-- When customization prevents use of a generic runtime archive, build or adopt
-  the correct current customized runtime bundle and teach Import to install it.
-  Preserve the customization, not the obsolete loader.
+- When customization prevents Current Base adoption, classify it as portable
+  state/data, a maintained current module, a reviewed Advanced/platform change,
+  a deliberate retirement, or a pre-mutation blocker. Build or adopt the
+  correct current composition and teach Upgrade Target Runtime to install it.
+  Preserve intended behavior and state, not the obsolete loader or arbitrary
+  target binary.
 - If the present architecture cannot perform the desired upgrade safely, the
   task is to improve or replace that architecture, including fundamental
   runtime changes where useful—not to treat the limitation as a product
@@ -116,6 +134,13 @@ when manager review is useful.
 - Never inspect, summarize, coordinate, merge, recycle, or report the branches,
   workers, releases, pull requests, deployments, live-server state, or user
   data of `/home/justin/Core-Framework` or another Spoiled Milk checkout.
+- An owner-designated disposable/reference input copy may be inspected read-only
+  only when the owner explicitly places it in scope for target migration
+  evidence. It is not managed or modified by this workflow: follow its local
+  contributor instructions, never invoke its manager/worker collaboration,
+  never build/launch it, and exclude all ignored/untracked state, credentials,
+  databases, logs, artifacts, and user content from fixtures and reports. The
+  currently authorized reference is `/home/justin/Core-Framework (copy)`.
 - Never activate, inspect, or collect `/home/justin/Core-Framework-ai-*` for a
   World Editor task. Never route a runtime correction through Core.
 - Never run collaboration scripts inside `.runtime-provider` or follow its
@@ -180,9 +205,12 @@ when manager review is useful.
    contained in published `main`.
 7. Release production remains separately guarded: clean published `main`, the
    exact locked runtime, a version-bound accepted release gate, full tests, and
-   fresh production archives. Candidate archives are never promoted in place.
-   After publication, consume/remove the gate on development `main`; the
-   release tag retains the historical gate and validation record.
+   fresh production archives. A current-platform release gate binds every
+   shipped variant/module composition and required input-adapter matrix row.
+   It proves Base's positive public gameplay/state contract as well as exclusion
+   of Advanced-only effects. Candidate archives are never promoted in place.
+   After publication, consume/remove the gate on development `main`; the release
+   tag retains the historical gate and validation record.
 
 ## Preservation rules
 
@@ -195,7 +223,9 @@ when manager review is useful.
 - Never replace or delete an existing user workspace during an update or test;
   tests use temporary fixtures.
 - Import and rollback retain offline-target, preview, exact confirmation,
-  backup, verification, recovery, undo, and no-force safety contracts.
+  backup, verification, automatic failure rollback, interrupted Recovery,
+  historical reversal evidence, and no-force safety contracts. No current
+  end-user completed-import Undo surface is implied.
 
 The complete workflow is documented in
 [`docs/AI-WORKSPACES.md`](docs/AI-WORKSPACES.md).

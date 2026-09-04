@@ -6,10 +6,11 @@
 | --- | --- |
 | Status | Active audit and ordered product worklist |
 | Created | 2026-08-30 |
+| Last reconciled | 2026-09-04, after rejecting pinned-core and defining adaptable Base/Advanced upgrades |
 | Product | World Builder 2 |
-| Immediate objective | Restore trustworthy server import and shorten development feedback loops |
-| Feature integration base | Editor `147fdc5b34e2f23f441ce4ccdf60cf908ce85aad`; adopted runtime provider `d2903f21530959a3bd9072846c8611fdf035f792` |
-| Release state | `v0.7.0-alpha.72` published; development release gate closed |
+| Immediate objective | Replace the failed target-runtime path with trustworthy adaptable upgrades and map-only Import while shortening development feedback loops |
+| Historical feature integration base | Editor `147fdc5b34e2f23f441ce4ccdf60cf908ce85aad`; adopted runtime provider `d2903f21530959a3bd9072846c8611fdf035f792` |
+| Release state | `v0.7.0-alpha.88` published; later pinned-core candidate rejected; development release gate closed |
 
 This document keeps the reliability work visible after the independent
 stop-gap was applied manually to the separate Core checkout. It restored that
@@ -29,6 +30,13 @@ The active replacement direction, evidence review, Preservation fixture role,
 upgrade-first product model, staged plan, and strategy-bound release gate are
 maintained in [World Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
+That current direction defines one managed platform generation rather than one
+mandatory gameplay composition. Preservation-like/lightly customized public
+targets upgrade to Current Base; the owner's advanced lineage upgrades to
+Current Advanced. Historical layouts are handled by migration adapters and
+portable current behavior by explicit modules. Neither creates another active
+legacy runtime.
+
 ## Product decisions
 
 - Remove **Undo Last Server Import** from World Builder 2. This does not remove
@@ -37,12 +45,14 @@ maintained in [World Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-C
 - Before server import, prominently instruct the user to make and verify a
   complete external server backup. World Builder must not imply that its own
   transaction artifacts replace a server backup.
-- An import may report success only after it has installed and verified every
-  compatibility component required to load the imported map. Copying map files
-  and changing the selected-map configuration is not sufficient.
-- Compatibility work must start from a reproduced failing target and an exact
-  bill of materials derived from the pinned runtime. Repeatedly extending the
-  current assumptions without reproducing the real failure is not acceptable.
+- Map Import may report success only after the target ledger already proves the
+  required current composition and the map transaction has installed and
+  verified every selected server/client map and activation component. Copying
+  some map files or changing one configuration value is not sufficient.
+- Runtime-upgrade work must start from a reproduced failing target and an exact
+  bill of materials derived from the selected provider composition. Repeatedly
+  extending current assumptions without reproducing the real failure is not
+  acceptable.
 - During implementation, use focused verification for feedback and the full
   risk-appropriate suite at integration boundaries. Do not run the entire suite
   merely to inspect or become familiar with the repository.
@@ -95,17 +105,18 @@ cluster, including several successive fixes to historical Undo and chained
 import behavior. That coupling increases the chance that a local patch passes
 its new fixture while missing the actual end-user configuration.
 
-Documentation is detailed but duplicated. Release status and feature claims
-are repeated across the README, architecture, adaptive workflow, product goals,
-release instructions, packaged README, and validation records. Some top-level
-statements still call `v0.5.0-alpha.11` current or say adaptive publication is
-disabled even though `v0.7.0-alpha.35` is published. Reconciling competing
-narratives adds avoidable review time and can send implementation toward stale
-requirements.
+Documentation is detailed but duplicated. At the 2026-08-30 audit snapshot,
+release status and feature claims were repeated across the README, architecture,
+adaptive workflow, product goals, release instructions, packaged README, and
+validation records. Some top-level statements then called
+`v0.5.0-alpha.11` current or said adaptive publication was disabled even though
+`v0.7.0-alpha.35` was published. Later reconciliation now identifies Alpha.88
+as the latest published release, but duplicated status narratives remain a
+maintenance risk.
 
-### Import-specific warning found during the audit
+### Historical import-specific warning found during the audit
 
-At the current baseline,
+At the audited pre-replacement baseline,
 `WorldBuilderAdaptiveMutationProfile.appendRuntimeCompatibilityActions` handles
 only two compatibility files: `server/core.jar` and the selected client
 `Open_RSC_Client.jar`. It replaces them only when both target files already
@@ -114,16 +125,21 @@ installation. When exactly one exists, it refuses the import.
 
 The normal import planner also reads and requires an already compatible target
 capability descriptor before it schedules those replacements. Therefore the
-current implementation can update the archives of a target that already fits
-its compatibility model, but it does not demonstrate that it can bootstrap an
-older or otherwise incompatible server into that model. This is a concrete
-reason a map-only or partially compatible result can survive tests.
+then-current implementation could update the archives of a target that already
+fit its compatibility model, but it did not demonstrate that it could bootstrap
+an older or otherwise incompatible server into that model. This is a concrete
+reason a map-only or partially compatible result could survive tests.
 
 This is an audit finding, not yet a complete root-cause determination. The
 actual failing server copy, logs, launch configuration, and stop-gap diff must
 be compared with the pinned runtime to identify every missing component.
 
 ### Reproduced import failure and current compatibility gap
+
+This section is a chronological incident record of earlier implementation
+strategies. Its present-tense observations describe the code or candidate under
+test at that point; the current Base/Advanced replacement decision above
+supersedes any prescriptive Import/runtime language in the record.
 
 The failure is now reproduced against the explicitly authorized disposable
 `Core-Framework (copy)` target. The historical successful import receipt
@@ -163,10 +179,11 @@ definition. The working and pre-fix Core source trees differ in only nine
 server runtime files and one client runtime file for the stop-gap, while the
 complete Core and generic-runtime trees differ much more broadly. Consequently,
 blindly replacing a customized target's complete JARs is not a valid general
-compatibility strategy. Import must preserve target-specific runtime behavior
-while installing the bounded layered-loader changes, or refuse before mutation.
+compatibility strategy. The evidence established that runtime migration must
+preserve deliberately selected target behavior through a current port or refuse
+before mutation.
 
-A preservation prototype has now crossed the cold-start boundary. The ten
+A target-preserving prototype then crossed the cold-start boundary. The ten
 stop-gap source changes were applied to a temporary copy of the pre-fix Core
 source, augmented with the generic `world-builder-installed` profile, and built
 against the target's own libraries without modifying its source tree. Both the
@@ -324,15 +341,49 @@ gate before integration.
 
 ## Ordered task list
 
-### Current priority: one managed runtime with automatic upgrades
+### Current priority: adaptable current-generation upgrades
 
 The owner has explicitly chosen forward server evolution over permanent
-backward-runtime support. The desired end state is one current managed World
-Builder runtime. A separate explicit runtime action upgrades an older or
-affected supported target—including the matching player client when required—
-as a previewed, offline, backed-up, verified, and recoverable transaction.
-Ordinary Import remains a second map-only transaction. Existing architecture
-may be changed fundamentally to achieve that result.
+backward-runtime support while requiring a useful public product. Most external
+targets are expected to be Preservation-like, lightly customized, and entirely
+without World Builder map support. They should upgrade to Current Base. The
+owner's advanced Core lineage should upgrade to Current Advanced on the same
+platform generation and contribute reusable platform/module improvements
+without imposing its gameplay or content on Base users.
+
+- [ ] Define and schema-bind platform release, Base/Advanced variant, module
+  set, input adapter, project capability, and target-ledger identities.
+- [ ] Add the role-aware T0-T5 classifier for exact Preservation, expected local
+  state, configuration/data changes, plugins, client/core/build changes, and
+  unknown inputs without requiring Git metadata or executing target code.
+- [ ] Build Current Base with canonical legacy-map conversion, a matching
+  client, typed configuration/database migrations, and no Advanced-only
+  effects.
+- [ ] Define the current extension/module contract and route recognized light
+  customization to canonical data or maintained modules; unknown executable
+  changes remain zero-write blockers until ported. A recognized but not-yet-
+  ported extension receives a distinct actionable `PORT_REQUIRED` result.
+- [ ] Complete the Core behavior-disposition register and build Current
+  Advanced from the same provider generation.
+- [ ] Implement project migration, target-runtime ledger, side-by-side staging,
+  semantic destination preview, explicit variant consent, atomic activation,
+  and exact recovery.
+- [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
+  light customization, maintained module, recognized-unported extension,
+  unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
+  rows twice with composition-bound evidence and no required skips.
+
+Ordinary map import becomes a map-only transaction once the target ledger
+proves that its selected current composition is installed. The complete current
+design is maintained in [World Builder 2 Current Runtime Upgrade
+Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+
+## Superseded pinned-core implementation record
+
+The following sections through the historical integration/release checklist
+record the now-rejected pinned-core strategy. Their checked items and present-
+tense implementation notes are historical facts, not the current plan or
+acceptance evidence.
 
 - [x] Define the single current managed-runtime identity and the target-owned
   bundle contract needed to retain legitimate game customization.
@@ -356,7 +407,7 @@ may be changed fundamentally to achieve that result.
 - [ ] Prove the cutover on a disposable target through upgrade, launch, client
   connection, map edit, and at least two repeat imports.
 
-### Current post-release feature: blocking blended base color
+### Historical post-release feature: blocking blended base color
 
 - [x] Reserve raw ground overlay `255` outside the `TileDef` domain as the
   non-walkable counterpart to overlay `0`.
@@ -526,8 +577,10 @@ capable of loading an imported World Builder 2 map.
   them; permit verified retirement only after archive-free client bootstrap is
   installed and proven.
 
-Exit condition: import is one atomic map-plus-compatibility operation, not a map
-copy followed by advice to repair the server manually.
+Historical exit condition (superseded): the rejected design treated Import as
+one atomic map-plus-compatibility operation. The replacement makes target
+runtime upgrade its own complete atomic transaction, followed by a separately
+reviewed map-only Import once the target ledger is current.
 
 Implementation checkpoint (2026-08-31): runtime provider
 `f48bdfcefd9706d61a2c157d57a22ce7ef93b4e1` publishes the current managed
@@ -603,15 +656,18 @@ and verified byte-for-byte before the development gate was closed.
 Exit condition: the tested behavior, documentation, pinned runtime, release
 artifacts, and published claims all describe the same compatibility contract.
 
-## Definition of done for server import
+## Definition of done for target upgrade and map import
 
-Server import is not fixed until all of the following are true:
+The replacement is not complete until all of the following are true:
 
-- a clean supported target from the reproduced failing family can be made
-  compatible without a manual stop-gap;
-- preview names every target path and compatibility role that will change;
-- success is impossible when only the map package was installed;
-- the target can cold-start and load the imported map with the matching client;
+- a clean supported target from each required public/Advanced family upgrades
+  without a manual stop-gap or retained legacy runtime;
+- runtime-upgrade preview names every target path, behavior disposition, state
+  migration, variant/module choice, and client effect that will change;
+- map Import is refused until the target ledger proves the selected current
+  composition, then changes only the reviewed map package and activation;
+- the upgraded target can cold-start and load the imported map with its exact
+  matching client;
 - unsupported targets fail before mutation with actionable evidence;
 - failed or interrupted operations preserve exact rollback/recovery safety;
 - completed-import Undo is absent and the backup warning is explicit; and
