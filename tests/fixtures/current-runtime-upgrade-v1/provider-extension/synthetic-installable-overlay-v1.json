@@ -5,7 +5,12 @@
   "variantId": "current-base-v1",
   "variantChanges": {
     "releaseStatus": "release-candidate",
-    "installable": true
+    "installable": true,
+    "inputAdapterRecommendations": [
+      "preservation-family-v1",
+      "generic-signed-layered-v1",
+      "preservation-synthetic-v1"
+    ]
   },
   "bundleChanges": {
     "bundleSpecId": "current-base-synthetic-installable-v1",

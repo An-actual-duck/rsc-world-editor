@@ -70,6 +70,26 @@ final class WorldBuilderProviderCatalog {
 			|| !"refuse-before-mutation".equals(
 				string(adapterBoundary, "unknownCodePolicy"))) invalid(
 			"Provider platform does not expose the required fail-closed Editor adapter boundary.");
+		boolean installable = bool(composition, "installable");
+		boolean bundleInstallable = bool(bundle, "installable");
+		boolean variantInstallable = bool(variant, "installable");
+		String releaseStatus = identifier(variant, "releaseStatus");
+		if (!("foundation-contract-only".equals(releaseStatus)
+			|| "release-candidate".equals(releaseStatus)
+			|| "released".equals(releaseStatus))) invalid(
+			"Provider variant has an unsupported release status.");
+		if (installable != bundleInstallable || installable != variantInstallable) invalid(
+			"Composition, bundle, and variant installability must agree exactly.");
+		if (installable && "foundation-contract-only".equals(releaseStatus)) invalid(
+			"A foundation-contract-only provider variant cannot be installable.");
+		List<String> availableCapabilities = union(
+			uniqueIdentifiers(platform.get("mapRuntimeCapabilities"),
+				"platform mapRuntimeCapabilities", 0, 256),
+			uniqueIdentifiers(variant.get("requiredCapabilities"),
+				"variant requiredCapabilities", 0, 256));
+		List<String> admittedAdapters = uniqueIdentifiers(
+			variant.get("inputAdapterRecommendations"),
+			"variant inputAdapterRecommendations", 0, 128);
 
 		List<Map<String,Object>> schemaContracts = objectList(platform.get("schemaContracts"),
 			"schemaContracts", 5, 256);
@@ -81,6 +101,8 @@ final class WorldBuilderProviderCatalog {
 			"moduleSet", 0, 128);
 		List<Map<String,Object>> moduleArtifacts = new ArrayList<Map<String,Object>>();
 		Set<String> resolvedModuleIds = new HashSet<String>();
+		Map<String,Map<String,Object>> resolvedModulesById =
+			new LinkedHashMap<String,Map<String,Object>>();
 		for (Map<String,Object> record : moduleSet) {
 			exact(record, "manifestHash", "moduleId", "moduleVersion", "payloadRootHash");
 			String moduleId = identifier(record, "moduleId");
@@ -95,12 +117,15 @@ final class WorldBuilderProviderCatalog {
 				|| !platformId.equals(string(module, "platformReleaseId"))) invalid(
 				"Resolved module identity does not match its provider manifest.");
 			requireCanonicalHash(module, string(record, "manifestHash"), "module manifestHash");
+			resolvedModulesById.put(moduleId, module);
 			List<Map<String,Object>> artifacts = inventory(payload, module.get("artifacts"),
 				"module artifacts");
 			requireHash(canonicalHash(artifacts), string(record, "payloadRootHash"),
 				"module payloadRootHash");
 			moduleArtifacts.addAll(artifacts);
 		}
+		List<String> resolvedModules = validateModuleClosure(platform, variant, bundle,
+			moduleSet, resolvedModulesById);
 		requireHash(canonicalHash(moduleSet), string(composition, "moduleSetHash"),
 			"moduleSetHash");
 
@@ -117,15 +142,104 @@ final class WorldBuilderProviderCatalog {
 		requireHash(canonicalHash(suppliedInventory),
 			string(composition, "bundleInventoryHash"), "bundleInventoryHash");
 
-		List<String> bundleModules = identifiers(bundle.get("moduleIds"), "bundle moduleIds", 0, 128);
-		List<String> resolvedModules = new ArrayList<String>();
-		for (Map<String,Object> record : moduleSet) resolvedModules.add(string(record, "moduleId"));
-		if (!resolvedModules.containsAll(bundleModules)) invalid(
-			"Resolved composition omits a bundle-required module.");
-		boolean installable = bool(composition, "installable");
-		if (installable != bool(bundle, "installable")) invalid(
-			"Composition and bundle installability disagree.");
-		return new Composition(composition, variant, installable, resolvedModules);
+		return new Composition(composition, installable, resolvedModules,
+			availableCapabilities, admittedAdapters);
+	}
+
+	private static List<String> validateModuleClosure(Map<String,Object> platform,
+		Map<String,Object> variant, Map<String,Object> bundle,
+		List<Map<String,Object>> moduleSet,
+		Map<String,Map<String,Object>> modules) throws WorldBuilderContractException {
+		List<String> defaults = uniqueIdentifiers(variant.get("defaultModuleIds"),
+			"variant defaultModuleIds", 0, 128);
+		List<String> bundleModules = uniqueIdentifiers(bundle.get("moduleIds"),
+			"bundle moduleIds", 0, 128);
+		if (!defaults.equals(bundleModules)) invalid(
+			"Bundle module IDs must exactly equal the variant default module set.");
+		for (String required : defaults) if (!modules.containsKey(required)) invalid(
+			"Resolved composition omits a variant/bundle-required module: " + required);
+
+		Map<String,Set<String>> edges = new LinkedHashMap<String,Set<String>>();
+		Map<String,Integer> incoming = new LinkedHashMap<String,Integer>();
+		for (String moduleId : modules.keySet()) {
+			edges.put(moduleId, new HashSet<String>());
+			incoming.put(moduleId, Integer.valueOf(0));
+		}
+		for (Map.Entry<String,Map<String,Object>> entry : modules.entrySet()) {
+			String moduleId = entry.getKey();
+			Map<String,Object> module = entry.getValue();
+			if (!string(platform, "platformReleaseId").equals(
+					string(module, "platformReleaseId"))
+				|| !string(platform, "platformApiVersion").equals(
+					string(module, "platformApiVersion"))) invalid(
+				"Resolved module targets another provider platform/API: " + moduleId);
+			Set<String> requirementIds = new HashSet<String>();
+			for (Map<String,Object> requirement : objectList(module.get("requires"),
+				"module requirements", 0, 128)) {
+				exact(requirement, "moduleId", "moduleVersion");
+				String requiredId = identifier(requirement, "moduleId");
+				String requiredVersion = text(requirement, "moduleVersion", 1, 256);
+				if (!requirementIds.add(requiredId)) invalid(
+					"Module repeats a dependency: " + moduleId);
+				Map<String,Object> required = modules.get(requiredId);
+				if (required == null) invalid("Resolved composition omits dependency "
+					+ requiredId + " required by " + moduleId);
+				if (!requiredVersion.equals(string(required, "moduleVersion"))) invalid(
+					"Resolved module dependency version does not match: " + requiredId);
+				addEdge(edges, incoming, requiredId, moduleId, "dependency");
+			}
+			for (String conflict : uniqueIdentifiers(module.get("conflicts"),
+				"module conflicts", 0, 128)) if (modules.containsKey(conflict)) invalid(
+				"Resolved modules conflict: " + moduleId + " and " + conflict);
+			for (String before : uniqueIdentifiers(module.get("loadAfter"),
+				"module loadAfter", 0, 128)) {
+				if (!modules.containsKey(before)) invalid("Module " + moduleId
+					+ " loadAfter names an unselected module: " + before);
+				addEdge(edges, incoming, before, moduleId, "loadAfter");
+			}
+			for (String after : uniqueIdentifiers(module.get("loadBefore"),
+				"module loadBefore", 0, 128)) {
+				if (!modules.containsKey(after)) invalid("Module " + moduleId
+					+ " loadBefore names an unselected module: " + after);
+				addEdge(edges, incoming, moduleId, after, "loadBefore");
+			}
+		}
+
+		List<String> ready = new ArrayList<String>();
+		for (Map.Entry<String,Integer> entry : incoming.entrySet()) {
+			if (entry.getValue().intValue() == 0) ready.add(entry.getKey());
+		}
+		Collections.sort(ready);
+		List<String> ordered = new ArrayList<String>();
+		while (!ready.isEmpty()) {
+			String moduleId = ready.remove(0);
+			ordered.add(moduleId);
+			List<String> afterIds = new ArrayList<String>(edges.get(moduleId));
+			Collections.sort(afterIds);
+			for (String after : afterIds) {
+				int remaining = incoming.get(after).intValue() - 1;
+				incoming.put(after, Integer.valueOf(remaining));
+				if (remaining == 0) {
+					ready.add(after);
+					Collections.sort(ready);
+				}
+			}
+		}
+		if (ordered.size() != modules.size()) invalid(
+			"Resolved module dependency/load ordering contains a cycle.");
+		List<String> supplied = new ArrayList<String>();
+		for (Map<String,Object> record : moduleSet) supplied.add(string(record, "moduleId"));
+		if (!ordered.equals(supplied)) invalid(
+			"Resolved module records are not in deterministic provider load order.");
+		return ordered;
+	}
+
+	private static void addEdge(Map<String,Set<String>> edges,
+		Map<String,Integer> incoming, String before, String after, String reason)
+		throws WorldBuilderContractException {
+		if (before.equals(after)) invalid("Module has a self-order constraint: " + reason);
+		if (edges.get(before).add(after)) incoming.put(after,
+			Integer.valueOf(incoming.get(after).intValue() + 1));
 	}
 
 	private static void validateComposition(Map<String,Object> root)
@@ -344,20 +458,29 @@ final class WorldBuilderProviderCatalog {
 		return result;
 	}
 
-	private static List<String> identifiers(Object raw, String name, int minimum, int maximum)
+	private static List<String> uniqueIdentifiers(Object raw, String name,
+		int minimum, int maximum)
 		throws WorldBuilderContractException {
 		if (!(raw instanceof List)) invalid("Provider field is not an array: " + name);
 		List<?> values = (List<?>)raw;
 		if (values.size() < minimum || values.size() > maximum) invalid(
 			"Provider identifier array is outside bounds: " + name);
 		List<String> result = new ArrayList<String>();
-		String previous = null;
+		Set<String> seen = new HashSet<String>();
 		for (Object value : values) {
 			String item = WorldBuilderBoundedInventory.identifier(value, OPERATION, name);
-			if (previous != null && previous.compareTo(item) >= 0) invalid(
-				"Provider identifier array repeats or is unordered: " + name);
-			result.add(item); previous = item;
+			if (!seen.add(item)) invalid("Provider identifier array repeats: " + name);
+			result.add(item);
 		}
+		return result;
+	}
+
+	private static List<String> union(List<String> first, List<String> second) {
+		Set<String> combined = new HashSet<String>();
+		combined.addAll(first);
+		combined.addAll(second);
+		List<String> result = new ArrayList<String>(combined);
+		Collections.sort(result);
 		return result;
 	}
 
@@ -428,16 +551,21 @@ final class WorldBuilderProviderCatalog {
 
 	static final class Composition {
 		final Map<String,Object> identity;
-		final Map<String,Object> variant;
 		final boolean installable;
 		final List<String> moduleIds;
+		final List<String> availableCapabilities;
+		final List<String> admittedAdapterIds;
 
-		Composition(Map<String,Object> identity, Map<String,Object> variant,
-			boolean installable, List<String> moduleIds) {
+		Composition(Map<String,Object> identity, boolean installable,
+			List<String> moduleIds, List<String> availableCapabilities,
+			List<String> admittedAdapterIds) {
 			this.identity = identity;
-			this.variant = variant;
 			this.installable = installable;
 			this.moduleIds = Collections.unmodifiableList(new ArrayList<String>(moduleIds));
+			this.availableCapabilities = Collections.unmodifiableList(
+				new ArrayList<String>(availableCapabilities));
+			this.admittedAdapterIds = Collections.unmodifiableList(
+				new ArrayList<String>(admittedAdapterIds));
 		}
 
 		String string(String key) throws WorldBuilderContractException {

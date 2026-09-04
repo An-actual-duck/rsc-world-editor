@@ -1,0 +1,43 @@
+{
+  "schemaId": "current-module-v1",
+  "manifestType": "current-platform-module",
+  "moduleId": "community-greeter-v1",
+  "moduleVersion": "1.0.0",
+  "kind": "declarative-data",
+  "platformReleaseId": "rsc-current-platform-r1",
+  "platformApiVersion": "current-extension-api-v1",
+  "providesCapabilities": ["community-greeter-v1"],
+  "requires": [
+    {
+      "moduleId": "community-welcome-v1",
+      "moduleVersion": "1.0.0"
+    }
+  ],
+  "conflicts": [],
+  "loadAfter": [],
+  "loadBefore": [],
+  "entryPoints": [],
+  "configurationNamespaces": ["community-greeter-v1.message"],
+  "stateMigrations": [],
+  "clientPairing": {
+    "required": false,
+    "clientCapabilityId": null
+  },
+  "artifacts": [
+    {
+      "sourcePath": "current-platform/synthetic-fixtures/community-greeter-v1.txt",
+      "bundlePath": "modules/community-greeter-v1/data/greeting.txt",
+      "role": "module-data",
+      "destination": "managed-runtime/modules/community-greeter-v1/data/greeting.txt",
+      "ownership": "provider",
+      "replacementPolicy": "content-addressed",
+      "rollbackPolicy": "pointer-rollback",
+      "provenance": "sealed-synthetic-fixture"
+    }
+  ],
+  "semanticTests": ["community-greeter-positive-v1"],
+  "provenance": {
+    "kind": "sealed-synthetic-fixture",
+    "redistributable": true
+  }
+}

@@ -351,11 +351,16 @@ owner's advanced Core lineage should upgrade to Current Advanced on the same
 platform generation and contribute reusable platform/module improvements
 without imposing its gameplay or content on Base users.
 
-- [ ] Define and schema-bind platform release, Base/Advanced variant, module
-  set, input adapter, project capability, and target-ledger identities.
-- [ ] Add the role-aware T0-T5 classifier for exact Preservation, expected local
-  state, configuration/data changes, plugins, client/core/build changes, and
-  unknown inputs without requiring Git metadata or executing target code.
+- [x] Define and schema-bind the foundation identities: the provider owns the
+  platform release, Base/Advanced variants, modules, bundle specs, and resolved
+  compositions; the Editor owns input adapters, project capabilities, target
+  ledgers, and classification. Current provider bundles remain explicitly
+  non-installable until runtime artifacts and release evidence exist.
+- [x] Add the non-executing, read-only role-aware T0-T5 classifier for sealed
+  synthetic Preservation-like baselines, expected local state,
+  configuration/data changes, maintained and unported extensions, ABI-coupled
+  changes, and unknown inputs. Production Preservation fingerprint adoption and
+  transactional upgrade execution remain separate unfinished work.
 - [ ] Build Current Base with canonical legacy-map conversion, a matching
   client, typed configuration/database migrations, and no Advanced-only
   effects.

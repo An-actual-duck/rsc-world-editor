@@ -1,0 +1,1 @@
+Synthetic dependency-module payload; never install this fixture.

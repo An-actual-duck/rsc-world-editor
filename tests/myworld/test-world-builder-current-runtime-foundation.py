@@ -124,17 +124,13 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             PROVIDER_TOOL,
             cls.provider_root / "scripts/current-platform-composition.py",
         )
-        modules = cls.provider_root / "current-platform/modules"
-        modules.mkdir()
-        shutil.copy2(
-            EXTENSION / "modules/community-welcome-v1.json",
-            modules / "community-welcome-v1.json",
+        shutil.copytree(
+            EXTENSION / "modules",
+            cls.provider_root / "current-platform/modules",
         )
-        payload = cls.provider_root / "current-platform/synthetic-fixtures"
-        payload.mkdir()
-        shutil.copy2(
-            EXTENSION / "payload/community-welcome-v1.txt",
-            payload / "community-welcome-v1.txt",
+        shutil.copytree(
+            EXTENSION / "payload",
+            cls.provider_root / "current-platform/synthetic-fixtures",
         )
         overlay = json.loads(
             (EXTENSION / "synthetic-installable-overlay-v1.json").read_text()
@@ -155,6 +151,9 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         cls.base_identity = cls.resolve("current-base-v1")
         cls.module_identity = cls.resolve(
             "current-base-v1", "community-welcome-v1"
+        )
+        cls.dependency_identity = cls.resolve(
+            "current-base-v1", "community-greeter-v1"
         )
 
     @classmethod
@@ -227,6 +226,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
     def classify(
         self, target: Path | str, composition: Path | None = None,
         catalog: Path | None = None, adapter: Path | None = None,
+        project: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         target_root = target if isinstance(target, Path) else TARGETS / target
         return self.run_cli(
@@ -240,7 +240,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             "--input-adapter",
             str(adapter or EDITOR_CONTRACTS["input-adapter"]),
             "--project-capability",
-            str(EDITOR_CONTRACTS["project-capability"]),
+            str(project or EDITOR_CONTRACTS["project-capability"]),
         )
 
     def clone_provider(self, name: str) -> tuple[Path, Path]:
@@ -248,7 +248,10 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         shutil.copytree(self.provider_root, root)
         return root, root / "current-platform"
 
-    def current_target(self, identity_path: Path, name: str) -> Path:
+    def current_target(
+        self, identity_path: Path, name: str,
+        adapter_id: str = "preservation-synthetic-v1",
+    ) -> Path:
         identity = json.loads(identity_path.read_text())
         predecessor = json.loads(EDITOR_CONTRACTS["target-ledger"].read_text())
         current = dict(predecessor)
@@ -260,6 +263,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         ):
             current[key] = identity[key]
         current["predecessorIdentityHash"] = predecessor["ledgerFingerprintSha256"]
+        current["inputAdapterId"] = adapter_id
         current["serverBuildId"] = "current-server-r1"
         current["clientBuildId"] = "current-client-r1"
         current["transactionReceiptIds"] = ["upgrade-0001", "upgrade-0002"]
@@ -350,6 +354,17 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
                     )
                 )
                 self.assertEqual([], errors, [error.message for error in errors])
+        module_schema = json.loads(
+            (provider_schema_root / "current-module-v1.schema.json").read_text()
+        )
+        greeter_errors = list(
+            jsonschema.Draft202012Validator(module_schema).iter_errors(
+                json.loads(
+                    (EXTENSION / "modules/community-greeter-v1.json").read_text()
+                )
+            )
+        )
+        self.assertEqual([], greeter_errors, [error.message for error in greeter_errors])
 
         composition_schema = json.loads(
             (provider_schema_root / "current-composition-identity-v1.schema.json").read_text()
@@ -359,6 +374,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             self.base_identity,
             self.advanced_identity,
             self.module_identity,
+            self.dependency_identity,
         ):
             with self.subTest(composition=identity.name):
                 errors = list(
@@ -380,9 +396,6 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             )
         reports = [
             self.classify("preservation-t0"),
-            self.classify(
-                "preservation-t0", self.production_base_identity, PROVIDER_CATALOG
-            ),
             self.classify("plugin-core-abi-t4"),
             self.classify("unsafe-t5"),
         ]
@@ -456,6 +469,17 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual(3, result.returncode)
         self.assertIn("recommends a different current variant", result.stderr)
 
+        adapter = json.loads(EDITOR_CONTRACTS["input-adapter"].read_text())
+        adapter["adapterId"] = "unadmitted-synthetic-v1"
+        adapter = bind_fingerprint(adapter, "adapterManifestHash")
+        adapter_path = Path(self.temp_directory.name) / "unadmitted-adapter.json"
+        adapter_path.write_text(json.dumps(adapter), encoding="utf-8")
+        result = self.classify(
+            Path(self.temp_directory.name) / "missing-target", adapter=adapter_path
+        )
+        self.assertEqual(3, result.returncode)
+        self.assertIn("does not admit this input adapter", result.stderr)
+
         _root, catalog = self.clone_provider("wrong-adapter-boundary-provider")
         platform_path = catalog / "platform/current-platform-r1.json"
         platform = json.loads(platform_path.read_text())
@@ -471,6 +495,33 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         )
         self.assertEqual(3, result.returncode)
         self.assertIn("adapter boundary", result.stderr)
+
+    def test_project_capabilities_are_exact_platform_plus_variant_requirements(self) -> None:
+        positive = self.classify("preservation-t0")
+        self.assertEqual(0, positive.returncode, positive.stderr)
+        project = json.loads(EDITOR_CONTRACTS["project-capability"].read_text())
+        self.assertEqual(
+            ["canonical-signed-layered-map-v1"], project["requiredCapabilityIds"]
+        )
+        for capability, composition in (
+            ("advanced-gameplay-catalog-v1", self.base_identity),
+            ("community-welcome-v1", self.module_identity),
+        ):
+            with self.subTest(capability=capability):
+                invalid_project = dict(project)
+                invalid_project["requiredCapabilityIds"] = [capability]
+                invalid_project = bind_fingerprint(
+                    invalid_project, "capabilityFingerprintSha256"
+                )
+                path = Path(self.temp_directory.name) / f"project-{capability}.json"
+                path.write_text(json.dumps(invalid_project), encoding="utf-8")
+                result = self.classify(
+                    Path(self.temp_directory.name) / "missing-target",
+                    composition=composition,
+                    project=path,
+                )
+                self.assertEqual(3, result.returncode)
+                self.assertIn("capability absent", result.stderr)
 
     def test_artifact_resolution_matches_provider_and_rejects_unsafe_sources(self) -> None:
         result = self.classify("preservation-t0")
@@ -525,10 +576,16 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertIn("unsafe", failure.stderr.lower())
 
     def test_foundation_only_provider_identity_never_grants_activation_authority(self) -> None:
+        adapter = json.loads(EDITOR_CONTRACTS["input-adapter"].read_text())
+        adapter["adapterId"] = "preservation-family-v1"
+        adapter = bind_fingerprint(adapter, "adapterManifestHash")
+        adapter_path = Path(self.temp_directory.name) / "production-admitted-adapter.json"
+        adapter_path.write_text(json.dumps(adapter), encoding="utf-8")
         target = TARGETS / "preservation-t0"
         before = target_snapshot(target)
         result = self.classify(
-            target, self.production_base_identity, PROVIDER_CATALOG
+            target, self.production_base_identity, PROVIDER_CATALOG,
+            adapter=adapter_path,
         )
         self.assertEqual(3, result.returncode, result.stderr)
         self.assertEqual(before, target_snapshot(target))
@@ -540,11 +597,13 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertTrue(any("foundation-only" in action for action in report["actions"]))
 
         current_target = self.current_target(
-            self.production_base_identity, "foundation-current-target"
+            self.production_base_identity, "foundation-current-target",
+            adapter_id="preservation-family-v1",
         )
         before = target_snapshot(current_target)
         result = self.classify(
-            current_target, self.production_base_identity, PROVIDER_CATALOG
+            current_target, self.production_base_identity, PROVIDER_CATALOG,
+            adapter=adapter_path,
         )
         self.assertEqual(3, result.returncode, result.stderr)
         self.assertEqual(before, target_snapshot(current_target))
@@ -552,6 +611,38 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual("NOT_INSTALLABLE", report["status"])
         self.assertEqual("CURRENT", report["tier"])
         self.assertFalse(report["mutationOccurred"])
+
+    def test_provider_installability_invariants_fail_closed(self) -> None:
+        cases = (
+            ("variant-mismatch", "variant", "installable", False, "must agree"),
+            ("bundle-mismatch", "bundle", "installable", False, "must agree"),
+            (
+                "foundation-marked-installable", "variant", "releaseStatus",
+                "foundation-contract-only", "cannot be installable",
+            ),
+        )
+        for name, document, field, value, message in cases:
+            with self.subTest(case=name):
+                _root, catalog = self.clone_provider(name)
+                if document == "variant":
+                    manifest_path = catalog / "variants/current-base-v1.json"
+                    identity_field = "variantManifestHash"
+                else:
+                    manifest_path = catalog / "bundle-specs/current-base-v1.json"
+                    identity_field = "bundleSpecHash"
+                manifest = json.loads(manifest_path.read_text())
+                manifest[field] = value
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                identity = json.loads(self.base_identity.read_text())
+                identity[identity_field] = canonical_hash(manifest)
+                identity_path = Path(self.temp_directory.name) / f"{name}.json"
+                identity_path.write_text(json.dumps(identity), encoding="utf-8")
+                result = self.classify(
+                    Path(self.temp_directory.name) / "missing-target",
+                    identity_path, catalog,
+                )
+                self.assertEqual(3, result.returncode)
+                self.assertIn(message, result.stderr)
 
     def test_t0_t1_and_light_customizations_resolve_to_current_base(self) -> None:
         expected = {
@@ -598,6 +689,80 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual(3, unselected.returncode)
         self.assertEqual(before, target_snapshot(target))
         self.assertIn("absent from the provider composition", unselected.stderr)
+
+    def test_module_closure_conflicts_and_provider_order_fail_closed(self) -> None:
+        dependency = json.loads(self.dependency_identity.read_text())
+        self.assertEqual(
+            ["community-welcome-v1", "community-greeter-v1"],
+            [record["moduleId"] for record in dependency["moduleSet"]],
+        )
+        positive = self.classify("preservation-t0", self.dependency_identity)
+        self.assertEqual(0, positive.returncode, positive.stderr)
+
+        omitted = json.loads(self.dependency_identity.read_text())
+        omitted["moduleSet"] = [
+            record for record in omitted["moduleSet"]
+            if record["moduleId"] != "community-welcome-v1"
+        ]
+        omitted["moduleSetHash"] = canonical_hash(omitted["moduleSet"])
+        omitted_path = Path(self.temp_directory.name) / "omitted-dependency.json"
+        omitted_path.write_text(json.dumps(omitted), encoding="utf-8")
+        result = self.classify(
+            Path(self.temp_directory.name) / "missing-target", omitted_path
+        )
+        self.assertEqual(3, result.returncode)
+        self.assertIn("omits dependency", result.stderr)
+
+        reordered = json.loads(self.dependency_identity.read_text())
+        reordered["moduleSet"].reverse()
+        reordered["moduleSetHash"] = canonical_hash(reordered["moduleSet"])
+        reordered_path = Path(self.temp_directory.name) / "reordered-modules.json"
+        reordered_path.write_text(json.dumps(reordered), encoding="utf-8")
+        result = self.classify(
+            Path(self.temp_directory.name) / "missing-target", reordered_path
+        )
+        self.assertEqual(3, result.returncode)
+        self.assertIn("deterministic provider load order", result.stderr)
+
+        _root, catalog = self.clone_provider("conflicting-modules")
+        welcome_path = catalog / "modules/community-welcome-v1.json"
+        welcome = json.loads(welcome_path.read_text())
+        welcome["conflicts"] = ["community-greeter-v1"]
+        welcome_path.write_text(json.dumps(welcome), encoding="utf-8")
+        conflicting = json.loads(self.dependency_identity.read_text())
+        for record in conflicting["moduleSet"]:
+            if record["moduleId"] == "community-welcome-v1":
+                record["manifestHash"] = canonical_hash(welcome)
+        conflicting["moduleSetHash"] = canonical_hash(conflicting["moduleSet"])
+        conflicting_path = Path(self.temp_directory.name) / "conflicting-modules.json"
+        conflicting_path.write_text(json.dumps(conflicting), encoding="utf-8")
+        result = self.classify(
+            Path(self.temp_directory.name) / "missing-target",
+            conflicting_path, catalog,
+        )
+        self.assertEqual(3, result.returncode)
+        self.assertIn("modules conflict", result.stderr)
+
+        _root, catalog = self.clone_provider("omitted-default-module")
+        variant_path = catalog / "variants/current-base-v1.json"
+        bundle_path = catalog / "bundle-specs/current-base-v1.json"
+        variant = json.loads(variant_path.read_text())
+        bundle = json.loads(bundle_path.read_text())
+        variant["defaultModuleIds"] = ["community-welcome-v1"]
+        bundle["moduleIds"] = ["community-welcome-v1"]
+        variant_path.write_text(json.dumps(variant), encoding="utf-8")
+        bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+        missing_default = json.loads(self.base_identity.read_text())
+        missing_default["variantManifestHash"] = canonical_hash(variant)
+        missing_default["bundleSpecHash"] = canonical_hash(bundle)
+        missing_default_path = Path(self.temp_directory.name) / "missing-default.json"
+        missing_default_path.write_text(json.dumps(missing_default), encoding="utf-8")
+        result = self.classify(
+            Path(self.temp_directory.name) / "missing-target",
+            missing_default_path, catalog,
+        )
+        self.assertEqual(3, result.returncode)
+        self.assertIn("variant/bundle-required module", result.stderr)
 
     def test_t3_unported_and_t4_abi_extension_require_actionable_port(self) -> None:
         expected = {

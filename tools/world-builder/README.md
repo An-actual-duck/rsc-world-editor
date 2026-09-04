@@ -173,10 +173,20 @@ foundation-only bundles: they may be inspected but cannot authorize activation
 or map import. `UPGRADE_READY` is classification evidence, not an installer;
 this command never changes a target.
 
+A project's required capability IDs are satisfied by exactly the union of the
+platform's `mapRuntimeCapabilities` and the selected variant's
+`requiredCapabilities`. Module-provided capabilities do not silently widen
+that project contract; module selection is separately bound by
+`requiredModuleIds`. The resolver also requires exact agreement among
+composition, bundle, and variant installability, and independently reconstructs
+the complete dependency/conflict/load-order module closure.
+
 Input adapters are separate, non-installable migration evidence. A new
 historical layout should add a reviewed bounded adapter, while portable behavior
 should map to a provider-owned current module. Unknown code, unregistered module
 ports, mixed ledgers, unsafe paths, and unrecognized bytes fail before mutation.
+The adapter ID must be explicitly admitted by the selected variant's
+`inputAdapterRecommendations`; a recommended variant alone is insufficient.
 The repository currently ships only synthetic recognition fixtures, not a
 production Preservation-family fingerprint set, so do not point this command at
 a real server and infer upgrade support from fixture results.

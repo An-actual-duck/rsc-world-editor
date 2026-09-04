@@ -6,7 +6,7 @@
   "projectSchemaHash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "authoredDataFingerprintSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
   "allowedVariantIds": ["current-base-v1"],
-  "requiredCapabilityIds": ["canonical-layered-map-v1"],
+  "requiredCapabilityIds": ["canonical-signed-layered-map-v1"],
   "requiredModuleIds": [],
-  "capabilityFingerprintSha256": "48803352a78071c116adf8ffcdc5d914e986daa9cdc7c646875da2da9240e6f9"
+  "capabilityFingerprintSha256": "f8f938daf0e1ffd7c9530d8e998700f1d54cc23e995074025558a6dcdd5f5a75"
 }

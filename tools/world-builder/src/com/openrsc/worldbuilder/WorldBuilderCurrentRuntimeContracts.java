@@ -363,6 +363,9 @@ final class WorldBuilderCurrentRuntimeContracts {
 		String variantId = composition.string("variantId");
 		if (!variantId.equals(string(adapter, "recommendedVariantId", op))) invalid(op,
 			"Input adapter recommends a different current variant.");
+		String adapterId = string(adapter, "adapterId", op);
+		if (!composition.admittedAdapterIds.contains(adapterId)) invalid(op,
+			"Selected current variant does not admit this input adapter: " + adapterId);
 		List<String> allowedVariants = identifiers(project.get("allowedVariantIds"), op,
 			"allowedVariantIds", 1, 128);
 		if (!allowedVariants.contains(variantId)) invalid(op,
@@ -371,6 +374,10 @@ final class WorldBuilderCurrentRuntimeContracts {
 			"requiredModuleIds", 0, 128);
 		if (!composition.moduleIds.containsAll(requiredModules)) invalid(op,
 			"Resolved module set omits a project-required module.");
+		List<String> requiredCapabilities = identifiers(project.get("requiredCapabilityIds"), op,
+			"requiredCapabilityIds", 0, 128);
+		if (!composition.availableCapabilities.containsAll(requiredCapabilities)) invalid(op,
+			"Project requires a capability absent from the selected platform and variant.");
 	}
 
 	private static Classification classifyLedger(WorldBuilderProviderCatalog.Composition composition,

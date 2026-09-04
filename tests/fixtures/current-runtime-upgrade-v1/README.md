@@ -14,7 +14,9 @@ ledger.
 Platform, variant, bundle, module, and composition contracts remain owned by
 the exact revision in `runtime-provider.lock`. The provider extension here is a
 sealed test input: it adds one synthetic module and an explicit test-only
-installable overlay to the locked provider catalog. It is non-production and
+installable overlay to the locked provider catalog. A second synthetic module
+depends on the first so omission, conflict, and deterministic load-order
+refusals are executable. The extension is non-production and
 non-installable as shipped; tests apply it only inside a temporary directory.
 The provider's real foundation-only Base and Advanced compositions remain
 `installable: false` and must never authorize upgrade or activation.
