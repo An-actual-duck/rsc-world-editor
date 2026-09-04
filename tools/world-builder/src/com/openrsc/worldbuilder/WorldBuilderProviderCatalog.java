@@ -100,6 +100,7 @@ final class WorldBuilderProviderCatalog {
 		List<Map<String,Object>> moduleSet = objectList(composition.get("moduleSet"),
 			"moduleSet", 0, 128);
 		List<Map<String,Object>> moduleArtifacts = new ArrayList<Map<String,Object>>();
+		List<Artifact> artifacts = new ArrayList<Artifact>();
 		Set<String> resolvedModuleIds = new HashSet<String>();
 		Map<String,Map<String,Object>> resolvedModulesById =
 			new LinkedHashMap<String,Map<String,Object>>();
@@ -118,11 +119,11 @@ final class WorldBuilderProviderCatalog {
 				"Resolved module identity does not match its provider manifest.");
 			requireCanonicalHash(module, string(record, "manifestHash"), "module manifestHash");
 			resolvedModulesById.put(moduleId, module);
-			List<Map<String,Object>> artifacts = inventory(payload, module.get("artifacts"),
-				"module artifacts");
-			requireHash(canonicalHash(artifacts), string(record, "payloadRootHash"),
+			List<Map<String,Object>> records = inventory(payload, module.get("artifacts"),
+				"module artifacts", artifacts);
+			requireHash(canonicalHash(records), string(record, "payloadRootHash"),
 				"module payloadRootHash");
-			moduleArtifacts.addAll(artifacts);
+			moduleArtifacts.addAll(records);
 		}
 		List<String> resolvedModules = validateModuleClosure(platform, variant, bundle,
 			moduleSet, resolvedModulesById);
@@ -130,7 +131,7 @@ final class WorldBuilderProviderCatalog {
 			"moduleSetHash");
 
 		List<Map<String,Object>> expectedInventory = inventory(payload, bundle.get("artifacts"),
-			"bundle artifacts");
+			"bundle artifacts", artifacts);
 		expectedInventory.addAll(moduleArtifacts);
 		Collections.sort(expectedInventory, inventoryOrder());
 		validateInventoryOrderAndCollisions(expectedInventory, "resolved provider inventory");
@@ -142,8 +143,13 @@ final class WorldBuilderProviderCatalog {
 		requireHash(canonicalHash(suppliedInventory),
 			string(composition, "bundleInventoryHash"), "bundleInventoryHash");
 
+		Collections.sort(artifacts, new Comparator<Artifact>() {
+			@Override public int compare(Artifact left, Artifact right) {
+				return left.bundlePath.compareTo(right.bundlePath);
+			}
+		});
 		return new Composition(composition, installable, resolvedModules,
-			availableCapabilities, admittedAdapters);
+			availableCapabilities, admittedAdapters, artifacts);
 	}
 
 	private static List<String> validateModuleClosure(Map<String,Object> platform,
@@ -318,7 +324,7 @@ final class WorldBuilderProviderCatalog {
 	}
 
 	private static List<Map<String,Object>> inventory(WorldBuilderReadOnlyTarget payload,
-		Object raw, String name)
+		Object raw, String name, List<Artifact> resolvedArtifacts)
 		throws WorldBuilderContractException {
 		List<Map<String,Object>> specs = objectList(raw, name, 1,
 			WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES);
@@ -349,6 +355,8 @@ final class WorldBuilderProviderCatalog {
 			record.put("size", Long.valueOf(state.size));
 			record.put("type", "file");
 			result.add(record);
+			resolvedArtifacts.add(new Artifact(sourcePath, bundlePath,
+				payload.requiredFile(sourcePath), record));
 		}
 		Collections.sort(result, inventoryOrder());
 		validateInventoryOrderAndCollisions(result, name);
@@ -555,10 +563,11 @@ final class WorldBuilderProviderCatalog {
 		final List<String> moduleIds;
 		final List<String> availableCapabilities;
 		final List<String> admittedAdapterIds;
+		final List<Artifact> artifacts;
 
 		Composition(Map<String,Object> identity, boolean installable,
 			List<String> moduleIds, List<String> availableCapabilities,
-			List<String> admittedAdapterIds) {
+			List<String> admittedAdapterIds, List<Artifact> artifacts) {
 			this.identity = identity;
 			this.installable = installable;
 			this.moduleIds = Collections.unmodifiableList(new ArrayList<String>(moduleIds));
@@ -566,10 +575,27 @@ final class WorldBuilderProviderCatalog {
 				new ArrayList<String>(availableCapabilities));
 			this.admittedAdapterIds = Collections.unmodifiableList(
 				new ArrayList<String>(admittedAdapterIds));
+			this.artifacts = Collections.unmodifiableList(
+				new ArrayList<Artifact>(artifacts));
 		}
 
 		String string(String key) throws WorldBuilderContractException {
 			return WorldBuilderProviderCatalog.string(identity, key);
+		}
+	}
+
+	static final class Artifact {
+		final String sourcePath;
+		final String bundlePath;
+		final Path source;
+		final Map<String,Object> inventory;
+
+		Artifact(String sourcePath, String bundlePath, Path source,
+			Map<String,Object> inventory) {
+			this.sourcePath = sourcePath;
+			this.bundlePath = bundlePath;
+			this.source = source;
+			this.inventory = inventory;
 		}
 	}
 }

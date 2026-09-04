@@ -372,7 +372,13 @@ without imposing its gameplay or content on Base users.
   Advanced from the same provider generation.
 - [ ] Implement project migration, target-runtime ledger, side-by-side staging,
   semantic destination preview, explicit variant consent, atomic activation,
-  and exact recovery.
+  and exact recovery. A package-private synthetic-only executor foundation now
+  proves T0/T1/T2A/T2B and managed-N preview, exact identity/preimage binding,
+  external staging, activation-last, artifact verification, rollback, and
+  interrupted recovery without exposing a production apply surface. This item
+  remains open until production adapters/migrators, installable executable
+  bundles, staged runtime verification, project migration, and UI consent are
+  complete.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

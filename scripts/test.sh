@@ -135,6 +135,7 @@ add_group() {
 		transactions)
 			members=(
 				test-world-builder-adaptive-transactions.py
+				test-world-builder-current-runtime-upgrade-transaction.py
 				test-world-builder-export.py
 				test-world-builder-import.py
 				test-world-builder-map-migration-choice.py
@@ -159,6 +160,7 @@ add_group() {
 				test-world-builder-adaptive-contracts.py
 				test-world-builder-adaptive-discovery.py
 				test-world-builder-current-runtime-foundation.py
+				test-world-builder-current-runtime-upgrade-transaction.py
 				test-world-builder-packed-conversion.py
 				test-world-builder-runtime-preparation.py
 				test-world-builder-adaptive-project-lifecycle.py
