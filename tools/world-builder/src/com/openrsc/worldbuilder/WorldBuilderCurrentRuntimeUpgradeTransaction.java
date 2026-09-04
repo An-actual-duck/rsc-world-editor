@@ -64,7 +64,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, inputAdapter, projectCapability, transactionId,
-			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter), null, null);
+			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter), null, null, true);
 	}
 
 	Preview previewPreservation(Path targetRoot, Path transactionRoot,
@@ -81,14 +81,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, null, projectCapability, transactionId,
 			WorldBuilderCurrentRuntimeExecutionProfile.preservation(),
-			packedSourceRoot, packedDiscoveryReport);
+			packedSourceRoot, packedDiscoveryReport, true);
 	}
 
 	private Preview previewInternal(Path targetRoot, Path transactionRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
 		Path projectCapability, String transactionId,
 		WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
-		Path packedDiscoveryReport)
+		Path packedDiscoveryReport, boolean inspectOffline)
 		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
@@ -139,6 +139,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Map<String,Object> plan = buildPlan(target, workspace, composition, adapter,
 			project, classification, transactionId, profile, packedSourceRoot,
 			packedDiscoveryReport);
+		if (inspectOffline) WorldBuilderCurrentRuntimeOfflineLease.inspect(target,
+			object(object(plan.get("migrationPlan")).get("typedConfiguration")));
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
 			inputAdapter, projectCapability, profile, packedSourceRoot,
 			packedDiscoveryReport, plan);
@@ -167,6 +169,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Target, provider, adapter, project, or transaction plan changed after preview.",
 			"Review and confirm a fresh plan; there is no force mode.");
 
+		try (WorldBuilderCurrentRuntimeOfflineLease offline =
+			WorldBuilderCurrentRuntimeOfflineLease.acquire(reviewed.targetRoot,
+				object(object(reviewed.plan.get("migrationPlan")).get("typedConfiguration")))) {
 		Path transaction = transactionPath(reviewed.transactionRoot,
 			string(reviewed.plan, "transactionId"));
 		if (Files.exists(transaction, LinkOption.NOFOLLOW_LINKS)) throw problem(
@@ -186,11 +191,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.createDirectory(backup);
 			backupPreimage(reviewed, backup);
 			writeReceipt(receipt, receipt(reviewed.plan, "pending", false,
-				false, "", ""));
+				false, "", "backup-complete"));
 			observe("after-backup", backup);
 
 			Files.createDirectory(staging);
 			stageRelease(reviewed, staging);
+			writeReceipt(receipt, receipt(reviewed.plan, "pending", false,
+				false, "", "staging-verified"));
 			observe("after-staging", staging);
 			fresh = refresh(reviewed);
 			if (!fresh.fingerprint().equals(reviewed.fingerprint())) throw problem(
@@ -203,12 +210,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			ensureParents(reviewed.targetRoot, release.getParent(), createdTargetDirectories);
 			moveNewDirectory(staging, release);
 			releasePublished = true;
+			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
+				false, "", "release-published"));
 			observe("after-release-published", release);
 
 			Path ledger = targetPath(reviewed.targetRoot, LEDGER_RELATIVE);
 			ensureParents(reviewed.targetRoot, ledger.getParent(), createdTargetDirectories);
 			writeActivationLedger(ledger, object(reviewed.plan.get("activationLedger")));
 			ledgerActivated = true;
+			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
+				false, "", "ledger-activated"));
 			observe("after-ledger-activated", ledger);
 			verifyInstalled(reviewed.targetRoot, reviewed.plan);
 			writeReceipt(receipt, receipt(reviewed.plan, "successful", true,
@@ -246,18 +257,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Current-runtime transaction was interrupted and rolled back.",
 				"Review the preserved receipt and request a fresh preview.", failure);
 		}
+		}
 	}
 
 	private Preview refresh(Preview preview)
 		throws IOException, WorldBuilderContractException {
-		if (preview.profile.syntheticOnly) return preview(preview.targetRoot,
-			preview.transactionRoot, preview.providerCatalogRoot,
-			preview.compositionIdentity, preview.inputAdapter,
-			preview.projectCapability, string(preview.plan, "transactionId"));
-		return previewPreservation(preview.targetRoot, preview.transactionRoot,
+		return previewInternal(preview.targetRoot, preview.transactionRoot,
 			preview.providerCatalogRoot, preview.compositionIdentity,
-			preview.projectCapability, string(preview.plan, "transactionId"),
-			preview.packedSourceRoot, preview.packedDiscoveryReport);
+			preview.inputAdapter, preview.projectCapability,
+			string(preview.plan, "transactionId"), preview.profile,
+			preview.packedSourceRoot, preview.packedDiscoveryReport, false);
 	}
 
 	Result recover(Path targetRoot, Path transactionRoot, String transactionId)
@@ -297,13 +306,16 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Recovery receipt is malformed.", "Restore the exact receipt.", malformed);
 		}
 		validateReceiptFingerprint(priorReceipt);
-		if (!"recovery-required".equals(string(priorReceipt, "status"))
+		if (!("recovery-required".equals(string(priorReceipt, "status"))
+			|| "pending".equals(string(priorReceipt, "status")))
 			|| !string(plan, "planFingerprintSha256").equals(
 				string(priorReceipt, "planFingerprintSha256"))) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt", true,
-			"Recovery receipt does not authorize this exact failed plan.",
-			"Restore the exact recovery-required receipt and plan.");
-		try {
+			"Recovery receipt does not authorize this exact interrupted plan.",
+			"Restore the exact pending/recovery-required receipt and plan.");
+		try (WorldBuilderCurrentRuntimeOfflineLease offline =
+			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
+				object(object(plan.get("migrationPlan")).get("typedConfiguration")))) {
 			rollback(target, plan, backup, true, true, Collections.<Path>emptyList());
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -456,10 +468,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("activationAuthorized", Boolean.valueOf(composition.installable
 			&& "UPGRADE_READY".equals(string(classification, "status"))
 			&& profile.activationReady(object(plan.get("migrationPlan")))));
-		plan.put("confirmationIdentity", "UPGRADE:" + transactionId + ":"
-			+ string(classification, "classificationFingerprintSha256") + ":"
-			+ canonicalHash(artifacts));
+		plan.put("confirmationIdentity", "");
 		plan.put("planFingerprintSha256", ZERO_HASH);
+		plan.put("confirmationIdentity", "UPGRADE:" + transactionId + ":"
+			+ reviewedInputHash(plan));
 		bindFingerprint(plan, "planFingerprintSha256");
 		return plan;
 	}
@@ -804,6 +816,21 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		if (ledgerRecord == null) throw new IOException("ledger preimage missing");
 		Path ledger = targetPath(target, LEDGER_RELATIVE);
+		Path ledgerTemporary = ledger.getParent().resolve(".runtime-ledger-v1.json.upgrade");
+		boolean exactTemporary = false;
+		if (Files.exists(ledgerTemporary, LinkOption.NOFOLLOW_LINKS)) {
+			BasicFileAttributes temporaryAttributes = Files.readAttributes(ledgerTemporary,
+				BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+			byte[] expectedTemporary = WorldBuilderJsonDocuments.pretty(
+				object(plan.get("activationLedger"))).getBytes(StandardCharsets.UTF_8);
+			if (!temporaryAttributes.isRegularFile() || temporaryAttributes.isSymbolicLink()
+				|| temporaryAttributes.size() != expectedTemporary.length
+				|| !WorldBuilderHashes.sha256(ledgerTemporary).equals(
+					WorldBuilderHashes.sha256(expectedTemporary))) throw recoveryDrift(
+					"ledger-upgrade-temporary", new IOException(
+						"temporary ledger is not exact transaction-owned activation bytes"));
+			exactTemporary = true;
+		}
 		Path release = targetPath(target, string(plan, "releaseRelativePath"));
 		int ledgerState = ledgerActivated
 			? requireRollbackLedgerState(ledger, ledgerRecord,
@@ -835,6 +862,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				object(plan.get("activationLedger")));
 			Files.delete(ledger);
 		}
+		if (exactTemporary) Files.delete(ledgerTemporary);
 		if (releaseExists) {
 			verifyOwnedReleaseTree(target, plan);
 			deleteOwnedTree(release);
@@ -904,7 +932,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		throws WorldBuilderContractException {
 		Map<String,Object> activation = new LinkedHashMap<String,Object>();
 		activation.put("schemaVersion", Long.valueOf(1));
-		activation.put("manifestType", "world-builder-synthetic-current-activation");
+		activation.put("manifestType", string(
+			object(plan.get("executionProfile")), "activationManifestType"));
 		activation.put("transactionId", string(plan, "transactionId"));
 		activation.put("planBindingHash", activationPlanBindingHash(plan));
 		activation.put("classificationFingerprintSha256",
@@ -1434,6 +1463,20 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.SOURCE_CORRUPT, "planFingerprintSha256", true,
 			"Recovery plan fingerprint does not match its content.",
 			"Restore the exact sealed transaction plan.");
+		String confirmation = string(plan, "confirmationIdentity");
+		String expectedConfirmation = "UPGRADE:" + string(plan, "transactionId") + ":"
+			+ reviewedInputHash(plan);
+		if (!confirmation.equals(expectedConfirmation)) throw problem(
+			WorldBuilderErrorCodes.SOURCE_CORRUPT, "confirmationIdentity", true,
+			"Recovery confirmation identity does not bind the complete reviewed plan.",
+			"Restore the exact sealed transaction plan.");
+	}
+
+	private static String reviewedInputHash(Map<String,Object> plan) {
+		Map<String,Object> reviewed = new LinkedHashMap<String,Object>(plan);
+		reviewed.put("confirmationIdentity", "");
+		reviewed.put("planFingerprintSha256", ZERO_HASH);
+		return canonicalHash(reviewed);
 	}
 
 	@SuppressWarnings("unchecked")

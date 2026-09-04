@@ -66,7 +66,7 @@
     "mapImportAvailableBeforeApply": {"const": false},
     "mutationOccurred": {"const": false},
     "activationAuthorized": {"type": "boolean"},
-    "confirmationIdentity": {"type": "string", "pattern": "^UPGRADE:[A-Za-z0-9._-]+:[0-9a-f]{64}:[0-9a-f]{64}$", "maxLength": 512},
+    "confirmationIdentity": {"type": "string", "pattern": "^UPGRADE:[A-Za-z0-9._-]+:[0-9a-f]{64}$", "maxLength": 512},
     "planFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
   "allOf": [

@@ -66,7 +66,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
-			"Production activation remains disabled pending complete PackedConverter map packaging and staged/installed launch, handshake, login, map, state, restart and gameplay verification.");
+			"Production activation remains disabled pending activation-bound generated state, runnable server/client layout materialization, and a provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -118,7 +118,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.add(readiness("typed-configuration-staging", true));
 		result.add(readiness("provider-state-schema-migration-row", true));
 		result.add(readiness("closed-sqlite-current-schema-migration", true));
-		result.add(readiness("complete-canonical-map-package", false));
+		result.add(readiness("complete-canonical-map-package", true));
+		result.add(readiness("activation-bound-generated-state-inventory", false));
+		result.add(readiness("runnable-current-runtime-layout", false));
+		result.add(readiness("provider-installed-execution-verifier-contract", false));
 		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));
 		result.add(readiness("installed-runtime-launch-handshake-login-gameplay", false));
 		return result;
@@ -297,7 +300,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderBoundedInventory.exactKeys(typed, "current-runtime-migration",
 			"schemaVersion", "manifestType", "sourceRelativePath", "precedence",
 			"duplicatePolicy", "serverName", "experienceRate", "bindAddress",
-			"gamePort", "databaseMigration", "externalSecretReferences", "translations");
+			"gamePort", "websocketPort", "databaseMigration", "externalSecretReferences", "translations");
 		if (!"world-builder-current-base-configuration".equals(
 				string(typed, "manifestType"))
 			|| !"first-value-wins".equals(string(typed, "duplicatePolicy")))
@@ -436,6 +439,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			empty.put("experienceRate", Long.valueOf(1));
 			empty.put("bindAddress", "127.0.0.1");
 			empty.put("gamePort", Long.valueOf(43594));
+			empty.put("websocketPort", Long.valueOf(43494));
 			empty.put("databaseMigration", sqliteDatabaseMigration());
 			empty.put("externalSecretReferences", new ArrayList<Object>());
 			empty.put("translations", new ArrayList<Object>());
@@ -461,13 +465,17 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			String line = lines.get(index).trim();
 			if (line.isEmpty() || line.startsWith("#")) continue;
 			int equals = line.indexOf('=');
-			if (equals <= 0) throw refusal("Legacy configuration contains a malformed line.");
-			String legacy = line.substring(0, equals).trim();
+			int colon = line.indexOf(':');
+			int separator = equals > 0 && colon > 0 ? Math.min(equals, colon)
+				: Math.max(equals, colon);
+			if (separator <= 0) throw refusal("Legacy configuration contains a malformed line.");
+			String legacy = line.substring(0, separator).trim();
+			String value = line.substring(separator + 1).trim();
+			if (value.isEmpty() && line.endsWith(":")) continue; // section heading
 			String canonical = alias(legacy);
 			if (canonical == null) throw refusal(
 				"Legacy configuration contains an unsupported key: " + legacy);
 			if (values.containsKey(canonical)) continue; // reviewed first-value-wins rule
-			String value = line.substring(equals + 1).trim();
 			values.put(canonical, value);
 			Map<String,Object> translation = new LinkedHashMap<String,Object>();
 			translation.put("legacyKey", legacy); translation.put("currentKey", canonical);
@@ -480,11 +488,13 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"Translated server name is empty or exceeds 80 characters.");
 		long experience = integer(values, "experienceRate", 1L, 100L, 1L);
 		long port = integer(values, "gamePort", 1L, 65535L, 43594L);
+		long websocketPort = integer(values, "websocketPort", 1L, 65535L, 43494L);
+		if (port == websocketPort) throw refusal(
+			"Translated game and websocket ports must be distinct.");
 		String bind = values.containsKey("bindAddress")
 			? values.get("bindAddress") : "127.0.0.1";
-		if (!("127.0.0.1".equals(bind) || "::1".equals(bind)
-			|| "localhost".equals(bind))) throw refusal(
-			"Production preview refuses a non-loopback legacy bind address.");
+		if (bind.isEmpty() || bind.length() > 253 || !bind.matches("[A-Za-z0-9.:%_-]+"))
+			throw refusal("Translated server bind address is malformed or unbounded.");
 		Map<String,Object> typed = new LinkedHashMap<String,Object>();
 		typed.put("schemaVersion", Long.valueOf(1));
 		typed.put("manifestType", "world-builder-current-base-configuration");
@@ -494,6 +504,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		typed.put("duplicatePolicy", "first-value-wins");
 		typed.put("serverName", name); typed.put("experienceRate", Long.valueOf(experience));
 		typed.put("bindAddress", bind); typed.put("gamePort", Long.valueOf(port));
+		typed.put("websocketPort", Long.valueOf(websocketPort));
 		Map<String,Object> database = databaseMigration(values);
 		typed.put("databaseMigration", database);
 		List<Object> secrets = new ArrayList<Object>();
@@ -521,8 +532,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 	private static String alias(String key) {
 		if (Arrays.asList("server_name", "serverName", "name").contains(key)) return "serverName";
 		if (Arrays.asList("experience_rate", "exp_rate", "experiance_rate").contains(key)) return "experienceRate";
-		if (Arrays.asList("bind_address", "bindAddress").contains(key)) return "bindAddress";
-		if (Arrays.asList("port", "game_port", "gamePort").contains(key)) return "gamePort";
+		if (Arrays.asList("bind_address", "server_bind_address", "bindAddress").contains(key)) return "bindAddress";
+		if (Arrays.asList("port", "game_port", "server_port", "gamePort").contains(key)) return "gamePort";
+		if (Arrays.asList("ws_server_port", "websocket_port", "websocketPort").contains(key)) return "websocketPort";
 		if (Arrays.asList("db_engine", "database_engine").contains(key)) return "databaseEngine";
 		if (Arrays.asList("db_host", "database_host").contains(key)) return "databaseHost";
 		if (Arrays.asList("db_port", "database_port").contains(key)) return "databasePort";
@@ -535,7 +547,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	private static Map<String,Object> databaseMigration(Map<String,String> values)
 		throws WorldBuilderContractException {
-		if (!values.containsKey("databaseEngine")) return sqliteDatabaseMigration();
+		if (!values.containsKey("databaseEngine")
+			|| "sqlite".equals(values.get("databaseEngine"))) return sqliteDatabaseMigration();
 		if (!"mariadb".equals(values.get("databaseEngine"))) throw refusal(
 			"Only sqlite or the closed MariaDB migration pathway is supported.");
 		for (String key : Arrays.asList("databaseHost", "databasePort",

@@ -8,6 +8,7 @@ import importlib.util
 import json
 import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import tempfile
@@ -230,6 +231,9 @@ public final class CurrentUpgradeHarness {
                     }
                     if (selected(failures, milestone)) {
                         throw new Exception("injected-" + milestone);
+                    }
+                    if (selected(failures, "halt-" + milestone)) {
+                        Runtime.getRuntime().halt(91);
                     }
                 }
             };
@@ -632,6 +636,24 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual(before_workspace, tree_snapshot(workspace))
                 self.case.cleanup(); self.setUp()
 
+    def test_preview_requires_both_target_ports_available(self) -> None:
+        for port in (43594, 43494):
+            with self.subTest(port=port):
+                target = self.target("preservation-t0")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                with socket.socket() as listener:
+                    listener.bind(("0.0.0.0", port))
+                    listener.listen(1)
+                    refused = self.run_harness(
+                        "preview", target, workspace, f"occupied-{port}"
+                    )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("CODE=OFFLINE_REQUIRED", refused.stderr)
+                self.assertEqual(before, tree_snapshot(target))
+                self.assertEqual({}, tree_snapshot(workspace))
+                self.case.cleanup(); self.setUp()
+
     def test_reviewed_preservation_profile_previews_candidate_but_cannot_activate(self) -> None:
         target = self.target("preservation-t0")
         workspace = self.workspace()
@@ -659,7 +681,10 @@ public final class CurrentUpgradeHarness {
         self.assertTrue(readiness["typed-configuration-staging"])
         self.assertTrue(readiness["closed-sqlite-current-schema-migration"])
         self.assertTrue(readiness["provider-state-schema-migration-row"])
-        self.assertFalse(readiness["complete-canonical-map-package"])
+        self.assertTrue(readiness["complete-canonical-map-package"])
+        self.assertFalse(readiness["activation-bound-generated-state-inventory"])
+        self.assertFalse(readiness["runnable-current-runtime-layout"])
+        self.assertFalse(readiness["provider-installed-execution-verifier-contract"])
         self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
@@ -687,7 +712,7 @@ public final class CurrentUpgradeHarness {
         )
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-        self.assertIn("complete PackedConverter map packaging",
+        self.assertIn("activation-bound generated state",
                       refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
@@ -753,6 +778,19 @@ public final class CurrentUpgradeHarness {
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
+        incomplete_map = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "preview-current-runtime-upgrade", *common,
+             "--adapter", "preservation-family-v1",
+             "--packed-source-root", str(target)],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(2, incomplete_map.returncode)
+        self.assertIn("must be supplied together", incomplete_map.stderr)
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
         applied = subprocess.run(
             ["java", "-cp", str(self.classes),
              "com.openrsc.worldbuilder.WorldBuilderCli",
@@ -789,6 +827,30 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("localhost", typed["bindAddress"])
         self.assertEqual("first-value-wins", typed["duplicatePolicy"])
         self.assertEqual([], typed["externalSecretReferences"])
+
+    def test_colon_configuration_preserves_public_binding_and_explicit_sqlite(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "colon-config-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        (target / "server/conf/local.conf").write_text(
+            "world:\n"
+            "  server_name: Public Preservation\n"
+            "  server_bind_address: 0.0.0.0\n"
+            "  server_port: 43595\n"
+            "  ws_server_port: 43495\n"
+            "database:\n"
+            "  db_engine: sqlite\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        result = self.run_harness("profile-migration", target, workspace, "colon-config")
+        self.assertEqual(0, result.returncode, result.stderr)
+        typed = json.loads(result.stdout)["typedConfiguration"]
+        self.assertEqual("Public Preservation", typed["serverName"])
+        self.assertEqual("0.0.0.0", typed["bindAddress"])
+        self.assertEqual(43595, typed["gamePort"])
+        self.assertEqual(43495, typed["websocketPort"])
+        self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
 
     def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
         target = self.target("preservation-t0")
@@ -1161,6 +1223,26 @@ public final class CurrentUpgradeHarness {
         self.assert_receipt_schema(receipt)
         self.assertEqual("rolled-back", receipt["status"])
         self.assertTrue(receipt["rollbackComplete"])
+
+    def test_process_halt_after_publication_recovers_pending_receipt(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        txid = "halt-after-publication"
+        halted = self.run_harness(
+            "apply", target, workspace, txid,
+            "halt-after-release-published",
+        )
+        self.assertEqual(91, halted.returncode)
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
+        self.assertEqual("pending", receipt["status"])
+        self.assertEqual("release-published", receipt["failureType"])
+        self.assertNotEqual(before, tree_snapshot(target))
+        recovered = self.run_harness("recover", target, workspace, txid)
+        self.assertEqual(0, recovered.returncode, recovered.stderr)
+        self.assertEqual(before, tree_snapshot(target))
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
+        self.assertEqual("rolled-back", receipt["status"])
 
     def test_rollback_preserves_observer_drift_without_destructive_cleanup(self) -> None:
         for index, tamper in enumerate((

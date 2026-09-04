@@ -218,6 +218,14 @@ preview can report `UPGRADE_READY`; apply still fails before creating
 transaction evidence or touching the target. Activation has an independent
 compiled `executionReady:false` gate, so provider installability cannot
 silently enable apply.
+Preview now proves both the translated game and websocket ports are available
+and briefly acquires an exclusive lock on the reviewed configuration (or
+managed ledger). Apply and recovery hold those target-scoped locks and both
+port reservations for their full critical section, so a server running without
+a sentinel and concurrent transactions are refused. Typed configuration reads
+both `key=value` and provider-style `key: value`, accepts explicit `sqlite`, and
+preserves a bounded public bind address; only the disposable executable
+verification copy may override the bind to literal loopback.
 The built-in migrator now renders typed configuration and invokes the exact
 provider migration class from the staged, inventory-verified `server-runtime`
 artifact. For the compiled `server/inc/sqlite/preservation.db` source it
@@ -268,6 +276,25 @@ credential values are not accepted by the current Editor plan. There is no
 desktop route yet. Provider installability, compiled profile readiness, and the
 selected plan's zero-blocker state are all required independently; metadata
 alone cannot authorize apply.
+
+The provider's current `candidate-pairing-verifier` is intentionally build-only
+and cannot close that execution gate. A future provider contract must inventory
+a closed installed-execution verifier role/main class whose arguments are
+limited to the selected composition identity, installed server/client roots,
+generated profile/config/state/map paths, loopback ports, and a disposable
+credential reference. Its hash-bound evidence must cover two launch cycles,
+artifact identity, handshake, login/logout, canonical map/state assertions and
+restart persistence. The Editor will not infer launcher arguments or promote
+log matching into authority in the absence of that contract.
+
+Confirmation is a digest of the complete reviewed plan—not merely the target
+classification and provider artifact list—so changing packed evidence,
+configuration/database selection, generated layout, or verifier inputs requires
+a new confirmation. Pending receipts are atomically advanced after backup,
+staging, release publication, and ledger activation. Recovery accepts an exact
+pending receipt after process termination, infers only exact preimage/planned
+states, and removes a temporary ledger file only when it is byte-identical to
+the transaction-owned activation document.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification

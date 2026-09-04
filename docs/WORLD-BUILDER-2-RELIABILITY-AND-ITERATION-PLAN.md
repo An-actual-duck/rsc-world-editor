@@ -398,7 +398,17 @@ without imposing its gameplay or content on Base users.
   one-sector shortcut is accepted as public migration proof. Materializing that
   package plus migrated configuration/state into runnable server/client roots,
   runnable staged/installed server-client verification, and exact recovery
-  binding for generated state outputs remain open.
+  binding for generated state outputs remain open. The provider's present
+  candidate verifier explicitly has build-only authority; production activation
+  additionally needs a bundle-inventoried installed-execution verifier contract
+  with closed arguments and hash-bound two-run handshake/login/map/state/restart
+  evidence. Editor code must not guess launch arguments or trust unbound logs.
+  Current transaction confirmation now binds the complete plan, and atomic
+  pending phase receipts recover a process halt after publication. Preview
+  probes, while apply/recovery hold, the translated game/websocket ports and a
+  target-scoped configuration/ledger lock. Provider-style colon configuration,
+  explicit SQLite selection, and bounded public bind addresses are translated;
+  disposable verification alone may force loopback.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
