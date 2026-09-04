@@ -597,7 +597,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertEqual(3, failure.returncode)
         self.assertIn("unsafe", failure.stderr.lower())
 
-    def test_locked_artifact_candidate_never_grants_activation_authority(self) -> None:
+    def test_locked_release_candidate_is_classification_authority_only(self) -> None:
         variant = json.loads(
             (PROVIDER_CATALOG / "variants/current-base-v1.json").read_text()
         )
@@ -607,16 +607,10 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         profile = json.loads(
             (PROVIDER_CATALOG / "runtime/current-base-v1/profile.json").read_text()
         )
-        self.assertEqual("artifact-candidate", variant["releaseStatus"])
-        self.assertFalse(variant["installable"])
-        self.assertFalse(bundle["installable"])
-        self.assertEqual(
-            [
-                "transactional-state-migration-row-v1",
-                "base-gameplay-state-runtime-execution-v1",
-            ],
-            profile["installabilityBlockers"],
-        )
+        self.assertEqual("release-candidate", variant["releaseStatus"])
+        self.assertTrue(variant["installable"])
+        self.assertTrue(bundle["installable"])
+        self.assertEqual([], profile["installabilityBlockers"])
         adapter = json.loads(EDITOR_CONTRACTS["input-adapter"].read_text())
         adapter["adapterId"] = "preservation-family-v1"
         adapter = bind_fingerprint(adapter, "adapterManifestHash")
@@ -628,14 +622,13 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             target, self.candidate_identity, self.candidate_catalog,
             adapter=adapter_path,
         )
-        self.assertEqual(3, result.returncode, result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, target_snapshot(target))
         report = json.loads(result.stdout)
-        self.assertEqual("NOT_INSTALLABLE", report["status"])
+        self.assertEqual("UPGRADE_READY", report["status"])
         self.assertEqual("T0", report["tier"])
         self.assertFalse(report["mutationOccurred"])
-        self.assertFalse(report["destination"]["installable"])
-        self.assertTrue(any("non-installable" in action for action in report["actions"]))
+        self.assertTrue(report["destination"]["installable"])
 
         current_target = self.current_target(
             self.candidate_identity, "artifact-candidate-current-target",
@@ -646,10 +639,10 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
             current_target, self.candidate_identity, self.candidate_catalog,
             adapter=adapter_path,
         )
-        self.assertEqual(3, result.returncode, result.stderr)
+        self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual(before, target_snapshot(current_target))
         report = json.loads(result.stdout)
-        self.assertEqual("NOT_INSTALLABLE", report["status"])
+        self.assertEqual("CURRENT", report["status"])
         self.assertEqual("CURRENT", report["tier"])
         self.assertFalse(report["mutationOccurred"])
 

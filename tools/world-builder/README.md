@@ -35,11 +35,13 @@ reviewed lineage to Current Advanced, and portable custom behavior to explicit
 current modules on one platform generation. Provider-owned platform, Base,
 Advanced, bundle, module, and resolved-composition contracts now exist, along
 with Editor-owned input-adapter, project-capability, target-ledger, and
-read-only classification contracts. The provider bundles remain
-`foundation-contract-only` and `installable: false`; migrations, the
-transactional installer, and the executable release gate still must be built.
-Until then, `upgrade-target-runtime` must not be presented as a supported public
-migration. See
+read-only classification contracts. Current Base is now an installable,
+explicitly unreleased runtime release candidate backed by SQLite/MariaDB
+migration and built server/client execution evidence; Current Advanced remains
+foundation-only and non-installable. The Editor's complete transactional
+migration/cutover, installed execution verification, and the product release
+gate still must be built. Until then, `upgrade-target-runtime` must not be
+presented as a supported public migration. See
 [`docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md`](../../docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
 
 Build the standalone tools with:
@@ -210,11 +212,12 @@ the current ledger is the
 byte-exact planned activation or preimage and the complete release tree remains
 transaction-owned; extra, missing, linked, or changed evidence is preserved as
 `RECOVERY_REQUIRED` instead of overwritten or deleted. This executor foundation
-does not yet authorize a real upgrade: the locked Current Base provider remains
-`installable:false`. Production preview reports `NOT_INSTALLABLE`, while apply
-fails before creating transaction evidence or touching the target. Activation
-also has an independent compiled `executionReady:false` gate: changing a future
-provider composition to `installable:true` cannot silently enable apply.
+does not yet authorize a real upgrade. The locked Current Base provider is now
+an installable, explicitly unreleased runtime release candidate, so production
+preview can report `UPGRADE_READY`; apply still fails before creating
+transaction evidence or touching the target. Activation has an independent
+compiled `executionReady:false` gate, so provider installability cannot
+silently enable apply.
 The built-in migrator now renders the typed configuration into the staged
 release, validates and copies a closed offline SQLite snapshot byte-exactly,
 and converts a reviewed single-sector packed terrain input through the existing
@@ -229,18 +232,19 @@ sector; it does not accept target-selected paths. Staged outputs enforce POSIX
 `0600` modes, so non-POSIX filesystems remain an explicit portability gap and
 must fail rather than silently weaken permissions.
 
-Activation remains unavailable until the provider supplies the hash-bound
-`current-base-state-migration-v1` contract and
-`preservation-retro-to-current-base-v1` row through the closed
+The provider now supplies the hash-bound `current-base-state-migration-v1`
+contract and `preservation-retro-to-current-base-v1` row through the closed
 `state-migration-manifest`, `contract-schema`, and existing `server-runtime`
-roles. The provider manifest is fixed at
+roles. Its manifest is fixed at
 `contracts/runtime/current-base-v1/state-migration.json`; it selects
 `com.openrsc.server.database.CurrentBaseStateMigration` from the hash-bound
-`runtime/server/core.jar`, not a separate migration-tool artifact. Activation
-also requires complete canonical-package installation and staged/installed server/client
-launch, handshake, login, gameplay, map, and state verification. MariaDB also
-requires a closed snapshot/restore implementation; live connections and target
-credentials are not accepted. There is no desktop route yet.
+`runtime/server/core.jar`, not a separate migration-tool artifact, and has real
+SQLite and loopback MariaDB migration evidence. The Editor does not invoke that
+row or cut over its staged database yet. Activation also requires complete
+canonical-package installation and staged/installed server/client launch,
+handshake, login, gameplay, map, and state verification. Live connections and
+target credentials are not accepted by the current Editor path. There is no
+desktop route yet.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
