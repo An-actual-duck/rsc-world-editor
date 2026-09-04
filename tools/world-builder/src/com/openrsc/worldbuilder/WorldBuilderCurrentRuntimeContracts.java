@@ -76,6 +76,14 @@ final class WorldBuilderCurrentRuntimeContracts {
 		return new Document(kind, root);
 	}
 
+	static Document builtIn(Kind kind, Map<String,Object> root)
+		throws WorldBuilderContractException {
+		validate(kind, root, false);
+		WorldBuilderAdaptiveExporter.bindFingerprint(root, kind.fingerprintField);
+		validate(kind, root, true);
+		return new Document(kind, root);
+	}
+
 	private static void validate(Kind kind, Map<String,Object> root,
 		boolean requireFingerprint) throws WorldBuilderContractException {
 		String op = "validate-" + kind.externalName;
@@ -299,6 +307,12 @@ final class WorldBuilderCurrentRuntimeContracts {
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentityPath);
 		Document adapterDocument = read(Kind.INPUT_ADAPTER, adapterPath);
 		Document projectDocument = read(Kind.PROJECT_CAPABILITY, projectCapabilityPath);
+		return classify(targetRoot, composition, adapterDocument, projectDocument);
+	}
+
+	static Classification classify(Path targetRoot,
+		WorldBuilderProviderCatalog.Composition composition, Document adapterDocument,
+		Document projectDocument) throws IOException, WorldBuilderContractException {
 		Map<String,Object> adapter = adapterDocument.root;
 		Map<String,Object> project = projectDocument.root;
 		crossValidate(composition, adapter, project);

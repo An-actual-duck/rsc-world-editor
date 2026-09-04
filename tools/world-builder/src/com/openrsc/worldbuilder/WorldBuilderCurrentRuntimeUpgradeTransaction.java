@@ -24,13 +24,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
-/**
- * Synthetic-only current-runtime transaction foundation.  This type is
- * deliberately package-private and has no CLI/UI route.  It proves the plan,
- * backup, side-by-side publication, activation-last, rollback, and recovery
- * contracts without claiming that the repository ships a production adapter
- * or an executable provider bundle.
- */
+/** Transactional current-runtime upgrade engine behind the reviewed CLI surface. */
 final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	private static final String OPERATION = "current-runtime-upgrade";
 	private static final String ZERO_HASH =
@@ -65,6 +59,27 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	Preview preview(Path targetRoot, Path transactionRoot, Path providerCatalogRoot,
 		Path compositionIdentity, Path inputAdapter, Path projectCapability,
 		String transactionId) throws IOException, WorldBuilderContractException {
+		WorldBuilderCurrentRuntimeContracts.Document adapter =
+			WorldBuilderCurrentRuntimeContracts.read(
+				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
+		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
+			compositionIdentity, inputAdapter, projectCapability, transactionId,
+			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter));
+	}
+
+	Preview previewPreservation(Path targetRoot, Path transactionRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
+		String transactionId) throws IOException, WorldBuilderContractException {
+		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
+			compositionIdentity, null, projectCapability, transactionId,
+			WorldBuilderCurrentRuntimeExecutionProfile.preservation());
+	}
+
+	private Preview previewInternal(Path targetRoot, Path transactionRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
+		Path projectCapability, String transactionId,
+		WorldBuilderCurrentRuntimeExecutionProfile profile)
+		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
 		Path workspace = realDirectory(transactionRoot, "transaction-root");
@@ -80,17 +95,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentity);
-		WorldBuilderCurrentRuntimeContracts.Document adapter =
-			WorldBuilderCurrentRuntimeContracts.read(
-				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
+		WorldBuilderCurrentRuntimeContracts.Document adapter = profile.adapter;
 		WorldBuilderCurrentRuntimeContracts.Document project =
 			WorldBuilderCurrentRuntimeContracts.read(
 				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
-		if (!"synthetic-fixture".equals(string(adapter.root, "evidenceAuthority"))) {
-			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER, "input-adapter", false,
-				"This bounded executor accepts only explicitly synthetic fixture authority.",
-				"Wait for a reviewed production adapter and production installer surface.");
-		}
 		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath"))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
 				"targetLedgerRelativePath", false,
@@ -98,12 +106,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Use the reviewed synthetic adapter contract without path variation.");
 		}
 		WorldBuilderCurrentRuntimeContracts.Classification classified =
-			WorldBuilderCurrentRuntimeContracts.classify(target, providerCatalogRoot,
-				compositionIdentity, inputAdapter, projectCapability);
+			WorldBuilderCurrentRuntimeContracts.classify(target, composition, adapter, project);
 		Map<String,Object> classification = classified.document();
 		String status = string(classification, "status");
 		String tier = string(classification, "tier");
-		if (!"UPGRADE_READY".equals(status)
+		boolean inspectOnly = !profile.syntheticOnly && "NOT_INSTALLABLE".equals(status);
+		if (!("UPGRADE_READY".equals(status) || inspectOnly)
 			|| !Arrays.asList("T0", "T1", "T2A", "T2B", "MANAGED_N").contains(tier)) {
 			throw problem("NOT_INSTALLABLE".equals(status)
 				? WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED
@@ -113,15 +121,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 					+ status + "/" + tier + ".",
 				"Resolve PORT_REQUIRED/T5 evidence or select an installable synthetic composition; there is no force mode.");
 		}
-		if (!composition.installable) throw problem(
+		if (profile.syntheticOnly && !composition.installable) throw problem(
 			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "destination", false,
 			"A non-installable provider composition cannot authorize activation.",
 			"Select a released installable bundle; inspection alone is not activation authority.");
 
 		Map<String,Object> plan = buildPlan(target, workspace, composition, adapter,
-			project, classification, transactionId);
+			project, classification, transactionId, profile);
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
-			inputAdapter, projectCapability, plan);
+			inputAdapter, projectCapability, profile, plan);
 	}
 
 	Result apply(Preview reviewed, String confirmation)
@@ -132,10 +140,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation", false,
 			"Upgrade confirmation does not exactly identify the reviewed transaction plan.",
 			"Review a fresh preview and provide its complete confirmationIdentity.");
-		Preview fresh = preview(reviewed.targetRoot, reviewed.transactionRoot,
-			reviewed.providerCatalogRoot, reviewed.compositionIdentity,
-			reviewed.inputAdapter, reviewed.projectCapability,
-			string(reviewed.plan, "transactionId"));
+		if (!bool(reviewed.plan, "activationAuthorized")) throw problem(
+			WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "destination", false,
+			"The reviewed provider composition is inspectable but not installable.",
+			"Wait for a released installable provider composition and preview again.");
+		Preview fresh = refresh(reviewed);
 		if (!fresh.fingerprint().equals(reviewed.fingerprint())) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "upgrade-plan", false,
 			"Target, provider, adapter, project, or transaction plan changed after preview.",
@@ -166,10 +175,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.createDirectory(staging);
 			stageRelease(reviewed, staging);
 			observe("after-staging", staging);
-			fresh = preview(reviewed.targetRoot, reviewed.transactionRoot,
-				reviewed.providerCatalogRoot, reviewed.compositionIdentity,
-				reviewed.inputAdapter, reviewed.projectCapability,
-				string(reviewed.plan, "transactionId"));
+			fresh = refresh(reviewed);
 			if (!fresh.fingerprint().equals(reviewed.fingerprint())) throw problem(
 				WorldBuilderErrorCodes.TARGET_DRIFT, "upgrade-plan", false,
 				"Target or authority changed after backup and staging.",
@@ -223,6 +229,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Current-runtime transaction was interrupted and rolled back.",
 				"Review the preserved receipt and request a fresh preview.", failure);
 		}
+	}
+
+	private Preview refresh(Preview preview)
+		throws IOException, WorldBuilderContractException {
+		if (preview.profile.syntheticOnly) return preview(preview.targetRoot,
+			preview.transactionRoot, preview.providerCatalogRoot,
+			preview.compositionIdentity, preview.inputAdapter,
+			preview.projectCapability, string(preview.plan, "transactionId"));
+		return previewPreservation(preview.targetRoot, preview.transactionRoot,
+			preview.providerCatalogRoot, preview.compositionIdentity,
+			preview.projectCapability, string(preview.plan, "transactionId"));
 	}
 
 	Result recover(Path targetRoot, Path transactionRoot, String transactionId)
@@ -299,22 +316,36 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 	}
 
+	boolean mapImportAvailablePreservation(Path targetRoot, Path providerCatalogRoot,
+		Path compositionIdentity, Path projectCapability) {
+		try {
+			return mapImportAvailableChecked(targetRoot, providerCatalogRoot,
+				compositionIdentity, null, projectCapability);
+		} catch (IOException unavailable) {
+			return false;
+		} catch (WorldBuilderContractException invalid) {
+			return false;
+		}
+	}
+
 	private boolean mapImportAvailableChecked(Path targetRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
 		Path projectCapability) throws IOException, WorldBuilderContractException {
-		WorldBuilderCurrentRuntimeContracts.Classification classification =
-			WorldBuilderCurrentRuntimeContracts.classify(targetRoot, providerCatalogRoot,
-				compositionIdentity, inputAdapter, projectCapability);
-		if (!"CURRENT".equals(classification.status())) return false;
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentity);
 		if (!composition.installable) return false;
-		WorldBuilderCurrentRuntimeContracts.Document adapter =
+		WorldBuilderCurrentRuntimeExecutionProfile profile;
+		if (inputAdapter == null) profile = WorldBuilderCurrentRuntimeExecutionProfile.preservation();
+		else profile = WorldBuilderCurrentRuntimeExecutionProfile.synthetic(
 			WorldBuilderCurrentRuntimeContracts.read(
-				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
+				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter));
+		WorldBuilderCurrentRuntimeContracts.Document adapter = profile.adapter;
 		WorldBuilderCurrentRuntimeContracts.Document project =
 			WorldBuilderCurrentRuntimeContracts.read(
 				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+		WorldBuilderCurrentRuntimeContracts.Classification classification =
+			WorldBuilderCurrentRuntimeContracts.classify(targetRoot, composition, adapter, project);
+		if (!"CURRENT".equals(classification.status())) return false;
 		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath")))
 			return false;
 		Path target = realDirectory(targetRoot, "target-root");
@@ -326,11 +357,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		String activationRelative = releaseRelative + "/activation.json";
 		if (!activationRelative.equals(string(ledger.root,
 			"activeLauncherRelativePath"))) return false;
-		if (!"synthetic-current-server-r1".equals(string(ledger.root, "serverBuildId"))
-			|| !"synthetic-current-client-r1".equals(string(ledger.root, "clientBuildId"))
-			|| !"synthetic-canonical-map-v1".equals(
+		if (!profile.serverBuildId.equals(string(ledger.root, "serverBuildId"))
+			|| !profile.clientBuildId.equals(string(ledger.root, "clientBuildId"))
+			|| !profile.mapPackageId.equals(
 				string(ledger.root, "activeMapPackageId"))) return false;
-		verifyProviderReleaseTree(target, releaseRelative, composition.artifacts, null);
+		verifyProviderReleaseTree(target, releaseRelative, composition.artifacts, null, null);
 		Map<String,Object> activation = readObject(
 			safeExistingFile(target, activationRelative), activationRelative);
 		validateActivation(activation, composition, adapter.root, project.root, ledger.root);
@@ -341,7 +372,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderProviderCatalog.Composition composition,
 		WorldBuilderCurrentRuntimeContracts.Document adapter,
 		WorldBuilderCurrentRuntimeContracts.Document project,
-		Map<String,Object> classification, String transactionId)
+		Map<String,Object> classification, String transactionId,
+		WorldBuilderCurrentRuntimeExecutionProfile profile)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> plan = new LinkedHashMap<String,Object>();
 		plan.put("schemaVersion", Long.valueOf(1));
@@ -356,8 +388,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		adapterReference.put("adapterManifestHash", string(adapter.root, "adapterManifestHash"));
 		adapterReference.put("inputAdapterContractId",
 			composition.string("inputAdapterContractId"));
-		adapterReference.put("evidenceAuthority", "synthetic-fixture");
+		adapterReference.put("evidenceAuthority", string(adapter.root, "evidenceAuthority"));
 		plan.put("inputAdapter", adapterReference);
+		plan.put("executionProfile", profile.identity());
+		plan.put("migrationPlan", profile.migrationPlan(target, classification));
 		Map<String,Object> projectReference = new LinkedHashMap<String,Object>();
 		projectReference.put("projectId", string(project.root, "projectId"));
 		projectReference.put("capabilityFingerprintSha256",
@@ -392,11 +426,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		String activationPlanBindingHash = activationPlanBindingHash(plan);
 		Map<String,Object> ledger = activationLedger(target, composition, adapter,
 			project, classification, preimage, semantic, canonicalHash(artifacts),
-			activationPlanBindingHash, transactionId, releaseRelative);
+			activationPlanBindingHash, transactionId, releaseRelative, profile);
 		plan.put("activationLedger", ledger);
 		plan.put("verificationEvidenceHash", string(ledger, "verificationEvidenceHash"));
 		plan.put("mapImportAvailableBeforeApply", Boolean.FALSE);
 		plan.put("mutationOccurred", Boolean.FALSE);
+		plan.put("activationAuthorized", Boolean.valueOf(composition.installable
+			&& "UPGRADE_READY".equals(string(classification, "status"))));
 		plan.put("confirmationIdentity", "UPGRADE:" + transactionId + ":"
 			+ string(classification, "classificationFingerprintSha256") + ":"
 			+ canonicalHash(artifacts));
@@ -470,7 +506,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderCurrentRuntimeContracts.Document project,
 		Map<String,Object> classification, List<Object> preimage, List<Object> semantic,
 		String artifactPlanHash, String activationPlanBindingHash,
-		String transactionId, String releaseRelative)
+		String transactionId, String releaseRelative,
+		WorldBuilderCurrentRuntimeExecutionProfile profile)
 		throws WorldBuilderContractException {
 		Map<String,Object> ledger = new LinkedHashMap<String,Object>();
 		ledger.put("schemaVersion", Long.valueOf(1));
@@ -492,21 +529,21 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		for (Object raw : semantic) {
 			String disposition = string(object(raw), "disposition");
 			if ("typed-configuration".equals(disposition))
-				configurations.add("synthetic-preservation-config-v1");
+				configurations.add(profile.configurationMigrationId);
 			if ("canonical-data".equals(disposition))
-				states.add("synthetic-preservation-data-v1");
+				states.add(profile.stateMigrationId);
 			if ("canonical-map".equals(disposition) || "replace".equals(disposition))
-				states.add("synthetic-preservation-map-v1");
+				states.add(profile.mapMigrationId);
 		}
 		List<String> configIds = new ArrayList<String>(configurations);
 		List<String> stateIds = new ArrayList<String>(states);
 		Collections.sort(configIds); Collections.sort(stateIds);
 		ledger.put("configurationMigrationIds", new ArrayList<Object>(configIds));
 		ledger.put("stateMigrationIds", new ArrayList<Object>(stateIds));
-		ledger.put("serverBuildId", "synthetic-current-server-r1");
-		ledger.put("clientBuildId", "synthetic-current-client-r1");
+		ledger.put("serverBuildId", profile.serverBuildId);
+		ledger.put("clientBuildId", profile.clientBuildId);
 		ledger.put("activeLauncherRelativePath", releaseRelative + "/activation.json");
-		ledger.put("activeMapPackageId", "synthetic-canonical-map-v1");
+		ledger.put("activeMapPackageId", profile.mapPackageId);
 		Map<String,Object> verification = new LinkedHashMap<String,Object>();
 		verification.put("classificationFingerprintSha256",
 			string(classification, "classificationFingerprintSha256"));
@@ -582,7 +619,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Map<String,Object> activation = activationDocument(preview.plan);
 		writeNew(staging.resolve("activation.json"),
 			WorldBuilderJsonDocuments.pretty(activation));
-		verifyProviderReleaseTree(staging, "", composition.artifacts, activation);
+		Files.createDirectory(staging.resolve("migration"));
+		writeNew(staging.resolve("migration/migration-plan.json"),
+			WorldBuilderJsonDocuments.pretty(preview.plan.get("migrationPlan")));
+		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
+			object(preview.plan.get("migrationPlan")));
 	}
 
 	private static void writeActivationLedger(Path ledger, Map<String,Object> document)
@@ -742,6 +783,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		activation.put("destination", plan.get("destination"));
 		activation.put("projectCapability", plan.get("projectCapability"));
 		activation.put("inputAdapter", plan.get("inputAdapter"));
+		activation.put("executionProfile", plan.get("executionProfile"));
+		activation.put("migrationPlan", plan.get("migrationPlan"));
 		activation.put("artifactPlanHash", string(plan, "artifactPlanHash"));
 		activation.put("semanticActionsHash", string(plan, "semanticActionsHash"));
 		activation.put("verificationEvidenceHash",
@@ -750,7 +793,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		activation.put("serverBuildId", string(ledger, "serverBuildId"));
 		activation.put("clientBuildId", string(ledger, "clientBuildId"));
 		activation.put("activeMapPackageId", string(ledger, "activeMapPackageId"));
-		activation.put("syntheticOnly", Boolean.TRUE);
+		activation.put("syntheticOnly", object(plan.get("executionProfile")).get("syntheticOnly"));
 		return activation;
 	}
 
@@ -766,6 +809,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		binding.put("destination", source.get("destination"));
 		binding.put("projectCapability", source.get("projectCapability"));
 		binding.put("inputAdapter", source.get("inputAdapter"));
+		binding.put("executionProfile", source.get("executionProfile"));
+		binding.put("migrationPlan", source.get("migrationPlan"));
 		Map<String,Object> destination = object(source.get("destination"));
 		binding.put("releaseRelativePath", RELEASE_PREFIX
 			+ string(destination, "bundleInventoryHash"));
@@ -782,11 +827,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"destination", "projectCapability",
 			"inputAdapter", "artifactPlanHash",
 			"semanticActionsHash", "verificationEvidenceHash", "serverBuildId",
-			"clientBuildId", "activeMapPackageId", "syntheticOnly");
+			"clientBuildId", "activeMapPackageId", "syntheticOnly",
+			"executionProfile", "migrationPlan");
+		Map<String,Object> executionProfile = object(activation.get("executionProfile"));
 		if (integer(activation, "schemaVersion") != 1L
-			|| !"world-builder-synthetic-current-activation".equals(
+			|| !string(executionProfile, "activationManifestType").equals(
 				string(activation, "manifestType"))
-			|| !bool(activation, "syntheticOnly")) throw problem(
+			|| bool(executionProfile, "syntheticOnly") != bool(activation, "syntheticOnly")) throw problem(
 			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, "activation.json", false,
 			"Installed activation marker has no exact synthetic identity.",
 			"Keep map import disabled and recover/reinstall the exact composition.");
@@ -828,8 +875,18 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				string(adapterReference, "adapterManifestHash"))
 			|| !composition.string("inputAdapterContractId").equals(
 				string(adapterReference, "inputAdapterContractId"))
-			|| !"synthetic-fixture".equals(string(adapterReference, "evidenceAuthority")))
+			|| !string(adapter, "evidenceAuthority").equals(
+				string(adapterReference, "evidenceAuthority")))
 			throw activationMismatch("inputAdapter");
+		if (!string(executionProfile, "serverBuildId").equals(
+				string(ledger, "serverBuildId"))
+			|| !string(executionProfile, "clientBuildId").equals(
+					string(ledger, "clientBuildId"))
+			|| !string(executionProfile, "mapPackageId").equals(
+					string(ledger, "activeMapPackageId"))
+			|| !string(executionProfile, "migratorId").equals(
+					string(object(activation.get("migrationPlan")), "migratorId")))
+			throw activationMismatch("executionProfile");
 		for (String field : Arrays.asList("verificationEvidenceHash", "serverBuildId",
 			"clientBuildId", "activeMapPackageId")) if (!string(ledger, field).equals(
 				string(activation, field))) throw activationMismatch(field);
@@ -887,12 +944,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		List<Map<String,Object>> artifacts = new ArrayList<Map<String,Object>>();
 		for (Object raw : array(plan.get("artifactPlan"))) artifacts.add(object(raw));
 		verifyReleaseTree(target, string(plan, "releaseRelativePath"), artifacts,
-			activationDocument(plan));
+			activationDocument(plan), object(plan.get("migrationPlan")));
 	}
 
 	private static void verifyProviderReleaseTree(Path target, String releaseRelative,
 		List<WorldBuilderProviderCatalog.Artifact> providerArtifacts,
-		Map<String,Object> expectedActivation)
+		Map<String,Object> expectedActivation, Map<String,Object> expectedMigration)
 		throws IOException, WorldBuilderContractException {
 		List<Map<String,Object>> artifacts = new ArrayList<Map<String,Object>>();
 		for (WorldBuilderProviderCatalog.Artifact artifact : providerArtifacts) {
@@ -903,11 +960,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			record.put("sha256", artifact.inventory.get("sha256"));
 			artifacts.add(record);
 		}
-		verifyReleaseTree(target, releaseRelative, artifacts, expectedActivation);
+		verifyReleaseTree(target, releaseRelative, artifacts, expectedActivation,
+			expectedMigration);
 	}
 
 	private static void verifyReleaseTree(Path root, String releaseRelative,
-		List<Map<String,Object>> artifacts, Map<String,Object> expectedActivation)
+		List<Map<String,Object>> artifacts, Map<String,Object> expectedActivation,
+		Map<String,Object> expectedMigration)
 		throws IOException, WorldBuilderContractException {
 		final Path release = releaseRelative.isEmpty() ? root
 			: targetPath(root, releaseRelative);
@@ -925,6 +984,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			addParentDirectories(bundle, expectedDirectories);
 		}
 		expectedFiles.add("activation.json");
+		expectedFiles.add("migration/migration-plan.json");
+		expectedDirectories.add("migration");
 		final Set<String> actualFiles = new HashSet<String>();
 		final Set<String> actualDirectories = new HashSet<String>();
 		Files.walkFileTree(release, new SimpleFileVisitor<Path>() {
@@ -969,6 +1030,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 					WorldBuilderHashes.sha256(expected))) throw problem(
 				WorldBuilderErrorCodes.TARGET_DRIFT, "activation.json", false,
 				"Activation document bytes differ from the transaction-owned document.",
+				"Preserve the drifted release and transaction evidence; no cleanup is authorized.");
+		}
+		Path migration = safeExistingFile(release, "migration/migration-plan.json");
+		if (expectedMigration != null) {
+			byte[] expected = WorldBuilderJsonDocuments.pretty(expectedMigration)
+				.getBytes(StandardCharsets.UTF_8);
+			if (Files.size(migration) != expected.length
+				|| !WorldBuilderHashes.sha256(migration).equals(
+					WorldBuilderHashes.sha256(expected))) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, "migration/migration-plan.json", false,
+				"Migration plan bytes differ from the transaction-owned document.",
 				"Preserve the drifted release and transaction evidence; no cleanup is authorized.");
 		}
 	}
@@ -1244,15 +1316,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		final Path compositionIdentity;
 		final Path inputAdapter;
 		final Path projectCapability;
+		final WorldBuilderCurrentRuntimeExecutionProfile profile;
 		final Map<String,Object> plan;
 
 		Preview(Path targetRoot, Path transactionRoot, Path providerCatalogRoot,
 			Path compositionIdentity, Path inputAdapter, Path projectCapability,
-			Map<String,Object> plan) {
+			WorldBuilderCurrentRuntimeExecutionProfile profile, Map<String,Object> plan) {
 			this.targetRoot = targetRoot; this.transactionRoot = transactionRoot;
 			this.providerCatalogRoot = providerCatalogRoot;
 			this.compositionIdentity = compositionIdentity;
 			this.inputAdapter = inputAdapter; this.projectCapability = projectCapability;
+			this.profile = profile;
 			this.plan = plan;
 		}
 
@@ -1270,12 +1344,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderBoundedInventory.exactKeys(plan, OPERATION,
 			"schemaVersion", "manifestType", "transactionId", "classificationStatus",
 			"classificationTier", "classificationFingerprintSha256", "inputAdapter",
-			"projectCapability", "destination", "preimageInventory",
+			"executionProfile", "migrationPlan", "projectCapability", "destination", "preimageInventory",
 			"preimageInventoryHash", "semanticActions", "semanticActionsHash",
 			"artifactPlan", "artifactPlanHash", "releaseRelativePath", "stagingPolicy",
 			"activationLedgerRelativePath", "activationLedger",
 			"verificationEvidenceHash", "mapImportAvailableBeforeApply",
-			"mutationOccurred", "confirmationIdentity", "planFingerprintSha256");
+			"mutationOccurred", "activationAuthorized", "confirmationIdentity", "planFingerprintSha256");
+		WorldBuilderCurrentRuntimeExecutionProfile profile =
+			WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(
+				object(plan.get("executionProfile")));
 		if (integer(plan, "schemaVersion") != 1L
 			|| !"world-builder-current-runtime-upgrade-plan".equals(
 				string(plan, "manifestType"))
@@ -1286,7 +1363,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				string(plan, "stagingPolicy"))
 			|| !LEDGER_RELATIVE.equals(string(plan, "activationLedgerRelativePath"))
 			|| bool(plan, "mapImportAvailableBeforeApply")
-			|| bool(plan, "mutationOccurred")) throw problem(
+			|| bool(plan, "mutationOccurred") || !bool(plan, "activationAuthorized")) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "upgrade-plan", true,
 			"Recovery plan has unsupported execution authority.",
 			"Restore the exact synthetic transaction plan.");
@@ -1335,6 +1412,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Restore the exact synthetic transaction plan.");
 		}
 		Map<String,Object> ledger = object(plan.get("activationLedger"));
+		Map<String,Object> migration = object(plan.get("migrationPlan"));
+		if (!profile.migratorId.equals(string(migration, "migratorId"))
+			|| !profile.serverBuildId.equals(string(ledger, "serverBuildId"))
+			|| !profile.clientBuildId.equals(string(ledger, "clientBuildId"))
+			|| !profile.mapPackageId.equals(string(ledger, "activeMapPackageId")))
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "executionProfile", true,
+				"Recovery evidence does not bind its compiled execution profile.",
+				"Restore the exact transaction plan; target documents cannot select executable migration code.");
 		for (String field : Arrays.asList("platformReleaseId", "platformManifestHash",
 			"schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash",
 			"bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
@@ -1390,4 +1475,4 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			return WorldBuilderJsonDocuments.pretty(value);
 		}
 	}
-}
+	}
