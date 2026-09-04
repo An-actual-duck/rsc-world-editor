@@ -289,11 +289,17 @@ final class WorldBuilderAdaptiveMutationProfile {
 			"Installed transaction authority does not belong to this project and target.",
 			"Use the exact project and server root from the latest successful import.");
 		List<String> changed = WorldBuilderAdaptiveUndo.changedAfterPaths(installed);
-		if (!changed.isEmpty()) throw problem(
-			WorldBuilderErrorCodes.TARGET_DRIFT, changed.get(0),
-			"The latest installed World Builder package or activation changed: "
-				+ joinPaths(changed) + ".",
-			"Restore the exact current installed package before importing again; no force mode exists.");
+		if (!changed.isEmpty()) {
+			boolean runtimeBaseline = runtimeCompatibilityOnly(installed);
+			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, changed.get(0),
+				(runtimeBaseline
+					? "The installed target runtime changed after its verified upgrade: "
+					: "The latest installed World Builder package or activation changed: ")
+					+ joinPaths(changed) + ".",
+				runtimeBaseline
+					? "Keep the target offline, create a fresh project from this exact state, and run Upgrade Target Runtime again; no force mode exists."
+					: "Restore the exact current installed package before importing again; no force mode exists.");
+		}
 		Set<String> installedDestinations = new HashSet<String>();
 		for (Action action : installed.actions) {
 			installedDestinations.add(action.destinationRelativePath);
@@ -479,6 +485,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			boolean capability = "runtime-compatibility-capability".equals(role);
 			boolean hostCapability =
 				"runtime-compatibility-host-capability".equals(role);
+			boolean serverLoginSource =
+				"runtime-compatibility-server-login-source".equals(role);
 			boolean retiredShadowRetirement =
 				"runtime-compatibility-retired-shadow-retirement".equals(role);
 			boolean gameplayOverlayRetirement =
@@ -532,6 +540,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 					: hostCapability
 						? WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_DESTINATION
 							.equals(destination)
+					: serverLoginSource
+						? "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+							.equals(destination)
 					: retiredShadowRetirement
 						? "server/world-builder-runtime/world-builder-managed-runtime.jar"
 							.equals(destination)
@@ -583,8 +594,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 				: client
 					? "working/runtime/client/Open_RSC_Client.jar"
 					: capability ? WorldBuilderRuntimeCompatibility.CAPABILITY_SOURCE
-						: hostCapability
-							? WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_SOURCE : "";
+					: hostCapability
+							? WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_SOURCE
+					: serverLoginSource
+						? "working/runtime/server/conf/world-builder/host-integration/RSCProtocolDecoder.java"
+						: "";
 			String contentRelative = legacyCapabilityRetirement || legacyOverlayRetirement
 				|| retiredShadowRetirement || gameplayOverlayRetirement
 				? ""
@@ -607,6 +621,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 								: "package/activation/" + role
 									+ (capability || hostCapability || clientProfile ? ".json"
 										: serverProfile ? ".json"
+										: serverLoginSource ? ".java"
 									: serverConfiguration ? ".conf"
 										: serverBuildGuard || serverBuildOverlay
 											|| clientBuildOverlay ? ".xml" : ".jar");
@@ -1078,6 +1093,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 			String role = WorldBuilderAdaptiveExporter.string(
 				WorldBuilderAdaptiveExporter.object(raw, "action"), "role");
 			if (!role.startsWith("runtime-compatibility-")) return false;
+		}
+		return true;
+	}
+
+	private static boolean runtimeCompatibilityOnly(Plan plan) {
+		if (!plan.configurationChanges.isEmpty() || plan.actions.isEmpty()) return false;
+		for (Action action : plan.actions) {
+			if (!action.role.startsWith("runtime-compatibility-")) return false;
 		}
 		return true;
 	}

@@ -1,6 +1,8 @@
 package com.openrsc.worldbuilder;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -66,6 +68,14 @@ final class WorldBuilderRuntimeCompatibility {
 	private static final Pattern UNLESS_ATTRIBUTE = Pattern.compile(
 		"\\bunless\\s*=");
 	private static final String SERVER_DESTINATION = "server/core.jar";
+	private static final String LOGIN_FRAMING_CAPABILITY =
+		"undecided-custom-client-framing-v1";
+	private static final String LOGIN_DECODER_SOURCE_DESTINATION =
+		"server/src/com/openrsc/server/net/RSCProtocolDecoder.java";
+	private static final String LOGIN_DECODER_SOURCE_PAYLOAD =
+		"server/conf/world-builder/host-integration/RSCProtocolDecoder.java";
+	private static final String LOGIN_DECODER_CLASS =
+		"com/openrsc/server/net/RSCProtocolDecoder.class";
 	private static final String SERVER_SOURCE =
 		"working/runtime/server/world-builder-runtime/world-builder-managed-runtime.jar";
 	private static final String BUNDLE_ID =
@@ -104,11 +114,14 @@ final class WorldBuilderRuntimeCompatibility {
 				"Project host runtime capability is malformed.",
 				"Restore the exact verified project runtime.");
 		}
+		HostIntegration hostIntegration = requireHostIntegration(capability);
+		verifyProjectHostIntegration(project, hostIntegration);
 		List<Integer> encodingVersions = integerList(
 			capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE);
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+		appendHostSourceIntegration(project, target, hostIntegration, actions);
 		appendReplacement(project, target, "runtime-compatibility-server",
 			SERVER_DESTINATION, "working/runtime/server/core.jar",
 			transactionContent("server", ".jar"), actions);
@@ -226,6 +239,7 @@ final class WorldBuilderRuntimeCompatibility {
 		}
 		List<Integer> encodingVersions = integerList(
 			capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE);
+		HostIntegration hostIntegration = requireHostIntegration(capability);
 		Map<String,Object> activation = WorldBuilderAdaptiveExporter.object(
 			capability.get("activation"), "activation");
 		List<?> clientProfiles = WorldBuilderAdaptiveExporter.array(
@@ -234,16 +248,16 @@ final class WorldBuilderRuntimeCompatibility {
 		List<?> ownership = WorldBuilderAdaptiveExporter.array(
 			activation.get("ordinaryImportOwnership"),
 			"ordinaryImportOwnership");
-		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 1L
+		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 2L
 			|| !"world-builder-host-runtime-capability".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "manifestType"))
-			|| !"world-builder-host-runtime-capability-v1".equals(
+			|| !"world-builder-host-runtime-capability-v2".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
 			|| !"host-integrated-core-v1".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "integrationModel"))
 			|| !"world-builder-installed".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "profileId"))
-			|| !"rsc-world-editor-runtime-host-server-v1".equals(
+			|| !"rsc-world-editor-runtime-host-server-v2".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "serverBuildId"))
 			|| !"rsc-world-editor-runtime-host-client-v1".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "clientBuildId"))
@@ -282,6 +296,7 @@ final class WorldBuilderRuntimeCompatibility {
 				"Project host runtime capability identity is unsupported.",
 				"Restore the exact verified project runtime.");
 		}
+		verifyTargetHostIntegration(target, hostIntegration);
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
@@ -334,6 +349,212 @@ final class WorldBuilderRuntimeCompatibility {
 			&& "ground-item".equals(families.get(1))
 			&& "npc".equals(families.get(2))
 			&& "scenery".equals(families.get(3));
+	}
+
+	private static HostIntegration requireHostIntegration(Map<String,Object> capability)
+		throws WorldBuilderContractException {
+		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 2L
+			|| !"world-builder-host-runtime-capability-v2".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
+			|| !"rsc-world-editor-runtime-host-server-v2".equals(
+				WorldBuilderAdaptiveExporter.string(capability, "serverBuildId"))) {
+			throw problem(HOST_CAPABILITY_SOURCE,
+				"Project host runtime predates the verified login-framing cutover.",
+				"Create a fresh project with the current World Builder build before upgrading the target.");
+		}
+		List<?> required = WorldBuilderAdaptiveExporter.array(
+			capability.get("requiredHostCapabilities"), "requiredHostCapabilities");
+		if (required.size() != 1) throw hostIntegrationProblem(
+			"Host runtime must declare one exact required capability.");
+		Map<String,Object> entry = WorldBuilderAdaptiveExporter.object(
+			required.get(0), "requiredHostCapability");
+		if (!LOGIN_FRAMING_CAPABILITY.equals(
+			WorldBuilderAdaptiveExporter.string(entry, "capabilityId"))) {
+			throw hostIntegrationProblem(
+				"Host runtime does not declare the required custom-login framing capability.");
+		}
+		Map<String,Object> source = WorldBuilderAdaptiveExporter.object(
+			entry.get("sourceIntegration"), "sourceIntegration");
+		Map<String,Object> artifact = WorldBuilderAdaptiveExporter.object(
+			entry.get("artifactProbe"), "artifactProbe");
+		String payloadRelative = WorldBuilderAdaptiveExporter.string(
+			source, "payloadRelativePath");
+		String targetRelative = WorldBuilderAdaptiveExporter.string(
+			source, "targetRelativePath");
+		String payloadSha256 = requiredSha256(
+			WorldBuilderAdaptiveExporter.string(source, "payloadSha256"));
+		List<?> acceptedRaw = WorldBuilderAdaptiveExporter.array(
+			source.get("acceptedBeforeSha256"), "acceptedBeforeSha256");
+		if (!LOGIN_DECODER_SOURCE_PAYLOAD.equals(payloadRelative)
+			|| !LOGIN_DECODER_SOURCE_DESTINATION.equals(targetRelative)
+			|| acceptedRaw.isEmpty() || acceptedRaw.size() > 16) {
+			throw hostIntegrationProblem(
+				"Custom-login source integration contract is unsupported.");
+		}
+		List<String> accepted = new ArrayList<String>();
+		for (Object value : acceptedRaw) {
+			if (!(value instanceof String)) throw hostIntegrationProblem(
+				"Custom-login source integration hashes are malformed.");
+			String hash = requiredSha256((String)value);
+			if (accepted.contains(hash) || payloadSha256.equals(hash)) {
+				throw hostIntegrationProblem(
+					"Custom-login source integration hashes are ambiguous.");
+			}
+			accepted.add(hash);
+		}
+		String artifactTarget = WorldBuilderAdaptiveExporter.string(
+			artifact, "targetRelativePath");
+		String archiveEntry = WorldBuilderAdaptiveExporter.string(
+			artifact, "archiveEntryPath");
+		String entrySha256 = requiredSha256(
+			WorldBuilderAdaptiveExporter.string(artifact, "payloadEntrySha256"));
+		List<?> symbolsRaw = WorldBuilderAdaptiveExporter.array(
+			artifact.get("requiredClassSymbols"), "requiredClassSymbols");
+		List<String> expectedSymbols = java.util.Arrays.asList(
+			"decodeUndecidedCustomFrame",
+			"MAX_UNDECIDED_CUSTOM_FRAME_LENGTH",
+			"Truncated undecided custom-client frame");
+		if (!SERVER_DESTINATION.equals(artifactTarget)
+			|| !LOGIN_DECODER_CLASS.equals(archiveEntry)
+			|| !expectedSymbols.equals(symbolsRaw)) {
+			throw hostIntegrationProblem(
+				"Custom-login compiled artifact probe is unsupported.");
+		}
+		return new HostIntegration(payloadRelative, targetRelative, payloadSha256,
+			accepted, artifactTarget, archiveEntry, entrySha256, expectedSymbols);
+	}
+
+	private static String requiredSha256(String value)
+		throws WorldBuilderContractException {
+		if (!value.matches("[0-9a-f]{64}")) throw hostIntegrationProblem(
+			"Host integration contains a malformed SHA-256 value.");
+		return value;
+	}
+
+	private static void verifyProjectHostIntegration(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		HostIntegration integration)
+		throws IOException, WorldBuilderContractException {
+		String payload = "working/runtime/" + integration.payloadRelativePath;
+		Path source = WorldBuilderAdaptiveExporter.requireFile(
+			project.projectRoot, payload, "host integration source payload");
+		if (!integration.payloadSha256.equals(WorldBuilderHashes.sha256(source))) {
+			throw hostIntegrationProblem(
+				"Project custom-login source payload does not match its capability evidence.");
+		}
+		Path archive = WorldBuilderAdaptiveExporter.requireFile(project.projectRoot,
+			"working/runtime/" + integration.artifactTargetRelativePath,
+			"host integration compiled artifact");
+		byte[] entry = archiveEntry(archive, integration.archiveEntryPath,
+			"project custom-login decoder");
+		if (!integration.payloadEntrySha256.equals(WorldBuilderHashes.sha256(entry))) {
+			throw hostIntegrationProblem(
+				"Project custom-login decoder bytecode does not match its capability evidence.");
+		}
+		requireSymbols(entry, integration.requiredClassSymbols,
+			"Project custom-login decoder");
+	}
+
+	private static void appendHostSourceIntegration(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target,
+		HostIntegration integration,
+		List<WorldBuilderAdaptiveMutationProfile.Action> actions)
+		throws IOException, WorldBuilderContractException {
+		Path destination = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, integration.targetSourceRelativePath);
+		if (!Files.isRegularFile(destination, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(destination)) throw hostIntegrationProblem(
+			"Target custom-login decoder source is missing or unsafe; source-level integration is required.");
+		String current = WorldBuilderHashes.sha256(destination);
+		if (integration.payloadSha256.equals(current)) return;
+		if (!integration.acceptedBeforeSha256.contains(current)) {
+			throw hostIntegrationProblem(
+				"Target custom-login decoder source has an unsupported or conflicting modification (SHA-256 "
+					+ current + ").");
+		}
+		appendReplacement(project, target,
+			"runtime-compatibility-server-login-source",
+			integration.targetSourceRelativePath,
+			"working/runtime/" + integration.payloadRelativePath,
+			transactionContent("server-login-source", ".java"), actions);
+	}
+
+	private static void verifyTargetHostIntegration(
+		Path target, HostIntegration integration)
+		throws IOException, WorldBuilderContractException {
+		Path source = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, integration.targetSourceRelativePath);
+		if (!Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(source)
+			|| !integration.payloadSha256.equals(WorldBuilderHashes.sha256(source))) {
+			throw runtimeUpgradeRequired(
+				"Target source does not contain the verified custom-login framing integration.");
+		}
+		Path archive = WorldBuilderAdaptiveMutationProfile.safeDestination(
+			target, integration.artifactTargetRelativePath);
+		byte[] entry;
+		try {
+			entry = archiveEntry(archive, integration.archiveEntryPath,
+				"target custom-login decoder");
+		} catch (WorldBuilderContractException invalid) {
+			throw runtimeUpgradeRequired(
+				"Target core does not contain a readable custom-login decoder capability.");
+		}
+		try {
+			requireSymbols(entry, integration.requiredClassSymbols,
+				"Target custom-login decoder");
+		} catch (WorldBuilderContractException invalid) {
+			throw runtimeUpgradeRequired(
+				"Target core does not contain the required custom-login framing behavior.");
+		}
+	}
+
+	private static byte[] archiveEntry(Path archive, String name, String description)
+		throws IOException, WorldBuilderContractException {
+		if (!Files.isRegularFile(archive, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(archive)) throw hostIntegrationProblem(
+			description + " archive is missing or unsafe.");
+		try (ZipFile zip = new ZipFile(archive.toFile())) {
+			ZipEntry entry = zip.getEntry(name);
+			if (entry == null || entry.isDirectory() || entry.getSize() > 16L * 1024L * 1024L) {
+				throw hostIntegrationProblem(description + " entry is missing or oversized.");
+			}
+			try (InputStream input = zip.getInputStream(entry);
+				ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+				byte[] buffer = new byte[8192];
+				int total = 0;
+				for (int count; (count = input.read(buffer)) >= 0;) {
+					total += count;
+					if (total > 16 * 1024 * 1024) throw hostIntegrationProblem(
+						description + " entry exceeds its safe size limit.");
+					output.write(buffer, 0, count);
+				}
+				return output.toByteArray();
+			}
+		} catch (java.util.zip.ZipException invalid) {
+			throw hostIntegrationProblem(description + " archive is not a readable JAR.");
+		}
+	}
+
+	private static void requireSymbols(
+		byte[] value, List<String> symbols, String description)
+		throws WorldBuilderContractException {
+		for (String symbol : symbols) {
+			byte[] needle = symbol.getBytes(StandardCharsets.US_ASCII);
+			boolean found = false;
+			for (int offset = 0; offset <= value.length - needle.length && !found; offset++) {
+				int index = 0;
+				while (index < needle.length && value[offset + index] == needle[index]) index++;
+				found = index == needle.length;
+			}
+			if (!found) throw hostIntegrationProblem(
+				description + " is missing required symbol " + symbol + ".");
+		}
+	}
+
+	private static WorldBuilderContractException hostIntegrationProblem(String message) {
+		return problem(HOST_CAPABILITY_SOURCE, message,
+			"Keep the target offline and use a fresh current project; if the decoder source is customized, request a reviewed source reconciliation instead of forcing the upgrade.");
 	}
 
 	private static WorldBuilderContractException runtimeUpgradeRequired(String message) {
@@ -1272,6 +1493,34 @@ final class WorldBuilderRuntimeCompatibility {
 			"plan-adaptive-import", "", "", source,
 			"runtime compatibility", "A complete trusted server/client runtime pair.",
 			message, false, message, nextStep, null);
+	}
+
+	private static final class HostIntegration {
+		final String payloadRelativePath;
+		final String targetSourceRelativePath;
+		final String payloadSha256;
+		final List<String> acceptedBeforeSha256;
+		final String artifactTargetRelativePath;
+		final String archiveEntryPath;
+		final String payloadEntrySha256;
+		final List<String> requiredClassSymbols;
+
+		HostIntegration(String payloadRelativePath,
+			String targetSourceRelativePath, String payloadSha256,
+			List<String> acceptedBeforeSha256,
+			String artifactTargetRelativePath, String archiveEntryPath,
+			String payloadEntrySha256, List<String> requiredClassSymbols) {
+			this.payloadRelativePath = payloadRelativePath;
+			this.targetSourceRelativePath = targetSourceRelativePath;
+			this.payloadSha256 = payloadSha256;
+			this.acceptedBeforeSha256 = Collections.unmodifiableList(
+				new ArrayList<String>(acceptedBeforeSha256));
+			this.artifactTargetRelativePath = artifactTargetRelativePath;
+			this.archiveEntryPath = archiveEntryPath;
+			this.payloadEntrySha256 = payloadEntrySha256;
+			this.requiredClassSymbols = Collections.unmodifiableList(
+				new ArrayList<String>(requiredClassSymbols));
+		}
 	}
 
 	static final class Upgrade {

@@ -373,6 +373,7 @@ allowed_roles = {
     "runtime-audio", "client-template", "default-render-catalog",
     "runtime-library", "runtime-configuration", "default-definition-catalog",
     "runtime-capability", "runtime-database-contract", "builder-database-seed",
+    "runtime-integration-source",
     "server-runtime-upgrade",
 }
 required_native_records = {

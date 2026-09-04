@@ -18,6 +18,24 @@ CANONICAL_VOID_TILE = bytes((0, 0, 1, 8, 0, 0, 0, 0, 0, 0, 0))
 CANONICAL_VOID_SECTOR = CANONICAL_VOID_TILE * (48 * 48)
 VISIBLE_FLOOR_TILE = bytes((0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
 STANDALONE_INITIAL_LOCATION = {"level": 0, "x": 120, "y": 648}
+FIXTURE_HOST_DECODER_LEGACY_SOURCE = (
+    b"package com.openrsc.server.net;\n"
+    b"public final class RSCProtocolDecoder { void decodeLegacy() {} }\n"
+)
+FIXTURE_HOST_DECODER_SOURCE = (
+    b"package com.openrsc.server.net;\n"
+    b"public final class RSCProtocolDecoder {\n"
+    b"  static final int MAX_UNDECIDED_CUSTOM_FRAME_LENGTH = 8192;\n"
+    b"  void decodeUndecidedCustomFrame() {\n"
+    b"    String failure = \"Truncated undecided custom-client frame\";\n"
+    b"  }\n"
+    b"}\n"
+)
+FIXTURE_HOST_DECODER_CLASS = (
+    b"fixture-bytecode\0decodeUndecidedCustomFrame\0"
+    b"MAX_UNDECIDED_CUSTOM_FRAME_LENGTH\0"
+    b"Truncated undecided custom-client frame\0"
+)
 
 
 def standalone_seed_sector() -> bytes:
@@ -198,12 +216,12 @@ def installed_v2_capability() -> dict:
 
 def host_runtime_capability() -> dict:
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "manifestType": "world-builder-host-runtime-capability",
-        "capabilityId": "world-builder-host-runtime-capability-v1",
+        "capabilityId": "world-builder-host-runtime-capability-v2",
         "integrationModel": "host-integrated-core-v1",
         "profileId": "world-builder-installed",
-        "serverBuildId": "rsc-world-editor-runtime-host-server-v1",
+        "serverBuildId": "rsc-world-editor-runtime-host-server-v2",
         "clientBuildId": "rsc-world-editor-runtime-host-client-v1",
         "clientBootstrapId": "world-builder-installed-client-profile-v1",
         "serverBootstrapId": "world-builder-installed-server-profile-v1",
@@ -214,6 +232,38 @@ def host_runtime_capability() -> dict:
         "coordinateModel": "signed-layered-v1",
         "encodingVersions": [1, 2, 3, 4],
         "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
+        "requiredHostCapabilities": [{
+            "capabilityId": "undecided-custom-client-framing-v1",
+            "sourceIntegration": {
+                "payloadRelativePath": (
+                    "server/conf/world-builder/host-integration/"
+                    "RSCProtocolDecoder.java"
+                ),
+                "targetRelativePath": (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                ),
+                "payloadSha256": hashlib.sha256(
+                    FIXTURE_HOST_DECODER_SOURCE
+                ).hexdigest(),
+                "acceptedBeforeSha256": [hashlib.sha256(
+                    FIXTURE_HOST_DECODER_LEGACY_SOURCE
+                ).hexdigest()],
+            },
+            "artifactProbe": {
+                "targetRelativePath": "server/core.jar",
+                "archiveEntryPath": (
+                    "com/openrsc/server/net/RSCProtocolDecoder.class"
+                ),
+                "payloadEntrySha256": hashlib.sha256(
+                    FIXTURE_HOST_DECODER_CLASS
+                ).hexdigest(),
+                "requiredClassSymbols": [
+                    "decodeUndecidedCustomFrame",
+                    "MAX_UNDECIDED_CUSTOM_FRAME_LENGTH",
+                    "Truncated undecided custom-client frame",
+                ],
+            },
+        }],
         "activation": {
             "serverProfileRelativePath": (
                 "server/world-builder-configs/installed-server.json"
@@ -626,6 +676,10 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
             write_json(path, {"items": [{"id": 99}]})
         elif path.name == "ItemDefsMyWorld.json":
             write_json(path, {"items": [{"id": 100}]})
+        elif path.as_posix().endswith(
+            "server/conf/world-builder/host-integration/RSCProtocolDecoder.java"
+        ):
+            path.write_bytes(FIXTURE_HOST_DECODER_SOURCE)
         elif path.suffix == ".jar":
             with zipfile.ZipFile(path, "w") as archive:
                 entry = zipfile.ZipInfo("fixture/Runtime.class", (2024, 1, 2, 3, 4, 6))
@@ -644,6 +698,10 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
                 archive.writestr(
                     "com/openrsc/server/io/NativeLayeredWorldPackage.class",
                     b"fixture-current-host-server",
+                )
+                archive.writestr(
+                    "com/openrsc/server/net/RSCProtocolDecoder.class",
+                    FIXTURE_HOST_DECODER_CLASS,
                 )
             elif jar.name == "Open_RSC_Client.jar":
                 archive.writestr(

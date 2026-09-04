@@ -34,6 +34,10 @@ class AdaptiveTransactionTest(unittest.TestCase):
                     "com/openrsc/server/io/NativeLayeredWorldPackage.class",
                     payload,
                 )
+                archive.writestr(
+                    "com/openrsc/server/net/RSCProtocolDecoder.class",
+                    project_support.FIXTURE_HOST_DECODER_CLASS,
+                )
             else:
                 archive.writestr(
                     "orsc/WorldBuilderInstalledClientProfile.class", payload
@@ -1144,6 +1148,12 @@ public final class mudclient {
             archive.parent.mkdir(parents=True, exist_ok=True)
             if not archive.exists():
                 self.write_runtime_jar(archive, b"host-integrated-runtime")
+        decoder_source = (
+            target / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+        )
+        decoder_source.parent.mkdir(parents=True, exist_ok=True)
+        if not decoder_source.exists():
+            decoder_source.write_bytes(project_support.FIXTURE_HOST_DECODER_SOURCE)
         if source_placement_v4:
             self.upgrade_fixture_placements_to_v4(target / "server/maps/active")
             self.upgrade_fixture_placements_to_v4(target / "client/maps/active")
@@ -1452,6 +1462,9 @@ public final class mudclient {
                     ):
                         archive.writestr(f"com/openrsc/server/{name}.class", b"stale")
                 (target / "server/core.jar").write_bytes(b"affected-old-core\n")
+                (target / (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
                 (target / "server/plugins.jar").write_bytes(
                     b"affected-target-plugins\n"
                 )
@@ -1539,6 +1552,12 @@ public final class mudclient {
                 (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
                 (client_root / "Open_RSC_Client.jar").read_bytes(),
             )
+            self.assertEqual(
+                project_support.FIXTURE_HOST_DECODER_SOURCE,
+                (target / (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                )).read_bytes(),
+            )
             for relative, expected in preserved.items():
                 self.assertEqual(expected, (target / relative).read_bytes(), relative)
 
@@ -1561,6 +1580,9 @@ public final class mudclient {
                 retired.parent.mkdir(parents=True)
                 retired.write_bytes(b"affected-shadow-runtime\n")
                 (target / "server/core.jar").write_bytes(b"affected-core\n")
+                (target / (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
                 selected = json.loads((
                     target / "server/world-builder-configs/primary.json"
                 ).read_text(encoding="utf-8"))
@@ -1585,6 +1607,81 @@ public final class mudclient {
             ]
             self.assertEqual(["rolled-back"], [item["status"] for item in receipts])
             self.assert_no_transaction_stage(target)
+
+    def test_import_refuses_recompiled_login_decoder_regression(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-login-rebuild-repair-") as temp:
+            def make_affected(target):
+                retired = (
+                    target
+                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                )
+                retired.parent.mkdir(parents=True)
+                retired.write_bytes(b"retired-shadow\n")
+                (target / (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_mutator=make_affected,
+            )
+            upgraded = self.run_reviewed_apply(
+                "upgrade-target-runtime", "UPGRADE", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+
+            # Reproduce the incident: a target startup rebuild emits a readable
+            # core with the World Builder boot classes but an old decoder.
+            core = target / "server/core.jar"
+            with zipfile.ZipFile(core, "w") as archive:
+                archive.writestr(
+                    "com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
+                    b"rebuilt-host",
+                )
+                archive.writestr(
+                    "com/openrsc/server/io/NativeLayeredWorldPackage.class",
+                    b"rebuilt-host",
+                )
+                archive.writestr(
+                    "com/openrsc/server/net/RSCProtocolDecoder.class",
+                    b"legacy-decoder-without-framing-guard",
+                )
+            before_refusal = project_support.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "import-adaptive", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("TARGET_DRIFT", refused.stderr)
+            self.assertIn("server/core.jar", refused.stderr)
+            self.assertIn("run Upgrade Target Runtime again", refused.stderr)
+            self.assertEqual(
+                before_refusal, project_support.tree_bytes(target, installation)
+            )
+
+    def test_runtime_upgrade_refuses_conflicting_login_decoder_source(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-login-source-conflict-") as temp:
+            def customize_decoder(target):
+                (target / (
+                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+                )).write_bytes(
+                    b"package com.openrsc.server.net;\n"
+                    b"public final class RSCProtocolDecoder {\n"
+                    b"  void ownerCustomizedDecoder() {}\n"
+                    b"}\n"
+                )
+
+            target, installation, project, export = self.target_project(
+                Path(temp), target_mutator=customize_decoder,
+            )
+            before = project_support.tree_bytes(target, installation)
+            refused = self.run_cli(
+                "upgrade-target-runtime", "--project", project,
+                "--export", export, "--target-root", target,
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("unsupported or conflicting modification", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
 
     def test_import_requires_host_integrated_runtime_before_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-required-") as temp:
@@ -2048,7 +2145,7 @@ public final class mudclient {
             )
             self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
             self.assertEqual(
-                "rsc-world-editor-runtime-host-server-v1",
+                "rsc-world-editor-runtime-host-server-v2",
                 capability["serverBuildId"],
             )
             self.assertEqual(

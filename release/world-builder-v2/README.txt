@@ -152,13 +152,15 @@ path and require typing IMPORT exactly.
 Import never upgrades the target runtime. If it reports
 RUNTIME_UPGRADE_REQUIRED, preserve the affected offline target or backup,
 create a fresh isolated project from that exact state if necessary, and choose
-"Upgrade Target Runtime". This separate UPGRADE transaction replaces only the
-target core.jar, matching Open_RSC_Client.jar, and host runtime capability with
-the exact current project runtime. It backs up each prior file and removes the
-retired World Builder shadow/overlay JARs. It does not change map packages,
-configuration, definitions, databases, plugins, source trees, build files, or
-assets. After the upgrade succeeds, keep the target offline and run Import Map
-Changes as a second reviewed transaction.
+"Upgrade Target Runtime". This separate UPGRADE transaction integrates the
+versioned custom-login framing source into one exact supported target decoder,
+then replaces core.jar, the matching Open_RSC_Client.jar, and host runtime
+capability with the exact current project runtime. It backs up every changed
+file and removes the retired World Builder shadow/overlay JARs. All other
+source, map packages, configuration, definitions, databases, plugins, build
+files, and assets remain unchanged. A decoder source with an unknown or
+conflicting hash is refused without mutation. After the upgrade succeeds, keep
+the target offline and run Import Map Changes as a second reviewed transaction.
 
 Back up the complete target server before Import and verify that backup can be
 restored. World Builder does not offer an action to reverse a completed import.
@@ -189,10 +191,12 @@ Transaction"; review its exact plan and type RECOVER. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
 There is no force option. The separate runtime upgrade uses the exact pinned
-host-integrated server and client archives. It preserves target definitions,
-plugins, databases, source trees, build files, configuration, custom assets,
-and map content. Runtime upgrade and map activation each have their own exact
-preview, backup, rollback, receipt, and verification transaction.
+host-integrated server and client archives and a machine-checkable login-
+framing source/artifact capability. It preserves every target source except the
+one supported decoder integration, plus definitions, plugins, databases, build
+files, configuration, custom assets, and map content. Runtime upgrade and map
+activation each have their own exact preview, backup, rollback, receipt, and
+verification transaction.
 Standalone projects can save and export, but Import, Undo, and Recovery return
 NO_TARGET before resolving, accessing, or locking any target path.
 

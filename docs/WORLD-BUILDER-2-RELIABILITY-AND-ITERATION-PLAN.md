@@ -326,6 +326,10 @@ may be changed fundamentally to achieve that result.
 - [x] Make the explicit runtime upgrader install the exact current
   host-integrated server/client pair and retire the earlier class-shadowing
   overlays before a separate map-only Import.
+- [x] Bind host integration to the versioned undecided custom-client framing
+  source/artifact capability, update the one supported decoder source
+  transactionally, refuse source conflicts, and reject a rebuilt core that
+  loses the framing behavior before Import.
 - [x] Refuse ordinary Import while a retired provider can shadow target-owned
   classes. Runtime upgrade replaces the authoritative core/client archives and
   v3 capability while preserving plugins, definitions, databases, source,

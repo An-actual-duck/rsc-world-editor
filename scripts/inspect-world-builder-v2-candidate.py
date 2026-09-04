@@ -193,6 +193,7 @@ ALLOWED_RUNTIME_ROLES = {
     "runtime-capability",
     "runtime-configuration",
     "runtime-database-contract",
+    "runtime-integration-source",
     "runtime-library",
     "server-runtime-upgrade",
 }

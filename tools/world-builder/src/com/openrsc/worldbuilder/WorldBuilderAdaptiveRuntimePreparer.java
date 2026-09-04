@@ -61,8 +61,9 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 			"runtime-audio",
 			"runtime-capability",
 			"runtime-configuration",
-				"runtime-database-contract",
-				"runtime-library")));
+			"runtime-database-contract",
+			"runtime-integration-source",
+			"runtime-library")));
 	private static final Set<String> EMPTY_RUNTIME_ASSET_PATHS =
 		Collections.unmodifiableSet(new HashSet<String>(Arrays.asList(
 			"server/conf/server/languages/CustomMessages_en_UK_female.properties",

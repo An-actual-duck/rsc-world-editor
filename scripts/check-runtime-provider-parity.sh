@@ -40,6 +40,7 @@ provider_commit="$(git -C "$RUNTIME_PROVIDER_ROOT" rev-parse --verify --quiet \
 for relative in \
 	server/conf/world-builder/adaptive-runtime-capability-v2.json \
 	server/conf/world-builder/installed-runtime-capability-v3.json \
+	server/src/com/openrsc/server/net/RSCProtocolDecoder.java \
 	scripts/write-adaptive-world-builder-runtime-evidence.py \
 	Client_Base/src/orsc/AdaptiveWorldBuilderClientSession.java \
 	Client_Base/src/orsc/ProjectContentBundle.java \
@@ -110,11 +111,12 @@ import sys
 
 capability = json.loads(pathlib.Path(sys.argv[1]).read_text(encoding="utf-8"))
 expected = {
-    "schemaVersion": 1,
+    "schemaVersion": 2,
     "manifestType": "world-builder-host-runtime-capability",
-    "capabilityId": "world-builder-host-runtime-capability-v1",
+    "capabilityId": "world-builder-host-runtime-capability-v2",
     "integrationModel": "host-integrated-core-v1",
     "profileId": "world-builder-installed",
+    "serverBuildId": "rsc-world-editor-runtime-host-server-v2",
     "loaderId": "generic-signed-layered-loader-v7-blocking-base-color",
     "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation",
     "packageSchemaId": "layered-world-package-v1",
@@ -129,6 +131,25 @@ for key, value in expected.items():
         )
 if capability.get("encodingVersions") != [1, 2, 3, 4]:
     raise SystemExit("FAIL: Installed runtime encoding contract drifted")
+required = capability.get("requiredHostCapabilities")
+if not isinstance(required, list) or len(required) != 1:
+    raise SystemExit("FAIL: Installed runtime host capability set drifted")
+framing = required[0]
+if framing.get("capabilityId") != "undecided-custom-client-framing-v1":
+    raise SystemExit("FAIL: Installed runtime login-framing capability drifted")
+source = framing.get("sourceIntegration", {})
+if source.get("payloadRelativePath") != (
+    "server/conf/world-builder/host-integration/RSCProtocolDecoder.java"
+) or source.get("targetRelativePath") != (
+    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+):
+    raise SystemExit("FAIL: Installed runtime login source integration drifted")
+artifact = framing.get("artifactProbe", {})
+if artifact.get("targetRelativePath") != "server/core.jar" or (
+    artifact.get("archiveEntryPath")
+    != "com/openrsc/server/net/RSCProtocolDecoder.class"
+):
+    raise SystemExit("FAIL: Installed runtime login artifact probe drifted")
 activation = capability.get("activation", {})
 if activation.get("serverProfileRelativePath") != (
     "server/world-builder-configs/installed-server.json"
