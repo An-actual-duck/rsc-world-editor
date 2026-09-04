@@ -20,6 +20,8 @@ from adaptive_project_test_support import (
     CANONICAL_VOID_TILE,
     CANONICAL_VOID_SECTOR,
     EMPTY_LANGUAGE_BUNDLES,
+    FIXTURE_HOST_DECODER_CLASS,
+    FIXTURE_HOST_DECODER_SOURCE,
     REQUIRED_DATABASE_PATCHES,
     RUNTIME_ALLOWLIST,
     STANDALONE_INITIAL_LOCATION,
@@ -4957,6 +4959,12 @@ public final class UpgradeNpcPlacements {
                 / "server/conf/world-builder/installed-runtime-capability-v3.json",
                 host_runtime_capability(),
             )
+            decoder_source = (
+                target
+                / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
+            )
+            decoder_source.parent.mkdir(parents=True, exist_ok=True)
+            decoder_source.write_bytes(FIXTURE_HOST_DECODER_SOURCE)
             selected = json.loads((
                 target / "server/world-builder-configs/primary.json"
             ).read_text(encoding="utf-8"))
@@ -4987,6 +4995,11 @@ public final class UpgradeNpcPlacements {
                     )
                     for entry in entries:
                         archive.writestr(entry, b"host-integrated-runtime")
+                    if archive_path == target / "server/core.jar":
+                        archive.writestr(
+                            "com/openrsc/server/net/RSCProtocolDecoder.class",
+                            FIXTURE_HOST_DECODER_CLASS,
+                        )
             installation = target / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
