@@ -37,6 +37,11 @@ public final class WorldBuilderCli {
 		if ("classify-current-target".equals(args[0])) {
 			return classifyCurrentTarget(args);
 		}
+		if ("preview-current-runtime-upgrade".equals(args[0])
+			|| "apply-current-runtime-upgrade".equals(args[0])
+			|| "recover-current-runtime-upgrade".equals(args[0])) {
+			return currentRuntimeUpgrade(args);
+		}
 		if ("discover-legacy-landscape".equals(args[0])) {
 			return discoverLegacyLandscape(args);
 		}
@@ -1553,6 +1558,78 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int currentRuntimeUpgrade(String[] args) {
+		String command = args[0];
+		Map<String,String> options = new LinkedHashMap<String,String>();
+		for (int index = 1; index < args.length; index++) {
+			String option = args[index];
+			if (index + 1 >= args.length || !option.startsWith("--")
+				|| options.containsKey(option)) {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: " + option);
+				return 2;
+			}
+			options.put(option, args[++index]);
+		}
+		boolean recovery = "recover-current-runtime-upgrade".equals(command);
+		String[] required = recovery
+			? new String[] {"--target-root", "--transaction-root", "--transaction-id"}
+			: new String[] {"--target-root", "--transaction-root", "--provider-catalog-root",
+				"--composition-identity", "--project-capability", "--transaction-id", "--adapter"};
+		for (String option : required) if (!options.containsKey(option)) {
+			System.err.println("ERROR: " + command + " requires " + option + ".");
+			return 2;
+		}
+		for (String option : options.keySet()) {
+			boolean known = false;
+			for (String value : required) if (value.equals(option)) known = true;
+			if ("--confirmation-identity".equals(option)
+				&& "apply-current-runtime-upgrade".equals(command)) known = true;
+			if (!known) {
+				System.err.println("ERROR: Unsupported option for " + command + ": " + option);
+				return 2;
+			}
+		}
+		if (!recovery && !WorldBuilderCurrentRuntimeExecutionProfile.PRESERVATION_ADAPTER_ID
+			.equals(options.get("--adapter"))) {
+			System.err.println("ERROR: Only the reviewed built-in preservation-family-v1 adapter is supported; adapter paths and target-supplied code are rejected.");
+			return 2;
+		}
+		if ("apply-current-runtime-upgrade".equals(command)
+			&& !options.containsKey("--confirmation-identity")) {
+			System.err.println("ERROR: apply-current-runtime-upgrade requires --confirmation-identity from an exact fresh preview.");
+			return 2;
+		}
+		try {
+			WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
+				new WorldBuilderCurrentRuntimeUpgradeTransaction();
+			Path target = Paths.get(options.get("--target-root"));
+			Path transactionRoot = Paths.get(options.get("--transaction-root"));
+			String transactionId = options.get("--transaction-id");
+			if (recovery) {
+				System.out.print(transaction.recover(target, transactionRoot, transactionId).toJson());
+				return 0;
+			}
+			WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
+				transaction.previewPreservation(target, transactionRoot,
+					Paths.get(options.get("--provider-catalog-root")),
+					Paths.get(options.get("--composition-identity")),
+					Paths.get(options.get("--project-capability")), transactionId);
+			if ("preview-current-runtime-upgrade".equals(command)) {
+				System.out.print(preview.toJson());
+				return 0;
+			}
+			System.out.print(transaction.apply(preview,
+				options.get("--confirmation-identity")).toJson());
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current-runtime upgrade command failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
 	private static int discoverLegacyLandscape(String[] args) {
 		Path root = null;
 		String configurationRole = null;
@@ -2028,6 +2105,14 @@ public final class WorldBuilderCli {
 			+ " --provider-catalog-root <current-platform>"
 			+ " --composition-identity <resolved.json> --input-adapter <manifest.json>"
 			+ " --project-capability <manifest.json>"
+			+ "\n  WorldBuilderCli preview-current-runtime-upgrade --target-root <offline-server>"
+			+ " --transaction-root <external-sibling> --provider-catalog-root <current-platform>"
+			+ " --composition-identity <resolved.json> --project-capability <manifest.json>"
+			+ " --transaction-id <id> --adapter preservation-family-v1"
+			+ "\n  WorldBuilderCli apply-current-runtime-upgrade <same preview arguments>"
+			+ " --confirmation-identity <exact-preview-identity>"
+			+ "\n  WorldBuilderCli recover-current-runtime-upgrade --target-root <offline-server>"
+			+ " --transaction-root <external-sibling> --transaction-id <id>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
 			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"

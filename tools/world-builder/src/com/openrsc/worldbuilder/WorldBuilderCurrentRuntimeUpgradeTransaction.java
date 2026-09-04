@@ -830,6 +830,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"clientBuildId", "activeMapPackageId", "syntheticOnly",
 			"executionProfile", "migrationPlan");
 		Map<String,Object> executionProfile = object(activation.get("executionProfile"));
+		WorldBuilderCurrentRuntimeExecutionProfile compiledProfile =
+			WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(executionProfile);
 		if (integer(activation, "schemaVersion") != 1L
 			|| !string(executionProfile, "activationManifestType").equals(
 				string(activation, "manifestType"))
@@ -878,6 +880,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			|| !string(adapter, "evidenceAuthority").equals(
 				string(adapterReference, "evidenceAuthority")))
 			throw activationMismatch("inputAdapter");
+		if (compiledProfile.syntheticOnly
+				!= "synthetic-fixture".equals(string(adapter, "evidenceAuthority"))
+			|| !compiledProfile.syntheticOnly
+				&& !WorldBuilderCurrentRuntimeExecutionProfile.PRESERVATION_ADAPTER_ID.equals(
+					string(adapter, "adapterId"))) throw activationMismatch("executionProfile");
 		if (!string(executionProfile, "serverBuildId").equals(
 				string(ledger, "serverBuildId"))
 			|| !string(executionProfile, "clientBuildId").equals(

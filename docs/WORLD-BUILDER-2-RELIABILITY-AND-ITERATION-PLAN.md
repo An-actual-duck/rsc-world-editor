@@ -372,13 +372,15 @@ without imposing its gameplay or content on Base users.
   Advanced from the same provider generation.
 - [ ] Implement project migration, target-runtime ledger, side-by-side staging,
   semantic destination preview, explicit variant consent, atomic activation,
-  and exact recovery. A package-private synthetic-only executor foundation now
-  proves T0/T1/T2A/T2B and managed-N preview, exact identity/preimage binding,
-  external staging, activation-last, artifact verification, rollback, and
-  interrupted recovery without exposing a production apply surface. This item
-  remains open until production adapters/migrators, installable executable
-  bundles, staged runtime verification, project migration, and UI consent are
-  complete.
+  and exact recovery. The supported CLI and transaction engine now bind a
+  closed built-in Preservation-family adapter/migrator profile, typed legacy
+  configuration, staged durable-state/map migration boundaries, exact
+  identity/preimage evidence, external staging, activation-last, artifact
+  verification, rollback, and interrupted recovery. Target documents cannot
+  select executable adapters or migration identities. This item remains open:
+  the production provider is still non-installable, so real apply is a
+  zero-write refusal pending an installable bundle, staged runtime verification,
+  project migration, broader reviewed fingerprints, and UI consent.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

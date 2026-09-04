@@ -102,6 +102,9 @@ import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
 import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 public final class CurrentUpgradeHarness {
     private static boolean selected(String values, String milestone) {
@@ -145,9 +148,26 @@ public final class CurrentUpgradeHarness {
         WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
             new WorldBuilderCurrentRuntimeUpgradeTransaction(observer);
         try {
-        if ("preview".equals(operation)) {
+        if ("profile-migration".equals(operation)) {
+            Map<String,Object> classification = new LinkedHashMap<String,Object>();
+            classification.put("evidence", new ArrayList<Object>());
+            System.out.print(WorldBuilderJsonDocuments.pretty(
+                WorldBuilderCurrentRuntimeExecutionProfile.preservation()
+                    .migrationPlan(target, classification)));
+        } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
+        } else if ("preview-production".equals(operation)
+            || "apply-production".equals(operation)) {
+            WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
+                transaction.previewPreservation(target, transactions, catalog,
+                    identity, project, transactionId);
+            if ("preview-production".equals(operation)) {
+                System.out.print(preview.toJson());
+            } else {
+                System.out.print(transaction.apply(preview,
+                    preview.confirmationIdentity()).toJson());
+            }
         } else if ("apply".equals(operation) || "apply-wrong".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
                 transaction.preview(target, transactions, catalog, identity,
@@ -403,6 +423,131 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual(before_workspace, tree_snapshot(workspace))
                 self.case.cleanup(); self.setUp()
 
+    def test_reviewed_preservation_profile_previews_candidate_but_cannot_activate(self) -> None:
+        target = self.target("preservation-t0")
+        workspace = self.workspace()
+        before_target = tree_snapshot(target)
+        before_workspace = tree_snapshot(workspace)
+        previewed = self.run_harness(
+            "preview-production", target, workspace, "production-preview-1",
+            identity=self.candidate_identity, catalog=self.candidate_catalog,
+        )
+        self.assertEqual(0, previewed.returncode, previewed.stderr)
+        plan = json.loads(previewed.stdout)
+        self.assert_plan_schema(plan)
+        self.assertEqual("NOT_INSTALLABLE", plan["classificationStatus"])
+        self.assertFalse(plan["activationAuthorized"])
+        self.assertEqual("production-reviewed", plan["inputAdapter"]["evidenceAuthority"])
+        self.assertEqual("preservation-family-upgrade-v1",
+                         plan["executionProfile"]["profileId"])
+        self.assertEqual("Preservation",
+                         plan["migrationPlan"]["typedConfiguration"]["serverName"])
+        self.assertEqual("named-profile",
+                         plan["migrationPlan"]["typedConfiguration"]["precedence"])
+        self.assertEqual("exact-packed-to-layered-v2-u16",
+                         plan["migrationPlan"]["mapMigration"]["migrationId"])
+        self.assertTrue(plan["migrationPlan"]["durableState"])
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+        unsafe = self.case_root / "unsafe-target"
+        shutil.copytree(TARGETS / "unsafe-t5", unsafe)
+        unsafe_workspace = self.case_root / "unsafe-transactions"
+        unsafe_workspace.mkdir()
+        before_unsafe = tree_snapshot(unsafe)
+        blocked = self.run_harness(
+            "preview-production", unsafe, unsafe_workspace, "production-unsafe",
+            identity=self.candidate_identity, catalog=self.candidate_catalog,
+        )
+        self.assertNotEqual(0, blocked.returncode)
+        self.assertIn("CODE=CONVERSION_BLOCKED", blocked.stderr)
+        self.assertEqual(before_unsafe, tree_snapshot(unsafe))
+        self.assertEqual({}, tree_snapshot(unsafe_workspace))
+
+        applied = self.run_harness(
+            "apply-production", target, workspace, "production-preview-1",
+            identity=self.candidate_identity, catalog=self.candidate_catalog,
+        )
+        self.assertNotEqual(0, applied.returncode)
+        self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", applied.stderr)
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+    def test_supported_cli_uses_only_the_built_in_preservation_profile(self) -> None:
+        target = self.target("preservation-t0")
+        workspace = self.workspace()
+        common = [
+            "--target-root", str(target),
+            "--transaction-root", str(workspace),
+            "--provider-catalog-root", str(self.candidate_catalog),
+            "--composition-identity", str(self.candidate_identity),
+            "--project-capability", str(CONTRACTS / "project-capability-v1.json"),
+            "--transaction-id", "cli-production-preview",
+        ]
+        before_target = tree_snapshot(target)
+        before_workspace = tree_snapshot(workspace)
+        previewed = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "preview-current-runtime-upgrade", *common,
+             "--adapter", "preservation-family-v1"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(0, previewed.returncode, previewed.stderr)
+        plan = json.loads(previewed.stdout)
+        self.assertFalse(plan["activationAuthorized"])
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+        rejected = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "preview-current-runtime-upgrade", *common,
+             "--adapter", str(CONTRACTS / "input-adapter-preservation-v1.json")],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(2, rejected.returncode)
+        self.assertIn("target-supplied code are rejected", rejected.stderr)
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+        applied = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "apply-current-runtime-upgrade", *common,
+             "--adapter", "preservation-family-v1",
+             "--confirmation-identity", plan["confirmationIdentity"]],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(3, applied.returncode)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", applied.stderr)
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
+    def test_sealed_configuration_fixture_uses_local_precedence_and_aliases(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        sealed = json.loads((fixture_root / "fixture-set-v1.json").read_text())
+        self.assertTrue(sealed["syntheticOnly"])
+        self.assertFalse(sealed["containsUserData"])
+        for record in sealed["files"]:
+            path = fixture_root / record["relativePath"]
+            self.assertEqual(record["size"], path.stat().st_size)
+            self.assertEqual(record["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+        target = self.case_root / "migration-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        workspace = self.workspace()
+        result = self.run_harness("profile-migration", target, workspace, "profile-only")
+        self.assertEqual(0, result.returncode, result.stderr)
+        typed = json.loads(result.stdout)["typedConfiguration"]
+        self.assertEqual("server/conf/local.conf", typed["sourceRelativePath"])
+        self.assertEqual("local-replaces-named-profile", typed["precedence"])
+        self.assertEqual("Local Realm", typed["serverName"])
+        self.assertEqual(3, typed["experienceRate"])
+        self.assertEqual(43595, typed["gamePort"])
+        self.assertEqual("localhost", typed["bindAddress"])
+        self.assertEqual("first-value-wins", typed["duplicatePolicy"])
+        self.assertEqual([], typed["externalSecretReferences"])
+
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):
             with self.subTest(milestone=milestone):
@@ -436,7 +581,14 @@ public final class CurrentUpgradeHarness {
         self.assertTrue(receipt["recoveryRequired"])
         self.assertTrue((workspace / txid / "upgrade-plan.json").is_file())
         self.assertNotEqual(before, tree_snapshot(target))
-        recovered = self.run_harness("recover", target, workspace, txid)
+        recovered = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "recover-current-runtime-upgrade",
+             "--target-root", str(target), "--transaction-root", str(workspace),
+             "--transaction-id", txid],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
         self.assertEqual(0, recovered.returncode, recovered.stderr)
         self.assertEqual(before, tree_snapshot(target))
         receipt = json.loads(receipt_path.read_text())

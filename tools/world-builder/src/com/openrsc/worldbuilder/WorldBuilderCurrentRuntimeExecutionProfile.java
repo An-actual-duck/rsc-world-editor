@@ -63,7 +63,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderCurrentRuntimeContracts.Document adapter)
 		throws WorldBuilderContractException {
 		if (!"preservation-synthetic-v1".equals(string(adapter.root, "adapterId"))
-			|| !"synthetic-fixture".equals(string(adapter.root, "evidenceAuthority"))) {
+			|| !"synthetic-fixture".equals(string(adapter.root, "evidenceAuthority"))
+			|| !"787d692c0b84e664eb7370aee40e6d5e9cc827dec2d9e87ba8be0d89089750e0"
+				.equals(string(adapter.root, "adapterManifestHash"))) {
 			throw refusal("Only the sealed synthetic adapter may use the test executor profile.");
 		}
 		return new WorldBuilderCurrentRuntimeExecutionProfile(
