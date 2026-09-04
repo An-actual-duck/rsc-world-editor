@@ -168,10 +168,13 @@ Classification is non-executing and read-only. It binds the provider platform,
 schema set, variant, module set, complete bundle inventory, bundle spec, and
 input-adapter boundary before inspecting bounded target evidence. Outcomes are
 `CURRENT`, `UPGRADE_READY`, `PORT_REQUIRED`, `BLOCKED_UNSAFE`, or
-`NOT_INSTALLABLE`. The last outcome is mandatory for the current provider's
-foundation-only bundles: they may be inspected but cannot authorize activation
-or map import. `UPGRADE_READY` is classification evidence, not an installer;
-this command never changes a target.
+`NOT_INSTALLABLE`. The last outcome is mandatory for any provider composition
+that has not reached installable release authority. Foundation contracts and
+artifact candidates may be inspected, but neither can authorize activation or
+map import. A resolved composition still requires every declared artifact; a
+source-only candidate catalog is metadata evidence, not a substitute payload.
+`UPGRADE_READY` is classification evidence, not an installer; this command
+never changes a target.
 
 A project's required capability IDs are satisfied by exactly the union of the
 platform's `mapRuntimeCapabilities` and the selected variant's

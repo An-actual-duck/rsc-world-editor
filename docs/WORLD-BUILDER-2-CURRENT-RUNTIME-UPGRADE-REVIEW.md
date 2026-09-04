@@ -700,12 +700,14 @@ to match the selected composition, project, adapter, semantic plan binding, and
 transaction receipt; all drift paths are zero-write refusals.
 
 This is executor architecture, not production upgrade support. It has no CLI or
-desktop apply route and refuses non-synthetic adapters. The current provider
-catalog remains foundation-only/non-installable, and the synthetic overlay has
-no server/client executable. Steps 6 through 10 still require production map,
-configuration, database, state, build, launch, handshake, login, and gameplay
-implementations plus their release evidence before any real target can be
-upgraded.
+desktop apply route and refuses non-synthetic adapters. Current Base is an
+honest non-installable artifact candidate: its source build produces a bounded
+server/client pair, but its runtime profile records the remaining configuration,
+state migration, gameplay execution, and startup-handshake blockers. Source-only
+catalog inspection does not fabricate those generated artifacts or activation
+authority. The synthetic overlay has no production server/client executable.
+Steps 6 through 10 still require the blocked production implementations and
+their release evidence before any real target can be upgraded.
 
 ## Fixture and executable matrix
 

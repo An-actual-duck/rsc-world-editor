@@ -75,13 +75,15 @@ final class WorldBuilderProviderCatalog {
 		boolean variantInstallable = bool(variant, "installable");
 		String releaseStatus = identifier(variant, "releaseStatus");
 		if (!("foundation-contract-only".equals(releaseStatus)
+			|| "artifact-candidate".equals(releaseStatus)
 			|| "release-candidate".equals(releaseStatus)
 			|| "released".equals(releaseStatus))) invalid(
 			"Provider variant has an unsupported release status.");
 		if (installable != bundleInstallable || installable != variantInstallable) invalid(
 			"Composition, bundle, and variant installability must agree exactly.");
-		if (installable && "foundation-contract-only".equals(releaseStatus)) invalid(
-			"A foundation-contract-only provider variant cannot be installable.");
+		if (installable && ("foundation-contract-only".equals(releaseStatus)
+			|| "artifact-candidate".equals(releaseStatus))) invalid(
+			"A foundation or artifact-candidate provider variant cannot be installable.");
 		List<String> availableCapabilities = union(
 			uniqueIdentifiers(platform.get("mapRuntimeCapabilities"),
 				"platform mapRuntimeCapabilities", 0, 256),
