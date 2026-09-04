@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "manifestType": "world-builder-synthetic-installable-overlay",
-  "sourceProviderCommit": "458af4415cc84e65c432773a623fd7cc63aa50f0",
+  "sourceProviderCommit": "4d7e47fbdb8c414f2148e7ea5941039bcec9a809",
   "variantId": "current-base-v1",
   "variantChanges": {
     "releaseStatus": "release-candidate",

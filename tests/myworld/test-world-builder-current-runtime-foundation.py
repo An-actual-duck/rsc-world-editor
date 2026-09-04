@@ -612,10 +612,8 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertFalse(bundle["installable"])
         self.assertEqual(
             [
-                "content-neutral-server-config-and-definitions-v1",
                 "transactional-state-migration-row-v1",
                 "base-gameplay-state-runtime-execution-v1",
-                "runtime-enforced-server-client-startup-handshake-v1",
             ],
             profile["installabilityBlockers"],
         )
