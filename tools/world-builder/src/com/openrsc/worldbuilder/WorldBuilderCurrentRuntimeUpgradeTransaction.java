@@ -629,6 +629,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Files.createDirectory(staging.resolve("migration"));
 		writeNew(staging.resolve("migration/migration-plan.json"),
 			WorldBuilderJsonDocuments.pretty(preview.plan.get("migrationPlan")));
+		if (!preview.profile.syntheticOnly) {
+			Map<String,Object> migration = object(preview.plan.get("migrationPlan"));
+			Map<String,Object> execution = object(migration.get("stagedExecution"));
+			WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(staging,
+				object(migration.get("typedConfiguration")), execution);
+			WorldBuilderPreservationStagedMigrator.stage(preview.targetRoot, staging,
+				execution);
+			WorldBuilderPreservationStagedMigrator.verify(staging, execution);
+		}
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
 	}
@@ -1001,6 +1010,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		expectedFiles.add("activation.json");
 		expectedFiles.add("migration/migration-plan.json");
 		expectedDirectories.add("migration");
+		List<Map<String,Object>> migrationOutputs = new ArrayList<Map<String,Object>>();
+		if (expectedMigration != null) {
+			Map<String,Object> execution = object(expectedMigration.get("stagedExecution"));
+			for (Object raw : array(execution.get("stagedOutputs"))) {
+				Map<String,Object> output = object(raw);
+				String relative = string(output, "relativePath");
+				expectedFiles.add(relative);
+				addParentDirectories(relative, expectedDirectories);
+				migrationOutputs.add(output);
+			}
+		}
 		final Set<String> actualFiles = new HashSet<String>();
 		final Set<String> actualDirectories = new HashSet<String>();
 		Files.walkFileTree(release, new SimpleFileVisitor<Path>() {
@@ -1034,6 +1054,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			if (!expectedMode.equals(fileMode(installed))) throw problem(
 				WorldBuilderErrorCodes.SOURCE_CORRUPT, relative, false,
 				"Installed artifact mode differs from provider inventory.",
+				"Keep map import disabled and recover/reinstall the exact composition.");
+		}
+		for (Map<String,Object> output : migrationOutputs) {
+			String relative = string(output, "relativePath");
+			Path installed = safeExistingFile(release, relative);
+			requireFileMatches(installed, output, relative);
+			if (!string(output, "mode").equals(fileMode(installed))) throw problem(
+				WorldBuilderErrorCodes.SOURCE_CORRUPT, relative, false,
+				"Installed migration output mode differs from its reviewed inventory.",
 				"Keep map import disabled and recover/reinstall the exact composition.");
 		}
 		Path activation = safeExistingFile(release, "activation.json");

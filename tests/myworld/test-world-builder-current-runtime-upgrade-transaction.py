@@ -4,12 +4,15 @@
 from __future__ import annotations
 
 import hashlib
+import base64
 import json
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
 import warnings
+import zlib
 from pathlib import Path
 
 try:
@@ -102,7 +105,9 @@ import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -154,6 +159,37 @@ public final class CurrentUpgradeHarness {
             System.out.print(WorldBuilderJsonDocuments.pretty(
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation()
                     .migrationPlan(target, classification)));
+        } else if ("profile-migration-stage".equals(operation)
+            || "profile-migration-stage-tamper".equals(operation)) {
+            Map<String,Object> classification = new LinkedHashMap<String,Object>();
+            classification.put("evidence", new ArrayList<Object>());
+            WorldBuilderCurrentRuntimeExecutionProfile profile =
+                WorldBuilderCurrentRuntimeExecutionProfile.preservation();
+            Map<String,Object> migration = profile.migrationPlan(target, classification);
+            Path stage = transactions.resolve(transactionId);
+            Files.createDirectory(stage);
+            Files.createDirectory(stage.resolve("migration"));
+            Map<String,Object> execution = (Map<String,Object>)migration.get("stagedExecution");
+            WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
+                (Map<String,Object>)migration.get("typedConfiguration"), execution);
+            WorldBuilderPreservationStagedMigrator.stage(target, stage, execution);
+            if ("profile-migration-stage-tamper".equals(operation)) {
+                Path config = stage.resolve(
+                    WorldBuilderPreservationStagedMigrator.CONFIG_OUTPUT);
+                if ("path".equals(failures)) {
+                    Files.move(config, config.getParent().resolve("target-selected.json"));
+                } else if ("hash".equals(failures)) {
+                    Files.write(config, new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("mode".equals(failures)) {
+                    Files.setPosixFilePermissions(config, EnumSet.of(
+                        PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.OWNER_WRITE,
+                        PosixFilePermission.GROUP_READ,
+                        PosixFilePermission.OTHERS_READ));
+                }
+            }
+            WorldBuilderPreservationStagedMigrator.verify(stage, execution);
+            System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
@@ -443,6 +479,16 @@ public final class CurrentUpgradeHarness {
         self.assertFalse(plan["executionProfile"]["executionReady"])
         self.assertEqual("migration-and-verification-not-implemented",
                          plan["executionProfile"]["executionReadinessStatus"])
+        readiness = {
+            item["conditionId"]: item["ready"]
+            for item in plan["executionProfile"]["executionReadinessConditions"]
+        }
+        self.assertTrue(readiness["typed-configuration-staging"])
+        self.assertTrue(readiness["closed-sqlite-snapshot-staging"])
+        self.assertTrue(readiness["single-sector-packed-map-parity"])
+        self.assertFalse(readiness["provider-state-schema-migration-row"])
+        self.assertFalse(readiness["complete-canonical-map-package"])
+        self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
         self.assertEqual("named-profile",
@@ -572,6 +618,96 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("first-value-wins", typed["duplicatePolicy"])
         self.assertEqual([], typed["externalSecretReferences"])
 
+    def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
+        target = self.target("preservation-t0")
+        map_source = target / "client/cache/landscape.pack"
+        map_source.write_bytes(bytes(48 * 48 * 10))
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        database.write_bytes(zlib.decompress(base64.b64decode(
+            "eNrt17FqAkEQBuDZQ0gl2oiVMKWi2OQFcoYlSE6j5wpayaobOLLehbtVEGws86i+hReSs7CxFv+P+Vlmd+YBdjIOImf4M0k32vEzVUkIemEmIu8/BZGndNXf4lF391P+Ha4cKC8AAAAAAACAh3MU4qneaIjj1OmlNXq1Sraxy4rTew2lryQrvxdILm65Ga25P1TyTYY8CvsDP5zzu5x3eJuZNNYbw0rOFA8/8kyDoMPZV2TtwiVO28ti8dr6+5ufKC8AAAAAAAAAuHc1UaK2F8U7EzuzXnxbvTep8M/7EDnk"
+        )))
+        connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
+        self.assertEqual("ok", connection.execute("PRAGMA integrity_check").fetchone()[0])
+        connection.close()
+        self.assertEqual(
+            "cf9b51d21a6222cc4dd5936538b98e53621fce1bb1f6fc91582c7896a69bc158",
+            hashlib.sha256(database.read_bytes()).hexdigest(),
+        )
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        previewed = self.run_harness(
+            "preview-production", target, workspace, "staged-production-preview",
+            identity=self.identity, catalog=self.catalog,
+        )
+        self.assertEqual(0, previewed.returncode, previewed.stderr)
+        plan = json.loads(previewed.stdout)
+        self.assertEqual("T2B", plan["classificationTier"])
+        self.assertFalse(plan["activationAuthorized"])
+        execution = plan["migrationPlan"]["stagedExecution"]
+        self.assertEqual("current-base-state-migration-v1",
+                         execution["requiredStateMigrationContractId"])
+        self.assertEqual("preservation-retro-to-current-base-v1",
+                         execution["requiredStateMigrationRowId"])
+        self.assertEqual(
+            ["state-migration-manifest", "contract-schema", "server-runtime"],
+            execution["requiredProviderArtifactRoles"],
+        )
+        self.assertTrue(execution["typedConfigurationReady"])
+        self.assertTrue(execution["sqliteSnapshotReady"])
+        self.assertFalse(execution["sqliteSchemaMigrationReady"])
+        self.assertFalse(execution["mariaDbMigrationReady"])
+        self.assertTrue(execution["canonicalMapSectorReady"])
+        self.assertEqual(3, len(execution["stagedOutputs"]))
+        self.assertIn(
+            "server/inc/sqlite/preservation.db",
+            {record["relativePath"] for record in plan["preimageInventory"]},
+        )
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual({}, tree_snapshot(workspace))
+
+        staged = self.run_harness(
+            "profile-migration-stage", target, workspace, "staged-output",
+        )
+        self.assertEqual(0, staged.returncode, staged.stderr)
+        staged_plan = json.loads(staged.stdout)
+        for record in staged_plan["stagedExecution"]["stagedOutputs"]:
+            output = workspace / "staged-output" / record["relativePath"]
+            self.assertEqual(record["size"], output.stat().st_size)
+            self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
+            self.assertEqual(0o600, output.stat().st_mode & 0o777)
+        self.assertEqual(database.read_bytes(), (
+            workspace / "staged-output/migration/output/state/preservation.db"
+        ).read_bytes())
+        self.assertEqual(before, tree_snapshot(target))
+        for tamper in ("path", "hash", "mode"):
+            with self.subTest(staged_output_tamper=tamper):
+                tamper_workspace = self.case_root / f"tamper-{tamper}-transactions"
+                tamper_workspace.mkdir()
+                result = self.run_harness(
+                    "profile-migration-stage-tamper", target, tamper_workspace,
+                    f"tampered-{tamper}", failures=tamper,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+                self.assertEqual(before, tree_snapshot(target))
+
+        for suffix in ("-wal", "-shm"):
+            with self.subTest(sqlite_sidecar=suffix):
+                refused_target = self.case_root / ("sidecar-target" + suffix)
+                shutil.copytree(target, refused_target)
+                (refused_target / ("server/inc/sqlite/preservation.db" + suffix)).write_bytes(b"unsafe")
+                refused_workspace = self.case_root / ("sidecar-transactions" + suffix)
+                refused_workspace.mkdir()
+                before_refused = tree_snapshot(refused_target)
+                refused = self.run_harness(
+                    "profile-migration-stage", refused_target, refused_workspace, "refused",
+                )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("SQLite sidecar state exists", refused.stderr)
+                self.assertEqual(before_refused, tree_snapshot(refused_target))
+                self.assertEqual({}, tree_snapshot(refused_workspace))
+
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):
             with self.subTest(milestone=milestone):
@@ -587,6 +723,22 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual("rolled-back", receipt["status"])
                 self.assertTrue(receipt["rollbackComplete"])
                 self.case.cleanup(); self.setUp()
+
+    def test_production_preview_rejects_target_selected_state_paths_zero_write(self) -> None:
+        target = self.target("preservation-t0")
+        custom = target / "server/inc/sqlite/custom-selected.db"
+        custom.parent.mkdir(parents=True)
+        custom.write_bytes(b"target-selected-state")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        result = self.run_harness(
+            "preview-production", target, workspace, "custom-state-path",
+            identity=self.candidate_identity, catalog=self.candidate_catalog,
+        )
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual({}, tree_snapshot(workspace))
 
     def test_interrupted_rollback_preserves_recovery_evidence_and_recovers(self) -> None:
         target = self.target("managed-n")
