@@ -34,12 +34,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 	}
 
 	enum Kind {
-		PLATFORM_RELEASE("platform-release", "world-builder-current-platform-release",
-			"platformManifestHash"),
-		RUNTIME_VARIANT("runtime-variant", "world-builder-current-runtime-variant",
-			"variantManifestHash"),
-		MODULE_SET("module-set", "world-builder-current-module-set", "moduleSetHash"),
-		INPUT_ADAPTER("input-adapter", "world-builder-current-input-adapter",
+		INPUT_ADAPTER("input-adapter", "world-builder-input-adapter-v1",
 			"adapterManifestHash"),
 		PROJECT_CAPABILITY("project-capability", "world-builder-current-project-capability",
 			"capabilityFingerprintSha256"),
@@ -95,9 +90,6 @@ final class WorldBuilderCurrentRuntimeContracts {
 				"Current-runtime contract manifest type is not " + kind.manifestType + ".");
 		}
 		switch (kind) {
-			case PLATFORM_RELEASE: validatePlatform(root, op); break;
-			case RUNTIME_VARIANT: validateVariant(root, op); break;
-			case MODULE_SET: validateModuleSet(root, op); break;
 			case INPUT_ADAPTER: validateAdapter(root, op); break;
 			case PROJECT_CAPABILITY: validateProjectCapability(root, op); break;
 			case TARGET_LEDGER: validateLedger(root, op); break;
@@ -107,105 +99,21 @@ final class WorldBuilderCurrentRuntimeContracts {
 		if (requireFingerprint) requireFingerprint(root, kind.fingerprintField, op);
 	}
 
-	private static void validatePlatform(Map<String,Object> root, String op)
-		throws WorldBuilderContractException {
-		exact(root, op, "schemaVersion", "manifestType", "strategyId",
-			"platformReleaseId", "platformApiVersion", "protocolId", "stateSchemaId",
-			"supportedPredecessorReleaseIds", "variants", "inputAdapters",
-			"platformManifestHash");
-		identifier(root, "strategyId", op); identifier(root, "platformReleaseId", op);
-		identifier(root, "platformApiVersion", op); identifier(root, "protocolId", op);
-		identifier(root, "stateSchemaId", op);
-		identifiers(root.get("supportedPredecessorReleaseIds"), op,
-			"supportedPredecessorReleaseIds", 0, 64);
-		identifiers(root.get("variants"), op, "variants", 1, 64);
-		identifiers(root.get("inputAdapters"), op, "inputAdapters", 1, 64);
-		hash(root, "platformManifestHash", op, false);
-	}
-
-	private static void validateVariant(Map<String,Object> root, String op)
-		throws WorldBuilderContractException {
-		exact(root, op, "schemaVersion", "manifestType", "variantId", "variantKind",
-			"platformReleaseId", "platformManifestHash", "defaultModuleIds",
-			"allowedModuleIds", "semanticContractIds", "advancedOnly",
-			"variantManifestHash");
-		identifier(root, "variantId", op); identifier(root, "platformReleaseId", op);
-		hash(root, "platformManifestHash", op, false);
-		String variantKind = enumeration(root, "variantKind", op, "base", "advanced");
-		List<String> defaults = identifiers(root.get("defaultModuleIds"), op,
-			"defaultModuleIds", 0, 128);
-		List<String> allowed = identifiers(root.get("allowedModuleIds"), op,
-			"allowedModuleIds", 0, 128);
-		identifiers(root.get("semanticContractIds"), op, "semanticContractIds", 1, 128);
-		if (!allowed.containsAll(defaults)) invalid(op,
-			"Every default module must be allowed by the variant.");
-		boolean advancedOnly = bool(root, "advancedOnly", op);
-		if (advancedOnly != "advanced".equals(variantKind)) invalid(op,
-			"Variant kind and advanced-only identity disagree.");
-		hash(root, "variantManifestHash", op, false);
-	}
-
-	private static void validateModuleSet(Map<String,Object> root, String op)
-		throws WorldBuilderContractException {
-		exact(root, op, "schemaVersion", "manifestType", "platformReleaseId",
-			"platformManifestHash", "variantId", "variantManifestHash", "modules",
-			"moduleSetHash", "bundleInventoryHash");
-		identifier(root, "platformReleaseId", op); hash(root, "platformManifestHash", op, false);
-		identifier(root, "variantId", op); hash(root, "variantManifestHash", op, false);
-		List<?> modules = array(root.get("modules"), op, "modules", 0, 128);
-		Set<String> moduleIds = new HashSet<String>();
-		for (int index = 0; index < modules.size(); index++) {
-			Map<String,Object> module = object(modules.get(index), op, "modules");
-			exact(module, op, "order", "moduleId", "moduleVersion", "moduleKind",
-				"platformApiVersion", "moduleManifestHash", "modulePayloadRootHash",
-				"dependencies", "conflicts", "clientPairing", "configurationNamespace",
-				"stateMigrationIds", "provenance");
-			if (integer(module, "order", op) != index) invalid(op,
-				"Module order must be contiguous and canonical.");
-			String id = identifier(module, "moduleId", op);
-			if (!moduleIds.add(id)) invalid(op, "Module set repeats a module ID.");
-			identifier(module, "moduleVersion", op);
-			enumeration(module, "moduleKind", op,
-				"declarative-data", "code-plugin", "server-client-feature");
-			identifier(module, "platformApiVersion", op);
-			hash(module, "moduleManifestHash", op, false);
-			hash(module, "modulePayloadRootHash", op, false);
-			List<String> dependencies = identifiers(module.get("dependencies"), op,
-				"dependencies", 0, 128);
-			List<String> conflicts = identifiers(module.get("conflicts"), op,
-				"conflicts", 0, 128);
-			if (dependencies.contains(id) || conflicts.contains(id)) invalid(op,
-				"A module cannot depend on or conflict with itself.");
-			enumeration(module, "clientPairing", op, "none", "optional", "required");
-			optionalIdentifier(module, "configurationNamespace", op);
-			identifiers(module.get("stateMigrationIds"), op, "stateMigrationIds", 0, 128);
-			enumeration(module, "provenance", op, "provider", "local-reviewed");
-		}
-		for (Object raw : modules) {
-			Map<String,Object> module = object(raw, op, "modules");
-			for (String dependency : identifiers(module.get("dependencies"), op,
-				"dependencies", 0, 128)) {
-				if (!moduleIds.contains(dependency)) invalid(op,
-					"Module dependency is absent from the resolved set: " + dependency);
-			}
-			for (String conflict : identifiers(module.get("conflicts"), op,
-				"conflicts", 0, 128)) {
-				if (moduleIds.contains(conflict)) invalid(op,
-					"Resolved module set contains a declared conflict: " + conflict);
-			}
-		}
-		hash(root, "moduleSetHash", op, false);
-		hash(root, "bundleInventoryHash", op, false);
-	}
-
 	private static void validateAdapter(Map<String,Object> root, String op)
 		throws WorldBuilderContractException {
 		exact(root, op, "schemaVersion", "manifestType", "adapterId", "adapterVersion",
-			"historicalRuntimeId", "recommendedVariantId", "targetLedgerRelativePath",
+			"historicalRuntimeId", "evidenceAuthority", "installable",
+			"recommendedVariantId", "supportedManagedPredecessorReleaseIds",
+			"targetLedgerRelativePath",
 			"probeRoots", "evidenceRules", "adapterManifestHash");
 		identifier(root, "adapterId", op); identifier(root, "adapterVersion", op);
 		identifier(root, "historicalRuntimeId", op);
+		enumeration(root, "evidenceAuthority", op, "production-reviewed", "synthetic-fixture");
+		if (bool(root, "installable", op)) invalid(op,
+			"Input adapters are migration evidence and are never installed into targets.");
 		identifier(root, "recommendedVariantId", op);
+		identifiers(root.get("supportedManagedPredecessorReleaseIds"), op,
+			"supportedManagedPredecessorReleaseIds", 0, 64);
 		String ledgerPath = relative(root, "targetLedgerRelativePath", op);
 		List<String> roots = relatives(root.get("probeRoots"), op, "probeRoots", 1, 64);
 		for (int first = 0; first < roots.size(); first++) {
@@ -255,7 +163,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 				String tier = enumeration(delta, "tier", op, "T1", "T2A", "T2B", "T3", "T4");
 				String disposition = enumeration(delta, "disposition", op, "preserve-state",
 					"typed-configuration", "canonical-data", "canonical-map",
-					"mapped-to-platform", "mapped-to-module", "retire", "port-required");
+					"mapped-to-platform", "mapped-to-module", "retire", "discard-generated", "port-required");
 				String moduleId = optionalIdentifier(delta, "moduleId", op);
 				text(delta, "reason", op, 1, 1024);
 				if ("mapped-to-module".equals(disposition) != !moduleId.isEmpty()) invalid(op,
@@ -287,16 +195,22 @@ final class WorldBuilderCurrentRuntimeContracts {
 	private static void validateLedger(Map<String,Object> root, String op)
 		throws WorldBuilderContractException {
 		exact(root, op, "schemaVersion", "manifestType", "targetInstallationId",
-			"platformReleaseId", "platformManifestHash", "variantId", "variantManifestHash",
-			"moduleSetHash", "bundleInventoryHash", "inputAdapterId",
+			"platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId", "variantManifestHash",
+			"moduleSetHash", "bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
+			"inputAdapterContractId", "inputAdapterId",
 			"predecessorIdentityHash", "configurationMigrationIds", "stateMigrationIds",
 			"serverBuildId", "clientBuildId", "activeLauncherRelativePath",
 			"activeMapPackageId", "verificationEvidenceHash", "transactionReceiptIds",
 			"ledgerFingerprintSha256");
 		uuid(root, "targetInstallationId", op);
 		identifier(root, "platformReleaseId", op); hash(root, "platformManifestHash", op, false);
+		hash(root, "schemaSetHash", op, false);
 		identifier(root, "variantId", op); hash(root, "variantManifestHash", op, false);
 		hash(root, "moduleSetHash", op, false); hash(root, "bundleInventoryHash", op, false);
+		identifier(root, "bundleSpecId", op); hash(root, "bundleSpecHash", op, false);
+		if (!"world-builder-input-adapter-v1".equals(
+			identifier(root, "inputAdapterContractId", op))) invalid(op,
+			"Target ledger does not bind the current Editor input-adapter contract.");
 		identifier(root, "inputAdapterId", op); hash(root, "predecessorIdentityHash", op, true);
 		identifiers(root.get("configurationMigrationIds"), op,
 			"configurationMigrationIds", 0, MAX_LIST);
@@ -323,13 +237,20 @@ final class WorldBuilderCurrentRuntimeContracts {
 			"Read-only classification cannot report a mutation.");
 		identifier(root, "inputAdapterId", op); identifier(root, "historicalRuntimeId", op);
 		Map<String,Object> destination = object(root.get("destination"), op, "destination");
-		exact(destination, op, "platformReleaseId", "platformManifestHash", "variantId",
-			"variantManifestHash", "moduleSetHash", "bundleInventoryHash");
+		exact(destination, op, "platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId",
+			"variantManifestHash", "moduleSetHash", "bundleInventoryHash", "bundleSpecId",
+			"bundleSpecHash", "inputAdapterContractId", "installable");
 		identifier(destination, "platformReleaseId", op);
 		hash(destination, "platformManifestHash", op, false);
+		hash(destination, "schemaSetHash", op, false);
 		identifier(destination, "variantId", op); hash(destination, "variantManifestHash", op, false);
 		hash(destination, "moduleSetHash", op, false);
 		hash(destination, "bundleInventoryHash", op, false);
+		identifier(destination, "bundleSpecId", op); hash(destination, "bundleSpecHash", op, false);
+		if (!"world-builder-input-adapter-v1".equals(
+			identifier(destination, "inputAdapterContractId", op))) invalid(op,
+			"Destination does not bind the current input-adapter contract.");
+		bool(destination, "installable", op);
 		Map<String,Object> project = object(root.get("projectCapability"), op, "projectCapability");
 		exact(project, op, "projectId", "capabilityFingerprintSha256");
 		uuid(project, "projectId", op); hash(project, "capabilityFingerprintSha256", op, false);
@@ -346,13 +267,16 @@ final class WorldBuilderCurrentRuntimeContracts {
 		boolean portRequired = false;
 		for (Object raw : evidence) {
 			Map<String,Object> item = object(raw, op, "evidence");
-			exact(item, op, "role", "relativePath", "tier", "disposition", "reason", "size", "sha256");
+			exact(item, op, "role", "relativePath", "tier", "disposition", "moduleId", "reason", "size", "sha256");
 			identifier(item, "role", op); relative(item, "relativePath", op);
 			enumeration(item, "tier", op, "T0", "T1", "T2A", "T2B", "T3", "T4", "T5");
 			String disposition = enumeration(item, "disposition", op, "replace", "preserve-state",
 				"typed-configuration", "canonical-data", "canonical-map",
-				"mapped-to-platform", "mapped-to-module", "retire", "port-required", "blocker");
+				"mapped-to-platform", "mapped-to-module", "retire", "discard-generated", "port-required", "blocker");
 			if ("port-required".equals(disposition)) portRequired = true;
+			String moduleId = optionalIdentifier(item, "moduleId", op);
+			if ("mapped-to-module".equals(disposition) != !moduleId.isEmpty()) invalid(op,
+				"Only mapped-to-module classification evidence may name a current module.");
 			text(item, "reason", op, 1, 1024); boundedSize(item, "size", op);
 			hash(item, "sha256", op, true);
 		}
@@ -365,39 +289,41 @@ final class WorldBuilderCurrentRuntimeContracts {
 		hash(root, "classificationFingerprintSha256", op, false);
 	}
 
-	static Classification classify(Path targetRoot, Path platformPath, Path variantPath,
-		Path moduleSetPath, Path adapterPath, Path projectCapabilityPath)
+	static Classification classify(Path targetRoot, Path providerCatalogRoot,
+		Path compositionIdentityPath, Path adapterPath, Path projectCapabilityPath)
 		throws IOException, WorldBuilderContractException {
-		Document platformDocument = read(Kind.PLATFORM_RELEASE, platformPath);
-		Document variantDocument = read(Kind.RUNTIME_VARIANT, variantPath);
-		Document moduleDocument = read(Kind.MODULE_SET, moduleSetPath);
+		WorldBuilderProviderCatalog.Composition composition =
+			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentityPath);
 		Document adapterDocument = read(Kind.INPUT_ADAPTER, adapterPath);
 		Document projectDocument = read(Kind.PROJECT_CAPABILITY, projectCapabilityPath);
-		Map<String,Object> platform = platformDocument.root;
-		Map<String,Object> variant = variantDocument.root;
-		Map<String,Object> modules = moduleDocument.root;
 		Map<String,Object> adapter = adapterDocument.root;
 		Map<String,Object> project = projectDocument.root;
-		crossValidate(platformDocument, variantDocument, moduleDocument,
-			adapterDocument, projectDocument);
+		crossValidate(composition, adapter, project);
 
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(targetRoot);
 		String ledgerRelative = string(adapter, "targetLedgerRelativePath", "classify-target");
 		if (target.exists(ledgerRelative)) {
 			try {
 				Document ledger = read(Kind.TARGET_LEDGER, target.requiredFile(ledgerRelative));
-				return classifyLedger(platform, variant, modules, adapter, project, ledger);
+				return classifyLedger(composition, adapter, project, ledger);
 			} catch (WorldBuilderContractException unsafeLedger) {
 				List<Evidence> evidence = Collections.singletonList(new Evidence(
 					"target-ledger", ledgerRelative, "T5", "blocker",
-					"Installed runtime ledger is malformed, unsafe, or self-inconsistent.", 0L, ""));
-				return classification("BLOCKED_UNSAFE", "T5", platform, variant, modules,
+					"", "Installed runtime ledger is malformed, unsafe, or self-inconsistent.", 0L, ""));
+				return classification("BLOCKED_UNSAFE", "T5", composition,
 					adapter, project, null, evidence,
 					Collections.singletonList("Restore exact ledger and runtime evidence before any target mutation."));
 			}
 		}
 
 		List<Evidence> evidence = classifyHistorical(target, adapter);
+		for (Evidence item : evidence) {
+			if (!item.moduleId.isEmpty() && !composition.moduleIds.contains(item.moduleId)) {
+				throw invalid("resolve-current-composition",
+					"Input adapter maps target evidence to a module absent from the provider composition: "
+						+ item.moduleId);
+			}
+		}
 		String tier = highestTier(evidence);
 		String status = "UPGRADE_READY";
 		List<String> actions = new ArrayList<String>();
@@ -418,103 +344,71 @@ final class WorldBuilderCurrentRuntimeContracts {
 		}
 		if ("T0".equals(tier)) actions.add(
 			"Convert the legacy packed map/state to the canonical current package during upgrade.");
-		return classification(status, tier, platform, variant, modules,
+		return classification(status, tier, composition,
 			adapter, project, null, evidence, actions);
 	}
 
-	private static void crossValidate(Document platformDocument, Document variantDocument,
-		Document moduleDocument, Document adapterDocument, Document projectDocument)
+	private static void crossValidate(WorldBuilderProviderCatalog.Composition composition,
+		Map<String,Object> adapter, Map<String,Object> project)
 		throws WorldBuilderContractException {
 		String op = "resolve-current-composition";
-		Map<String,Object> platform = platformDocument.root;
-		Map<String,Object> variant = variantDocument.root;
-		Map<String,Object> modules = moduleDocument.root;
-		Map<String,Object> adapter = adapterDocument.root;
-		Map<String,Object> project = projectDocument.root;
-		String platformId = string(platform, "platformReleaseId", op);
-		String platformHash = string(platform, "platformManifestHash", op);
-		String variantId = string(variant, "variantId", op);
-		String variantHash = string(variant, "variantManifestHash", op);
-		if (!platformId.equals(string(variant, "platformReleaseId", op))
-			|| !platformHash.equals(string(variant, "platformManifestHash", op))
-			|| !platformId.equals(string(modules, "platformReleaseId", op))
-			|| !platformHash.equals(string(modules, "platformManifestHash", op))
-			|| !variantId.equals(string(modules, "variantId", op))
-			|| !variantHash.equals(string(modules, "variantManifestHash", op))) invalid(op,
-			"Platform, variant, and module-set identities do not form one composition.");
-		if (!identifiers(platform.get("variants"), op, "variants", 1, 64).contains(variantId)
-			|| !identifiers(platform.get("inputAdapters"), op, "inputAdapters", 1, 64)
-				.contains(string(adapter, "adapterId", op))) invalid(op,
-			"Platform release does not bind the selected variant or input adapter.");
+		String variantId = composition.string("variantId");
 		if (!variantId.equals(string(adapter, "recommendedVariantId", op))) invalid(op,
 			"Input adapter recommends a different current variant.");
 		List<String> allowedVariants = identifiers(project.get("allowedVariantIds"), op,
 			"allowedVariantIds", 1, 128);
 		if (!allowedVariants.contains(variantId)) invalid(op,
 			"Project capability does not permit the resolved current variant.");
-		List<String> allowedModules = identifiers(variant.get("allowedModuleIds"), op,
-			"allowedModuleIds", 0, 128);
-		Set<String> resolvedModules = moduleIds(modules, op);
-		if (!allowedModules.containsAll(resolvedModules)) invalid(op,
-			"Resolved module set contains a module not allowed by the variant.");
-		List<String> defaultModules = identifiers(variant.get("defaultModuleIds"), op,
-			"defaultModuleIds", 0, 128);
-		if (!resolvedModules.containsAll(defaultModules)) invalid(op,
-			"Resolved module set omits a variant-default module.");
-		String platformApi = string(platform, "platformApiVersion", op);
-		for (Object raw : array(modules.get("modules"), op, "modules", 0, 128)) {
-			Map<String,Object> module = object(raw, op, "modules");
-			if (!platformApi.equals(string(module, "platformApiVersion", op))) invalid(op,
-				"Resolved module targets a different platform API version.");
-		}
 		List<String> requiredModules = identifiers(project.get("requiredModuleIds"), op,
 			"requiredModuleIds", 0, 128);
-		if (!resolvedModules.containsAll(requiredModules)) invalid(op,
+		if (!composition.moduleIds.containsAll(requiredModules)) invalid(op,
 			"Resolved module set omits a project-required module.");
-		List<String> requiredCapabilities = identifiers(project.get("requiredCapabilityIds"),
-			op, "requiredCapabilityIds", 0, 128);
-		List<String> variantCapabilities = identifiers(variant.get("semanticContractIds"),
-			op, "semanticContractIds", 1, 128);
-		if (!variantCapabilities.containsAll(requiredCapabilities)) invalid(op,
-			"Resolved variant omits a project-required capability.");
 	}
 
-	private static Classification classifyLedger(Map<String,Object> platform,
-		Map<String,Object> variant, Map<String,Object> modules, Map<String,Object> adapter,
+	private static Classification classifyLedger(WorldBuilderProviderCatalog.Composition composition,
+		Map<String,Object> adapter,
 		Map<String,Object> project, Document ledgerDocument)
 		throws WorldBuilderContractException {
 		Map<String,Object> ledger = ledgerDocument.root;
 		String release = string(ledger, "platformReleaseId", "classify-ledger");
-		String currentRelease = string(platform, "platformReleaseId", "classify-ledger");
+		String currentRelease = composition.string("platformReleaseId");
 		boolean sameVariant = string(ledger, "variantId", "classify-ledger")
-			.equals(string(variant, "variantId", "classify-ledger"));
+			.equals(composition.string("variantId"));
 		boolean sameAdapter = string(ledger, "inputAdapterId", "classify-ledger")
 			.equals(string(adapter, "adapterId", "classify-ledger"));
 		boolean exactCurrent = release.equals(currentRelease) && sameVariant
 			&& sameAdapter
 			&& string(ledger, "platformManifestHash", "classify-ledger")
-				.equals(string(platform, "platformManifestHash", "classify-ledger"))
+				.equals(composition.string("platformManifestHash"))
+			&& string(ledger, "schemaSetHash", "classify-ledger")
+				.equals(composition.string("schemaSetHash"))
 			&& string(ledger, "variantManifestHash", "classify-ledger")
-				.equals(string(variant, "variantManifestHash", "classify-ledger"))
+				.equals(composition.string("variantManifestHash"))
 			&& string(ledger, "moduleSetHash", "classify-ledger")
-				.equals(string(modules, "moduleSetHash", "classify-ledger"))
+				.equals(composition.string("moduleSetHash"))
 			&& string(ledger, "bundleInventoryHash", "classify-ledger")
-				.equals(string(modules, "bundleInventoryHash", "classify-ledger"));
-		List<String> predecessors = identifiers(platform.get("supportedPredecessorReleaseIds"),
-			"classify-ledger", "supportedPredecessorReleaseIds", 0, 64);
-		if (exactCurrent) return classification("CURRENT", "CURRENT", platform,
-			variant, modules, adapter, project, ledgerDocument,
+				.equals(composition.string("bundleInventoryHash"))
+			&& string(ledger, "bundleSpecId", "classify-ledger")
+				.equals(composition.string("bundleSpecId"))
+			&& string(ledger, "bundleSpecHash", "classify-ledger")
+				.equals(composition.string("bundleSpecHash"))
+			&& string(ledger, "inputAdapterContractId", "classify-ledger")
+				.equals(composition.string("inputAdapterContractId"));
+		List<String> predecessors = identifiers(adapter.get("supportedManagedPredecessorReleaseIds"),
+			"classify-ledger", "supportedManagedPredecessorReleaseIds", 0, 64);
+		if (exactCurrent) return classification("CURRENT", "CURRENT", composition,
+			adapter, project, ledgerDocument,
 			Collections.<Evidence>emptyList(),
 			Collections.singletonList("Permit map-only import after normal ledger and artifact revalidation."));
 		if (predecessors.contains(release) && sameVariant && sameAdapter) return classification(
-			"UPGRADE_READY", "MANAGED_N", platform, variant, modules, adapter, project,
+			"UPGRADE_READY", "MANAGED_N", composition, adapter, project,
 			ledgerDocument, Collections.<Evidence>emptyList(), Collections.singletonList(
 				"Advance the trusted managed predecessor within its selected variant using a reviewed N-to-N+1 plan."));
 		List<Evidence> evidence = Collections.singletonList(new Evidence(
 			"target-ledger", string(adapter, "targetLedgerRelativePath", "classify-ledger"),
-			"T5", "blocker", "Installed ledger is not the exact current composition or a trusted same-variant predecessor.",
+			"T5", "blocker", "", "Installed ledger is not the exact current composition or a trusted same-variant predecessor.",
 			0L, ledgerDocument.canonicalSha256));
-		return classification("BLOCKED_UNSAFE", "T5", platform, variant, modules,
+		return classification("BLOCKED_UNSAFE", "T5", composition,
 			adapter, project, ledgerDocument, evidence, Collections.singletonList(
 				"Resolve the mixed, unknown, or variant-changing ledger state before any mutation."));
 	}
@@ -533,7 +427,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 			try {
 				state = target.optionalState(string(rule, "role", op), path);
 			} catch (WorldBuilderContractException unsafe) {
-				result.add(new Evidence(string(rule, "role", op), path, "T5", "blocker",
+				result.add(new Evidence(string(rule, "role", op), path, "T5", "blocker", "",
 					"Adapter-declared evidence is unsafe or unreadable.", 0L, ""));
 				continue;
 			}
@@ -541,17 +435,18 @@ final class WorldBuilderCurrentRuntimeContracts {
 			long baselineSize = integer(rule, "baselineSize", op);
 			if ((!state.present && baselineHash.isEmpty())
 				|| state.present && state.sha256.equals(baselineHash) && state.size == baselineSize) {
-				if (state.present) result.add(new Evidence(state.role, path, "T0", "replace",
+				if (state.present) result.add(new Evidence(state.role, path, "T0", "replace", "",
 					"Exact sealed baseline evidence.", state.size, state.sha256));
 				continue;
 			}
 			Map<String,Object> recognized = findDelta(rule.get("recognizedDeltas"), state, op);
 			if (recognized != null) {
 				result.add(new Evidence(state.role, path, string(recognized, "tier", op),
-					string(recognized, "disposition", op), string(recognized, "reason", op),
+					string(recognized, "disposition", op), string(recognized, "moduleId", op),
+					string(recognized, "reason", op),
 					state.size, state.sha256));
 			} else {
-				result.add(new Evidence(state.role, path, "T5", "blocker",
+				result.add(new Evidence(state.role, path, "T5", "blocker", "",
 					state.present
 						? "File bytes do not match the sealed baseline or any reviewed semantic delta."
 						: "Required sealed baseline evidence is missing.",
@@ -564,7 +459,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 				if (!target.exists(rootRelative)) continue;
 				probe = target.requiredDirectory(rootRelative);
 			} catch (WorldBuilderContractException unsafe) {
-				result.add(new Evidence("unclassified", rootRelative, "T5", "blocker",
+				result.add(new Evidence("unclassified", rootRelative, "T5", "blocker", "",
 					"Adapter probe root is unsafe or unreadable.", 0L, ""));
 				continue;
 			}
@@ -591,7 +486,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 				});
 			}
 			} catch (IOException failure) {
-				result.add(new Evidence("unclassified", rootRelative, "T5", "blocker",
+				result.add(new Evidence("unclassified", rootRelative, "T5", "blocker", "",
 					"Bounded adapter probe could not be completed safely.", 0L, ""));
 				continue;
 			}
@@ -601,18 +496,18 @@ final class WorldBuilderCurrentRuntimeContracts {
 					if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)
 						|| Files.isSymbolicLink(path)) {
 						relative = target.relative(path);
-						result.add(new Evidence("unclassified", relative, "T5", "blocker",
+						result.add(new Evidence("unclassified", relative, "T5", "blocker", "",
 							"Probe contains a symbolic link or non-regular file.", 0L, ""));
 						continue;
 					}
 					relative = target.relative(path);
 					if (rules.containsKey(WorldBuilderPortablePath.collisionKey(relative, op))) continue;
 					WorldBuilderReadOnlyTarget.FileState state = target.requiredState("unclassified", relative);
-					result.add(new Evidence("unclassified", relative, "T5", "blocker",
+					result.add(new Evidence("unclassified", relative, "T5", "blocker", "",
 						"File is inside a bounded probe root but has no reviewed role or policy.",
 						state.size, state.sha256));
 				} catch (WorldBuilderContractException unsafe) {
-					result.add(new Evidence("unclassified", rootRelative, "T5", "blocker",
+					result.add(new Evidence("unclassified", rootRelative, "T5", "blocker", "",
 						"Unclassified target evidence is unsafe or unreadable.", 0L, ""));
 				}
 			}
@@ -655,7 +550,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 	}
 
 	private static Classification classification(String status, String tier,
-		Map<String,Object> platform, Map<String,Object> variant, Map<String,Object> modules,
+		WorldBuilderProviderCatalog.Composition composition,
 		Map<String,Object> adapter, Map<String,Object> project, Document ledger,
 		List<Evidence> evidence, List<String> actions) throws WorldBuilderContractException {
 		Map<String,Object> root = new LinkedHashMap<String,Object>();
@@ -666,12 +561,12 @@ final class WorldBuilderCurrentRuntimeContracts {
 		root.put("inputAdapterId", string(adapter, "adapterId", "classify-target"));
 		root.put("historicalRuntimeId", string(adapter, "historicalRuntimeId", "classify-target"));
 		Map<String,Object> destination = new LinkedHashMap<String,Object>();
-		destination.put("platformReleaseId", string(platform, "platformReleaseId", "classify-target"));
-		destination.put("platformManifestHash", string(platform, "platformManifestHash", "classify-target"));
-		destination.put("variantId", string(variant, "variantId", "classify-target"));
-		destination.put("variantManifestHash", string(variant, "variantManifestHash", "classify-target"));
-		destination.put("moduleSetHash", string(modules, "moduleSetHash", "classify-target"));
-		destination.put("bundleInventoryHash", string(modules, "bundleInventoryHash", "classify-target"));
+		for (String key : Arrays.asList("platformReleaseId", "platformManifestHash",
+			"schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash",
+			"bundleInventoryHash", "bundleSpecId", "bundleSpecHash", "inputAdapterContractId")) {
+			destination.put(key, composition.string(key));
+		}
+		destination.put("installable", Boolean.valueOf(composition.installable));
 		root.put("destination", destination);
 		Map<String,Object> projectReference = new LinkedHashMap<String,Object>();
 		projectReference.put("projectId", string(project, "projectId", "classify-target"));
@@ -693,15 +588,6 @@ final class WorldBuilderCurrentRuntimeContracts {
 		WorldBuilderAdaptiveExporter.bindFingerprint(root, "classificationFingerprintSha256");
 		validate(Kind.TARGET_CLASSIFICATION, root, true);
 		return new Classification(root);
-	}
-
-	private static Set<String> moduleIds(Map<String,Object> modules, String op)
-		throws WorldBuilderContractException {
-		Set<String> ids = new HashSet<String>();
-		for (Object value : array(modules.get("modules"), op, "modules", 0, 128)) {
-			ids.add(identifier(object(value, op, "modules"), "moduleId", op));
-		}
-		return ids;
 	}
 
 	private static List<String> identifiers(Object raw, String op, String name,
@@ -914,16 +800,18 @@ final class WorldBuilderCurrentRuntimeContracts {
 		final String relativePath;
 		final String tier;
 		final String disposition;
+		final String moduleId;
 		final String reason;
 		final long size;
 		final String sha256;
 
-		Evidence(String role, String relativePath, String tier, String disposition,
+		Evidence(String role, String relativePath, String tier, String disposition, String moduleId,
 			String reason, long size, String sha256) {
 			this.role = role;
 			this.relativePath = relativePath;
 			this.tier = tier;
 			this.disposition = disposition;
+			this.moduleId = moduleId;
 			this.reason = reason;
 			this.size = size;
 			this.sha256 = sha256;
@@ -933,6 +821,7 @@ final class WorldBuilderCurrentRuntimeContracts {
 			Map<String,Object> result = new LinkedHashMap<String,Object>();
 			result.put("role", role); result.put("relativePath", relativePath);
 			result.put("tier", tier); result.put("disposition", disposition);
+			result.put("moduleId", moduleId);
 			result.put("reason", reason); result.put("size", Long.valueOf(size));
 			result.put("sha256", sha256);
 			return result;

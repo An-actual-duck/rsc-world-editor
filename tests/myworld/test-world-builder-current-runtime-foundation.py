@@ -290,7 +290,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
         self.assertFalse(report["mutationOccurred"])
         opaque = next(
             item for item in report["evidence"]
-            if item["relativePath"] == "server/plugins/opaque-plugin.jar"
+            if item["relativePath"] == "server/plugins/opaque-plugin.bin"
         )
         self.assertEqual("unclassified", opaque["role"])
         self.assertEqual("blocker", opaque["disposition"])

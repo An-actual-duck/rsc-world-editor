@@ -39,12 +39,13 @@
       "type": "array", "maxItems": 8192,
       "items": {
         "type": "object", "additionalProperties": false,
-        "required": ["role", "relativePath", "tier", "disposition", "reason", "size", "sha256"],
+        "required": ["role", "relativePath", "tier", "disposition", "moduleId", "reason", "size", "sha256"],
         "properties": {
           "role": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
           "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
           "tier": {"enum": ["T0", "T1", "T2A", "T2B", "T3", "T4", "T5"]},
-          "disposition": {"enum": ["replace", "preserve-state", "typed-configuration", "canonical-data", "canonical-map", "mapped-to-platform", "mapped-to-module", "retire", "port-required", "blocker"]},
+          "disposition": {"enum": ["replace", "preserve-state", "typed-configuration", "canonical-data", "canonical-map", "mapped-to-platform", "mapped-to-module", "retire", "discard-generated", "port-required", "blocker"]},
+          "moduleId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
           "reason": {"type": "string", "minLength": 1, "maxLength": 1024},
           "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
           "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"}
@@ -60,14 +61,19 @@
   "$defs": {
     "runtimeIdentity": {
       "type": "object", "additionalProperties": false,
-      "required": ["platformReleaseId", "platformManifestHash", "variantId", "variantManifestHash", "moduleSetHash", "bundleInventoryHash"],
+      "required": ["platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash", "bundleInventoryHash", "bundleSpecId", "bundleSpecHash", "inputAdapterContractId", "installable"],
       "properties": {
         "platformReleaseId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "platformManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "schemaSetHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "variantId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "variantManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "moduleSetHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
-        "bundleInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+        "bundleInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "bundleSpecId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "bundleSpecHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "inputAdapterContractId": {"const": "world-builder-input-adapter-v1"},
+        "installable": {"type": "boolean"}
       }
     }
   }

@@ -1505,9 +1505,8 @@ public final class WorldBuilderCli {
 
 	private static int classifyCurrentTarget(String[] args) {
 		Path target = null;
-		Path platform = null;
-		Path variant = null;
-		Path modules = null;
+		Path providerCatalog = null;
+		Path compositionIdentity = null;
 		Path adapter = null;
 		Path projectCapability = null;
 		for (int index = 1; index < args.length; index++) {
@@ -1518,9 +1517,8 @@ public final class WorldBuilderCli {
 			String option = args[index++];
 			Path value = Paths.get(args[index]);
 			if ("--target-root".equals(option) && target == null) target = value;
-			else if ("--platform-release".equals(option) && platform == null) platform = value;
-			else if ("--variant".equals(option) && variant == null) variant = value;
-			else if ("--module-set".equals(option) && modules == null) modules = value;
+			else if ("--provider-catalog-root".equals(option) && providerCatalog == null) providerCatalog = value;
+			else if ("--composition-identity".equals(option) && compositionIdentity == null) compositionIdentity = value;
 			else if ("--input-adapter".equals(option) && adapter == null) adapter = value;
 			else if ("--project-capability".equals(option) && projectCapability == null) {
 				projectCapability = value;
@@ -1529,18 +1527,18 @@ public final class WorldBuilderCli {
 				return 2;
 			}
 		}
-		if (target == null || platform == null || variant == null || modules == null
+		if (target == null || providerCatalog == null || compositionIdentity == null
 			|| adapter == null || projectCapability == null) {
 			System.err.println("ERROR: classify-current-target requires --target-root, "
-				+ "--platform-release, --variant, --module-set, --input-adapter, "
+				+ "--provider-catalog-root, --composition-identity, --input-adapter, "
 				+ "and --project-capability.");
 			return 2;
 		}
 		try {
 		{
 			WorldBuilderCurrentRuntimeContracts.Classification result =
-				WorldBuilderCurrentRuntimeContracts.classify(target, platform, variant,
-					modules, adapter, projectCapability);
+				WorldBuilderCurrentRuntimeContracts.classify(target, providerCatalog,
+					compositionIdentity, adapter, projectCapability);
 			System.out.print(result.toJson());
 			return "BLOCKED_UNSAFE".equals(result.status())
 				|| "PORT_REQUIRED".equals(result.status()) ? 3 : 0;
@@ -2026,8 +2024,8 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli validate-current-runtime-contract --kind <kind>"
 			+ " --document <manifest.json>"
 			+ "\n  WorldBuilderCli classify-current-target --target-root <server-root>"
-			+ " --platform-release <manifest.json> --variant <manifest.json>"
-			+ " --module-set <manifest.json> --input-adapter <manifest.json>"
+			+ " --provider-catalog-root <current-platform>"
+			+ " --composition-identity <resolved.json> --input-adapter <manifest.json>"
 			+ " --project-capability <manifest.json>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
 			+ " [--configuration-role <role>]"

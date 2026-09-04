@@ -6,16 +6,24 @@
   "additionalProperties": false,
   "required": [
     "schemaVersion", "manifestType", "adapterId", "adapterVersion",
-    "historicalRuntimeId", "recommendedVariantId", "targetLedgerRelativePath",
+    "historicalRuntimeId", "evidenceAuthority", "installable",
+    "recommendedVariantId", "supportedManagedPredecessorReleaseIds",
+    "targetLedgerRelativePath",
     "probeRoots", "evidenceRules", "adapterManifestHash"
   ],
   "properties": {
     "schemaVersion": {"const": 1},
-    "manifestType": {"const": "world-builder-current-input-adapter"},
+    "manifestType": {"const": "world-builder-input-adapter-v1"},
     "adapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
     "adapterVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
     "historicalRuntimeId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "evidenceAuthority": {"enum": ["production-reviewed", "synthetic-fixture"]},
+    "installable": {"const": false},
     "recommendedVariantId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "supportedManagedPredecessorReleaseIds": {
+      "type": "array", "maxItems": 64, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    },
     "targetLedgerRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
     "probeRoots": {
       "type": "array", "minItems": 1, "maxItems": 64, "uniqueItems": true,
@@ -57,7 +65,7 @@
                   "enum": [
                     "preserve-state", "typed-configuration", "canonical-data",
                     "canonical-map", "mapped-to-platform", "mapped-to-module",
-                    "retire", "port-required"
+                    "retire", "discard-generated", "port-required"
                   ]
                 },
                 "moduleId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
