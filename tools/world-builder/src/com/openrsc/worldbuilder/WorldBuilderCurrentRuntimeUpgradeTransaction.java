@@ -798,6 +798,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"preimageInventoryHash");
 		requireHash(string(activation, "artifactPlanHash"), "artifactPlanHash");
 		requireHash(string(activation, "semanticActionsHash"), "semanticActionsHash");
+		if (!providerArtifactPlanHash(composition).equals(
+			string(activation, "artifactPlanHash")))
+			throw activationMismatch("artifactPlanHash");
 		Map<String,Object> destination = object(activation.get("destination"));
 		WorldBuilderBoundedInventory.exactKeys(destination, OPERATION,
 			"platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId",
@@ -848,6 +851,24 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		if (!activationPlanBindingHash(activation).equals(
 			string(activation, "planBindingHash")))
 			throw activationMismatch("planBindingHash");
+	}
+
+	private static String providerArtifactPlanHash(
+		WorldBuilderProviderCatalog.Composition composition)
+		throws WorldBuilderContractException {
+		List<Object> artifacts = new ArrayList<Object>();
+		for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+			Map<String,Object> action = new LinkedHashMap<String,Object>();
+			action.put("sourcePath", artifact.sourcePath);
+			action.put("bundlePath", artifact.bundlePath);
+			action.put("installRelativePath", RELEASE_PREFIX
+				+ composition.string("bundleInventoryHash") + "/" + artifact.bundlePath);
+			action.put("mode", artifact.inventory.get("mode"));
+			action.put("size", artifact.inventory.get("size"));
+			action.put("sha256", artifact.inventory.get("sha256"));
+			artifacts.add(action);
+		}
+		return canonicalHash(artifacts);
 	}
 
 	private static WorldBuilderContractException activationMismatch(String field) {
