@@ -103,7 +103,9 @@ import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -155,7 +157,8 @@ public final class CurrentUpgradeHarness {
             System.out.print(WorldBuilderJsonDocuments.pretty(
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation()
                     .migrationPlan(target, classification)));
-        } else if ("profile-migration-stage".equals(operation)) {
+        } else if ("profile-migration-stage".equals(operation)
+            || "profile-migration-stage-tamper".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
             WorldBuilderCurrentRuntimeExecutionProfile profile =
@@ -168,6 +171,21 @@ public final class CurrentUpgradeHarness {
             WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
                 (Map<String,Object>)migration.get("typedConfiguration"), execution);
             WorldBuilderPreservationStagedMigrator.stage(target, stage, execution);
+            if ("profile-migration-stage-tamper".equals(operation)) {
+                Path config = stage.resolve(
+                    WorldBuilderPreservationStagedMigrator.CONFIG_OUTPUT);
+                if ("path".equals(failures)) {
+                    Files.move(config, config.getParent().resolve("target-selected.json"));
+                } else if ("hash".equals(failures)) {
+                    Files.write(config, new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("mode".equals(failures)) {
+                    Files.setPosixFilePermissions(config, EnumSet.of(
+                        PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.OWNER_WRITE,
+                        PosixFilePermission.GROUP_READ,
+                        PosixFilePermission.OTHERS_READ));
+                }
+            }
             WorldBuilderPreservationStagedMigrator.verify(stage, execution);
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
         } else if ("preview".equals(operation)) {
@@ -656,20 +674,33 @@ public final class CurrentUpgradeHarness {
             workspace / "staged-output/migration/output/state/preservation.db"
         ).read_bytes())
         self.assertEqual(before, tree_snapshot(target))
+        for tamper in ("path", "hash", "mode"):
+            with self.subTest(staged_output_tamper=tamper):
+                tamper_workspace = self.case_root / f"tamper-{tamper}-transactions"
+                tamper_workspace.mkdir()
+                result = self.run_harness(
+                    "profile-migration-stage-tamper", target, tamper_workspace,
+                    f"tampered-{tamper}", failures=tamper,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+                self.assertEqual(before, tree_snapshot(target))
 
-        refused_target = self.case_root / "sidecar-target"
-        shutil.copytree(target, refused_target)
-        (refused_target / "server/inc/sqlite/preservation.db-wal").write_bytes(b"unsafe")
-        refused_workspace = self.case_root / "sidecar-transactions"
-        refused_workspace.mkdir()
-        before_refused = tree_snapshot(refused_target)
-        refused = self.run_harness(
-            "profile-migration-stage", refused_target, refused_workspace, "refused",
-        )
-        self.assertNotEqual(0, refused.returncode)
-        self.assertIn("SQLite sidecar state exists", refused.stderr)
-        self.assertEqual(before_refused, tree_snapshot(refused_target))
-        self.assertEqual({}, tree_snapshot(refused_workspace))
+        for suffix in ("-wal", "-shm"):
+            with self.subTest(sqlite_sidecar=suffix):
+                refused_target = self.case_root / ("sidecar-target" + suffix)
+                shutil.copytree(target, refused_target)
+                (refused_target / ("server/inc/sqlite/preservation.db" + suffix)).write_bytes(b"unsafe")
+                refused_workspace = self.case_root / ("sidecar-transactions" + suffix)
+                refused_workspace.mkdir()
+                before_refused = tree_snapshot(refused_target)
+                refused = self.run_harness(
+                    "profile-migration-stage", refused_target, refused_workspace, "refused",
+                )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("SQLite sidecar state exists", refused.stderr)
+                self.assertEqual(before_refused, tree_snapshot(refused_target))
+                self.assertEqual({}, tree_snapshot(refused_workspace))
 
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):

@@ -3,14 +3,17 @@ package com.openrsc.worldbuilder;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.FileVisitResult;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -42,8 +45,8 @@ final class WorldBuilderPreservationStagedMigrator {
 		boolean mapReady = false;
 		if (safeRegular(map)) {
 			try {
-				byte[] source = Files.readAllBytes(map);
-				if (source.length == WorldBuilderPackedTerrainCodec.BYTE_COUNT) {
+				if (Files.size(map) == WorldBuilderPackedTerrainCodec.BYTE_COUNT) {
+					byte[] source = Files.readAllBytes(map);
 					byte[] layered = WorldBuilderPackedTerrainCodec.toLayered(source);
 					WorldBuilderPackedTerrainCodec.requireExactReverse(source, layered);
 					outputs.add(output(MAP_OUTPUT, "canonical-terrain-sector", mapRelative,
@@ -152,12 +155,50 @@ final class WorldBuilderPreservationStagedMigrator {
 
 	static void verify(Path stage, Map<String,Object> execution)
 		throws IOException, WorldBuilderContractException {
+		final Path root = stage.resolve("migration/output");
+		final Set<String> expectedFiles = new HashSet<String>();
+		final Set<String> expectedDirectories = new HashSet<String>();
+		expectedDirectories.add("");
 		for (Object raw : array(execution.get("stagedOutputs"))) {
 			Map<String,Object> record = object(raw);
-			Path output = WorldBuilderReadOnlyTarget.open(stage).requiredFile(
-				string(record, "relativePath"));
+			String stagedRelative = string(record, "relativePath");
+			if (!stagedRelative.startsWith("migration/output/")) throw blocked(
+				"Staged migration output escaped its compiled namespace.");
+			String relative = stagedRelative.substring("migration/output/".length());
+			expectedFiles.add(relative);
+			int slash = relative.lastIndexOf('/');
+			while (slash > 0) {
+				expectedDirectories.add(relative.substring(0, slash));
+				slash = relative.lastIndexOf('/', slash - 1);
+			}
+			Path output = WorldBuilderPortablePath.resolveContained(stage, stagedRelative,
+				"preservation-migration");
+			if (!Files.exists(output, LinkOption.NOFOLLOW_LINKS)) throw blocked(
+				"Staged migration output is missing.");
 			requireOutput(output, record);
 		}
+		final Set<String> actualFiles = new HashSet<String>();
+		final Set<String> actualDirectories = new HashSet<String>();
+		Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isDirectory() || Files.isSymbolicLink(directory))
+					throw new IOException("linked staged migration directory");
+				actualDirectories.add(root.equals(directory) ? ""
+					: root.relativize(directory).toString().replace('\\', '/'));
+				return FileVisitResult.CONTINUE;
+			}
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file))
+					throw new IOException("linked staged migration file");
+				actualFiles.add(root.relativize(file).toString().replace('\\', '/'));
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		if (!expectedFiles.equals(actualFiles)
+			|| !expectedDirectories.equals(actualDirectories)) throw blocked(
+			"Staged migration output tree has extra or missing paths.");
 	}
 
 	private static void requireClosedSqliteSnapshot(Path target, Path source)
@@ -205,8 +246,14 @@ final class WorldBuilderPreservationStagedMigrator {
 			BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
 		if (!attributes.isRegularFile() || attributes.isSymbolicLink()
 			|| attributes.size() != integer(record, "size")
-			|| !WorldBuilderHashes.sha256(output).equals(string(record, "sha256")))
+			|| !WorldBuilderHashes.sha256(output).equals(string(record, "sha256"))
+			|| !fileMode(output).equals(string(record, "mode")))
 			throw blocked("Staged migration output differs from its reviewed inventory.");
+	}
+
+	private static String fileMode(Path path) throws IOException {
+		Object raw = Files.getAttribute(path, "unix:mode", LinkOption.NOFOLLOW_LINKS);
+		return String.format("%04o", Integer.valueOf(((Number)raw).intValue() & 0777));
 	}
 
 	private static Map<String,Object> output(String relative, String kind,

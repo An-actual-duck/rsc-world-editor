@@ -223,6 +223,11 @@ source hash, and result hash is compiled or plan-bound and is revalidated as
 part of the release tree. SQLite WAL/journal/SHM state, malformed snapshots,
 unrecognized paths, and unsupported map shapes fail before target mutation.
 These are executable staging primitives, not a current-schema data cutover.
+This first bounded row deliberately recognizes only the compiled
+`server/inc/sqlite/preservation.db` source and one 48x48x10-byte terrain
+sector; it does not accept target-selected paths. Staged outputs enforce POSIX
+`0600` modes, so non-POSIX filesystems remain an explicit portability gap and
+must fail rather than silently weaken permissions.
 
 Activation remains unavailable until the provider supplies the hash-bound
 `current-base-state-migration-v1` contract and

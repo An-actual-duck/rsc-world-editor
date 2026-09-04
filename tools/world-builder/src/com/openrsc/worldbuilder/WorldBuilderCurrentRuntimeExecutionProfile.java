@@ -104,6 +104,31 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.put("executionReady", Boolean.valueOf(executionReady));
 		result.put("executionReadinessStatus", executionReadinessStatus);
 		result.put("executionReadinessReason", executionReadinessReason);
+		result.put("executionReadinessConditions", executionReadinessConditions(syntheticOnly));
+		return result;
+	}
+
+	private static List<Object> executionReadinessConditions(boolean synthetic) {
+		List<Object> result = new ArrayList<Object>();
+		if (synthetic) {
+			result.add(readiness("sealed-synthetic-transaction-executor", true));
+			result.add(readiness("synthetic-failure-rollback-recovery", true));
+			return result;
+		}
+		result.add(readiness("typed-configuration-staging", true));
+		result.add(readiness("closed-sqlite-snapshot-staging", true));
+		result.add(readiness("single-sector-packed-map-parity", true));
+		result.add(readiness("provider-state-schema-migration-row", false));
+		result.add(readiness("closed-mariadb-snapshot-restore", false));
+		result.add(readiness("complete-canonical-map-package", false));
+		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));
+		result.add(readiness("installed-runtime-launch-handshake-login-gameplay", false));
+		return result;
+	}
+
+	private static Map<String,Object> readiness(String id, boolean ready) {
+		Map<String,Object> result = new LinkedHashMap<String,Object>();
+		result.put("conditionId", id); result.put("ready", Boolean.valueOf(ready));
 		return result;
 	}
 
@@ -127,6 +152,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			expected.put("executionReady", Boolean.TRUE);
 			expected.put("executionReadinessStatus", "synthetic-regression-ready");
 			expected.put("executionReadinessReason", "Only the sealed synthetic transaction harness implements and verifies this profile.");
+			expected.put("executionReadinessConditions", executionReadinessConditions(true));
 			if (canonical(expected).equals(canonical(identity))) return new WorldBuilderCurrentRuntimeExecutionProfile(
 				"synthetic-current-upgrade-v1", null, "synthetic-preservation-migrator-v1",
 				"synthetic-current-server-r1", "synthetic-current-client-r1",
