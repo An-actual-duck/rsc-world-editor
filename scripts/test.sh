@@ -110,10 +110,11 @@ add_group() {
 		workflow)
 			members=(test-world-builder-ai-workspaces.py test-world-builder-maintainability-tooling.py)
 			;;
-		discovery)
+			discovery)
 			members=(
 				test-world-builder-adaptive-contracts.py
 				test-world-builder-adaptive-discovery.py
+				test-world-builder-current-runtime-foundation.py
 				test-world-builder-discovery.py
 				test-world-builder-map-migration-choice.py
 				test-world-builder-packed-conversion.py
@@ -157,6 +158,7 @@ add_group() {
 				test-world-builder-native-runtime-integration.py
 				test-world-builder-adaptive-contracts.py
 				test-world-builder-adaptive-discovery.py
+				test-world-builder-current-runtime-foundation.py
 				test-world-builder-packed-conversion.py
 				test-world-builder-runtime-preparation.py
 				test-world-builder-adaptive-project-lifecycle.py

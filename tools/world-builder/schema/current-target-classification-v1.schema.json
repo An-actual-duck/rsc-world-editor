@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/current-target-classification-v1.schema.json",
+  "title": "World Builder read-only target classification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "status", "tier", "mutationOccurred",
+    "inputAdapterId", "historicalRuntimeId", "destination", "projectCapability",
+    "installedLedger", "evidence", "actions", "classificationFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-current-target-classification"},
+    "status": {"enum": ["CURRENT", "UPGRADE_READY", "PORT_REQUIRED", "BLOCKED_UNSAFE"]},
+    "tier": {"enum": ["T0", "T1", "T2A", "T2B", "T3", "T4", "T5", "CURRENT", "MANAGED_N"]},
+    "mutationOccurred": {"const": false},
+    "inputAdapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "historicalRuntimeId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "destination": {"$ref": "#/$defs/runtimeIdentity"},
+    "projectCapability": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "capabilityFingerprintSha256"],
+      "properties": {
+        "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+        "capabilityFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    },
+    "installedLedger": {
+      "type": "object", "additionalProperties": false,
+      "required": ["present", "platformReleaseId", "ledgerFingerprintSha256"],
+      "properties": {
+        "present": {"type": "boolean"},
+        "platformReleaseId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+        "ledgerFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"}
+      }
+    },
+    "evidence": {
+      "type": "array", "maxItems": 8192,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": ["role", "relativePath", "tier", "disposition", "reason", "size", "sha256"],
+        "properties": {
+          "role": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+          "tier": {"enum": ["T0", "T1", "T2A", "T2B", "T3", "T4", "T5"]},
+          "disposition": {"enum": ["replace", "preserve-state", "typed-configuration", "canonical-data", "canonical-map", "mapped-to-platform", "mapped-to-module", "retire", "port-required", "blocker"]},
+          "reason": {"type": "string", "minLength": 1, "maxLength": 1024},
+          "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},
+          "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"}
+        }
+      }
+    },
+    "actions": {
+      "type": "array", "minItems": 1, "maxItems": 256, "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 1024}
+    },
+    "classificationFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "runtimeIdentity": {
+      "type": "object", "additionalProperties": false,
+      "required": ["platformReleaseId", "platformManifestHash", "variantId", "variantManifestHash", "moduleSetHash", "bundleInventoryHash"],
+      "properties": {
+        "platformReleaseId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "platformManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "variantId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "variantManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "moduleSetHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "bundleInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    }
+  }
+}

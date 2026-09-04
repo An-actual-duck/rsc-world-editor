@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-current-upgrade-fixture-set",
+  "contractsInventorySha256": "3808d60952412a6873474494b9bafba0d0cfb508b4e61cc30b4f875625a3d4ca",
+  "targets": [
+    {"id": "light-config-t2a", "treeSha256": "39fbd44f3aaa1387554f850985e05f472e1d7be2faba40167708a95d12fdddac"},
+    {"id": "managed-n", "treeSha256": "a3cedbc5829b6bd53a62001e299df6c179266c5cfcf02224bcd3a84eae39585d"},
+    {"id": "plugin-core-abi-t4", "treeSha256": "0dd179b27b01fbf9a85121132de120018ecf439b486ece9c8989638e66bba6ac"},
+    {"id": "portable-data-t2b", "treeSha256": "e4a0973c6825b23541c5b64fd6419d854ec2e629a5a2a36132f7d5f767931a14"},
+    {"id": "preservation-t0", "treeSha256": "a057a0d37a64a8dc01c5cab6e8cf7815fdf86098502115b9b2dfd4ffc72a6b8a"},
+    {"id": "unsafe-t5", "treeSha256": "f64c2cb42a307589c00743b42051d7bf9c3d0d6dbcae9254c025462ce4c5b29e"}
+  ],
+  "fixtureSetFingerprintSha256": "828d24c979e5a8c633b4410691be4331285d927013d927dc7be7521084822e23"
+}

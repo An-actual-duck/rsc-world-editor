@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-current-runtime-variant",
+  "variantId": "current-base-v1",
+  "variantKind": "base",
+  "platformReleaseId": "current-platform-v2",
+  "platformManifestHash": "0f5de4f947b5864ced91ef3865daa318c952070362044acb05a7a938830ebe4c",
+  "defaultModuleIds": [],
+  "allowedModuleIds": ["community-welcome-v1"],
+  "semanticContractIds": ["base-login-v1", "base-map-v1", "base-state-v1", "canonical-layered-map-v1"],
+  "advancedOnly": false,
+  "variantManifestHash": "8d490f92c85c206fb11ac31917aa6e0ad5d52b1296a609fb5144ed2bd312f248"
+}

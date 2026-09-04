@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/current-module-set-v1.schema.json",
+  "title": "World Builder resolved current module set v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "platformReleaseId",
+    "platformManifestHash", "variantId", "variantManifestHash", "modules",
+    "moduleSetHash", "bundleInventoryHash"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-current-module-set"},
+    "platformReleaseId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "platformManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "variantId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "variantManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "modules": {
+      "type": "array", "maxItems": 128,
+      "items": {
+        "type": "object", "additionalProperties": false,
+        "required": [
+          "order", "moduleId", "moduleVersion", "moduleKind",
+          "platformApiVersion", "moduleManifestHash", "modulePayloadRootHash",
+          "dependencies", "conflicts", "clientPairing", "configurationNamespace",
+          "stateMigrationIds", "provenance"
+        ],
+        "properties": {
+          "order": {"type": "integer", "minimum": 0, "maximum": 127},
+          "moduleId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "moduleVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "moduleKind": {"enum": ["declarative-data", "code-plugin", "server-client-feature"]},
+          "platformApiVersion": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+          "moduleManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+          "modulePayloadRootHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+          "dependencies": {"$ref": "#/$defs/identifiers"},
+          "conflicts": {"$ref": "#/$defs/identifiers"},
+          "clientPairing": {"enum": ["none", "optional", "required"]},
+          "configurationNamespace": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalIdentifier"},
+          "stateMigrationIds": {"$ref": "#/$defs/identifiers"},
+          "provenance": {"enum": ["provider", "local-reviewed"]}
+        }
+      }
+    },
+    "moduleSetHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "bundleInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "identifiers": {
+      "type": "array", "maxItems": 128, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    }
+  }
+}

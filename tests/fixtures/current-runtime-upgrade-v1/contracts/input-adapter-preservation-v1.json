@@ -1,0 +1,76 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-current-input-adapter",
+  "adapterId": "preservation-synthetic-v1",
+  "adapterVersion": "1.0.0",
+  "historicalRuntimeId": "preservation-synthetic-sealed-v1",
+  "recommendedVariantId": "current-base-v1",
+  "targetLedgerRelativePath": ".world-builder/runtime-ledger-v1.json",
+  "probeRoots": ["client", "server"],
+  "evidenceRules": [
+    {
+      "role": "legacy-map-client",
+      "relativePath": "client/cache/landscape.pack",
+      "required": true,
+      "baselineSize": 30,
+      "baselineSha256": "3ab420b175819030d487ef6bd47959c5818684b11999ba9fd8bd21d29ce7b589",
+      "evidenceKind": "map",
+      "recognizedDeltas": []
+    },
+    {
+      "role": "legacy-configuration",
+      "relativePath": "server/conf/preservation.conf",
+      "required": true,
+      "baselineSize": 43,
+      "baselineSha256": "cc5d0e317ed6cd936724a9b7b24dfebe665674f21e378986cf76ee34938e2384",
+      "evidenceKind": "configuration",
+      "recognizedDeltas": [
+        {
+          "size": 43,
+          "sha256": "f7f14767a1a15bf09db43177aaea7145d01c7a80850485ca7d214207b5aa40bd",
+          "tier": "T2A",
+          "disposition": "typed-configuration",
+          "moduleId": "",
+          "reason": "Supported server name and experience-rate values translate to typed Base configuration."
+        }
+      ]
+    },
+    {
+      "role": "legacy-locations",
+      "relativePath": "server/data/locations.json",
+      "required": true,
+      "baselineSize": 41,
+      "baselineSha256": "a90adab3ba2a9cb24606b2f7666b993e3a69639af932c13edec0cb134ce952cc",
+      "evidenceKind": "portable-data",
+      "recognizedDeltas": [
+        {
+          "size": 66,
+          "sha256": "65d5f2b8165e39a33562ab5c89e334db9587062cc7dec7e08aad6b82adce537a",
+          "tier": "T2B",
+          "disposition": "canonical-data",
+          "moduleId": "",
+          "reason": "Existing-ID location additions are closed, declarative, and portable to canonical current data."
+        }
+      ]
+    },
+    {
+      "role": "legacy-plugin-source",
+      "relativePath": "server/plugins/Welcome.java",
+      "required": true,
+      "baselineSize": 63,
+      "baselineSha256": "1b18e7c7c80198d069c8001944526a7d6411a45dbd36ce944530246d6f68b66f",
+      "evidenceKind": "plugin-source",
+      "recognizedDeltas": [
+        {
+          "size": 105,
+          "sha256": "923362f7f7d47009119d13b74f1bb2d704fbe1f6c12bc4dc4d97a82fa9196a0d",
+          "tier": "T4",
+          "disposition": "port-required",
+          "moduleId": "",
+          "reason": "Plugin source references a concrete customized core ABI absent from Current Base and requires a semantic platform/module port."
+        }
+      ]
+    }
+  ],
+  "adapterManifestHash": "1d4096c8a8f0097b336a0abeb47abdd8271a71f67d3659d03bad60da1a84ce5f"
+}

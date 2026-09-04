@@ -31,6 +31,12 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("validate-current-runtime-contract".equals(args[0])) {
+			return validateCurrentRuntimeContract(args);
+		}
+		if ("classify-current-target".equals(args[0])) {
+			return classifyCurrentTarget(args);
+		}
 		if ("discover-legacy-landscape".equals(args[0])) {
 			return discoverLegacyLandscape(args);
 		}
@@ -1461,6 +1467,93 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int validateCurrentRuntimeContract(String[] args) {
+		String kind = null;
+		Path document = null;
+		for (int index = 1; index < args.length; index++) {
+			if ("--kind".equals(args[index]) && index + 1 < args.length && kind == null) {
+				kind = args[++index];
+			} else if ("--document".equals(args[index]) && index + 1 < args.length
+				&& document == null) {
+				document = Paths.get(args[++index]);
+			} else {
+				System.err.println("ERROR: Unknown, repeated, or incomplete argument: " + args[index]);
+				return 2;
+			}
+		}
+		if (kind == null || document == null) {
+			System.err.println("ERROR: validate-current-runtime-contract requires --kind and --document.");
+			return 2;
+		}
+		try {
+		{
+			WorldBuilderCurrentRuntimeContracts.Document validated =
+				WorldBuilderCurrentRuntimeContracts.read(
+					WorldBuilderCurrentRuntimeContracts.Kind.named(kind), document);
+			System.out.println(validated.canonicalSha256);
+			System.out.print(validated.canonicalJson);
+			return 0;
+		}
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current-runtime contract validation failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int classifyCurrentTarget(String[] args) {
+		Path target = null;
+		Path platform = null;
+		Path variant = null;
+		Path modules = null;
+		Path adapter = null;
+		Path projectCapability = null;
+		for (int index = 1; index < args.length; index++) {
+			if (index + 1 >= args.length) {
+				System.err.println("ERROR: Incomplete argument: " + args[index]);
+				return 2;
+			}
+			String option = args[index++];
+			Path value = Paths.get(args[index]);
+			if ("--target-root".equals(option) && target == null) target = value;
+			else if ("--platform-release".equals(option) && platform == null) platform = value;
+			else if ("--variant".equals(option) && variant == null) variant = value;
+			else if ("--module-set".equals(option) && modules == null) modules = value;
+			else if ("--input-adapter".equals(option) && adapter == null) adapter = value;
+			else if ("--project-capability".equals(option) && projectCapability == null) {
+				projectCapability = value;
+			} else {
+				System.err.println("ERROR: Unknown or repeated argument: " + option);
+				return 2;
+			}
+		}
+		if (target == null || platform == null || variant == null || modules == null
+			|| adapter == null || projectCapability == null) {
+			System.err.println("ERROR: classify-current-target requires --target-root, "
+				+ "--platform-release, --variant, --module-set, --input-adapter, "
+				+ "and --project-capability.");
+			return 2;
+		}
+		try {
+		{
+			WorldBuilderCurrentRuntimeContracts.Classification result =
+				WorldBuilderCurrentRuntimeContracts.classify(target, platform, variant,
+					modules, adapter, projectCapability);
+			System.out.print(result.toJson());
+			return "BLOCKED_UNSAFE".equals(result.status())
+				|| "PORT_REQUIRED".equals(result.status()) ? 3 : 0;
+		}
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current target classification failed: "
+				+ failure.getMessage());
+			return 4;
+		}
+	}
+
 	private static int discoverLegacyLandscape(String[] args) {
 		Path root = null;
 		String configurationRole = null;
@@ -1930,6 +2023,12 @@ public final class WorldBuilderCli {
 	private static void usage() {
 		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli validate-current-runtime-contract --kind <kind>"
+			+ " --document <manifest.json>"
+			+ "\n  WorldBuilderCli classify-current-target --target-root <server-root>"
+			+ " --platform-release <manifest.json> --variant <manifest.json>"
+			+ " --module-set <manifest.json> --input-adapter <manifest.json>"
+			+ " --project-capability <manifest.json>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
 			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"

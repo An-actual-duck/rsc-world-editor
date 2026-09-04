@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "manifestType": "world-builder-current-module-set",
+  "platformReleaseId": "current-platform-v2",
+  "platformManifestHash": "0f5de4f947b5864ced91ef3865daa318c952070362044acb05a7a938830ebe4c",
+  "variantId": "current-base-v1",
+  "variantManifestHash": "8d490f92c85c206fb11ac31917aa6e0ad5d52b1296a609fb5144ed2bd312f248",
+  "modules": [],
+  "moduleSetHash": "db273decdd85cb8b232dbb3d3d607034621649bf408c52a85b1fc243e854ba14",
+  "bundleInventoryHash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rsc-world-editor.invalid/world-builder/current-target-runtime-ledger-v1.schema.json",
+  "title": "World Builder target runtime ledger v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion", "manifestType", "targetInstallationId", "platformReleaseId",
+    "platformManifestHash", "variantId", "variantManifestHash", "moduleSetHash",
+    "bundleInventoryHash", "inputAdapterId", "predecessorIdentityHash",
+    "configurationMigrationIds", "stateMigrationIds", "serverBuildId",
+    "clientBuildId", "activeLauncherRelativePath", "activeMapPackageId",
+    "verificationEvidenceHash", "transactionReceiptIds", "ledgerFingerprintSha256"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "manifestType": {"const": "world-builder-current-target-runtime-ledger"},
+    "targetInstallationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+    "platformReleaseId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "platformManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "variantId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "variantManifestHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "moduleSetHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "bundleInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "inputAdapterId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "predecessorIdentityHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+    "configurationMigrationIds": {"$ref": "#/$defs/identifiers"},
+    "stateMigrationIds": {"$ref": "#/$defs/identifiers"},
+    "serverBuildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "clientBuildId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "activeLauncherRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+    "activeMapPackageId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+    "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "transactionReceiptIds": {"$ref": "#/$defs/identifiers"},
+    "ledgerFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "identifiers": {
+      "type": "array", "maxItems": 256, "uniqueItems": true,
+      "items": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"}
+    }
+  }
+}
