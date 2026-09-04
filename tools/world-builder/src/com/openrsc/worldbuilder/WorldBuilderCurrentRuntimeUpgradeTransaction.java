@@ -91,6 +91,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"This bounded executor accepts only explicitly synthetic fixture authority.",
 				"Wait for a reviewed production adapter and production installer surface.");
 		}
+		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath"))) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
+				"targetLedgerRelativePath", false,
+				"The synthetic executor requires its single compiled activation-ledger path.",
+				"Use the reviewed synthetic adapter contract without path variation.");
+		}
 		WorldBuilderCurrentRuntimeContracts.Classification classified =
 			WorldBuilderCurrentRuntimeContracts.classify(target, providerCatalogRoot,
 				compositionIdentity, inputAdapter, projectCapability);
@@ -283,6 +289,19 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	boolean mapImportAvailable(Path targetRoot, Path providerCatalogRoot,
 		Path compositionIdentity, Path inputAdapter, Path projectCapability)
 		throws IOException, WorldBuilderContractException {
+		try {
+			return mapImportAvailableChecked(targetRoot, providerCatalogRoot,
+				compositionIdentity, inputAdapter, projectCapability);
+		} catch (IOException unavailable) {
+			return false;
+		} catch (WorldBuilderContractException invalid) {
+			return false;
+		}
+	}
+
+	private boolean mapImportAvailableChecked(Path targetRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
+		Path projectCapability) throws IOException, WorldBuilderContractException {
 		WorldBuilderCurrentRuntimeContracts.Classification classification =
 			WorldBuilderCurrentRuntimeContracts.classify(targetRoot, providerCatalogRoot,
 				compositionIdentity, inputAdapter, projectCapability);
@@ -290,12 +309,31 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentity);
 		if (!composition.installable) return false;
+		WorldBuilderCurrentRuntimeContracts.Document adapter =
+			WorldBuilderCurrentRuntimeContracts.read(
+				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
+		WorldBuilderCurrentRuntimeContracts.Document project =
+			WorldBuilderCurrentRuntimeContracts.read(
+				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath")))
+			return false;
+		Path target = realDirectory(targetRoot, "target-root");
+		WorldBuilderCurrentRuntimeContracts.Document ledger =
+			WorldBuilderCurrentRuntimeContracts.read(
+				WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER,
+				safeExistingFile(target, LEDGER_RELATIVE));
 		String releaseRelative = RELEASE_PREFIX + composition.string("bundleInventoryHash");
-		verifyArtifacts(realDirectory(targetRoot, "target-root"), releaseRelative,
-			composition.artifacts);
-		Path activation = targetPath(targetRoot, releaseRelative + "/activation.json");
-		if (!Files.isRegularFile(activation, LinkOption.NOFOLLOW_LINKS)
-			|| Files.isSymbolicLink(activation)) return false;
+		String activationRelative = releaseRelative + "/activation.json";
+		if (!activationRelative.equals(string(ledger.root,
+			"activeLauncherRelativePath"))) return false;
+		if (!"synthetic-current-server-r1".equals(string(ledger.root, "serverBuildId"))
+			|| !"synthetic-current-client-r1".equals(string(ledger.root, "clientBuildId"))
+			|| !"synthetic-canonical-map-v1".equals(
+				string(ledger.root, "activeMapPackageId"))) return false;
+		verifyProviderReleaseTree(target, releaseRelative, composition.artifacts, null);
+		Map<String,Object> activation = readObject(
+			safeExistingFile(target, activationRelative), activationRelative);
+		validateActivation(activation, composition, adapter.root, project.root, ledger.root);
 		return true;
 	}
 
@@ -351,8 +389,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("releaseRelativePath", releaseRelative);
 		plan.put("stagingPolicy", "external-same-filesystem-outside-active-target");
 		plan.put("activationLedgerRelativePath", LEDGER_RELATIVE);
+		String activationPlanBindingHash = activationPlanBindingHash(plan);
 		Map<String,Object> ledger = activationLedger(target, composition, adapter,
-			project, classification, preimage, semantic, transactionId, releaseRelative);
+			project, classification, preimage, semantic, canonicalHash(artifacts),
+			activationPlanBindingHash, transactionId, releaseRelative);
 		plan.put("activationLedger", ledger);
 		plan.put("verificationEvidenceHash", string(ledger, "verificationEvidenceHash"));
 		plan.put("mapImportAvailableBeforeApply", Boolean.FALSE);
@@ -429,6 +469,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderCurrentRuntimeContracts.Document adapter,
 		WorldBuilderCurrentRuntimeContracts.Document project,
 		Map<String,Object> classification, List<Object> preimage, List<Object> semantic,
+		String artifactPlanHash, String activationPlanBindingHash,
 		String transactionId, String releaseRelative)
 		throws WorldBuilderContractException {
 		Map<String,Object> ledger = new LinkedHashMap<String,Object>();
@@ -472,8 +513,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		verification.put("projectCapabilityFingerprintSha256",
 			string(project.root, "capabilityFingerprintSha256"));
 		verification.put("adapterManifestHash", string(adapter.root, "adapterManifestHash"));
-		verification.put("artifactPlanHash", composition.string("bundleInventoryHash"));
+		verification.put("artifactPlanHash", artifactPlanHash);
 		verification.put("semanticActionsHash", canonicalHash(semantic));
+		verification.put("planBindingHash", activationPlanBindingHash);
 		ledger.put("verificationEvidenceHash", canonicalHash(verification));
 		List<String> receipts = new ArrayList<String>();
 		if (bool(installed, "present")) {
@@ -537,18 +579,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			setMode(destination, string(action, "mode"));
 			requireFileMatches(destination, action, bundlePath);
 		}
-		Map<String,Object> activation = new LinkedHashMap<String,Object>();
-		activation.put("schemaVersion", Long.valueOf(1));
-		activation.put("manifestType", "world-builder-synthetic-current-activation");
-		activation.put("transactionId", string(preview.plan, "transactionId"));
-		activation.put("planFingerprintSha256", string(preview.plan, "planFingerprintSha256"));
-		activation.put("destination", preview.plan.get("destination"));
-		activation.put("projectCapability", preview.plan.get("projectCapability"));
-		activation.put("inputAdapter", preview.plan.get("inputAdapter"));
-		activation.put("syntheticOnly", Boolean.TRUE);
+		Map<String,Object> activation = activationDocument(preview.plan);
 		writeNew(staging.resolve("activation.json"),
 			WorldBuilderJsonDocuments.pretty(activation));
-		verifyArtifacts(staging, "", composition.artifacts);
+		verifyProviderReleaseTree(staging, "", composition.artifacts, activation);
 	}
 
 	private static void writeActivationLedger(Path ledger, Map<String,Object> document)
@@ -585,16 +619,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.canonical(actual))) throw problem(
 			WorldBuilderErrorCodes.MUTATION_FAILED, LEDGER_RELATIVE, true,
 			"Activated ledger differs from the reviewed plan.", "Run exact recovery.");
-		for (Object raw : array(plan.get("artifactPlan"))) {
-			Map<String,Object> action = object(raw);
-			Path installed = safeExistingFile(target, string(action, "installRelativePath"));
-			requireFileMatches(installed, action, string(action, "installRelativePath"));
-		}
-		Path activation = safeExistingFile(target,
-			string(plan, "releaseRelativePath") + "/activation.json");
-		if (Files.size(activation) == 0L) throw problem(
-			WorldBuilderErrorCodes.MUTATION_FAILED, "activation.json", true,
-			"Synthetic activation evidence is empty.", "Run exact recovery.");
+		verifyOwnedReleaseTree(target, plan);
 	}
 
 	private void rollback(Path target, Map<String,Object> plan, Path backup,
@@ -608,7 +633,25 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		if (ledgerRecord == null) throw new IOException("ledger preimage missing");
 		Path ledger = targetPath(target, LEDGER_RELATIVE);
-		if (ledgerActivated && bool(ledgerRecord, "present")) {
+		Path release = targetPath(target, string(plan, "releaseRelativePath"));
+		int ledgerState = ledgerActivated
+			? requireRollbackLedgerState(ledger, ledgerRecord,
+				object(plan.get("activationLedger"))) : 0;
+		boolean releaseExists = releasePublished
+			&& Files.exists(release, LinkOption.NOFOLLOW_LINKS);
+		if (releaseExists) {
+			try {
+				verifyOwnedReleaseTree(target, plan);
+			} catch (IOException drift) {
+				throw recoveryDrift("release", drift);
+			} catch (WorldBuilderContractException drift) {
+				throw recoveryDrift("release", drift);
+			}
+		}
+
+		if (ledgerState == 1 && bool(ledgerRecord, "present")) {
+			requireRollbackLedgerState(ledger, ledgerRecord,
+				object(plan.get("activationLedger")));
 			Path source = safeExistingFile(backup, string(ledgerRecord, "backupRelativePath"));
 			requireFileMatches(source, ledgerRecord, LEDGER_RELATIVE);
 			Files.createDirectories(ledger.getParent());
@@ -616,14 +659,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.copy(source, temporary);
 			Files.move(temporary, ledger, StandardCopyOption.ATOMIC_MOVE,
 				StandardCopyOption.REPLACE_EXISTING);
-		} else if (ledgerActivated && Files.exists(ledger, LinkOption.NOFOLLOW_LINKS)) {
-			if (Files.isSymbolicLink(ledger) || !Files.isRegularFile(ledger,
-				LinkOption.NOFOLLOW_LINKS)) throw new IOException("unsafe ledger during rollback");
+		} else if (ledgerState == 1) {
+			requireRollbackLedgerState(ledger, ledgerRecord,
+				object(plan.get("activationLedger")));
 			Files.delete(ledger);
 		}
-		Path release = targetPath(target, string(plan, "releaseRelativePath"));
-		if (releasePublished && Files.exists(release, LinkOption.NOFOLLOW_LINKS))
+		if (releaseExists) {
+			verifyOwnedReleaseTree(target, plan);
 			deleteOwnedTree(release);
+		}
 		List<Path> reversed = new ArrayList<Path>(createdTargetDirectories);
 		Collections.reverse(reversed);
 		for (Path directory : reversed) if (Files.isDirectory(directory,
@@ -653,19 +697,266 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 	}
 
-	private static void verifyArtifacts(Path root, String releaseRelative,
-		List<WorldBuilderProviderCatalog.Artifact> artifacts)
+	/** Returns 1 for exact planned activation and 2 for exact preimage. */
+	private static int requireRollbackLedgerState(Path ledger,
+		Map<String,Object> preimage, Map<String,Object> activation)
 		throws IOException, WorldBuilderContractException {
-		for (WorldBuilderProviderCatalog.Artifact artifact : artifacts) {
-			String relative = releaseRelative.isEmpty() ? artifact.bundlePath
-				: releaseRelative + "/" + artifact.bundlePath;
-			Path installed = safeExistingFile(root, relative);
-			requireFileMatches(installed, artifact.inventory, relative);
-			String expectedMode = string(artifact.inventory, "mode");
+		if (!Files.exists(ledger, LinkOption.NOFOLLOW_LINKS)) {
+			if (!bool(preimage, "present")) return 2;
+			throw recoveryDrift("ledger", new IOException("expected preimage ledger is missing"));
+		}
+		BasicFileAttributes attributes = Files.readAttributes(ledger,
+			BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
+		if (!attributes.isRegularFile() || attributes.isSymbolicLink()) throw recoveryDrift(
+			"ledger", new IOException("ledger is linked or non-regular"));
+		if (bool(preimage, "present")
+			&& attributes.size() == integer(preimage, "size")
+			&& WorldBuilderHashes.sha256(ledger).equals(string(preimage, "sha256"))) return 2;
+		byte[] expectedActivation = WorldBuilderJsonDocuments.pretty(activation)
+			.getBytes(StandardCharsets.UTF_8);
+		if (attributes.size() == expectedActivation.length
+			&& WorldBuilderHashes.sha256(ledger).equals(
+				WorldBuilderHashes.sha256(expectedActivation))) return 1;
+		throw recoveryDrift("ledger", new IOException(
+			"ledger is neither exact planned activation nor exact preimage"));
+	}
+
+	private static WorldBuilderContractException recoveryDrift(String relative,
+		Throwable cause) {
+		return problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, relative, true,
+			"Rollback found target state outside the exact transaction-owned activation or preimage.",
+			"Preserve the drifted target and transaction evidence for reviewed recovery; no force cleanup is allowed.",
+			cause);
+	}
+
+	private static Map<String,Object> activationDocument(Map<String,Object> plan)
+		throws WorldBuilderContractException {
+		Map<String,Object> activation = new LinkedHashMap<String,Object>();
+		activation.put("schemaVersion", Long.valueOf(1));
+		activation.put("manifestType", "world-builder-synthetic-current-activation");
+		activation.put("transactionId", string(plan, "transactionId"));
+		activation.put("planBindingHash", activationPlanBindingHash(plan));
+		activation.put("classificationFingerprintSha256",
+			string(plan, "classificationFingerprintSha256"));
+		activation.put("preimageInventoryHash", string(plan, "preimageInventoryHash"));
+		activation.put("destination", plan.get("destination"));
+		activation.put("projectCapability", plan.get("projectCapability"));
+		activation.put("inputAdapter", plan.get("inputAdapter"));
+		activation.put("artifactPlanHash", string(plan, "artifactPlanHash"));
+		activation.put("semanticActionsHash", string(plan, "semanticActionsHash"));
+		activation.put("verificationEvidenceHash",
+			string(plan, "verificationEvidenceHash"));
+		Map<String,Object> ledger = object(plan.get("activationLedger"));
+		activation.put("serverBuildId", string(ledger, "serverBuildId"));
+		activation.put("clientBuildId", string(ledger, "clientBuildId"));
+		activation.put("activeMapPackageId", string(ledger, "activeMapPackageId"));
+		activation.put("syntheticOnly", Boolean.TRUE);
+		return activation;
+	}
+
+	private static String activationPlanBindingHash(Map<String,Object> source)
+		throws WorldBuilderContractException {
+		Map<String,Object> binding = new LinkedHashMap<String,Object>();
+		binding.put("transactionId", string(source, "transactionId"));
+		binding.put("classificationFingerprintSha256",
+			string(source, "classificationFingerprintSha256"));
+		binding.put("preimageInventoryHash", string(source, "preimageInventoryHash"));
+		binding.put("semanticActionsHash", string(source, "semanticActionsHash"));
+		binding.put("artifactPlanHash", string(source, "artifactPlanHash"));
+		binding.put("destination", source.get("destination"));
+		binding.put("projectCapability", source.get("projectCapability"));
+		binding.put("inputAdapter", source.get("inputAdapter"));
+		Map<String,Object> destination = object(source.get("destination"));
+		binding.put("releaseRelativePath", RELEASE_PREFIX
+			+ string(destination, "bundleInventoryHash"));
+		return canonicalHash(binding);
+	}
+
+	private static void validateActivation(Map<String,Object> activation,
+		WorldBuilderProviderCatalog.Composition composition,
+		Map<String,Object> adapter, Map<String,Object> project,
+		Map<String,Object> ledger) throws WorldBuilderContractException {
+		WorldBuilderBoundedInventory.exactKeys(activation, OPERATION,
+			"schemaVersion", "manifestType", "transactionId", "planBindingHash",
+			"classificationFingerprintSha256", "preimageInventoryHash",
+			"destination", "projectCapability",
+			"inputAdapter", "artifactPlanHash",
+			"semanticActionsHash", "verificationEvidenceHash", "serverBuildId",
+			"clientBuildId", "activeMapPackageId", "syntheticOnly");
+		if (integer(activation, "schemaVersion") != 1L
+			|| !"world-builder-synthetic-current-activation".equals(
+				string(activation, "manifestType"))
+			|| !bool(activation, "syntheticOnly")) throw problem(
+			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, "activation.json", false,
+			"Installed activation marker has no exact synthetic identity.",
+			"Keep map import disabled and recover/reinstall the exact composition.");
+		validateTransactionId(string(activation, "transactionId"));
+		requireHash(string(activation, "planBindingHash"), "planBindingHash");
+		requireHash(string(activation, "classificationFingerprintSha256"),
+			"classificationFingerprintSha256");
+		requireHash(string(activation, "preimageInventoryHash"),
+			"preimageInventoryHash");
+		requireHash(string(activation, "artifactPlanHash"), "artifactPlanHash");
+		requireHash(string(activation, "semanticActionsHash"), "semanticActionsHash");
+		Map<String,Object> destination = object(activation.get("destination"));
+		WorldBuilderBoundedInventory.exactKeys(destination, OPERATION,
+			"platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId",
+			"variantManifestHash", "moduleSetHash", "bundleInventoryHash",
+			"bundleSpecId", "bundleSpecHash", "inputAdapterContractId", "installable");
+		for (String field : Arrays.asList("platformReleaseId", "platformManifestHash",
+			"schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash",
+			"bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
+			"inputAdapterContractId")) if (!composition.string(field).equals(
+				string(destination, field))) throw activationMismatch(field);
+		if (!bool(destination, "installable")) throw activationMismatch("installable");
+		Map<String,Object> projectReference = object(activation.get("projectCapability"));
+		WorldBuilderBoundedInventory.exactKeys(projectReference, OPERATION,
+			"projectId", "capabilityFingerprintSha256");
+		if (!string(project, "projectId").equals(string(projectReference, "projectId"))
+			|| !string(project, "capabilityFingerprintSha256").equals(
+				string(projectReference, "capabilityFingerprintSha256")))
+			throw activationMismatch("projectCapability");
+		Map<String,Object> adapterReference = object(activation.get("inputAdapter"));
+		WorldBuilderBoundedInventory.exactKeys(adapterReference, OPERATION,
+			"adapterId", "adapterManifestHash", "inputAdapterContractId",
+			"evidenceAuthority");
+		if (!string(adapter, "adapterId").equals(string(adapterReference, "adapterId"))
+			|| !string(adapter, "adapterManifestHash").equals(
+				string(adapterReference, "adapterManifestHash"))
+			|| !composition.string("inputAdapterContractId").equals(
+				string(adapterReference, "inputAdapterContractId"))
+			|| !"synthetic-fixture".equals(string(adapterReference, "evidenceAuthority")))
+			throw activationMismatch("inputAdapter");
+		for (String field : Arrays.asList("verificationEvidenceHash", "serverBuildId",
+			"clientBuildId", "activeMapPackageId")) if (!string(ledger, field).equals(
+				string(activation, field))) throw activationMismatch(field);
+		if (!array(ledger.get("transactionReceiptIds")).contains(
+			string(activation, "transactionId"))) throw activationMismatch("transactionId");
+		Map<String,Object> verification = new LinkedHashMap<String,Object>();
+		verification.put("classificationFingerprintSha256",
+			string(activation, "classificationFingerprintSha256"));
+		verification.put("projectCapabilityFingerprintSha256",
+			string(projectReference, "capabilityFingerprintSha256"));
+		verification.put("adapterManifestHash",
+			string(adapterReference, "adapterManifestHash"));
+		verification.put("artifactPlanHash", string(activation, "artifactPlanHash"));
+		verification.put("semanticActionsHash", string(activation, "semanticActionsHash"));
+		verification.put("planBindingHash", string(activation, "planBindingHash"));
+		if (!canonicalHash(verification).equals(
+			string(ledger, "verificationEvidenceHash")))
+			throw activationMismatch("verificationEvidenceHash");
+		if (!activationPlanBindingHash(activation).equals(
+			string(activation, "planBindingHash")))
+			throw activationMismatch("planBindingHash");
+	}
+
+	private static WorldBuilderContractException activationMismatch(String field) {
+		return problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, field, false,
+			"Installed activation marker does not match the selected ledger or authority.",
+			"Keep map import disabled and recover/reinstall the exact composition.");
+	}
+
+	private static void requireHash(String value, String field)
+		throws WorldBuilderContractException {
+		if (!WorldBuilderBoundedInventory.isHash(value)) throw activationMismatch(field);
+	}
+
+	private static void verifyOwnedReleaseTree(Path target, Map<String,Object> plan)
+		throws IOException, WorldBuilderContractException {
+		List<Map<String,Object>> artifacts = new ArrayList<Map<String,Object>>();
+		for (Object raw : array(plan.get("artifactPlan"))) artifacts.add(object(raw));
+		verifyReleaseTree(target, string(plan, "releaseRelativePath"), artifacts,
+			activationDocument(plan));
+	}
+
+	private static void verifyProviderReleaseTree(Path target, String releaseRelative,
+		List<WorldBuilderProviderCatalog.Artifact> providerArtifacts,
+		Map<String,Object> expectedActivation)
+		throws IOException, WorldBuilderContractException {
+		List<Map<String,Object>> artifacts = new ArrayList<Map<String,Object>>();
+		for (WorldBuilderProviderCatalog.Artifact artifact : providerArtifacts) {
+			Map<String,Object> record = new LinkedHashMap<String,Object>();
+			record.put("bundlePath", artifact.bundlePath);
+			record.put("mode", artifact.inventory.get("mode"));
+			record.put("size", artifact.inventory.get("size"));
+			record.put("sha256", artifact.inventory.get("sha256"));
+			artifacts.add(record);
+		}
+		verifyReleaseTree(target, releaseRelative, artifacts, expectedActivation);
+	}
+
+	private static void verifyReleaseTree(Path root, String releaseRelative,
+		List<Map<String,Object>> artifacts, Map<String,Object> expectedActivation)
+		throws IOException, WorldBuilderContractException {
+		final Path release = releaseRelative.isEmpty() ? root
+			: targetPath(root, releaseRelative);
+		if (!Files.isDirectory(release, LinkOption.NOFOLLOW_LINKS)
+			|| Files.isSymbolicLink(release)) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, "release", false,
+			"Installed release root is missing, linked, or not a directory.",
+			"Preserve the target and transaction evidence for reviewed recovery.");
+		final Set<String> expectedFiles = new HashSet<String>();
+		final Set<String> expectedDirectories = new HashSet<String>();
+		expectedDirectories.add("");
+		for (Map<String,Object> artifact : artifacts) {
+			String bundle = string(artifact, "bundlePath");
+			expectedFiles.add(bundle);
+			addParentDirectories(bundle, expectedDirectories);
+		}
+		expectedFiles.add("activation.json");
+		final Set<String> actualFiles = new HashSet<String>();
+		final Set<String> actualDirectories = new HashSet<String>();
+		Files.walkFileTree(release, new SimpleFileVisitor<Path>() {
+			@Override public FileVisitResult preVisitDirectory(Path directory,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isDirectory() || Files.isSymbolicLink(directory))
+					throw new IOException("linked or non-directory release entry");
+				String relative = release.equals(directory) ? ""
+					: release.relativize(directory).toString().replace('\\', '/');
+				actualDirectories.add(relative);
+				return FileVisitResult.CONTINUE;
+			}
+			@Override public FileVisitResult visitFile(Path file,
+				BasicFileAttributes attributes) throws IOException {
+				if (!attributes.isRegularFile() || Files.isSymbolicLink(file))
+					throw new IOException("linked or non-regular release entry");
+				actualFiles.add(release.relativize(file).toString().replace('\\', '/'));
+				return FileVisitResult.CONTINUE;
+			}
+		});
+		if (!expectedFiles.equals(actualFiles)
+			|| !expectedDirectories.equals(actualDirectories)) throw problem(
+			WorldBuilderErrorCodes.TARGET_DRIFT, "release", false,
+			"Release tree has extra, missing, or unexpected files/directories.",
+			"Preserve the drifted release and transaction evidence; no cleanup is authorized.");
+		for (Map<String,Object> artifact : artifacts) {
+			String relative = string(artifact, "bundlePath");
+			Path installed = safeExistingFile(release, relative);
+			requireFileMatches(installed, artifact, relative);
+			String expectedMode = string(artifact, "mode");
 			if (!expectedMode.equals(fileMode(installed))) throw problem(
 				WorldBuilderErrorCodes.SOURCE_CORRUPT, relative, false,
 				"Installed artifact mode differs from provider inventory.",
 				"Keep map import disabled and recover/reinstall the exact composition.");
+		}
+		Path activation = safeExistingFile(release, "activation.json");
+		if (expectedActivation != null) {
+			byte[] expected = WorldBuilderJsonDocuments.pretty(expectedActivation)
+				.getBytes(StandardCharsets.UTF_8);
+			if (Files.size(activation) != expected.length
+				|| !WorldBuilderHashes.sha256(activation).equals(
+					WorldBuilderHashes.sha256(expected))) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, "activation.json", false,
+				"Activation document bytes differ from the transaction-owned document.",
+				"Preserve the drifted release and transaction evidence; no cleanup is authorized.");
+		}
+	}
+
+	private static void addParentDirectories(String relative, Set<String> values) {
+		int slash = relative.lastIndexOf('/');
+		while (slash > 0) {
+			values.add(relative.substring(0, slash));
+			slash = relative.lastIndexOf('/', slash - 1);
 		}
 	}
 
@@ -832,6 +1123,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	private static Path safeExistingFile(Path root, String relative)
 		throws WorldBuilderContractException {
 		return WorldBuilderReadOnlyTarget.open(root).requiredFile(relative);
+	}
+
+	private static Map<String,Object> readObject(Path path, String relative)
+		throws IOException, WorldBuilderContractException {
+		try {
+			return WorldBuilderJsonDocuments.readObject(path);
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.MALFORMED_JSON, relative, false,
+				"Installed transaction evidence is malformed.",
+				"Keep map import disabled and recover/reinstall exact evidence.", malformed);
+		}
 	}
 
 	private static Path realDirectory(Path requested, String label)

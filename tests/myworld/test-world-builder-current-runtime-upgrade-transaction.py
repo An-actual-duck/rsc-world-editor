@@ -84,6 +84,9 @@ package com.openrsc.worldbuilder;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.Files;
+import java.nio.file.DirectoryStream;
+import java.nio.file.StandardOpenOption;
 
 public final class CurrentUpgradeHarness {
     private static boolean selected(String values, String milestone) {
@@ -104,6 +107,21 @@ public final class CurrentUpgradeHarness {
         WorldBuilderCurrentRuntimeUpgradeTransaction.Observer observer =
             new WorldBuilderCurrentRuntimeUpgradeTransaction.Observer() {
                 @Override public void observe(String milestone, Path path) throws Exception {
+                    if ("during-rollback".equals(milestone)
+                        && selected(failures, "tamper-ledger-during-rollback")) {
+                        Files.write(path.resolve(".world-builder/runtime-ledger-v1.json"),
+                            new byte[] {10, 32, 32, 32, 32, 32, 32, 32, 32},
+                            StandardOpenOption.APPEND);
+                    }
+                    if ("during-rollback".equals(milestone)
+                        && selected(failures, "tamper-release-during-rollback")) {
+                        Path releases = path.resolve(".world-builder/current-runtime/releases");
+                        try (DirectoryStream<Path> entries = Files.newDirectoryStream(releases)) {
+                            Path release = entries.iterator().next();
+                            Files.write(release.resolve("unexpected.bin"), new byte[] {1},
+                                StandardOpenOption.CREATE_NEW);
+                        }
+                    }
                     if (selected(failures, milestone)) {
                         throw new Exception("injected-" + milestone);
                     }
@@ -111,6 +129,7 @@ public final class CurrentUpgradeHarness {
             };
         WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
             new WorldBuilderCurrentRuntimeUpgradeTransaction(observer);
+        try {
         if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
@@ -128,6 +147,10 @@ public final class CurrentUpgradeHarness {
                 identity, adapter, project) ? "true" : "false");
         } else {
             throw new IllegalArgumentException(operation);
+        }
+        } catch (WorldBuilderContractException failure) {
+            System.err.println("CODE=" + failure.code());
+            throw failure;
         }
     }
 }
@@ -418,6 +441,129 @@ public final class CurrentUpgradeHarness {
         self.assert_receipt_schema(receipt)
         self.assertEqual("rolled-back", receipt["status"])
         self.assertTrue(receipt["rollbackComplete"])
+
+    def test_rollback_preserves_observer_drift_without_destructive_cleanup(self) -> None:
+        for index, tamper in enumerate((
+            "tamper-ledger-during-rollback", "tamper-release-during-rollback",
+        )):
+            with self.subTest(tamper=tamper):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                txid = f"rollback-drift-{index}"
+                result = self.run_harness(
+                    "apply", target, workspace, txid,
+                    "after-ledger-activated," + tamper,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("CODE=RECOVERY_REQUIRED", result.stderr)
+                receipt = json.loads((workspace / txid / "receipt.json").read_text())
+                self.assertEqual("recovery-required", receipt["status"])
+                plan = json.loads((workspace / txid / "upgrade-plan.json").read_text())
+                self.assertTrue((target / plan["releaseRelativePath"]).is_dir())
+                ledger = target / ".world-builder/runtime-ledger-v1.json"
+                predecessor = TARGETS / "managed-n/.world-builder/runtime-ledger-v1.json"
+                self.assertNotEqual(ledger.read_bytes(), predecessor.read_bytes())
+                if "release" in tamper:
+                    self.assertTrue(
+                        (target / plan["releaseRelativePath"] / "unexpected.bin").is_file()
+                    )
+
+    def test_persisted_recovery_refuses_ledger_or_release_drift_zero_write(self) -> None:
+        for index, drift in enumerate(("ledger", "release")):
+            with self.subTest(drift=drift):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                txid = f"persisted-drift-{index}"
+                failed = self.run_harness(
+                    "apply", target, workspace, txid,
+                    "after-ledger-activated,during-rollback",
+                )
+                self.assertNotEqual(0, failed.returncode)
+                plan = json.loads((workspace / txid / "upgrade-plan.json").read_text())
+                if drift == "ledger":
+                    ledger = target / ".world-builder/runtime-ledger-v1.json"
+                    ledger.write_bytes(ledger.read_bytes() + b"\n ")
+                else:
+                    (target / plan["releaseRelativePath"] / "unexpected.bin").write_bytes(b"x")
+                before = tree_snapshot(target)
+                recovered = self.run_harness("recover", target, workspace, txid)
+                self.assertNotEqual(0, recovered.returncode)
+                self.assertIn("CODE=RECOVERY_REQUIRED", recovered.stderr)
+                self.assertEqual(before, tree_snapshot(target))
+                receipt = json.loads((workspace / txid / "receipt.json").read_text())
+                self.assertEqual("recovery-required", receipt["status"])
+
+    def test_map_import_gate_rejects_marker_ledger_and_release_drift_zero_write(self) -> None:
+        mutations = (
+            ("marker-destination", "activation", "destination"),
+            ("marker-project", "activation", "project"),
+            ("marker-adapter", "activation", "adapter"),
+            ("marker-plan", "activation", "plan"),
+            ("ledger-launcher", "ledger", "activeLauncherRelativePath"),
+            ("ledger-server-build", "ledger", "serverBuildId"),
+            ("ledger-map", "ledger", "activeMapPackageId"),
+            ("extra-release-file", "release", "extra"),
+            ("missing-release-file", "release", "missing"),
+            ("tampered-release-file", "release", "tampered"),
+            ("extra-release-directory", "release", "extra-directory"),
+            ("linked-release-file", "release", "symlink"),
+        )
+        for index, (name, location, field) in enumerate(mutations):
+            with self.subTest(case=name):
+                target = self.target("preservation-t0")
+                workspace = self.workspace()
+                txid = f"map-gate-{index}"
+                applied = self.run_harness("apply", target, workspace, txid)
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                plan = json.loads((workspace / txid / "upgrade-plan.json").read_text())
+                release = target / plan["releaseRelativePath"]
+                if location == "activation":
+                    marker_path = release / "activation.json"
+                    marker = json.loads(marker_path.read_text())
+                    if field == "destination":
+                        marker["destination"]["platformManifestHash"] = "f" * 64
+                    elif field == "project":
+                        marker["projectCapability"]["projectId"] = (
+                            "00000000-0000-0000-0000-000000000001"
+                        )
+                    elif field == "adapter":
+                        marker["inputAdapter"]["adapterId"] = "different-synthetic-v1"
+                    else:
+                        marker["planBindingHash"] = "f" * 64
+                    marker_path.write_text(json.dumps(marker))
+                elif location == "ledger":
+                    ledger_path = target / ".world-builder/runtime-ledger-v1.json"
+                    ledger = json.loads(ledger_path.read_text())
+                    replacements = {
+                        "activeLauncherRelativePath": ".world-builder/other-launcher.json",
+                        "serverBuildId": "unexpected-server-build",
+                        "activeMapPackageId": "unexpected-map-package",
+                    }
+                    ledger[field] = replacements[field]
+                    ledger_path.write_text(json.dumps(bind(ledger, "ledgerFingerprintSha256")))
+                else:
+                    artifact = target / plan["artifactPlan"][0]["installRelativePath"]
+                    if field == "extra":
+                        (release / "unexpected.bin").write_bytes(b"unexpected")
+                    elif field == "missing":
+                        artifact.unlink()
+                    elif field == "tampered":
+                        artifact.write_bytes(artifact.read_bytes() + b"tampered")
+                    elif field == "extra-directory":
+                        (release / "unexpected-directory").mkdir()
+                    else:
+                        artifact.unlink()
+                        artifact.symlink_to(release / "activation.json")
+                before = tree_snapshot(target)
+                gated = self.run_harness("map-gate", target, workspace, txid)
+                self.assertEqual(0, gated.returncode, gated.stderr)
+                self.assertEqual("false", gated.stdout)
+                self.assertEqual(before, tree_snapshot(target))
+                self.case.cleanup(); self.setUp()
 
 
 if __name__ == "__main__":
