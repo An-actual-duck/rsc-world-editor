@@ -308,6 +308,24 @@ public final class CurrentUpgradeHarness {
             WorldBuilderPreservationStagedMigrator.verify(target, stage, execution,
                 (Map<String,Object>)migration.get("mapMigration"));
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
+        } else if ("lease-anchor-replaced".equals(operation)) {
+            WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
+                transaction.preview(target, transactions, catalog,
+                    identity, adapter, project, transactionId);
+            Map<String,Object> migration =
+                (Map<String,Object>)preview.plan.get("migrationPlan");
+            Map<String,Object> typed =
+                (Map<String,Object>)migration.get("typedConfiguration");
+            try (WorldBuilderCurrentRuntimeOfflineLease ignored =
+                WorldBuilderCurrentRuntimeOfflineLease.acquire(target, typed, true,
+                    new WorldBuilderCurrentRuntimeOfflineLease.IdentityObserver() {
+                        @Override public void observe(String milestone, Path anchor)
+                            throws java.io.IOException {
+                            Path displaced = anchor.resolveSibling("displaced-ledger.json");
+                            Files.move(anchor, displaced);
+                            Files.copy(displaced, anchor);
+                        }
+                    })) { }
         } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
@@ -658,6 +676,16 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual({}, tree_snapshot(workspace))
                 self.case.cleanup(); self.setUp()
 
+    def test_offline_lease_rejects_same_byte_anchor_replacement(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        refused = self.run_harness(
+            "lease-anchor-replaced", target, workspace, "anchor-replaced"
+        )
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("CODE=OFFLINE_REQUIRED", refused.stderr)
+        self.assertIn("identity changed", refused.stderr)
+
     def test_reviewed_preservation_profile_previews_candidate_but_cannot_activate(self) -> None:
         target = self.target("preservation-t0")
         workspace = self.workspace()
@@ -856,6 +884,46 @@ public final class CurrentUpgradeHarness {
         self.assertEqual(43495, typed["websocketPort"])
         self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
 
+    def test_real_layout_connections_then_named_profile_are_hash_bound(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "real-config-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        (target / "server/connections.conf").write_text(
+            "db_type: sqlite\nmonitor_ip: localhost\n", encoding="utf-8"
+        )
+        (target / "server/preservation.conf").write_text(
+            "world:\n"
+            "  server_name: Public Preservation\n"
+            "  server_bind_address: 0.0.0.0\n"
+            "  server_port: 43596\n"
+            "  ws_server_port: 43496\n"
+            "  combat_exp_rate: 1\n"
+            "  skilling_exp_rate: 1\n"
+            "  member_world: true\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        result = self.run_harness(
+            "profile-migration", target, workspace, "real-config"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        typed = json.loads(result.stdout)["typedConfiguration"]
+        self.assertEqual("server/preservation.conf", typed["sourceRelativePath"])
+        self.assertEqual(
+            "connections-first-then-named-profile", typed["precedence"]
+        )
+        self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
+        self.assertEqual("0.0.0.0", typed["bindAddress"])
+        self.assertEqual(["member_world", "monitor_ip"], typed["untranslatedKeys"])
+        self.assertEqual(
+            ["server/connections.conf", "server/preservation.conf"],
+            [item["relativePath"] for item in typed["sourceInventory"]],
+        )
+        for item in typed["sourceInventory"]:
+            source = target / item["relativePath"]
+            self.assertEqual(source.stat().st_size, item["size"])
+            self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), item["sha256"])
+
     def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
         target = self.target("preservation-t0")
         map_source = target / "client/cache/landscape.pack"
@@ -965,7 +1033,7 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
 
-    def test_complete_packed_map_preview_and_stage_bind_exact_semantics_and_inventory(self) -> None:
+    def test_descriptor_packed_map_from_unrelated_target_is_refused_zero_write(self) -> None:
         target = self.target("preservation-t0")
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
@@ -982,72 +1050,11 @@ public final class CurrentUpgradeHarness {
             "preview-production-packed", target, workspace, "packed-preview",
             packed_source=packed_source, packed_report=packed_report,
         )
-        self.assertEqual(0, previewed.returncode, previewed.stderr)
-        plan = json.loads(previewed.stdout)
-        map_plan = plan["migrationPlan"]["mapMigration"]
-        self.assertTrue(map_plan["packageReady"])
-        self.assertTrue(plan["migrationPlan"]["stagedExecution"]
-                        ["canonicalMapPackageReady"])
-        self.assertGreater(map_plan["terrainCount"], 1)
-        self.assertGreater(map_plan["placementCount"], 0)
-        self.assertRegex(map_plan["conversionPlanFingerprintSha256"], r"^[0-9a-f]{64}$")
-        self.assertRegex(map_plan["outputPackageFingerprintSha256"], r"^[0-9a-f]{64}$")
-        paths = {record["relativePath"] for record in map_plan["outputInventory"]}
-        self.assertIn(
-            "migration/output/map/conversion/package/manifest.json", paths
-        )
-        self.assertGreater(len(paths), 8)
-        self.assertFalse(plan["activationAuthorized"])
+        self.assertNotEqual(0, previewed.returncode)
+        self.assertIn("exact target being upgraded", previewed.stderr)
         self.assertEqual(target_before, tree_snapshot(target))
         self.assertEqual(source_before, tree_snapshot(packed_source))
         self.assertEqual(workspace_before, tree_snapshot(workspace))
-
-        staged = self.run_harness(
-            "stage-production-packed", target, workspace, "packed-stage",
-            packed_source=packed_source, packed_report=packed_report,
-        )
-        self.assertEqual(0, staged.returncode, staged.stderr)
-        for record in map_plan["outputInventory"]:
-            output = workspace / "packed-stage" / record["relativePath"]
-            self.assertEqual(record["size"], output.stat().st_size)
-            self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
-            self.assertEqual(0o600, output.stat().st_mode & 0o777)
-        self.assertEqual(target_before, tree_snapshot(target))
-        self.assertEqual(source_before, tree_snapshot(packed_source))
-
-        tampered_workspace = self.case_root / "tampered-packed-transactions"
-        tampered_workspace.mkdir()
-        tampered = self.run_harness(
-            "verify-production-packed-tamper", target, tampered_workspace,
-            "packed-tamper", packed_source=packed_source, packed_report=packed_report,
-        )
-        self.assertNotEqual(0, tampered.returncode)
-        self.assertIn("CODE=TARGET_DRIFT", tampered.stderr)
-        self.assertEqual(target_before, tree_snapshot(target))
-        self.assertEqual(source_before, tree_snapshot(packed_source))
-
-        extra_workspace = self.case_root / "extra-packed-transactions"
-        extra_workspace.mkdir()
-        extra = self.run_harness(
-            "verify-production-packed-extra", target, extra_workspace,
-            "packed-extra", packed_source=packed_source, packed_report=packed_report,
-        )
-        self.assertNotEqual(0, extra.returncode)
-        self.assertIn("CODE=TARGET_DRIFT", extra.stderr)
-        self.assertEqual(target_before, tree_snapshot(target))
-        self.assertEqual(source_before, tree_snapshot(packed_source))
-
-        drift_source = self.case_root / "drift-source"
-        shutil.copytree(packed_source, drift_source)
-        drift_workspace = self.case_root / "drift-packed-transactions"
-        drift_workspace.mkdir()
-        drift = self.run_harness(
-            "stage-production-packed-source-drift", target, drift_workspace,
-            "packed-drift", packed_source=drift_source, packed_report=packed_report,
-        )
-        self.assertNotEqual(0, drift.returncode)
-        self.assertIn("CODE=", drift.stderr)
-        self.assertEqual(target_before, tree_snapshot(target))
 
     def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
         fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"

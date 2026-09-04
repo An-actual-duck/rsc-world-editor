@@ -236,6 +236,21 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		boolean mapReady = false;
 		if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
 			try {
+				WorldBuilderPackedConversionSource prepared =
+					WorldBuilderPackedConversionSource.open(
+						packedSourceRoot, packedDiscoveryReport);
+				Path reviewedTarget = target.toRealPath();
+				if (prepared.canonicalReportedTargetRoot == null
+					|| !reviewedTarget.equals(prepared.canonicalReportedTargetRoot))
+					throw refusal("Packed map evidence was not discovered from the exact target being upgraded.");
+				WorldBuilderReadOnlyTarget reviewed = WorldBuilderReadOnlyTarget.open(target);
+				for (WorldBuilderBoundedInventory.Record input : prepared.inputs) {
+					WorldBuilderReadOnlyTarget.FileState state = reviewed.requiredState(
+						input.role, input.relativePath);
+					if (state.size != input.size || !state.sha256.equals(input.sha256))
+						throw refusal("Packed map source copy no longer matches the selected target at "
+							+ input.relativePath + ".");
+				}
 				WorldBuilderPackedConverter.Inspection inspected =
 					new WorldBuilderPackedConverter().inspect(
 						packedSourceRoot, packedDiscoveryReport);
@@ -300,11 +315,34 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderBoundedInventory.exactKeys(typed, "current-runtime-migration",
 			"schemaVersion", "manifestType", "sourceRelativePath", "precedence",
 			"duplicatePolicy", "serverName", "experienceRate", "bindAddress",
-			"gamePort", "websocketPort", "databaseMigration", "externalSecretReferences", "translations");
+			"gamePort", "websocketPort", "databaseMigration", "externalSecretReferences",
+			"sourceInventory", "untranslatedKeys", "translations");
 		if (!"world-builder-current-base-configuration".equals(
 				string(typed, "manifestType"))
 			|| !"first-value-wins".equals(string(typed, "duplicatePolicy")))
 			throw refusal("Typed configuration has unsupported execution semantics.");
+		String priorSource = "";
+		for (Object raw : array(typed.get("sourceInventory"))) {
+			Map<String,Object> source = object(raw);
+			WorldBuilderBoundedInventory.exactKeys(source, "current-runtime-migration",
+				"relativePath", "size", "sha256");
+			String relative = WorldBuilderPortablePath.require(
+				string(source, "relativePath"), "current-runtime-migration");
+			if (!priorSource.isEmpty() && priorSource.compareTo(relative) >= 0
+				|| WorldBuilderBoundedInventory.integer(source.get("size"),
+					"current-runtime-migration", "size") < 0L
+				|| !WorldBuilderBoundedInventory.isHash(string(source, "sha256")))
+				throw refusal("Typed configuration source inventory is not exact and sorted.");
+			priorSource = relative;
+		}
+		String priorUntranslated = "";
+		for (Object raw : array(typed.get("untranslatedKeys"))) {
+			if (!(raw instanceof String) || !((String)raw).matches("[A-Za-z0-9_]{1,128}")
+				|| !priorUntranslated.isEmpty()
+					&& priorUntranslated.compareTo((String)raw) >= 0) throw refusal(
+						"Typed configuration untranslated-key inventory is invalid.");
+			priorUntranslated = (String)raw;
+		}
 		Map<String,Object> map = object(plan.get("mapMigration"));
 		WorldBuilderBoundedInventory.exactKeys(map, "current-runtime-migration",
 			"migrationId", "sourceRelativePath", "destinationRole", "executionBoundary",
@@ -425,8 +463,14 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	private Map<String,Object> typedConfiguration(Path target)
 		throws WorldBuilderContractException {
-		Path local = target.resolve("server/conf/local.conf");
-		Path named = target.resolve("server/conf/preservation.conf");
+		boolean productionLayout = Files.exists(target.resolve("server/preservation.conf"),
+			LinkOption.NOFOLLOW_LINKS)
+			|| Files.exists(target.resolve("server/local.conf"), LinkOption.NOFOLLOW_LINKS);
+		Path local = target.resolve(productionLayout
+			? "server/local.conf" : "server/conf/local.conf");
+		Path named = target.resolve(productionLayout
+			? "server/preservation.conf" : "server/conf/preservation.conf");
+		Path connections = target.resolve("server/connections.conf");
 		Path selected = Files.exists(local, LinkOption.NOFOLLOW_LINKS) ? local : named;
 		if (syntheticOnly && !Files.exists(selected, LinkOption.NOFOLLOW_LINKS)) {
 			Map<String,Object> empty = new LinkedHashMap<String,Object>();
@@ -442,25 +486,44 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			empty.put("websocketPort", Long.valueOf(43494));
 			empty.put("databaseMigration", sqliteDatabaseMigration());
 			empty.put("externalSecretReferences", new ArrayList<Object>());
+			empty.put("sourceInventory", new ArrayList<Object>());
+			empty.put("untranslatedKeys", new ArrayList<Object>());
 			empty.put("translations", new ArrayList<Object>());
 			return empty;
 		}
 		if (!Files.isRegularFile(selected, LinkOption.NOFOLLOW_LINKS)
 			|| Files.isSymbolicLink(selected)) throw refusal(
 			"Preservation effective configuration is missing or unsafe.");
+		Map<String,String> values = new LinkedHashMap<String,String>();
+		List<Object> translations = new ArrayList<Object>();
+		List<Object> sourceInventory = new ArrayList<Object>();
+		List<Object> untranslated = new ArrayList<Object>();
+		List<Path> sources = new ArrayList<Path>();
+		if (productionLayout) {
+			if (!Files.isRegularFile(connections, LinkOption.NOFOLLOW_LINKS)
+				|| Files.isSymbolicLink(connections)) throw refusal(
+					"Preservation connections.conf is missing or unsafe.");
+			sources.add(connections);
+		}
+		sources.add(selected);
+		for (Path source : sources) {
 		List<String> lines;
 		try {
-			if (Files.size(selected) > 262144L) throw refusal(
+			if (Files.size(source) > 262144L) throw refusal(
 				"Preservation effective configuration exceeds its bounded size.");
-			lines = Files.readAllLines(selected, StandardCharsets.UTF_8);
+			lines = Files.readAllLines(source, StandardCharsets.UTF_8);
+			Map<String,Object> inventory = new LinkedHashMap<String,Object>();
+			inventory.put("relativePath", target.relativize(source).toString().replace('\\', '/'));
+			inventory.put("size", Long.valueOf(Files.size(source)));
+			inventory.put("sha256", WorldBuilderHashes.sha256(source));
+			sourceInventory.add(inventory);
 		} catch (java.io.IOException failure) {
 			throw new WorldBuilderContractException(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
-				"preservation-configuration", "server/conf", false,
+				"preservation-configuration", "server", false,
 				"Effective configuration could not be read safely.",
 				"Keep the target offline and retry preview.", failure);
 		}
-		Map<String,String> values = new LinkedHashMap<String,String>();
-		List<Object> translations = new ArrayList<Object>();
+		String sourceRelative = target.relativize(source).toString().replace('\\', '/');
 		for (int index = 0; index < lines.size(); index++) {
 			String line = lines.get(index).trim();
 			if (line.isEmpty() || line.startsWith("#")) continue;
@@ -471,21 +534,41 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			if (separator <= 0) throw refusal("Legacy configuration contains a malformed line.");
 			String legacy = line.substring(0, separator).trim();
 			String value = line.substring(separator + 1).trim();
+			int comment = value.indexOf('#');
+			if (comment >= 0) value = value.substring(0, comment).trim();
 			if (value.isEmpty() && line.endsWith(":")) continue; // section heading
 			String canonical = alias(legacy);
-			if (canonical == null) throw refusal(
-				"Legacy configuration contains an unsupported key: " + legacy);
+			if (canonical == null) {
+				if (!untranslated.contains(legacy)) untranslated.add(legacy);
+				continue;
+			}
+			if (value.isEmpty() || "null".equalsIgnoreCase(value)) throw refusal(
+				"Supported legacy configuration key has null/empty overwrite semantics: "
+					+ legacy);
 			if (values.containsKey(canonical)) continue; // reviewed first-value-wins rule
 			values.put(canonical, value);
 			Map<String,Object> translation = new LinkedHashMap<String,Object>();
 			translation.put("legacyKey", legacy); translation.put("currentKey", canonical);
+			translation.put("sourceRelativePath", sourceRelative);
 			translation.put("sourceLine", Long.valueOf(index + 1));
 			translations.add(translation);
+		}
 		}
 		String name = values.containsKey("serverName")
 			? values.get("serverName") : "Preservation";
 		if (name.isEmpty() || name.length() > 80) throw refusal(
 			"Translated server name is empty or exceeds 80 characters.");
+		if (values.containsKey("combatExperienceRate")
+			&& values.containsKey("skillingExperienceRate")
+			&& !values.get("combatExperienceRate").equals(
+				values.get("skillingExperienceRate"))) throw refusal(
+				"Current Base cannot collapse different combat and skilling rates into one setting.");
+		if (!values.containsKey("experienceRate")) {
+			if (values.containsKey("combatExperienceRate")) values.put(
+				"experienceRate", values.get("combatExperienceRate"));
+			else if (values.containsKey("skillingExperienceRate")) values.put(
+				"experienceRate", values.get("skillingExperienceRate"));
+		}
 		long experience = integer(values, "experienceRate", 1L, 100L, 1L);
 		long port = integer(values, "gamePort", 1L, 65535L, 43594L);
 		long websocketPort = integer(values, "websocketPort", 1L, 65535L, 43494L);
@@ -499,8 +582,12 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		typed.put("schemaVersion", Long.valueOf(1));
 		typed.put("manifestType", "world-builder-current-base-configuration");
 		typed.put("sourceRelativePath", target.relativize(selected).toString().replace('\\', '/'));
-		typed.put("precedence", Files.exists(local, LinkOption.NOFOLLOW_LINKS)
-			? "local-replaces-named-profile" : "named-profile");
+		typed.put("precedence", productionLayout
+			? (Files.exists(local, LinkOption.NOFOLLOW_LINKS)
+				? "connections-first-then-local-profile"
+				: "connections-first-then-named-profile")
+			: (Files.exists(local, LinkOption.NOFOLLOW_LINKS)
+				? "local-replaces-named-profile" : "named-profile"));
 		typed.put("duplicatePolicy", "first-value-wins");
 		typed.put("serverName", name); typed.put("experienceRate", Long.valueOf(experience));
 		typed.put("bindAddress", bind); typed.put("gamePort", Long.valueOf(port));
@@ -513,6 +600,13 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			secrets.add(database.get("passwordEnvironmentName"));
 		}
 		typed.put("externalSecretReferences", secrets);
+		Collections.sort(untranslated, new java.util.Comparator<Object>() {
+			@Override public int compare(Object left, Object right) {
+				return ((String)left).compareTo((String)right);
+			}
+		});
+		typed.put("sourceInventory", sourceInventory);
+		typed.put("untranslatedKeys", untranslated);
 		typed.put("translations", translations);
 		return typed;
 	}
@@ -532,10 +626,12 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 	private static String alias(String key) {
 		if (Arrays.asList("server_name", "serverName", "name").contains(key)) return "serverName";
 		if (Arrays.asList("experience_rate", "exp_rate", "experiance_rate").contains(key)) return "experienceRate";
+		if ("combat_exp_rate".equals(key)) return "combatExperienceRate";
+		if ("skilling_exp_rate".equals(key)) return "skillingExperienceRate";
 		if (Arrays.asList("bind_address", "server_bind_address", "bindAddress").contains(key)) return "bindAddress";
 		if (Arrays.asList("port", "game_port", "server_port", "gamePort").contains(key)) return "gamePort";
 		if (Arrays.asList("ws_server_port", "websocket_port", "websocketPort").contains(key)) return "websocketPort";
-		if (Arrays.asList("db_engine", "database_engine").contains(key)) return "databaseEngine";
+		if (Arrays.asList("db_engine", "database_engine", "db_type").contains(key)) return "databaseEngine";
 		if (Arrays.asList("db_host", "database_host").contains(key)) return "databaseHost";
 		if (Arrays.asList("db_port", "database_port").contains(key)) return "databasePort";
 		if (Arrays.asList("db_name", "database_name", "source_schema").contains(key)) return "databaseSourceSchema";

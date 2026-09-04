@@ -21,6 +21,15 @@ import java.util.Objects;
 
 /** Target-scoped operation lock plus exclusive game/websocket port leases. */
 final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
+	interface IdentityObserver {
+		void observe(String milestone, Path anchor) throws IOException;
+	}
+
+	private static final IdentityObserver NO_OP_IDENTITY_OBSERVER =
+		new IdentityObserver() {
+			@Override public void observe(String milestone, Path anchor) { }
+		};
+
 	private final FileChannel channel;
 	private final FileLock lock;
 	private final List<ServerSocket> sockets;
@@ -42,6 +51,14 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 	static WorldBuilderCurrentRuntimeOfflineLease acquire(Path target,
 		Map<String,Object> typed, boolean syntheticFixture)
 		throws IOException, WorldBuilderContractException {
+		return acquire(target, typed, syntheticFixture, NO_OP_IDENTITY_OBSERVER);
+	}
+
+	static WorldBuilderCurrentRuntimeOfflineLease acquire(Path target,
+		Map<String,Object> typed, boolean syntheticFixture,
+		IdentityObserver observer)
+		throws IOException, WorldBuilderContractException {
+		if (observer == null) observer = NO_OP_IDENTITY_OBSERVER;
 		Path root = target.toRealPath();
 		Path anchor = selectAnchor(root, typed, syntheticFixture);
 		Object beforeIdentity = stableIdentity(anchor);
@@ -51,6 +68,7 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		FileLock lock = null;
 		List<ServerSocket> sockets = new ArrayList<ServerSocket>();
 		try {
+			observer.observe("after-open", anchor);
 			if (!Objects.equals(beforeIdentity, stableIdentity(anchor))) throw refusal(
 				"Target operation-lock anchor identity changed while it was opened.");
 			try { lock = channel.tryLock(); }
