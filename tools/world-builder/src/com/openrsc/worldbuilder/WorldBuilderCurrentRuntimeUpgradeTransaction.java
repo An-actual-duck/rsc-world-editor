@@ -189,6 +189,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Path planPath = transaction.resolve("upgrade-plan.json");
 		boolean releasePublished = false;
 		boolean ledgerActivated = false;
+		Map<String,Object> executionPlan = reviewed.plan;
 		List<Path> createdTargetDirectories = new ArrayList<Path>();
 		try {
 			writeNew(planPath, reviewed.toJson());
@@ -203,8 +204,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.createDirectory(staging);
 			WorldBuilderAdaptiveDurability.forceDirectory(staging);
 			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
-			stageRelease(reviewed, staging);
-			writeReceipt(receipt, receipt(reviewed.plan, "pending", false,
+			executionPlan = stageRelease(reviewed, staging);
+			writeReceipt(receipt, receipt(executionPlan, "pending", false,
 				false, "", "staging-verified"));
 			observe("after-staging", staging);
 			fresh = refresh(reviewed);
@@ -212,40 +213,41 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderErrorCodes.TARGET_DRIFT, "upgrade-plan", false,
 				"Target or authority changed after backup and staging.",
 				"Keep the target offline and review a fresh transaction.");
+			verifyReviewedRelease(reviewed, staging, executionPlan);
 
 			Path release = targetPath(reviewed.targetRoot,
 				string(reviewed.plan, "releaseRelativePath"));
 			ensureParents(reviewed.targetRoot, release.getParent(), createdTargetDirectories);
 			releasePublished = true;
 			moveNewDirectory(staging, release);
-			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
+			writeReceipt(receipt, receipt(executionPlan, "pending", true,
 				false, "", "release-published"));
 			observe("after-release-published", release);
 
 			Path ledger = targetPath(reviewed.targetRoot, LEDGER_RELATIVE);
 			ensureParents(reviewed.targetRoot, ledger.getParent(), createdTargetDirectories);
 			ledgerActivated = true;
-			writeActivationLedger(ledger, object(reviewed.plan.get("activationLedger")));
-			writeReceipt(receipt, receipt(reviewed.plan, "pending", true,
+			writeActivationLedger(ledger, object(executionPlan.get("activationLedger")));
+			writeReceipt(receipt, receipt(executionPlan, "pending", true,
 				false, "", "ledger-activated"));
 			observe("after-ledger-activated", ledger);
-			verifyInstalled(reviewed.targetRoot, reviewed.plan);
-			writeReceipt(receipt, receipt(reviewed.plan, "successful", true,
-				true, string(reviewed.plan, "verificationEvidenceHash"), ""));
+			verifyInstalled(reviewed.targetRoot, executionPlan);
+			writeReceipt(receipt, receipt(executionPlan, "successful", true,
+				true, string(executionPlan, "verificationEvidenceHash"), ""));
 			return new Result(string(reviewed.plan, "transactionId"), "successful",
 				receipt, release);
 		} catch (Throwable failure) {
 			try {
 				observe("before-rollback", reviewed.targetRoot);
-				rollback(reviewed.targetRoot, reviewed.plan, backup,
+				rollback(reviewed.targetRoot, executionPlan, backup,
 					releasePublished, ledgerActivated, createdTargetDirectories);
 				observe("after-rollback", reviewed.targetRoot);
-				writeReceipt(receipt, receipt(reviewed.plan, "rolled-back",
+				writeReceipt(receipt, receipt(executionPlan, "rolled-back",
 					releasePublished || ledgerActivated, true, "",
 					failure.getClass().getName()));
 			} catch (Throwable rollbackFailure) {
 				try {
-					writeReceipt(receipt, receipt(reviewed.plan, "recovery-required",
+					writeReceipt(receipt, receipt(executionPlan, "recovery-required",
 						releasePublished || ledgerActivated, false, "",
 						rollbackFailure.getClass().getName()));
 				} catch (Throwable receiptFailure) {
@@ -323,6 +325,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Restore the exact pending/recovery-required receipt and plan.");
 		PendingReceiptTemporary pendingReceiptTemporary = validatePendingReceiptTemporary(
 			transaction, plan);
+		plan = restoreExecutionPlan(plan, priorReceipt,
+			pendingReceiptTemporary == null ? null : pendingReceiptTemporary.document);
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
 			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
 				object(object(plan.get("migrationPlan")).get("typedConfiguration")),
@@ -705,7 +709,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderAdaptiveDurability.forceTreeDirectories(backup);
 	}
 
-	private void stageRelease(Preview preview, Path staging)
+	private Map<String,Object> stageRelease(Preview preview, Path staging)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(preview.providerCatalogRoot,
@@ -728,9 +732,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			setMode(destination, string(action, "mode"));
 			requireFileMatches(destination, action, bundlePath);
 		}
-		Map<String,Object> activation = activationDocument(preview.plan);
-		writeNew(staging.resolve("activation.json"),
-			WorldBuilderJsonDocuments.pretty(activation));
 		Files.createDirectory(staging.resolve("migration"));
 		writeNew(staging.resolve("migration/migration-plan.json"),
 			WorldBuilderJsonDocuments.pretty(preview.plan.get("migrationPlan")));
@@ -756,8 +757,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging,
 				execution, map);
 		}
+		Map<String,Object> executionPlan = bindGeneratedState(preview.plan,
+			preview.profile.syntheticOnly ? Collections.<Object>emptyList()
+				: WorldBuilderCurrentRuntimeGeneratedState.capture(staging));
+		Map<String,Object> activation = activationDocument(executionPlan);
+		writeNew(staging.resolve("activation.json"),
+			WorldBuilderJsonDocuments.pretty(activation));
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
+		return executionPlan;
 	}
 
 	Map<String,Object> inspectReviewedPreservationMigration(Path target,
@@ -825,23 +833,24 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	}
 
 	/** Package-private verification seam for an unpublished, externally staged release. */
-	void stageReviewedRelease(Preview preview, Path staging)
+	Map<String,Object> stageReviewedRelease(Preview preview, Path staging)
 		throws IOException, WorldBuilderContractException {
 		if (Files.exists(staging, LinkOption.NOFOLLOW_LINKS)) throw problem(
 			WorldBuilderErrorCodes.UNSAFE_PATH, "staging", false,
 			"Reviewed staging destination already exists.",
 			"Choose a new external staging destination.");
 		Files.createDirectory(staging);
-		stageRelease(preview, staging);
+		return stageRelease(preview, staging);
 	}
 
-	void verifyReviewedRelease(Preview preview, Path staging)
+	void verifyReviewedRelease(Preview preview, Path staging, Map<String,Object> executionPlan)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(preview.providerCatalogRoot,
 				preview.compositionIdentity);
 		verifyProviderReleaseTree(staging, "", composition.artifacts,
-			activationDocument(preview.plan), object(preview.plan.get("migrationPlan")));
+			activationDocument(bindGeneratedState(preview.plan, generatedStateOutputs(executionPlan))),
+			object(preview.plan.get("migrationPlan")));
 	}
 
 	private static void writeActivationLedger(Path ledger, Map<String,Object> document)
@@ -1072,7 +1081,80 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		activation.put("clientBuildId", string(ledger, "clientBuildId"));
 		activation.put("activeMapPackageId", string(ledger, "activeMapPackageId"));
 		activation.put("syntheticOnly", object(plan.get("executionProfile")).get("syntheticOnly"));
+		activation.put("generatedStateOutputs", generatedStateOutputs(plan));
 		return activation;
+	}
+
+	/** In-memory execution view only; never serialize this as a confirmed upgrade plan. */
+	private static Map<String,Object> bindGeneratedState(Map<String,Object> plan, List<Object> generated)
+		throws WorldBuilderContractException {
+		WorldBuilderCurrentRuntimeGeneratedState.validate(generated, true);
+		if (bool(object(plan.get("executionProfile")), "syntheticOnly") && !generated.isEmpty())
+			throw activationMismatch("generatedStateOutputs");
+		Map<String,Object> result = new LinkedHashMap<String,Object>(plan);
+		List<Object> snapshot = new ArrayList<Object>();
+		for (Object raw : generated) snapshot.add(Collections.unmodifiableMap(
+			new LinkedHashMap<String,Object>(object(raw))));
+		result.put("generatedStateOutputs", Collections.unmodifiableList(snapshot));
+		String verification = generatedVerificationHash(
+			string(plan, "verificationEvidenceHash"), generated);
+		result.put("verificationEvidenceHash", verification);
+		Map<String,Object> ledger = new LinkedHashMap<String,Object>(object(plan.get("activationLedger")));
+		ledger.put("verificationEvidenceHash", verification);
+		bindFingerprint(ledger, "ledgerFingerprintSha256");
+		result.put("activationLedger", ledger);
+		return result;
+	}
+
+	static Map<String,Object> restoreExecutionPlan(Map<String,Object> plan,
+		Map<String,Object> priorReceipt, Map<String,Object> pendingReceipt)
+		throws WorldBuilderContractException {
+		validateExecutionReceipt(plan, priorReceipt);
+		List<Object> generated = generatedStateOutputs(priorReceipt);
+		if (pendingReceipt != null) {
+			validateExecutionReceipt(plan, pendingReceipt);
+			List<Object> pendingGenerated = generatedStateOutputs(pendingReceipt);
+			if (!generated.isEmpty() && !canonicalHash(generated).equals(canonicalHash(pendingGenerated)))
+				throw recoveryDrift("generatedStateOutputs", new IOException(
+					"phase receipts disagree about sealed generated state"));
+			if (generated.isEmpty()) generated = pendingGenerated;
+		}
+		return bindGeneratedState(plan, generated);
+	}
+
+	private static void validateExecutionReceipt(Map<String,Object> plan, Map<String,Object> receipt)
+		throws WorldBuilderContractException {
+		validateReceiptFingerprint(receipt);
+		for (String field : Arrays.asList("transactionId", "planFingerprintSha256",
+			"preimageInventoryHash", "artifactPlanHash"))
+			if (!string(plan, field).equals(string(receipt, field)))
+				throw recoveryDrift(field, new IOException("receipt does not bind the confirmed plan"));
+		String status = string(receipt, "status");
+		boolean synthetic = bool(object(plan.get("executionProfile")), "syntheticOnly");
+		List<Object> generated = generatedStateOutputs(receipt);
+		boolean requiresSeal = bool(receipt, "mutationOccurred") || "successful".equals(status)
+			|| "pending".equals(status) && !"backup-complete".equals(string(receipt, "failureType"));
+		WorldBuilderCurrentRuntimeGeneratedState.validate(generated, synthetic || !requiresSeal);
+		Map<String,Object> execution = bindGeneratedState(plan, generated);
+		if ("successful".equals(status) && !string(execution, "verificationEvidenceHash").equals(
+			string(receipt, "verificationEvidenceHash")))
+			throw recoveryDrift("verificationEvidenceHash", new IOException(
+				"successful receipt does not bind generated state"));
+	}
+
+	private static String generatedVerificationHash(String plannedVerification, List<Object> generated) {
+		if (generated.isEmpty()) return plannedVerification;
+		Map<String,Object> binding = new LinkedHashMap<String,Object>();
+		binding.put("plannedVerificationEvidenceHash", plannedVerification);
+		binding.put("generatedStateOutputsHash", canonicalHash(generated));
+		return canonicalHash(binding);
+	}
+
+	private static List<Object> generatedStateOutputs(Map<String,Object> document)
+		throws WorldBuilderContractException {
+		return document.containsKey("generatedStateOutputs")
+			? new ArrayList<Object>(array(document.get("generatedStateOutputs")))
+			: Collections.<Object>emptyList();
 	}
 
 	private static String activationPlanBindingHash(Map<String,Object> source)
@@ -1107,10 +1189,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"inputAdapter", "artifactPlanHash",
 			"semanticActionsHash", "verificationEvidenceHash", "serverBuildId",
 			"clientBuildId", "activeMapPackageId", "syntheticOnly",
-			"executionProfile", "migrationPlan");
+			"executionProfile", "migrationPlan", "generatedStateOutputs");
 		Map<String,Object> executionProfile = object(activation.get("executionProfile"));
 		WorldBuilderCurrentRuntimeExecutionProfile compiledProfile =
 			WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(executionProfile);
+		List<Object> generated = generatedStateOutputs(activation);
+		WorldBuilderCurrentRuntimeGeneratedState.validate(generated, compiledProfile.syntheticOnly);
+		if (compiledProfile.syntheticOnly && !generated.isEmpty())
+			throw activationMismatch("generatedStateOutputs");
 		compiledProfile.validateMigrationPlan(object(activation.get("migrationPlan")));
 		if (integer(activation, "schemaVersion") != 1L
 			|| !string(executionProfile, "activationManifestType").equals(
@@ -1190,7 +1276,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		verification.put("artifactPlanHash", string(activation, "artifactPlanHash"));
 		verification.put("semanticActionsHash", string(activation, "semanticActionsHash"));
 		verification.put("planBindingHash", string(activation, "planBindingHash"));
-		if (!canonicalHash(verification).equals(
+		if (!generatedVerificationHash(canonicalHash(verification), generated).equals(
 			string(ledger, "verificationEvidenceHash")))
 			throw activationMismatch("verificationEvidenceHash");
 		if (!activationPlanBindingHash(activation).equals(
@@ -1230,9 +1316,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 	private static void verifyOwnedReleaseTree(Path target, Map<String,Object> plan)
 		throws IOException, WorldBuilderContractException {
+		verifyExecutionRelease(targetPath(target, string(plan, "releaseRelativePath")), plan);
+	}
+
+	static void verifyExecutionRelease(Path release, Map<String,Object> plan)
+		throws IOException, WorldBuilderContractException {
 		List<Map<String,Object>> artifacts = new ArrayList<Map<String,Object>>();
 		for (Object raw : array(plan.get("artifactPlan"))) artifacts.add(object(raw));
-		verifyReleaseTree(target, string(plan, "releaseRelativePath"), artifacts,
+		verifyReleaseTree(release, "", artifacts,
 			activationDocument(plan), object(plan.get("migrationPlan")));
 	}
 
@@ -1356,6 +1447,13 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderErrorCodes.SOURCE_CORRUPT, relative, false,
 				"Installed migration output mode differs from its reviewed inventory.",
 				"Keep map import disabled and recover/reinstall the exact composition.");
+		}
+		if (expectedActivation != null) {
+			List<Object> generated = generatedStateOutputs(expectedActivation);
+			boolean synthetic = bool(expectedActivation, "syntheticOnly");
+			WorldBuilderCurrentRuntimeGeneratedState.validate(generated, synthetic);
+			if (synthetic && !generated.isEmpty()) throw activationMismatch("generatedStateOutputs");
+			WorldBuilderCurrentRuntimeGeneratedState.verify(release, generated);
 		}
 		Path activation = safeExistingFile(release, "activation.json");
 		if (expectedActivation != null) {
@@ -1503,7 +1601,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 	}
 
-	private static Map<String,Object> receipt(Map<String,Object> plan, String status,
+	static Map<String,Object> receipt(Map<String,Object> plan, String status,
 		boolean mutationOccurred, boolean rollbackComplete, String verification,
 		String failureType) throws WorldBuilderContractException {
 		Map<String,Object> receipt = new LinkedHashMap<String,Object>();
@@ -1518,6 +1616,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		receipt.put("preimageInventoryHash", string(plan, "preimageInventoryHash"));
 		receipt.put("artifactPlanHash", string(plan, "artifactPlanHash"));
 		receipt.put("verificationEvidenceHash", verification);
+		receipt.put("generatedStateOutputs", generatedStateOutputs(plan));
 		receipt.put("failureType", failureType == null ? "" : failureType);
 		receipt.put("receiptFingerprintSha256", ZERO_HASH);
 		bindFingerprint(receipt, "receiptFingerprintSha256");
@@ -1838,7 +1937,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"schemaVersion", "manifestType", "transactionId", "planFingerprintSha256",
 			"status", "mutationOccurred", "rollbackComplete", "recoveryRequired",
 			"preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
-			"failureType", "receiptFingerprintSha256");
+			"failureType", "receiptFingerprintSha256", "generatedStateOutputs");
+		WorldBuilderCurrentRuntimeGeneratedState.validate(generatedStateOutputs(receipt), true);
+		String status = string(receipt, "status");
+		if (integer(receipt, "schemaVersion") != 1L
+			|| !"world-builder-current-runtime-upgrade-receipt".equals(string(receipt, "manifestType"))
+			|| !Arrays.asList("pending", "successful", "rolled-back", "recovery-required").contains(status)
+			|| bool(receipt, "recoveryRequired") != "recovery-required".equals(status)
+			|| bool(receipt, "rollbackComplete") != ("successful".equals(status) || "rolled-back".equals(status)))
+			throw recoveryDrift("receipt", new IOException("receipt has unsupported phase semantics"));
 		String supplied = string(receipt, "receiptFingerprintSha256");
 		receipt.put("receiptFingerprintSha256", ZERO_HASH);
 		String expected = canonicalHash(receipt);
@@ -1880,13 +1987,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				string(receipt, "preimageInventoryHash"))
 			|| !string(plan, "artifactPlanHash").equals(
 				string(receipt, "artifactPlanHash"))
-			|| "successful".equals(status) && !string(plan,
+			|| "successful".equals(status) && !string(bindGeneratedState(plan,
+				generatedStateOutputs(receipt)),
 				"verificationEvidenceHash").equals(
 					string(receipt, "verificationEvidenceHash"))) throw problem(
 				WorldBuilderErrorCodes.RECOVERY_REQUIRED, "receipt-temporary", true,
 				"Interrupted receipt staging does not belong to this recoverable plan.",
 				"Preserve both receipt files for reviewed recovery; no overwrite is authorized.");
-		return new PendingReceiptTemporary(temporary, status);
+		return new PendingReceiptTemporary(temporary, status, receipt);
 	}
 
 	private static void publishReceiptTemporary(Path temporary, Path receipt)
@@ -1906,8 +2014,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 	private static final class PendingReceiptTemporary {
 		final Path path; final String status;
-		PendingReceiptTemporary(Path path, String status) {
+		final Map<String,Object> document;
+		PendingReceiptTemporary(Path path, String status, Map<String,Object> document) {
 			this.path = path; this.status = status;
+			this.document = document;
 		}
 	}
 

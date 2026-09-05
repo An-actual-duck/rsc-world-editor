@@ -116,7 +116,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		if ("mariadb".equals(engine))
 			blockers.add("mariadb-external-stage-rollback-not-implemented");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
-		blockers.add("activation-bound-generated-state-inventory-required");
+		blockers.add("live-instance-installation-and-recovery-required");
 		if (!WorldBuilderBoundedInventory.bool(runtimeLayout.get("ready"),
 				"preservation-migration", "ready"))
 			blockers.add("runnable-current-runtime-layout-materialization-required");

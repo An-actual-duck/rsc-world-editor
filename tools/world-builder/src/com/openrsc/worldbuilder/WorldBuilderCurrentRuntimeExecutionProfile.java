@@ -66,7 +66,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
-			"Production activation remains disabled pending activation-bound generated state, live-instance installation, and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
+			"Production activation remains disabled pending live-instance installation/recovery and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -119,7 +119,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.add(readiness("provider-state-schema-migration-row", true));
 		result.add(readiness("closed-sqlite-current-schema-migration", true));
 		result.add(readiness("complete-canonical-map-package", true));
-		result.add(readiness("activation-bound-generated-state-inventory", false));
+		result.add(readiness("activation-bound-sqlite-migration-inventory", true));
+		result.add(readiness("live-instance-installation-and-recovery", false));
 		result.add(readiness("runnable-current-runtime-layout", false));
 		result.add(readiness("editor-installed-execution-verifier-integration", false));
 		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));

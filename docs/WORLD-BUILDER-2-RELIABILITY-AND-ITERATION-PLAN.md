@@ -396,8 +396,8 @@ without imposing its gameplay or content on Base users.
   package/report/reconciliation hashes and no-extra-file ownership. No raw
   one-sector shortcut is accepted as public migration proof. Materializing that
   package plus migrated configuration/state into runnable server/client roots,
-  runnable staged/installed server-client verification, and exact recovery
-  binding for generated state outputs remain open. The provider's candidate
+  runnable staged/installed server-client verification, and live-instance
+  state activation/recovery remain open. The provider's candidate
   verifier still has build-only authority. A separate bundle-inventoried
   installed-execution verifier now proves two real server/client launch cycles,
   handshake/login/map/state/restart checks on private disposable copies, with
@@ -417,8 +417,14 @@ without imposing its gameplay or content on Base users.
   back or get created. The installed verifier proves two launch cycles against
   external state and records that boundary in its closed evidence. Editor
   layout planning binds the exact provider state policy and rejects altered
-  destinations. Live-instance creation/activation, remaining writable paths,
-  generated-state recovery binding and Editor verifier invocation remain open.
+  destinations. Generated SQLite snapshot/evidence bytes now have a closed
+  post-migration inventory bound into activation, ledger verification and phase
+  receipts without changing the confirmed preview. Pre-publication, installed,
+  rollback ownership and receipt-based recovery checks use that exact inventory;
+  conflicting phase receipts and changed/aliased outputs refuse without cleanup.
+  Disposable staged-release tests cover reload/relocation and drift; production
+  apply remains disabled. Live-instance creation/activation/recovery, remaining
+  writable paths and Editor verifier invocation remain open.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

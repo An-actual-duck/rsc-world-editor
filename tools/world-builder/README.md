@@ -284,13 +284,30 @@ location fallback. The provider's real two-launch verifier now exercises this
 external state and reports `stateOutsideRuntimeRoots:true`. The Editor rejects
 unreviewed provider state policies and plan changes to that binding. This is
 not yet an implemented instance installer: creation/activation of live state,
-configuration, logs, caches and map pointers, durable generated-output evidence,
-and invocation of the verifier from the Editor transaction remain open.
+configuration, logs, caches and map pointers, and invocation of the verifier
+from the Editor transaction remain open.
 Runtime verification now waits for the database's persisted logout state before
 stopping the test server; an unregistration log message is not a commit
 acknowledgement. Migration and verification also escape SQLite file URIs so
 spaces, non-ASCII characters and URI metacharacters in selected directories
 remain literal filesystem paths.
+
+Staged SQLite migration outputs now have a closed, post-migration byte inventory:
+the migrated database and provider evidence are recorded by portable path, size,
+SHA-256 and private file mode. The activation marker, ledger verification binding,
+and durable phase receipts carry that execution evidence. The confirmed preview
+and its confirmation identity are not rewritten; the final verification hash
+extends the planned verification hash with the generated inventory. Staging is
+rechecked before publication, and installed checks and rollback ownership use
+the same exact bytes. Recovery reconstructs the execution binding from the saved
+receipt (including a complete interrupted receipt temporary), refuses conflicting
+inventories, and never regenerates its expectations from a changed database.
+An unpublished staged-release fixture proves receipt reload and relocation,
+same-size database modification, evidence modification, missing/extra outputs,
+unsafe aliases, changed permissions, malformed inventories and conflicting
+receipts. This proves the migrated snapshot boundary, not a running server's
+mutable database: live-instance installation/recovery and executable staged and
+installed verification remain required before production activation.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract with three exact SQLite source rows (retro, core, and initialized
@@ -303,15 +320,15 @@ roles. Its manifest is fixed at
 SQLite and loopback MariaDB migration evidence. The Editor binds the allowed
 rows for the selected engine during preview and verifies the provider-selected
 SQLite row against its exact schema fingerprint. Its staging executor invokes
-the SQLite path, but the
-transaction does not yet bind the generated state inventory into a recoverable
-installed cutover. Complete recognized descriptor-backed Preservation map
+the SQLite path and seals the generated snapshot/evidence for exact recovery;
+live-instance installation is still required for a usable cutover.
+Complete recognized descriptor-backed Preservation map
 evidence now runs through the existing
 `WorldBuilderPackedConverter`/`WorldBuilderPackedMap` pipeline (the raw-sector
 shortcut is no longer treated as public evidence) and is fully verified in an
 unpublished stage. Activation still requires materializing the package and
-migrated configuration/state into the provider's server/client layout, binding
-all generated state into recovery, and staged/installed server/client launch,
+migrated configuration/state into live-instance paths, binding those mutable
+paths into recovery, and staged/installed server/client launch,
 handshake, login, gameplay, map, and state verification. Live connections and
 credential values are not accepted by the current Editor plan. There is no
 desktop route yet. Provider installability, compiled profile readiness, and the

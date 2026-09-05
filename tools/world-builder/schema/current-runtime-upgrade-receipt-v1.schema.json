@@ -8,7 +8,7 @@
     "schemaVersion", "manifestType", "transactionId", "planFingerprintSha256",
     "status", "mutationOccurred", "rollbackComplete", "recoveryRequired",
     "preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
-    "failureType", "receiptFingerprintSha256"
+    "failureType", "receiptFingerprintSha256", "generatedStateOutputs"
   ],
   "properties": {
     "schemaVersion": {"const": 1},
@@ -22,6 +22,7 @@
     "preimageInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "artifactPlanHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
+    "generatedStateOutputs": {"$ref": "current-runtime-generated-state-v1.schema.json"},
     "failureType": {"type": "string", "maxLength": 1024},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   }

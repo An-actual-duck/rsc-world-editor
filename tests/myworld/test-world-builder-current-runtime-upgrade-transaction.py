@@ -245,7 +245,20 @@ public final class CurrentUpgradeHarness {
         WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
             new WorldBuilderCurrentRuntimeUpgradeTransaction(observer);
         try {
-        if ("profile-migration".equals(operation)) {
+        if ("verify-sealed-stage".equals(operation)) {
+            Map<String,Object> plan = WorldBuilderJsonDocuments.readObject(
+                transactions.resolve(transactionId + ".plan.json"));
+            Map<String,Object> receipt = WorldBuilderJsonDocuments.readObject(
+                transactions.resolve(transactionId + ".checkpoint.json"));
+            Path pendingPath = transactions.resolve(transactionId + ".pending.json");
+            Map<String,Object> pending = Files.exists(pendingPath)
+                ? WorldBuilderJsonDocuments.readObject(pendingPath) : null;
+            Map<String,Object> execution = WorldBuilderCurrentRuntimeUpgradeTransaction
+                .restoreExecutionPlan(plan, receipt, pending);
+            WorldBuilderCurrentRuntimeUpgradeTransaction.verifyExecutionRelease(
+                transactions.resolve(transactionId), execution);
+            System.out.print(WorldBuilderJsonDocuments.pretty(execution));
+        } else if ("profile-migration".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
             WorldBuilderProviderCatalog.Composition composition =
@@ -430,17 +443,23 @@ public final class CurrentUpgradeHarness {
                         Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
                     }
                 }
-                transaction.stageReviewedRelease(preview, stage);
+                Map<String,Object> executionPlan = transaction.stageReviewedRelease(preview, stage);
+                Files.write(transactions.resolve(transactionId + ".plan.json"),
+                    preview.toJson().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+                Files.write(transactions.resolve(transactionId + ".checkpoint.json"),
+                    WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeUpgradeTransaction.receipt(
+                        executionPlan, "pending", false, false, "", "staging-verified"))
+                        .getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
                 if ("verify-production-packed-tamper".equals(operation)) {
                     Path map = stage.resolve(
                         "migration/output/map/conversion/package/manifest.json");
                     Files.write(map, new byte[] {32}, StandardOpenOption.APPEND);
-                    transaction.verifyReviewedRelease(preview, stage);
+                    transaction.verifyReviewedRelease(preview, stage, executionPlan);
                 } else if ("verify-production-packed-extra".equals(operation)) {
                     Files.write(stage.resolve(
                         "migration/output/map/conversion/unexpected.bin"),
                         new byte[] {1}, StandardOpenOption.CREATE_NEW);
-                    transaction.verifyReviewedRelease(preview, stage);
+                    transaction.verifyReviewedRelease(preview, stage, executionPlan);
                 }
                 System.out.print(preview.toJson());
             } else {
@@ -690,10 +709,12 @@ public final class CurrentUpgradeHarness {
             return
         common = json.loads((SCHEMAS / "adaptive-contract-definitions-v1.schema.json").read_text())
         schema = json.loads((SCHEMAS / "current-runtime-upgrade-receipt-v1.schema.json").read_text())
+        generated = json.loads((SCHEMAS / "current-runtime-generated-state-v1.schema.json").read_text())
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             resolver = jsonschema.RefResolver.from_schema(
-                schema, store={common["$id"]: common, schema["$id"]: schema}
+                schema, store={common["$id"]: common, schema["$id"]: schema,
+                               generated["$id"]: generated}
             )
         errors = list(jsonschema.Draft202012Validator(schema, resolver=resolver).iter_errors(receipt))
         self.assertEqual([], errors, [error.message for error in errors])
@@ -863,7 +884,8 @@ public final class CurrentUpgradeHarness {
         self.assertTrue(readiness["closed-sqlite-current-schema-migration"])
         self.assertTrue(readiness["provider-state-schema-migration-row"])
         self.assertTrue(readiness["complete-canonical-map-package"])
-        self.assertFalse(readiness["activation-bound-generated-state-inventory"])
+        self.assertTrue(readiness["activation-bound-sqlite-migration-inventory"])
+        self.assertFalse(readiness["live-instance-installation-and-recovery"])
         self.assertFalse(readiness["runnable-current-runtime-layout"])
         self.assertFalse(readiness["editor-installed-execution-verifier-integration"])
         self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
@@ -893,7 +915,7 @@ public final class CurrentUpgradeHarness {
         )
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-        self.assertIn("activation-bound generated state",
+        self.assertIn("live-instance installation/recovery",
                       refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
@@ -1362,6 +1384,149 @@ public final class CurrentUpgradeHarness {
         self.assertNotEqual(0, drift.returncode)
         self.assertIn("CODE=", drift.stderr)
         self.assertEqual(target_before, tree_snapshot(target))
+
+    def test_generated_state_seal_survives_reload_and_rejects_drift_without_writes(self) -> None:
+        target = self.target("preservation-t0")
+        (target / "client/cache/landscape.pack").write_bytes(bytes(48 * 48 * 10))
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as writable:
+            writable.executescript((PROVIDER / "server/database/sqlite/retro.sqlite").read_text())
+        before_target = tree_snapshot(target)
+        workspace = self.workspace()
+        txid = "sealed-state"
+        staged = self.run_harness(
+            "stage-production-packed", target, workspace, txid,
+            identity=self.layout_identity, catalog=self.layout_catalog,
+        )
+        self.assertEqual(0, staged.returncode, staged.stderr)
+        planned = json.loads(staged.stdout)
+        self.assertFalse(planned["activationAuthorized"])
+        self.assertNotIn("generatedStateOutputs", planned)
+        receipt = json.loads((workspace / f"{txid}.checkpoint.json").read_text())
+        self.assert_receipt_schema(receipt)
+        records = receipt["generatedStateOutputs"]
+        self.assertEqual(2, len(records))
+        for record in records:
+            output = workspace / txid / record["relativePath"]
+            self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
+            self.assertEqual(record["size"], output.stat().st_size)
+            self.assertEqual("0600", record["mode"])
+        original_workspace = tree_snapshot(workspace)
+        verified = self.run_harness("verify-sealed-stage", target, workspace, txid)
+        self.assertEqual(0, verified.returncode, verified.stderr)
+        execution = json.loads(verified.stdout)
+        self.assertEqual(planned["planFingerprintSha256"], execution["planFingerprintSha256"])
+        self.assertEqual(planned["confirmationIdentity"], execution["confirmationIdentity"])
+        self.assertNotEqual(planned["verificationEvidenceHash"], execution["verificationEvidenceHash"])
+        self.assertEqual(execution["verificationEvidenceHash"],
+                         execution["activationLedger"]["verificationEvidenceHash"])
+        self.assertEqual(original_workspace, tree_snapshot(workspace))
+
+        # Reload after relocation: evidence retains its historical stageLocation,
+        # but exact-byte ownership derives from portable, receipt-bound paths.
+        relocated = self.case_root / "relocated #?é"
+        shutil.copytree(workspace, relocated)
+        relocated_before = tree_snapshot(relocated)
+        result = self.run_harness("verify-sealed-stage", target, relocated, txid)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(relocated_before, tree_snapshot(relocated))
+
+        for mutation in (
+            "database-bytes", "evidence-bytes", "database-mode", "database-link",
+            "database-hardlink", "missing-database", "extra-sidecar", "extra-directory",
+            "missing-seal", "empty-seal", "unbound-seal", "unknown-field", "duplicate-path",
+            "outside-path", "oversized", "receipt-transaction", "receipt-status",
+            "receipt-version", "activation-seal",
+            "contradictory-pending", "pending-drops-seal",
+        ):
+            with self.subTest(mutation=mutation):
+                changed = self.case_root / mutation
+                shutil.copytree(workspace, changed)
+                release = changed / txid
+                checkpoint = changed / f"{txid}.checkpoint.json"
+                altered = json.loads(checkpoint.read_text())
+                db = release / records[1]["relativePath"]
+                if mutation == "database-bytes":
+                    payload = bytearray(db.read_bytes())
+                    payload[200] ^= 1
+                    db.write_bytes(payload)
+                elif mutation == "evidence-bytes":
+                    evidence = release / records[0]["relativePath"]
+                    evidence.write_bytes(evidence.read_bytes() + b" ")
+                elif mutation == "database-mode":
+                    db.chmod(0o644)
+                elif mutation in ("database-link", "database-hardlink"):
+                    alias = changed / "unowned.db"
+                    db.rename(alias)
+                    if mutation == "database-link":
+                        db.symlink_to(alias)
+                    else:
+                        os.link(alias, db)
+                elif mutation == "missing-database":
+                    db.unlink()
+                elif mutation == "extra-sidecar":
+                    db.with_name(db.name + "-wal").write_bytes(b"unowned")
+                elif mutation == "extra-directory":
+                    (release / "unowned").mkdir()
+                elif mutation == "missing-seal":
+                    del altered["generatedStateOutputs"]
+                elif mutation == "empty-seal":
+                    altered["generatedStateOutputs"] = []
+                elif mutation == "unbound-seal":
+                    altered["generatedStateOutputs"][1]["sha256"] = "f" * 64
+                elif mutation == "unknown-field":
+                    altered["generatedStateOutputs"][1]["force"] = True
+                elif mutation == "duplicate-path":
+                    altered["generatedStateOutputs"][1] = dict(altered["generatedStateOutputs"][0])
+                elif mutation == "outside-path":
+                    altered["generatedStateOutputs"][1]["relativePath"] = "../user.db"
+                elif mutation == "oversized":
+                    altered["generatedStateOutputs"][1]["size"] = 1073741825
+                elif mutation == "receipt-transaction":
+                    altered["transactionId"] = "different-transaction"
+                elif mutation == "receipt-status":
+                    altered["status"] = "unreviewed-phase"
+                elif mutation == "receipt-version":
+                    altered["schemaVersion"] = 2
+                elif mutation == "activation-seal":
+                    marker = release / "activation.json"
+                    activation = json.loads(marker.read_text())
+                    activation["generatedStateOutputs"][1]["sha256"] = "f" * 64
+                    marker.write_text(json.dumps(activation))
+                elif mutation in ("contradictory-pending", "pending-drops-seal"):
+                    pending = json.loads(checkpoint.read_text())
+                    if mutation == "contradictory-pending":
+                        pending["generatedStateOutputs"][1]["sha256"] = "f" * 64
+                    else:
+                        pending["generatedStateOutputs"] = []
+                        pending["failureType"] = "backup-complete"
+                    (changed / f"{txid}.pending.json").write_text(json.dumps(
+                        bind(pending, "receiptFingerprintSha256")))
+                if mutation != "unbound-seal":
+                    altered = bind(altered, "receiptFingerprintSha256")
+                checkpoint.write_text(json.dumps(altered))
+                changed_before = tree_snapshot(changed)
+                refused = self.run_harness("verify-sealed-stage", target, changed, txid)
+                self.assertNotEqual(0, refused.returncode, mutation)
+                self.assertIn("linked or non-regular release entry" if mutation == "database-link"
+                              else "CODE=", refused.stderr)
+                self.assertEqual(changed_before, tree_snapshot(changed))
+                self.assertEqual(before_target, tree_snapshot(target))
+
+        # A crash while publishing the first sealed phase receipt may leave the
+        # backup receipt authoritative and the complete new receipt temporary.
+        interrupted = self.case_root / "first-sealed-receipt-interrupted"
+        shutil.copytree(workspace, interrupted)
+        backup_receipt = dict(receipt, generatedStateOutputs=[], failureType="backup-complete")
+        (interrupted / f"{txid}.checkpoint.json").write_text(json.dumps(
+            bind(backup_receipt, "receiptFingerprintSha256")))
+        (interrupted / f"{txid}.pending.json").write_text(json.dumps(receipt))
+        interrupted_before = tree_snapshot(interrupted)
+        result = self.run_harness("verify-sealed-stage", target, interrupted, txid)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(interrupted_before, tree_snapshot(interrupted))
+        self.assertEqual(before_target, tree_snapshot(target))
 
     def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
         fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
