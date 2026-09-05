@@ -33,10 +33,44 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 	private final FileChannel channel;
 	private final FileLock lock;
 	private final List<ServerSocket> sockets;
+	private final WorldBuilderCurrentRuntimeInstanceLease instance;
 
 	private WorldBuilderCurrentRuntimeOfflineLease(FileChannel channel, FileLock lock,
 		List<ServerSocket> sockets) {
 		this.channel = channel; this.lock = lock; this.sockets = sockets;
+		this.instance = null;
+	}
+
+	private WorldBuilderCurrentRuntimeOfflineLease(WorldBuilderCurrentRuntimeInstanceLease instance,
+		List<ServerSocket> sockets) {
+		this.channel = null; this.lock = null; this.sockets = sockets; this.instance = instance;
+	}
+
+	/** Installed generations use persistent role locks, not replaceable activation files. */
+	static WorldBuilderCurrentRuntimeOfflineLease acquireInstalled(Path installation,
+		Map<String,Object> typed) throws IOException, WorldBuilderContractException {
+		WorldBuilderCurrentRuntimeInstanceLease instance =
+			WorldBuilderCurrentRuntimeInstanceLease.acquire(installation);
+		List<ServerSocket> sockets = new ArrayList<ServerSocket>();
+		try {
+			long game = integer(typed, "gamePort"), websocket = integer(typed, "websocketPort");
+			if (game < 1 || game > 65535 || websocket < 1 || websocket > 65535 || game == websocket)
+				throw refusal("Installed game and websocket ports must be distinct valid ports.");
+			sockets.add(bind((int)game, "game"));
+			sockets.add(bind((int)websocket, "websocket"));
+			instance.verifyHeld();
+			return new WorldBuilderCurrentRuntimeOfflineLease(instance, sockets);
+		} catch (IOException | WorldBuilderContractException | RuntimeException failure) {
+			for (ServerSocket socket : sockets) try { socket.close(); }
+			catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+			try { instance.close(); } catch (IOException cleanup) { failure.addSuppressed(cleanup); }
+			throw failure;
+		}
+	}
+
+	void verifyInstalledHeld() throws IOException, WorldBuilderContractException {
+		if (instance == null) throw refusal("This is not a persistent installed-instance lease.");
+		instance.verifyHeld();
 	}
 
 	static void inspect(Path target, Map<String,Object> typed,
@@ -204,8 +238,9 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		IOException failure = null;
 		for (ServerSocket socket : sockets) try { socket.close(); }
 		catch (IOException item) { if (failure == null) failure = item; }
-		try { lock.release(); } catch (IOException item) { if (failure == null) failure = item; }
-		try { channel.close(); } catch (IOException item) { if (failure == null) failure = item; }
+		try { if (lock != null) lock.release(); } catch (IOException item) { if (failure == null) failure = item; }
+		try { if (channel != null) channel.close(); } catch (IOException item) { if (failure == null) failure = item; }
+		try { if (instance != null) instance.close(); } catch (IOException item) { if (failure == null) failure = item; }
 		if (failure != null) throw failure;
 	}
 }

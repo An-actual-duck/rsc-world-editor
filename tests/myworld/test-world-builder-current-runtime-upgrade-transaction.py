@@ -1518,12 +1518,12 @@ public final class RuntimeConfigHarness {
         for line in ("server_name: Public É World", "server_name_welcome: Public É World",
                      "server_bind_address: 0.0.0.0", "server_port: 44594",
                      "ws_server_port: 44494", "combat_exp_rate: 3", "skilling_exp_rate: 2",
-                     "db_name: current_base", "want_myworld: false", "want_custom_ui: false"):
+                     "db_name: current_base", "db_type: sqlite", "want_myworld: false", "want_custom_ui: false"):
             self.assertIn(line, rendered)
         expected = {"server_name": "Public É World", "server_name_welcome": "Public É World",
                     "server_bind_address": "0.0.0.0", "server_port": "44594",
                     "ws_server_port": "44494", "combat_exp_rate": "3", "skilling_exp_rate": "2",
-                    "db_name": "current_base", "want_myworld": "false", "want_custom_ui": "false"}
+                    "db_name": "current_base", "db_type": "sqlite", "want_myworld": "false", "want_custom_ui": "false"}
         parsed = subprocess.run([
             "java", "-cp", self.parser_classpath, "com.openrsc.worldbuilder.RuntimeConfigHarness",
             str(launch / "current-base.conf"), *expected,
@@ -1617,11 +1617,23 @@ public final class RuntimeConfigHarness {
                 self.assertEqual(before, tree_snapshot(target))
                 self.assertEqual({}, tree_snapshot(workspace))
         for altered in (defaults + "server_port: 44595\n",
+                        defaults + "db_type: mysql\ndb_type: sqlite\n",
                         defaults.replace("server_port: 43594", "unreviewed_port: 43594")):
             (target / "typed.json").write_text(json.dumps(typed))
             (target / "defaults.conf").write_text(altered)
             refused = self.run_harness("render-launch-config", target, workspace, "bad-defaults")
             self.assertNotEqual(0, refused.returncode)
+            self.assertEqual({}, tree_snapshot(workspace))
+
+        for supplied in (defaults, defaults + "db_type: mysql\n"):
+            (target / "typed.json").write_text(json.dumps(typed))
+            (target / "defaults.conf").write_text(supplied)
+            before = tree_snapshot(target)
+            rendered = self.run_harness("render-launch-config", target, workspace, "engine")
+            self.assertEqual(0, rendered.returncode, rendered.stderr)
+            self.assertEqual(["db_type: sqlite"], [line for line in rendered.stdout.splitlines()
+                             if line.startswith("db_type:")])
+            self.assertEqual(before, tree_snapshot(target))
             self.assertEqual({}, tree_snapshot(workspace))
 
     def test_generated_state_seal_survives_reload_and_rejects_drift_without_writes(self) -> None:

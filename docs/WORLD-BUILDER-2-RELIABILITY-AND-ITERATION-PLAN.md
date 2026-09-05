@@ -458,6 +458,19 @@ without imposing its gameplay or content on Base users.
   reverse-parity evidence retain their original identities. Verifier diagnostics
   are retained only in an owner-readable, 64 KiB-bounded attempt log, not copied
   into general errors or receipts.
+  Installed-instance offline leasing now has an Editor-side primitive which
+  holds the persistent server and client locks in a fixed order, then reserves
+  both ports. It never creates or replaces locks, checks private canonical
+  singly-linked identities, and releases partial acquisitions on refusal.
+  Cross-process tests also prove that refusing a same-JVM overlap does not
+  accidentally release the original POSIX locks. This is a transaction seam,
+  not enabled managed-target activation. Rendered complete configuration now
+  explicitly selects SQLite without relying on historical `connections.conf`.
+  Remaining cutover work must preserve the installation UUID across upgrades,
+  separate mutable live state from sealed migration evidence, bind real launch
+  verification into receipts, and journal the active launch selection with the
+  ledger while holding both role leases. Retired descriptors must be refused
+  by the actual JVM after it acquires its role lease, not only by a wrapper.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
