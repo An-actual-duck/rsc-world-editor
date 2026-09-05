@@ -250,7 +250,10 @@ public final class CurrentUpgradeHarness {
             Map<String,Object> migration;
             if ("launch-inputs-stage".equals(operation)) {
                 WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(catalog, identity);
-                migration = transaction.inspectReviewedPreservationMigration(target, composition, packedSource, packedReport);
+                Map<String,Object> fixtureClassification = new LinkedHashMap<String,Object>();
+                fixtureClassification.put("evidence", new ArrayList<Object>());
+                migration = WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture()
+                    .migrationPlan(target, fixtureClassification, composition, packedSource, packedReport);
                 Files.createDirectory(stage);
                 for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
                     Path destination = stage.resolve(artifact.bundlePath);
@@ -305,7 +308,7 @@ public final class CurrentUpgradeHarness {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
             System.out.print(WorldBuilderJsonDocuments.pretty(
-                WorldBuilderCurrentRuntimeExecutionProfile.preservation()
+                WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture()
                     .migrationPlan(target, classification, composition, null, null)));
         } else if ("profile-migration-stage".equals(operation)
             || "profile-migration-stage-tamper".equals(operation)
@@ -313,7 +316,7 @@ public final class CurrentUpgradeHarness {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
             WorldBuilderCurrentRuntimeExecutionProfile profile =
-                WorldBuilderCurrentRuntimeExecutionProfile.preservation();
+                WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture();
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
             Map<String,Object> migration = profile.migrationPlan(
@@ -419,8 +422,10 @@ public final class CurrentUpgradeHarness {
             || "map-boundary-source-drift".equals(operation)) {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
-            Map<String,Object> migration = transaction.inspectReviewedPreservationMigration(
-                target, composition, packedSource, packedReport);
+            Map<String,Object> fixtureClassification = new LinkedHashMap<String,Object>();
+            fixtureClassification.put("evidence", new ArrayList<Object>());
+            Map<String,Object> migration = WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture()
+                .migrationPlan(target, fixtureClassification, composition, packedSource, packedReport);
             Map<String,Object> map = (Map<String,Object>)migration.get("mapMigration");
             Path stage = transactions.resolve(transactionId);
             Files.createDirectory(stage);
@@ -472,7 +477,7 @@ public final class CurrentUpgradeHarness {
             || "stage-production-packed-source-drift".equals(operation)
             || "apply-production".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
-                transaction.previewPreservation(target, transactions, catalog,
+                transaction.previewPreservationFixture(target, transactions, catalog,
                     identity, project, transactionId, packedSource, packedReport);
             if ("preview-production".equals(operation)
                 || "preview-production-packed".equals(operation)) {
@@ -542,6 +547,7 @@ public final class CurrentUpgradeHarness {
         if harness_build.returncode:
             raise AssertionError(harness_build.stdout + harness_build.stderr)
 
+        shutil.copytree(ROOT / "tools/world-builder/resources", cls.classes, dirs_exist_ok=True)
         # Exercise the actual pinned runtime parser, without building or launching a server.
         parser = cls.shared_root / "RuntimeConfigHarness.java"
         parser.write_text('''package com.openrsc.worldbuilder;
@@ -947,8 +953,8 @@ public final class RuntimeConfigHarness {
         self.assert_plan_schema(plan)
         self.assertEqual("NOT_INSTALLABLE", plan["classificationStatus"])
         self.assertFalse(plan["activationAuthorized"])
-        self.assertEqual("production-reviewed", plan["inputAdapter"]["evidenceAuthority"])
-        self.assertEqual("preservation-family-upgrade-v1",
+        self.assertEqual("synthetic-fixture", plan["inputAdapter"]["evidenceAuthority"])
+        self.assertEqual("preservation-staging-fixture-v1",
                          plan["executionProfile"]["profileId"])
         self.assertFalse(plan["executionProfile"]["executionReady"])
         self.assertEqual("migration-and-verification-not-implemented",
@@ -1040,9 +1046,9 @@ public final class RuntimeConfigHarness {
              "--adapter", "preservation-family-v1"],
             cwd=ROOT, text=True, capture_output=True, check=False,
         )
-        self.assertEqual(0, previewed.returncode, previewed.stderr)
-        plan = json.loads(previewed.stdout)
-        self.assertFalse(plan["activationAuthorized"])
+        # The public production adapter must no longer recognize this invented topology.
+        self.assertEqual(3, previewed.returncode, previewed.stderr)
+        self.assertIn("CONVERSION_BLOCKED", previewed.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
@@ -1076,11 +1082,11 @@ public final class RuntimeConfigHarness {
              "com.openrsc.worldbuilder.WorldBuilderCli",
              "apply-current-runtime-upgrade", *common,
              "--adapter", "preservation-family-v1",
-             "--confirmation-identity", plan["confirmationIdentity"]],
+             "--confirmation-identity", "not-production-authority"],
             cwd=ROOT, text=True, capture_output=True, check=False,
         )
         self.assertEqual(3, applied.returncode)
-        self.assertIn("RUNTIME_UPGRADE_REQUIRED", applied.stderr)
+        self.assertIn("CONVERSION_BLOCKED", applied.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 

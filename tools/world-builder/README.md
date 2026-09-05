@@ -193,7 +193,8 @@ ports, mixed ledgers, unsafe paths, and unrecognized bytes fail before mutation.
 The adapter ID must be explicitly admitted by the selected variant's
 `inputAdapterRecommendations`; a recommended variant alone is insufficient.
 The repository now includes a narrow reviewed built-in `preservation-family-v1`
-adapter/migrator profile. It recognizes only compiled exact evidence rules;
+source-layout adapter/migrator profile. It recognizes sealed historical source,
+map and definition inputs plus reviewed effective configuration semantics;
 unknown layouts and executable customization remain zero-write blockers. A
 target file cannot supply an adapter, migrator, build identity, migration ID,
 or executable code.
@@ -203,9 +204,22 @@ build records and 22 vendor-dependency records to Preservation commit
 `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`. It contains paths, modes, sizes, and
 hashes only: historical game source, dependency payloads, and user data are not
 copied into the Editor. Its packaged loader rejects missing or altered records.
-This is an intake foundation, not a completed production adapter: configuration,
-content/state recognition, and routing through the classifier still need to be
-connected and tested. Arbitrary old binaries are not trusted or installed.
+The production classifier now requires its 1,246 source/build/resource records
+and a separately sealed 16-file public configuration, active/fallback-map, definition
+and launcher input set. The 22 known vendor dependencies may be absent; if
+present they must match exact historical metadata and are never installed as
+current dependencies. Changed source requires a reviewed current port; unknown
+game binaries refuse. Compiled per-key hashes distinguish 291 unchanged nonempty
+historical configuration defaults from supported public overrides and unported
+behavior changes. No secret values or historical runtime payloads are packaged.
+
+This remains a bounded intake foundation: the complete historical checkout's
+remaining inactive content, player-state recognition, descriptor-free historical
+map conversion and desktop routing are not yet connected. A successful source
+classification does not prove a complete production upgrade. Invented staging
+topology is now selected only by a package-private activation-disabled fixture
+profile, not the public CLI. See [historical source intake](../../docs/PRESERVATION-SOURCE-INTAKE.md)
+for exact positive evidence and the explicit external fixture prerequisite.
 
 The supported `preview-current-runtime-upgrade`,
 `apply-current-runtime-upgrade`, and `recover-current-runtime-upgrade` CLI
