@@ -633,20 +633,38 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		String artifactPlanHash, String activationPlanBindingHash,
 		String transactionId, String releaseRelative,
 		WorldBuilderCurrentRuntimeExecutionProfile profile)
-		throws WorldBuilderContractException {
+		throws IOException, WorldBuilderContractException {
 		Map<String,Object> ledger = new LinkedHashMap<String,Object>();
 		ledger.put("schemaVersion", Long.valueOf(1));
 		ledger.put("manifestType", "world-builder-current-target-runtime-ledger");
-		String seed = string(project.root, "projectId") + ":" + canonicalHash(preimage);
-		ledger.put("targetInstallationId", UUID.nameUUIDFromBytes(
-			seed.getBytes(StandardCharsets.UTF_8)).toString());
+		Map<String,Object> installed = object(classification.get("installedLedger"));
+		String predecessor = string(installed, "ledgerFingerprintSha256");
+		if (bool(installed, "present")) {
+			String relative = string(adapter.root, "targetLedgerRelativePath");
+			Path priorPath = WorldBuilderReadOnlyTarget.open(target).requiredFile(relative);
+			Map<String,Object> prior = WorldBuilderCurrentRuntimeContracts.read(
+				WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER, priorPath).root;
+			boolean exactPreimage = false;
+			for (Object raw : preimage) {
+				Map<String,Object> row = object(raw);
+				if (relative.equals(string(row, "relativePath")) && bool(row, "present"))
+					exactPreimage = string(row, "sha256").equals(WorldBuilderHashes.sha256(priorPath));
+			}
+			if (!predecessor.equals(string(prior, "ledgerFingerprintSha256")) || !exactPreimage)
+				throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, relative, false,
+					"The installation identity differs from the classified ledger preimage.",
+					"Keep the target offline and obtain a fresh upgrade preview.");
+			ledger.put("targetInstallationId", string(prior, "targetInstallationId"));
+		} else {
+			String seed = string(project.root, "projectId") + ":" + canonicalHash(preimage);
+			ledger.put("targetInstallationId", UUID.nameUUIDFromBytes(
+				seed.getBytes(StandardCharsets.UTF_8)).toString());
+		}
 		for (String key : Arrays.asList("platformReleaseId", "platformManifestHash",
 			"schemaSetHash", "variantId", "variantManifestHash", "moduleSetHash",
 			"bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
 			"inputAdapterContractId")) ledger.put(key, composition.string(key));
 		ledger.put("inputAdapterId", string(adapter.root, "adapterId"));
-		Map<String,Object> installed = object(classification.get("installedLedger"));
-		String predecessor = string(installed, "ledgerFingerprintSha256");
 		ledger.put("predecessorIdentityHash", predecessor.isEmpty()
 			? canonicalHash(preimage) : predecessor);
 		Set<String> configurations = new HashSet<String>();

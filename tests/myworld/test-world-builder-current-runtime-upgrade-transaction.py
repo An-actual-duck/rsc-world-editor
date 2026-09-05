@@ -839,6 +839,10 @@ public final class RuntimeConfigHarness {
                                  plan["projectCapability"]["capabilityFingerprintSha256"])
                 self.assertFalse(plan["mapImportAvailableBeforeApply"])
                 self.assertFalse(plan["mutationOccurred"])
+                if fixture == "managed-n":
+                    prior = json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())
+                    self.assertEqual(prior["targetInstallationId"],
+                                     plan["activationLedger"]["targetInstallationId"])
                 self.case.cleanup()
                 self.setUp()
 
@@ -851,6 +855,8 @@ public final class RuntimeConfigHarness {
                 target = self.target(fixture)
                 workspace = self.workspace()
                 before = tree_snapshot(target)
+                prior_id = (json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())
+                            ["targetInstallationId"] if fixture == "managed-n" else None)
                 txid = f"apply-{index}"
                 gated = self.run_harness("map-gate", target, workspace, txid)
                 self.assertEqual("false", gated.stdout)
@@ -869,6 +875,9 @@ public final class RuntimeConfigHarness {
                 self.assertEqual("external-same-filesystem-outside-active-target", plan["stagingPolicy"])
                 self.assertFalse((workspace / txid / "staging").exists())
                 self.assertTrue((target / plan["releaseRelativePath"]).is_dir())
+                if prior_id is not None:
+                    self.assertEqual(prior_id, json.loads(
+                        (target / ".world-builder/runtime-ledger-v1.json").read_text())["targetInstallationId"])
                 gated = self.run_harness("map-gate", target, workspace, txid)
                 self.assertEqual(0, gated.returncode, gated.stderr)
                 self.assertEqual("true", gated.stdout)
