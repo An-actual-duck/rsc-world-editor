@@ -411,6 +411,14 @@ without imposing its gameplay or content on Base users.
   target-scoped configuration/ledger lock. Provider-style colon configuration,
   explicit SQLite selection, and bounded public bind addresses are translated;
   disposable verification alone may force loopback.
+  The runtime now requires Current Base SQLite in a private, canonical external
+  state directory via `openrsc.currentBaseStateRoot`, outside both its working
+  directory and code artifacts; missing/aliased/in-code databases do not fall
+  back or get created. The installed verifier proves two launch cycles against
+  external state and records that boundary in its closed evidence. Editor
+  layout planning binds the exact provider state policy and rejects altered
+  destinations. Live-instance creation/activation, remaining writable paths,
+  generated-state recovery binding and Editor verifier invocation remain open.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

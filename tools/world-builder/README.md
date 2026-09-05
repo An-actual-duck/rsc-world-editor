@@ -274,6 +274,19 @@ states while retaining the offline lease. Writable live state/configuration and
 launch wiring remain separate unfinished integration work; extracting the runtime
 alone is not evidence that a target is playable.
 
+The runnable-layout plan also binds the provider's exact external SQLite state
+policy. Current Base requires the server JVM property
+`openrsc.currentBaseStateRoot`, an existing private canonical directory outside
+both the runtime artifact directory and server working directory, containing
+the migrated `current_base.db`. Missing files, unsafe aliases and in-code state
+locations are refused; there is no automatic empty-database creation or legacy
+location fallback. The provider's real two-launch verifier now exercises this
+external state and reports `stateOutsideRuntimeRoots:true`. The Editor rejects
+unreviewed provider state policies and plan changes to that binding. This is
+not yet an implemented instance installer: creation/activation of live state,
+configuration, logs, caches and map pointers, durable generated-output evidence,
+and invocation of the verifier from the Editor transaction remain open.
+
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract with three exact SQLite source rows (retro, core, and initialized
 Preservation) and a separate retro MariaDB row through the closed

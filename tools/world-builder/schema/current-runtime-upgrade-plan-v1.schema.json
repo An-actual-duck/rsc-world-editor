@@ -207,6 +207,19 @@
         "layoutId": {"const": "current-base-runnable-layout-v1"},
         "serverRootRelativePath": {"const": "installed/server"},
         "clientRootRelativePath": {"const": "installed/client"},
+        "statePolicy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["contractId", "durableLocation", "migration", "rollback", "sqliteRootProperty", "sqliteFile", "sqliteRootPolicy", "sqliteOpenPolicy"],
+          "properties": {
+            "contractId": {"const": "canonical-public-state-v1"},
+            "durableLocation": {"const": "outside-code-runtime"},
+            "migration": {"const": "transactional"}, "rollback": {"const": "exact-predecessor"},
+            "sqliteRootProperty": {"const": "openrsc.currentBaseStateRoot"},
+            "sqliteFile": {"const": "current_base.db"},
+            "sqliteRootPolicy": {"const": "required-canonical-private-directory-disjoint-from-runtime"},
+            "sqliteOpenPolicy": {"const": "existing-private-file-read-write-no-create"}
+          }
+        },
         "outputs": {"type": "array", "maxItems": 8192, "uniqueItems": true,
           "items": {"$ref": "#/$defs/runtimeLayoutOutput"}},
         "outputInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
@@ -215,9 +228,9 @@
       },
       "allOf": [
         {"if": {"properties": {"ready": {"const": true}}},
-          "then": {"not": {"required": ["reason"]}}},
+          "then": {"required": ["statePolicy"], "not": {"required": ["reason"]}}},
         {"if": {"properties": {"ready": {"const": false}}},
-          "then": {"required": ["reason"]}}
+          "then": {"required": ["reason"], "not": {"required": ["statePolicy"]}}}
       ]
     },
     "runtimeLayoutOutput": {

@@ -31,6 +31,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 	static Map<String,Object> inspect(WorldBuilderProviderCatalog.Composition composition)
 		throws IOException, WorldBuilderContractException {
 		Map<String,WorldBuilderProviderCatalog.Artifact> roles = requiredRoles(composition);
+		Map<String,Object> statePolicy = inspectStatePolicy(roles.get("runtime-profile"));
 		for (WorldBuilderProviderCatalog.Artifact artifact : roles.values())
 			if (!Files.getFileStore(artifact.source).supportsFileAttributeView("posix"))
 				throw failure(artifact.sourcePath,
@@ -55,6 +56,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 		result.put("outputInventoryHash", WorldBuilderHashes.sha256(
 			WorldBuilderJsonDocuments.canonical(outputs).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 		result.put("ready", Boolean.TRUE);
+		result.put("statePolicy", statePolicy);
 		return result;
 	}
 
@@ -144,7 +146,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 			new LinkedHashMap<String,WorldBuilderProviderCatalog.Artifact>();
 		Set<String> wanted = new HashSet<String>(java.util.Arrays.asList(
 			"server-runtime", "server-plugins", "server-content",
-			"client-runtime", "client-content"));
+			"client-runtime", "client-content", "runtime-profile"));
 		for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
 			String role = string(artifact.inventory, "role");
 			if (!wanted.contains(role)) continue;
@@ -154,6 +156,39 @@ final class WorldBuilderCurrentRuntimeLayout {
 		if (!result.keySet().equals(wanted)) throw failure("provider-artifacts",
 			"Provider composition omits a compiled runnable-layout role.");
 		return result;
+	}
+
+	private static Map<String,Object> inspectStatePolicy(WorldBuilderProviderCatalog.Artifact artifact)
+		throws IOException, WorldBuilderContractException {
+		if (!"runtime/profile.json".equals(artifact.bundlePath)
+			|| !WorldBuilderHashes.sha256(artifact.source).equals(string(artifact.inventory, "sha256")))
+			throw failure("runtime-profile", "Provider runtime profile differs from its bound inventory.");
+		Map<String,Object> profile;
+		try { profile = WorldBuilderJsonDocuments.readObject(artifact.source); }
+		catch (WorldBuilderDiscoveryException malformed) {
+			throw failure("runtime-profile", "Provider runtime profile is malformed.");
+		}
+		if (!"current-base-runtime-profile-v1".equals(string(profile, "schemaId"))
+			|| !"current-base-v1".equals(string(profile, "variantId")))
+			throw failure("runtime-profile", "Provider state layout is not reviewed Current Base.");
+		Map<String,Object> policy = object(profile.get("statePolicy"));
+		requireStatePolicy(policy);
+		return new LinkedHashMap<String,Object>(policy);
+	}
+
+	private static void requireStatePolicy(Map<String,Object> policy)
+		throws WorldBuilderContractException {
+		Map<String,Object> expected = new LinkedHashMap<String,Object>();
+		expected.put("contractId", "canonical-public-state-v1");
+		expected.put("durableLocation", "outside-code-runtime");
+		expected.put("migration", "transactional");
+		expected.put("rollback", "exact-predecessor");
+		expected.put("sqliteRootProperty", "openrsc.currentBaseStateRoot");
+		expected.put("sqliteFile", "current_base.db");
+		expected.put("sqliteRootPolicy", "required-canonical-private-directory-disjoint-from-runtime");
+		expected.put("sqliteOpenPolicy", "existing-private-file-read-write-no-create");
+		if (!expected.equals(policy)) throw failure("statePolicy",
+			"Runtime state location differs from the reviewed external-state contract.");
 	}
 
 	private static void addFile(List<Object> outputs,
@@ -268,7 +303,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 		boolean ready = bool(plan, "ready");
 		if (ready) WorldBuilderBoundedInventory.exactKeys(plan, OPERATION, "layoutId",
 			"serverRootRelativePath", "clientRootRelativePath", "outputs",
-			"outputInventoryHash", "ready");
+			"outputInventoryHash", "ready", "statePolicy");
 		else WorldBuilderBoundedInventory.exactKeys(plan, OPERATION, "layoutId",
 			"serverRootRelativePath", "clientRootRelativePath", "outputs",
 			"outputInventoryHash", "ready", "reason");
@@ -282,6 +317,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 		if (ready && outputs.isEmpty() || outputs.size() > MAX_ARCHIVE_ENTRIES)
 			throw failure("layout-plan", "Runnable layout inventory is unbounded.");
 		if (!ready) return;
+		requireStatePolicy(object(plan.get("statePolicy")));
 		String prior = "";
 		for (Object raw : outputs) {
 			Map<String,Object> record = object(raw);

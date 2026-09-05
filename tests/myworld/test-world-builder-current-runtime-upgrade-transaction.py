@@ -320,6 +320,7 @@ public final class CurrentUpgradeHarness {
             || "runtime-layout-tamper".equals(operation)
             || "runtime-layout-extra".equals(operation)
             || "runtime-layout-empty-directory".equals(operation)
+            || "runtime-layout-state-policy".equals(operation)
             || "runtime-layout-mode".equals(operation)) {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
@@ -349,6 +350,8 @@ public final class CurrentUpgradeHarness {
                     release.resolve("installed/server/conf/server/settings.txt"),
                     EnumSet.of(PosixFilePermission.OWNER_READ,
                         PosixFilePermission.GROUP_READ));
+            } else if ("runtime-layout-state-policy".equals(operation)) {
+                ((Map<String,Object>)layout.get("statePolicy")).put("sqliteFile", "replacement.db");
             }
             WorldBuilderCurrentRuntimeLayout.verify(release, layout);
             System.out.print(WorldBuilderJsonDocuments.pretty(layout));
@@ -531,6 +534,18 @@ public final class CurrentUpgradeHarness {
             cls.shared_root / "provider-layout.json",
         )
         cls.layout_collision_contracts = []
+        cls.layout_policy_root = cls.shared_root / "provider-layout-unreviewed-state"
+        shutil.copytree(cls.layout_root, cls.layout_policy_root)
+        profile_path = cls.layout_policy_root / "current-platform/runtime/current-base-v1/profile.json"
+        profile = json.loads(profile_path.read_text())
+        profile["statePolicy"]["sqliteRootPolicy"] = "allow-state-inside-code"
+        profile_path.write_text(json.dumps(profile, indent=2) + "\n")
+        cls.layout_policy_catalog = cls.layout_policy_root / "current-platform"
+        cls.layout_policy_identity = cls._resolve(
+            cls.layout_policy_root / "scripts/current-platform-composition.py",
+            cls.layout_policy_catalog, cls.layout_policy_root,
+            cls.shared_root / "provider-layout-unreviewed-state.json",
+        )
         for collision_name, entries in (
             ("parent-case", {"Dir/a.txt": b"a", "dir/b.txt": b"b"}),
             ("file-prefix", {"node": b"file", "node/child.txt": b"child"}),
@@ -1070,7 +1085,7 @@ public final class CurrentUpgradeHarness {
         target = self.target("preservation-t0")
         for operation in (
             "runtime-layout", "runtime-layout-tamper", "runtime-layout-extra",
-            "runtime-layout-empty-directory", "runtime-layout-mode",
+            "runtime-layout-empty-directory", "runtime-layout-mode", "runtime-layout-state-policy",
         ):
             with self.subTest(operation=operation):
                 workspace = self.case_root / (operation + "-transactions")
@@ -1083,6 +1098,9 @@ public final class CurrentUpgradeHarness {
                     self.assertEqual(0, result.returncode, result.stderr)
                     layout = json.loads(result.stdout)
                     self.assertTrue(layout["ready"])
+                    self.assertEqual("openrsc.currentBaseStateRoot", layout["statePolicy"]["sqliteRootProperty"])
+                    self.assertEqual("current_base.db", layout["statePolicy"]["sqliteFile"])
+                    self.assertEqual("outside-code-runtime", layout["statePolicy"]["durableLocation"])
                     self.assertGreater(len(layout["outputs"]), 5)
                     paths = {item["relativePath"] for item in layout["outputs"]}
                     self.assertIn("installed/server/core.jar", paths)
@@ -1091,6 +1109,15 @@ public final class CurrentUpgradeHarness {
                 else:
                     self.assertNotEqual(0, result.returncode)
                     self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+        policy_workspace = self.case_root / "unreviewed-state-transactions"
+        policy_workspace.mkdir()
+        refused_policy = self.run_harness(
+            "runtime-layout", target, policy_workspace, "unreviewed-state",
+            identity=self.layout_policy_identity, catalog=self.layout_policy_catalog,
+        )
+        self.assertNotEqual(0, refused_policy.returncode)
+        self.assertIn("reviewed external-state contract", refused_policy.stderr)
+        self.assertEqual({}, tree_snapshot(policy_workspace))
         for index, (catalog, identity) in enumerate(self.layout_collision_contracts):
             workspace = self.case_root / f"runtime-layout-collision-{index}"
             workspace.mkdir()
