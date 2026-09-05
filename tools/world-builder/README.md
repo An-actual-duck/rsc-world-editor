@@ -198,9 +198,18 @@ unknown layouts and executable customization remain zero-write blockers. A
 target file cannot supply an adapter, migrator, build identity, migration ID,
 or executable code.
 
+The packaged historical source-closure resource now binds 1,246 source/resource/
+build records and 22 vendor-dependency records to Preservation commit
+`c0102e60774ab9c9076aabae49f6f97fb6fc4b00`. It contains paths, modes, sizes, and
+hashes only: historical game source, dependency payloads, and user data are not
+copied into the Editor. Its packaged loader rejects missing or altered records.
+This is an intake foundation, not a completed production adapter: configuration,
+content/state recognition, and routing through the classifier still need to be
+connected and tested. Arbitrary old binaries are not trusted or installed.
+
 The supported `preview-current-runtime-upgrade`,
 `apply-current-runtime-upgrade`, and `recover-current-runtime-upgrade` CLI
-commands share that closed profile and transaction engine. Preview is
+commands share that closed profile and transaction engine. Preview
 does not write the target and emits typed legacy configuration, explicit precedence/alias
 translations, durable-state boundaries, canonical-map conversion identity,
 exact preimage inventory, content-addressed external staging, and an exact
@@ -253,6 +262,17 @@ the immutable evidence, revalidates every semantic identity, requires the exact
 inventory with no extra files/directories/symlinks, and keeps private files at
 `0600`. Preview never writes the target or transaction workspace. A changed
 source/report or coherent-looking package tamper is a pre-publication refusal.
+Prepared evidence must originate from the exact selected target and still match
+its copied input inventory. An unrelated map is not an initial-upgrade source;
+authored map changes belong to the separate map-import transaction.
+
+Provider content archives now have a bounded, role-derived extraction plan.
+Duplicate paths, case-colliding parent directories, file/directory conflicts,
+oversized entries, and output byte/mode/directory drift are refused. Recovery
+also handles post-rename durability failures and exact interrupted final-receipt
+states while retaining the offline lease. Writable live state/configuration and
+launch wiring remain separate unfinished integration work; extracting the runtime
+alone is not evidence that a target is playable.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract and `preservation-retro-to-current-base-v1` row through the closed
