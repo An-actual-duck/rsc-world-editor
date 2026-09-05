@@ -117,6 +117,7 @@ add_group() {
 				test-world-builder-current-runtime-foundation.py
 				test-world-builder-preservation-source-closure.py
 				test-world-builder-preservation-source-intake.py
+				test-world-builder-preservation-map-reconciliation.py
 				test-world-builder-discovery.py
 				test-world-builder-map-migration-choice.py
 				test-world-builder-packed-conversion.py

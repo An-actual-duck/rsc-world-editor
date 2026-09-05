@@ -9,7 +9,7 @@ Production activation remains disabled. This is not candidate acceptance.
 The historical identity is commit `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree
 `6db5536d795abf34f303bb03b20c43b8cfb9e3fe`. The packaged source closure binds
 1,246 source/build/resource records and 22 historical vendor dependencies. The
-new `preservation-c0102e-source-intake.json` resource additionally seals 16 public
+new `preservation-c0102e-source-intake.json` resource additionally seals 23 public
 configuration, map, definition and launcher paths. It contains metadata only.
 
 The source files are required. Vendor dependencies may be absent because the
@@ -39,6 +39,44 @@ historical JAG/MEM decoding and selected-world comparison are still required.
 Production preview identifies `historical-jag-conversion-pending` and its explicit
 readiness blocker. Descriptor-backed ZIP evidence cannot substitute for this
 unfinished migration path.
+
+## Field-wise map reconciliation (data proof, not activation)
+
+The compiled reconciliation component verifies the reviewed provider decoder's
+complete 1,680-outcome inventory, its 352 raw sectors and all 1,764 client ZIP
+entries. It never modifies either input. Separate reverse proofs retain the
+historical server bytes and the derived presentation bytes; the two are not
+misrepresented as byte-identical source maps.
+
+Elevation, ground texture and roof values come from the historical client because
+the reviewed server does not consume them for gameplay. Overlay, walls, diagonal
+values and effective placements retain server authority. The 291 client scenery
+markers in two Lumbridge sectors serve the historical login background only;
+they are retained in source provenance, not added to the live world.
+
+One reviewed discrepancy at `(312,516,level -1)` retains server overlay `0` instead
+of client overlay `8`. The latter independently blocks terrain. Ladder 199 at the
+same tile blocks while present, but that does not prove equivalent behavior after
+its removal. The report displays the correction and keeps interaction/removal
+verification explicitly pending. Pixel-identical client preservation is not
+claimed. Any unfamiliar discrepancy remains a pre-conversion blocker.
+
+The 1,412 client-only sectors comprise 1,328 server-probed absences and 84 sectors
+outside the server probe domain. Their exact bytes remain source provenance;
+they are not promoted into playable terrain. Adjacent background rendering may
+differ and is explicitly reported, not silently described as visual parity.
+
+Effective stock content includes seven definition files (base and Custom item/NPC
+registries plus tile, door and scenery XML), all four base placement families and
+the active discontinued scenery/NPC files. Historical settings select these last
+two files even on stock Preservation. NPC multiplicity must survive composition.
+
+The pure reconciliation tests currently accept an explicit separately verified
+decoder fixture through `WORLD_BUILDER_PRESERVATION_DECODED_MAP`, containing
+`sectors/` and `evidence.json`, in addition to the exact public Git source input.
+That fixture validates the data consumer only, not provider invocation authority.
+Production remains blocked until invocation is bound to the selected provider's
+contract/core inventory and the complete conversion/project output proof is wired.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify
