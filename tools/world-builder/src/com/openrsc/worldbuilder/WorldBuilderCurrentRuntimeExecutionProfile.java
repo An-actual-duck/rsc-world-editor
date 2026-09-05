@@ -77,7 +77,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
-			"Production activation remains disabled pending live-instance installation/recovery and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
+			(fixture ? "Isolated staging fixture; " : "Historical JAG map migration/parity is not implemented; ")
+			+ "production activation remains disabled pending live-instance installation/recovery and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -237,11 +238,17 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		}
 		result.put("durableState", durable);
 		Map<String,Object> map = new LinkedHashMap<String,Object>();
+		boolean sourceIntake = adapter != null && WorldBuilderPreservationSourceIntake.HISTORICAL_ID.equals(
+			adapter.root.get("historicalRuntimeId"));
 		map.put("migrationId", mapMigrationId);
-		map.put("sourceRelativePath", "client/cache/landscape.pack");
+		map.put("sourceRelativePath", sourceIntake
+			? "server/conf/server/data/maps/maps64.jag" : "client/cache/landscape.pack");
 		map.put("destinationRole", "canonical-signed-layered-map");
-		map.put("executionBoundary", syntheticOnly ? "synthetic-plan-only"
+		map.put("executionBoundary", sourceIntake ? "historical-jag-conversion-pending"
+			: syntheticOnly ? "synthetic-plan-only"
 			: "descriptor-backed-world-builder-packed-converter");
+		if (sourceIntake && (packedSourceRoot != null || packedDiscoveryReport != null))
+			throw refusal("Historical Preservation selects JAG/MEM server maps; descriptor-backed ZIP evidence cannot replace the pending reviewed JAG migration/parity path.");
 		String sourceFingerprint = "";
 		String reportHash = "";
 		String conversionPlanFingerprint = "";
@@ -311,6 +318,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			? syntheticStagedExecution()
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
 				composition, mapReady, mapInspection));
+		if (sourceIntake) array(object(result.get("stagedExecution")).get("readinessBlockers"))
+			.add("historical-jag-migration-and-parity-required");
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
 			"migrationPlanFingerprintSha256");
@@ -501,7 +510,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	Map<String,Object> typedConfiguration(Path target)
 		throws WorldBuilderContractException {
-		boolean reviewedSource = WorldBuilderPreservationSourceIntake.HISTORICAL_ID.equals(
+		boolean reviewedSource = adapter != null && WorldBuilderPreservationSourceIntake.HISTORICAL_ID.equals(
 			adapter.root.get("historicalRuntimeId"));
 		boolean productionLayout = Files.exists(target.resolve("server/preservation.conf"),
 			LinkOption.NOFOLLOW_LINKS)

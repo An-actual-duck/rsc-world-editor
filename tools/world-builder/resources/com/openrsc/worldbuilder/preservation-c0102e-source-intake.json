@@ -316,6 +316,34 @@
       "size": 945225
     },
     {
+      "kind": "map",
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land64.jag",
+      "sha256": "6f0720a29d40f5dfcd477049d014b41422742d2e3a9900144287f835cc99813b",
+      "size": 142219
+    },
+    {
+      "kind": "map",
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land64.mem",
+      "sha256": "c38cfcb1e8dddb17afd3ec9d0e8f0cdb076df2caf40a648bf6dd8ea400a55df0",
+      "size": 155110
+    },
+    {
+      "kind": "map",
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps64.jag",
+      "sha256": "7e85a47c95ba690187ad10d8218f9b4e327b54c27e6f3da18229b061de35a2d1",
+      "size": 37613
+    },
+    {
+      "kind": "map",
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps64.mem",
+      "sha256": "6a43ffc81a5d95fe392a27fed347eea1c27ac87d11c5670b9e3f0dfe4a8fc7f7",
+      "size": 60002
+    },
+    {
       "kind": "definition",
       "mode": "100644",
       "path": "server/conf/server/defs/ItemDefs.json",
@@ -380,7 +408,7 @@
     }
   ],
   "schemaVersion": 1,
-  "scope": "Bounded source-layout configuration, authentic map and definition inputs only; no binary, credential, database or complete content closure.",
+  "scope": "Bounded source-layout configuration, selected JAG server map, fallback ZIP/client map and definition inputs only; no binary, credential, database or complete content closure.",
   "sourceCommit": "c0102e60774ab9c9076aabae49f6f97fb6fc4b00",
   "sourceTree": "6db5536d795abf34f303bb03b20c43b8cfb9e3fe"
 }

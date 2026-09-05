@@ -162,7 +162,7 @@
         "migrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "sourceRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
         "destinationRole": {"const": "canonical-signed-layered-map"},
-        "executionBoundary": {"enum": ["synthetic-plan-only", "descriptor-backed-world-builder-packed-converter"]},
+        "executionBoundary": {"enum": ["synthetic-plan-only", "descriptor-backed-world-builder-packed-converter", "historical-jag-conversion-pending"]},
         "preparedSourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "discoveryReportSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "conversionPlanFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},

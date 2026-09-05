@@ -15,7 +15,7 @@ import java.util.Map;
 /** Compiled, metadata-only historical source-layout authority; never executes target code. */
 final class WorldBuilderPreservationSourceIntake {
 	private static final String RESOURCE = "/com/openrsc/worldbuilder/preservation-c0102e-source-intake.json";
-	private static final String RESOURCE_HASH = "6287d536d5a53490d5f2e068b6580e39329a40244694965457ccd0be4a4c788f";
+	private static final String RESOURCE_HASH = "635974a038dd20e9c54cac932ccf14400235db151e110d52a40be9562304cd24";
 	static final String HISTORICAL_ID = "preservation-c0102e-source-layout-v1";
 	private static volatile Map<String,Object> metadata;
 

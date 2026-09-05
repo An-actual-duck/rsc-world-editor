@@ -9,7 +9,7 @@ Production activation remains disabled. This is not candidate acceptance.
 The historical identity is commit `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree
 `6db5536d795abf34f303bb03b20c43b8cfb9e3fe`. The packaged source closure binds
 1,246 source/build/resource records and 22 historical vendor dependencies. The
-new `preservation-c0102e-source-intake.json` resource additionally seals 12 public
+new `preservation-c0102e-source-intake.json` resource additionally seals 16 public
 configuration, map, definition and launcher paths. It contains metadata only.
 
 The source files are required. Vendor dependencies may be absent because the
@@ -17,13 +17,28 @@ target is not rebuilt or executed; present dependencies must match exact reviewe
 bytes and modes. Arbitrary game binaries are not authenticated by source presence.
 Unknown JARs refuse before mutation. Changed or additional plugin source receives
 T3 `PORT_REQUIRED`; platform/client/build source changes require a T4 port.
+Unmigrated crypto keys, word-filter files, client settings/UID and databases also
+remain explicit blockers, not disposable generated state. Tests use invented
+side-state sentinels only; the reference's side state is never read.
 
-The bounded map input is the actual historical pair of
+The bounded input set includes all four active historical server archives:
+`server/conf/server/data/maps/maps64.jag`, `maps64.mem`, `land64.jag` and
+`land64.mem`. Historical `WorldLoader.loadWorld` first opens those archives for
+`based_map_data: 64` and `custom_landscape: false`. It uses the ZIP only when
+both map JAG/MEM archives are unavailable. Omitting these files would test a
+fallback and cannot prove default Preservation map fidelity.
+
+The set also includes the historical pair of
 `server/conf/server/data/Authentic_Landscape.orsc` and
 `Client_Base/Cache/video/Authentic_Landscape.orsc`, not a fabricated
 `client/cache/landscape.pack`. Both reviewed files contain 945,225 bytes with
 SHA-256 `48ed0e1634b870888f96c0bc3e31cbaf152570b913140fdfd3596897a3eb29fa`.
-Their identity does not by itself establish complete conversion or gameplay parity.
+The matching client uses that ZIP, while the server normally selects JAG/MEM.
+Their identical ZIP hashes do not establish server/client map parity. Lossless
+historical JAG/MEM decoding and selected-world comparison are still required.
+Production preview identifies `historical-jag-conversion-pending` and its explicit
+readiness blocker. Descriptor-backed ZIP evidence cannot substitute for this
+unfinished migration path.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify
@@ -71,7 +86,7 @@ row. Missing external source is reported as unavailable, never a synthetic pass.
   generated files without globally ignoring unknown executable inputs.
 - Bind initialized and populated state through provider schema evidence, not a
   fixture database file hash.
-- Implement descriptor-free Authentic landscape discovery and complete map
+- Implement descriptor-free JAG/MEM landscape discovery and complete map
   conversion with the actual historical definition/placement selection rules.
   The old fallback requires `custom_landscape: true` and MyWorld-specific inputs;
   it is not a Preservation adapter.

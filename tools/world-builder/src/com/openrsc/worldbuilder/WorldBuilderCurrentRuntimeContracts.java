@@ -589,8 +589,8 @@ final class WorldBuilderCurrentRuntimeContracts {
 					relative = target.relative(path);
 					if (rules.containsKey(WorldBuilderPortablePath.collisionKey(relative, op))) continue;
 					WorldBuilderReadOnlyTarget.FileState state = target.requiredState("unclassified", relative);
-					if (sourceIntake && WorldBuilderPreservationSourceClosure.modeMatches(
-						target.requiredFile(relative))) {
+					if (sourceIntake && WorldBuilderPreservationSourceIntake.modeMatches(
+						target.requiredFile(relative), relative)) {
 						if (WorldBuilderPreservationSourceIntake.knownVendor(state)) {
 							result.add(new Evidence("historical-vendor-dependency", relative, "T0", "retire", "",
 								"Exact historical dependency input; never adopted as a current runtime dependency.",

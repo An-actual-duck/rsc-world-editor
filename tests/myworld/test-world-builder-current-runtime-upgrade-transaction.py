@@ -422,8 +422,10 @@ public final class CurrentUpgradeHarness {
             || "map-boundary-source-drift".equals(operation)) {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
-            Map<String,Object> migration = transaction.inspectReviewedPreservationMigration(
-                target, composition, packedSource, packedReport);
+            Map<String,Object> fixtureClassification = new LinkedHashMap<String,Object>();
+            fixtureClassification.put("evidence", new ArrayList<Object>());
+            Map<String,Object> migration = WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture()
+                .migrationPlan(target, fixtureClassification, composition, packedSource, packedReport);
             Map<String,Object> map = (Map<String,Object>)migration.get("mapMigration");
             Path stage = transactions.resolve(transactionId);
             Files.createDirectory(stage);

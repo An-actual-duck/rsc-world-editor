@@ -205,7 +205,7 @@ build records and 22 vendor-dependency records to Preservation commit
 hashes only: historical game source, dependency payloads, and user data are not
 copied into the Editor. Its packaged loader rejects missing or altered records.
 The production classifier now requires its 1,246 source/build/resource records
-and a separately sealed 12-file public configuration, authentic-map, definition
+and a separately sealed 16-file public configuration, active/fallback-map, definition
 and launcher input set. The 22 known vendor dependencies may be absent; if
 present they must match exact historical metadata and are never installed as
 current dependencies. Changed source requires a reviewed current port; unknown
@@ -214,7 +214,7 @@ historical configuration defaults from supported public overrides and unported
 behavior changes. No secret values or historical runtime payloads are packaged.
 
 This remains a bounded intake foundation: the complete historical checkout's
-remaining inactive content, player-state recognition, descriptor-free authentic
+remaining inactive content, player-state recognition, descriptor-free historical
 map conversion and desktop routing are not yet connected. A successful source
 classification does not prove a complete production upgrade. Invented staging
 topology is now selected only by a package-private activation-disabled fixture

@@ -29,8 +29,21 @@ public final class PreservationIntakeHarness {
     if ("identity".equals(args[0])) {
       result.put("profile", p.identity()); result.put("adapter", p.adapter.root);
       result.put("fixture", WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture().identity());
+      Map<String,Object> forged = WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture().identity();
+      forged.put("profileId", "preservation-family-upgrade-v1");
+      try {
+        WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(forged);
+        throw new AssertionError("renamed fixture became production authority");
+      } catch (WorldBuilderContractException expected) { result.put("fixturePromotionRefused", true); }
     } else if ("config".equals(args[0])) {
       result = p.typedConfiguration(Paths.get(args[1]));
+    } else if ("reject-zip".equals(args[0])) {
+      Map<String,Object> classification = new LinkedHashMap<String,Object>();
+      classification.put("evidence", new ArrayList<Object>());
+      try {
+        p.migrationPlan(Paths.get(args[1]), classification, null, Paths.get(args[1]), Paths.get(args[1]));
+        throw new AssertionError("ZIP evidence bypassed JAG migration");
+      } catch (WorldBuilderContractException expected) { result.put("refusal", expected.getMessage()); }
     } else {
       result.put("evidence", WorldBuilderCurrentRuntimeContracts.inspectPreservationSource(Paths.get(args[1])));
     }
@@ -103,10 +116,12 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         value = self.invoke("identity")
         self.assertEqual("production-reviewed", value["adapter"]["evidenceAuthority"])
         self.assertEqual("preservation-c0102e-source-layout-v1", value["adapter"]["historicalRuntimeId"])
-        self.assertEqual(1260, len(value["adapter"]["evidenceRules"]))
+        self.assertEqual(1264, len(value["adapter"]["evidenceRules"]))
         self.assertFalse(value["profile"]["executionReady"])
         self.assertFalse(value["fixture"]["executionReady"])
+        self.assertIn("JAG map migration/parity", value["profile"]["executionReadinessReason"])
         self.assertNotEqual(value["profile"]["profileId"], value["fixture"]["profileId"])
+        self.assertTrue(value["fixturePromotionRefused"])
         evidence = self.evidence(ROOT / "tests/fixtures/current-runtime-upgrade-v1/targets/preservation-t0")
         self.assertTrue(any(r["tier"] == "T5" for r in evidence))
 
@@ -132,7 +147,7 @@ class PreservationSourceIntakeTest(unittest.TestCase):
     def test_exact_historical_source_map_and_configuration_are_recognized(self):
         target = self.target()
         rows = self.evidence(target)
-        self.assertEqual(1259, len(rows))
+        self.assertEqual(1263, len(rows))
         self.assertTrue(all(row["tier"] in ("T0", "T2A") for row in rows),
                         [row for row in rows if row["tier"] not in ("T0", "T2A")])
         typed = self.invoke("config", target)
@@ -141,6 +156,11 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         self.assertEqual("RSC Preservation", typed["serverName"])
         self.assertEqual(43596, typed["gamePort"])
         self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
+        self.assertIn("JAG/MEM server maps", self.invoke("reject-zip", target)["refusal"])
+        # Default Preservation selects JAG/MEM on the server, not the ZIP fallback.
+        for archive in ("maps64.jag", "maps64.mem", "land64.jag", "land64.mem"):
+            self.assertTrue(any(r["relativePath"] == "server/conf/server/data/maps/" + archive
+                                and r["tier"] == "T0" for r in rows))
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_light_effective_configuration_preserves_defaults_and_unknown_behavior_blocks(self):
@@ -210,6 +230,21 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                         else:
                             os.link(other, source)
                 self.assertTrue(any(r["tier"] == "T5" for r in self.evidence(target)))
+
+    @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
+    def test_unmigrated_side_state_is_not_discardable(self):
+        for path in ("server/client.pem", "server/server.pem", "server/badwords.txt",
+                     "server/goodwords.txt", "server/alertwords.txt", "Client_Base/clientSettings.conf",
+                     "Client_Base/Cache/uid.dat", "server/inc/sqlite/preservation.db"):
+            with self.subTest(path=path):
+                target = self.target()
+                side_state = target / path
+                side_state.parent.mkdir(parents=True, exist_ok=True)
+                side_state.write_bytes(b"invented non-user side-state sentinel\n")
+                side_state.chmod(0o600)
+                row = next(r for r in self.evidence(target) if r["relativePath"] == path)
+                self.assertEqual("T5", row["tier"], row)
+                self.assertEqual("blocker", row["disposition"])
 
 
 if __name__ == "__main__":
