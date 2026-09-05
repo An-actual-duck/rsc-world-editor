@@ -833,6 +833,26 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 	}
 
 	/** Package-private verification seam for an unpublished, externally staged release. */
+	Map<String,Object> verifyStagedExecution(Preview preview, Path staging,
+		Map<String,Object> executionPlan, Path attempt, java.util.function.BooleanSupplier cancellation)
+		throws IOException, WorldBuilderContractException {
+		if (preview.profile.syntheticOnly) throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+			"execution-profile", false, "Synthetic transactions cannot claim real runtime execution.",
+			"Use a reviewed Current Base staging composition.");
+		Path attemptPath = attempt.toAbsolutePath();
+		if (attemptPath.startsWith(preview.targetRoot) || preview.targetRoot.startsWith(attemptPath))
+			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, "verification-attempt", false,
+				"Disposable verification must remain outside the target.", "Select an external transaction workspace.");
+		verifyReviewedRelease(preview, staging, executionPlan);
+		WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
+			preview.providerCatalogRoot, preview.compositionIdentity);
+		Map<String,Object> evidence = WorldBuilderInstalledRuntimeVerifier.verify(staging, composition,
+			object(executionPlan.get("migrationPlan")), generatedStateOutputs(executionPlan), attempt, cancellation);
+		verifyReviewedRelease(preview, staging, executionPlan);
+		return evidence;
+	}
+
+	/** Package-private staging seam; does not authorize target activation. */
 	Map<String,Object> stageReviewedRelease(Preview preview, Path staging)
 		throws IOException, WorldBuilderContractException {
 		if (Files.exists(staging, LinkOption.NOFOLLOW_LINKS)) throw problem(

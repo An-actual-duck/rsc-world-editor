@@ -1529,7 +1529,12 @@ public final class RuntimeConfigHarness {
         )
         manifest_path = stage / "migration/output/map/conversion/package/manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        fingerprint = migration["mapMigration"]["outputPackageFingerprintSha256"]
+        package = manifest_path.parent
+        fingerprint = hashlib.sha256(b"".join(
+            f"{path.relative_to(package).as_posix()}\0{path.stat().st_size}\0{hashlib.sha256(path.read_bytes()).hexdigest()}\n".encode()
+            for path in sorted(package.rglob("*")) if path.is_file())).hexdigest()
+        self.assertNotEqual(migration["mapMigration"]["outputPackageFingerprintSha256"], fingerprint,
+                            "Conversion proof identity is not native runtime package addressing")
         for role in ("server", "client"):
             profile = json.loads((launch / f"installed-{role}.json").read_text())
             self.assertEqual(manifest["packageId"], profile["packageId"])
