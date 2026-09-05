@@ -286,6 +286,11 @@ unreviewed provider state policies and plan changes to that binding. This is
 not yet an implemented instance installer: creation/activation of live state,
 configuration, logs, caches and map pointers, durable generated-output evidence,
 and invocation of the verifier from the Editor transaction remain open.
+Runtime verification now waits for the database's persisted logout state before
+stopping the test server; an unregistration log message is not a commit
+acknowledgement. Migration and verification also escape SQLite file URIs so
+spaces, non-ASCII characters and URI metacharacters in selected directories
+remain literal filesystem paths.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
 contract with three exact SQLite source rows (retro, core, and initialized

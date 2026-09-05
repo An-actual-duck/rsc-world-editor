@@ -1246,7 +1246,7 @@ public final class CurrentUpgradeHarness {
             ("initialized", "71a3804a2482a78fc96f79c0a3082e38a28d4098748160c9d7bff81ab6bdfe00"),
         ):
             with self.subTest(layout=layout):
-                target = self.case_root / (layout + "-target")
+                target = self.case_root / (layout + " target #?é")
                 shutil.copytree(TARGETS / "preservation-t0", target)
                 database = target / "server/inc/sqlite/preservation.db"
                 database.parent.mkdir(parents=True)
@@ -1268,7 +1268,7 @@ public final class CurrentUpgradeHarness {
                     writable.execute(
                         "INSERT INTO curstats(playerID,prayer,magic,woodcut) VALUES(913,31,32,33)"
                     )
-                workspace = self.case_root / (layout + "-transactions")
+                workspace = self.case_root / (layout + " transactions #?é")
                 workspace.mkdir()
                 before = tree_snapshot(target)
                 staged = self.run_harness(
