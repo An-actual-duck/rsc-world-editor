@@ -378,20 +378,39 @@ without imposing its gameplay or content on Base users.
   identity/preimage evidence, external staging, activation-last, artifact
   verification, rollback, and interrupted recovery. Target documents cannot
   select executable adapters or migration identities. This item remains open:
-  the production provider is still non-installable, so real apply is a
-  zero-write refusal. A separate compiled execution-readiness gate remains false
-  even if future provider metadata becomes installable, pending executable
+  the production provider is an installable unreleased candidate, but real apply
+  remains a zero-write refusal. A separate compiled execution-readiness gate is false,
+  independent of provider metadata, pending executable
   migrators, staged and installed runtime verification, project migration,
-  broader reviewed fingerprints, and UI consent. The Editor now executes a
-  bounded staging subset: typed configuration rendering, closed SQLite snapshot
-  validation/copy, and single-sector packed terrain conversion with reverse
-  parity, all output-inventoried and release-tree verified. This does not yet
-  perform a current-schema state cutover. It requires the provider's hash-bound
-  `current-base-state-migration-v1` /
-  `preservation-retro-to-current-base-v1` row, whose fixed manifest selects the
-  migration main class from the existing `server-runtime` artifact, plus the
-  closed `state-migration-manifest` and `contract-schema` roles before that
-  readiness condition can change.
+  broader reviewed fingerprints, and UI consent. The Editor now renders typed
+  configuration and executes the provider's hash-bound
+  `current-base-state-migration-v1` exact retro/core/initialized SQLite rows from the staged
+  `server-runtime`, verifies closed evidence/current-schema output and exact
+  source immutability, and rejects customized state. MariaDB has a safe
+  loopback/schema/environment-name preview contract but remains apply-blocked
+  until external stage cleanup/recovery is exact. Authorization is selected-plan
+  specific, so future proven SQLite apply does not depend on MariaDB. Complete
+  recognized descriptor-backed packed-map evidence now runs through the complete
+  existing packed converter. Preview binds its conversion-plan identity and the
+  exact deterministic output inventory; staging revalidates full reverse parity,
+  package/report/reconciliation hashes and no-extra-file ownership. No raw
+  one-sector shortcut is accepted as public migration proof. Materializing that
+  package plus migrated configuration/state into runnable server/client roots,
+  runnable staged/installed server-client verification, and exact recovery
+  binding for generated state outputs remain open. The provider's candidate
+  verifier still has build-only authority. A separate bundle-inventoried
+  installed-execution verifier now proves two real server/client launch cycles,
+  handshake/login/map/state/restart checks on private disposable copies, with
+  closed arguments and hash-bound evidence. Editor activation still needs to
+  invoke and verify that contract; complete transition behavior and spawn
+  walkability remain outside this execution proof. Editor code must not guess
+  launch arguments or trust unbound logs.
+  Current transaction confirmation now binds the complete plan, and atomic
+  pending phase receipts recover a process halt after publication. Preview
+  probes, while apply/recovery hold, the translated game/websocket ports and a
+  target-scoped configuration/ledger lock. Provider-style colon configuration,
+  explicit SQLite selection, and bounded public bind addresses are translated;
+  disposable verification alone may force loopback.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

@@ -1,5 +1,6 @@
 <project name="world-builder-tools" default="jar" basedir=".">
     <property name="src" location="src"/>
+    <property name="resources" location="resources"/>
     <property name="output" location="../../output/world-builder-tools"/>
     <property name="classes" location="${output}/classes"/>
     <property name="jar" location="${output}/world-builder-tools.jar"/>
@@ -24,6 +25,9 @@
             <compilerarg line="${javac.lint} -Xmaxwarns ${javac.maxwarns}"/>
         </javac>
         <copy file="${runtime.allowlist}" tofile="${runtime.allowlist.resource}"/>
+        <copy todir="${classes}">
+            <fileset dir="${resources}"/>
+        </copy>
     </target>
 
     <target name="jar" depends="clean,compile">

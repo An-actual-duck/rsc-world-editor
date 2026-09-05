@@ -4,15 +4,17 @@
 from __future__ import annotations
 
 import hashlib
-import base64
+import importlib.util
 import json
+import os
 import shutil
+import socket
 import sqlite3
 import subprocess
 import tempfile
 import unittest
 import warnings
-import zlib
+import zipfile
 from pathlib import Path
 
 try:
@@ -77,6 +79,83 @@ def materialize_synthetic_bundle_payloads(provider_root: Path) -> None:
                 )
 
 
+def build_provider_state_migration_core(provider_root: Path, build_root: Path) -> Path:
+    """Build only the locked provider migrator into a deterministic fixture fat JAR."""
+    source = (
+        PROVIDER / "server/src/com/openrsc/server/database/CurrentBaseStateMigration.java"
+    )
+    json_jar = PROVIDER / "server/lib/json-20190722.jar"
+    sqlite_jar = PROVIDER / "server/lib/sqlite-jdbc-3.34.0.jar"
+    classes = build_root / "provider-migrator-classes"
+    classes.mkdir()
+    subprocess.run(
+        ["javac", "-source", "8", "-target", "8", "-cp",
+         f"{json_jar}:{sqlite_jar}", "-d", str(classes), str(source)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    destination = (
+        provider_root / "output/current-platform/current-base-v1/server/core.jar"
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    entries: dict[str, bytes] = {}
+    for path in sorted(classes.rglob("*")):
+        if path.is_file():
+            entries[path.relative_to(classes).as_posix()] = path.read_bytes()
+    for dependency in (json_jar, sqlite_jar):
+        with zipfile.ZipFile(dependency) as archive:
+            for name in sorted(archive.namelist()):
+                upper = name.upper()
+                if name.endswith("/") or name in entries:
+                    continue
+                if upper == "META-INF/MANIFEST.MF" or upper.endswith((".SF", ".RSA", ".DSA")):
+                    continue
+                entries[name] = archive.read(name)
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name in sorted(entries):
+            info = zipfile.ZipInfo(name, (2024, 1, 2, 3, 4, 6))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, entries[name])
+    return destination
+
+
+def build_fake_migration_core(provider_root: Path, build_root: Path) -> Path:
+    source = build_root / "fake-provider/com/openrsc/server/database/CurrentBaseStateMigration.java"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        """package com.openrsc.server.database;
+public final class CurrentBaseStateMigration {
+  public static void main(String[] args) throws Exception {
+    String mode = System.getenv("WORLD_BUILDER_FAKE_MIGRATOR_MODE");
+    if ("timeout".equals(mode)) { Thread.sleep(5000L); return; }
+    if ("oversized".equals(mode)) {
+      StringBuilder value = new StringBuilder();
+      for (int i = 0; i < 70000; i++) value.append('x');
+      System.out.print(value.toString()); return;
+    }
+    System.exit(2);
+  }
+}
+""",
+        encoding="utf-8",
+    )
+    classes = build_root / "fake-provider-classes"
+    classes.mkdir()
+    subprocess.run(
+        ["javac", "-source", "8", "-target", "8", "-d", str(classes), str(source)],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    destination = (
+        provider_root / "output/current-platform/current-base-v1/server/core.jar"
+    )
+    with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in sorted(classes.rglob("*.class")):
+            info = zipfile.ZipInfo(path.relative_to(classes).as_posix(),
+                                   (2024, 1, 2, 3, 4, 6))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            archive.writestr(info, path.read_bytes())
+    return destination
+
+
 class CurrentRuntimeUpgradeTransactionTest(unittest.TestCase):
     maxDiff = None
 
@@ -104,7 +183,9 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -127,6 +208,10 @@ public final class CurrentUpgradeHarness {
         Path adapter = Paths.get(args[6]);
         Path project = Paths.get(args[7]);
         String transactionId = args[8];
+        Path packedSource = args.length > 9 && !"-".equals(args[9])
+            ? Paths.get(args[9]) : null;
+        Path packedReport = args.length > 10 && !"-".equals(args[10])
+            ? Paths.get(args[10]) : null;
         WorldBuilderCurrentRuntimeUpgradeTransaction.Observer observer =
             new WorldBuilderCurrentRuntimeUpgradeTransaction.Observer() {
                 @Override public void observe(String milestone, Path path) throws Exception {
@@ -140,13 +225,20 @@ public final class CurrentUpgradeHarness {
                         && selected(failures, "tamper-release-during-rollback")) {
                         Path releases = path.resolve(".world-builder/current-runtime/releases");
                         try (DirectoryStream<Path> entries = Files.newDirectoryStream(releases)) {
-                            Path release = entries.iterator().next();
-                            Files.write(release.resolve("unexpected.bin"), new byte[] {1},
-                                StandardOpenOption.CREATE_NEW);
+                            Path bundle = entries.iterator().next();
+                            try (DirectoryStream<Path> transactions =
+                                Files.newDirectoryStream(bundle)) {
+                                Path release = transactions.iterator().next();
+                                Files.write(release.resolve("unexpected.bin"), new byte[] {1},
+                                    StandardOpenOption.CREATE_NEW);
+                            }
                         }
                     }
                     if (selected(failures, milestone)) {
                         throw new Exception("injected-" + milestone);
+                    }
+                    if (selected(failures, "halt-" + milestone)) {
+                        Runtime.getRuntime().halt(91);
                     }
                 }
             };
@@ -156,19 +248,45 @@ public final class CurrentUpgradeHarness {
         if ("profile-migration".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
             System.out.print(WorldBuilderJsonDocuments.pretty(
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation()
-                    .migrationPlan(target, classification)));
+                    .migrationPlan(target, classification, composition, null, null)));
         } else if ("profile-migration-stage".equals(operation)
-            || "profile-migration-stage-tamper".equals(operation)) {
+            || "profile-migration-stage-tamper".equals(operation)
+            || "profile-migration-provider-refusal".equals(operation)) {
             Map<String,Object> classification = new LinkedHashMap<String,Object>();
             classification.put("evidence", new ArrayList<Object>());
             WorldBuilderCurrentRuntimeExecutionProfile profile =
                 WorldBuilderCurrentRuntimeExecutionProfile.preservation();
-            Map<String,Object> migration = profile.migrationPlan(target, classification);
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> migration = profile.migrationPlan(
+                target, classification, composition, null, null);
             Path stage = transactions.resolve(transactionId);
             Files.createDirectory(stage);
             Files.createDirectory(stage.resolve("migration"));
+            for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+                if (!("runtime/server/core.jar".equals(artifact.bundlePath)
+                    || "contracts/runtime/current-base-v1/state-migration.json"
+                        .equals(artifact.bundlePath))) continue;
+                Path destination = stage.resolve(artifact.bundlePath);
+                Files.createDirectories(destination.getParent());
+                Files.copy(artifact.source, destination, StandardCopyOption.COPY_ATTRIBUTES);
+            }
+            if ("profile-migration-provider-refusal".equals(operation)) {
+                if ("contract-tamper".equals(failures)) {
+                    Files.write(stage.resolve(
+                        "contracts/runtime/current-base-v1/state-migration.json"),
+                        new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("tool-tamper".equals(failures)) {
+                    Files.write(stage.resolve("runtime/server/core.jar"),
+                        new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("provider-timeout".equals(failures)) {
+                    WorldBuilderPreservationStagedMigrator.processTimeoutSeconds = 1L;
+                }
+            }
             Map<String,Object> execution = (Map<String,Object>)migration.get("stagedExecution");
             WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
                 (Map<String,Object>)migration.get("typedConfiguration"), execution);
@@ -186,19 +304,141 @@ public final class CurrentUpgradeHarness {
                         PosixFilePermission.OWNER_WRITE,
                         PosixFilePermission.GROUP_READ,
                         PosixFilePermission.OTHERS_READ));
+                } else if ("row-schema".equals(failures)) {
+                    Path evidencePath = stage.resolve(
+                        "migration/output/state/current-base-migration-evidence.json");
+                    Map<String,Object> evidence = WorldBuilderJsonDocuments.readObject(evidencePath);
+                    evidence.put("migrationRowId", "preservation-core-sqlite-to-current-base-v1");
+                    Files.write(evidencePath, WorldBuilderJsonDocuments.pretty(evidence)
+                        .getBytes(StandardCharsets.UTF_8), StandardOpenOption.TRUNCATE_EXISTING);
                 }
             }
-            WorldBuilderPreservationStagedMigrator.verify(stage, execution);
+            WorldBuilderPreservationStagedMigrator.verify(target, stage, execution,
+                (Map<String,Object>)migration.get("mapMigration"));
             System.out.print(WorldBuilderJsonDocuments.pretty(migration));
+        } else if ("runtime-layout".equals(operation)
+            || "runtime-layout-tamper".equals(operation)
+            || "runtime-layout-extra".equals(operation)
+            || "runtime-layout-empty-directory".equals(operation)
+            || "runtime-layout-mode".equals(operation)) {
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> layout = WorldBuilderCurrentRuntimeLayout.inspect(composition);
+            Path release = transactions.resolve(transactionId);
+            Files.createDirectory(release);
+            for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+                String role = (String)artifact.inventory.get("role");
+                if (!(role.equals("server-runtime") || role.equals("server-plugins")
+                    || role.equals("server-content") || role.equals("client-runtime")
+                    || role.equals("client-content"))) continue;
+                Path destination = release.resolve(artifact.bundlePath);
+                Files.createDirectories(destination.getParent());
+                Files.copy(artifact.source, destination);
+            }
+            WorldBuilderCurrentRuntimeLayout.materialize(release, layout);
+            if ("runtime-layout-tamper".equals(operation)) {
+                Files.write(release.resolve("installed/server/conf/server/settings.txt"),
+                    new byte[] {32}, StandardOpenOption.APPEND);
+            } else if ("runtime-layout-extra".equals(operation)) {
+                Files.write(release.resolve("installed/client/unexpected.bin"),
+                    new byte[] {1}, StandardOpenOption.CREATE_NEW);
+            } else if ("runtime-layout-empty-directory".equals(operation)) {
+                Files.createDirectory(release.resolve("installed/client/unexpected-empty"));
+            } else if ("runtime-layout-mode".equals(operation)) {
+                Files.setPosixFilePermissions(
+                    release.resolve("installed/server/conf/server/settings.txt"),
+                    EnumSet.of(PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.GROUP_READ));
+            }
+            WorldBuilderCurrentRuntimeLayout.verify(release, layout);
+            System.out.print(WorldBuilderJsonDocuments.pretty(layout));
+        } else if ("map-boundary".equals(operation)
+            || "map-boundary-tamper".equals(operation)
+            || "map-boundary-extra".equals(operation)
+            || "map-boundary-source-drift".equals(operation)) {
+            WorldBuilderProviderCatalog.Composition composition =
+                WorldBuilderProviderCatalog.resolve(catalog, identity);
+            Map<String,Object> migration = transaction.inspectReviewedPreservationMigration(
+                target, composition, packedSource, packedReport);
+            Map<String,Object> map = (Map<String,Object>)migration.get("mapMigration");
+            Path stage = transactions.resolve(transactionId);
+            Files.createDirectory(stage);
+            if ("map-boundary-source-drift".equals(operation)) {
+                try (java.util.stream.Stream<Path> paths = Files.walk(packedSource)) {
+                    Path changed = paths.filter(Files::isRegularFile).sorted().findFirst().get();
+                    Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
+                }
+            }
+            transaction.stageReviewedPreservationMap(
+                packedSource, packedReport, stage, map);
+            if ("map-boundary-tamper".equals(operation)) {
+                Files.write(stage.resolve(
+                    "migration/output/map/conversion/package/manifest.json"),
+                    new byte[] {32}, StandardOpenOption.APPEND);
+            } else if ("map-boundary-extra".equals(operation)) {
+                Files.write(stage.resolve(
+                    "migration/output/map/conversion/unexpected.bin"),
+                    new byte[] {1}, StandardOpenOption.CREATE_NEW);
+            }
+            transaction.verifyReviewedPreservationMap(stage, map);
+            System.out.print(WorldBuilderJsonDocuments.pretty(migration));
+        } else if ("lease-anchor-replaced".equals(operation)) {
+            WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
+                transaction.preview(target, transactions, catalog,
+                    identity, adapter, project, transactionId);
+            Map<String,Object> migration =
+                (Map<String,Object>)preview.plan.get("migrationPlan");
+            Map<String,Object> typed =
+                (Map<String,Object>)migration.get("typedConfiguration");
+            try (WorldBuilderCurrentRuntimeOfflineLease ignored =
+                WorldBuilderCurrentRuntimeOfflineLease.acquire(target, typed, true,
+                    new WorldBuilderCurrentRuntimeOfflineLease.IdentityObserver() {
+                        @Override public void observe(String milestone, Path anchor)
+                            throws java.io.IOException {
+                            Path displaced = anchor.resolveSibling("displaced-ledger.json");
+                            Files.move(anchor, displaced);
+                            Files.copy(displaced, anchor);
+                        }
+                    })) { }
         } else if ("preview".equals(operation)) {
             System.out.print(transaction.preview(target, transactions, catalog,
                 identity, adapter, project, transactionId).toJson());
         } else if ("preview-production".equals(operation)
+            || "preview-production-packed".equals(operation)
+            || "stage-production-packed".equals(operation)
+            || "verify-production-packed-tamper".equals(operation)
+            || "verify-production-packed-extra".equals(operation)
+            || "stage-production-packed-source-drift".equals(operation)
             || "apply-production".equals(operation)) {
             WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
                 transaction.previewPreservation(target, transactions, catalog,
-                    identity, project, transactionId);
-            if ("preview-production".equals(operation)) {
+                    identity, project, transactionId, packedSource, packedReport);
+            if ("preview-production".equals(operation)
+                || "preview-production-packed".equals(operation)) {
+                System.out.print(preview.toJson());
+            } else if ("stage-production-packed".equals(operation)
+                || "verify-production-packed-tamper".equals(operation)
+                || "verify-production-packed-extra".equals(operation)
+                || "stage-production-packed-source-drift".equals(operation)) {
+                Path stage = transactions.resolve(transactionId);
+                if ("stage-production-packed-source-drift".equals(operation)) {
+                    try (java.util.stream.Stream<Path> paths = Files.walk(packedSource)) {
+                        Path changed = paths.filter(Files::isRegularFile).sorted().findFirst().get();
+                        Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
+                    }
+                }
+                transaction.stageReviewedRelease(preview, stage);
+                if ("verify-production-packed-tamper".equals(operation)) {
+                    Path map = stage.resolve(
+                        "migration/output/map/conversion/package/manifest.json");
+                    Files.write(map, new byte[] {32}, StandardOpenOption.APPEND);
+                    transaction.verifyReviewedRelease(preview, stage);
+                } else if ("verify-production-packed-extra".equals(operation)) {
+                    Files.write(stage.resolve(
+                        "migration/output/map/conversion/unexpected.bin"),
+                        new byte[] {1}, StandardOpenOption.CREATE_NEW);
+                    transaction.verifyReviewedRelease(preview, stage);
+                }
                 System.out.print(preview.toJson());
             } else {
                 System.out.print(transaction.apply(preview,
@@ -227,17 +467,22 @@ public final class CurrentUpgradeHarness {
 }
 ''', encoding="utf-8"
         )
-        subprocess.run(
+        harness_build = subprocess.run(
             ["javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
              "-d", str(cls.classes), str(harness)],
-            cwd=ROOT, check=True, capture_output=True, text=True,
+            cwd=ROOT, capture_output=True, text=True,
         )
+        if harness_build.returncode:
+            raise AssertionError(harness_build.stdout + harness_build.stderr)
 
         cls.provider_root = cls.shared_root / "provider"
         shutil.copytree(PROVIDER / "current-platform", cls.provider_root / "current-platform")
         (cls.provider_root / "scripts").mkdir()
         shutil.copy2(provider_tool, cls.provider_root / "scripts/current-platform-composition.py")
         materialize_synthetic_bundle_payloads(cls.provider_root)
+        cls.migration_core = build_provider_state_migration_core(
+            cls.provider_root, cls.shared_root
+        )
         shutil.copytree(EXTENSION / "modules", cls.provider_root / "current-platform/modules")
         shutil.copytree(EXTENSION / "payload", cls.provider_root / "current-platform/synthetic-fixtures")
         overlay = json.loads((EXTENSION / "synthetic-installable-overlay-v1.json").read_text())
@@ -253,6 +498,60 @@ public final class CurrentUpgradeHarness {
         cls.provider_script = cls.provider_root / "scripts/current-platform-composition.py"
         cls.identity = cls._resolve(cls.provider_script, cls.catalog, cls.provider_root,
                                     cls.shared_root / "synthetic-base.json")
+        cls.behavior_root = cls.shared_root / "provider-behavior"
+        shutil.copytree(cls.provider_root, cls.behavior_root)
+        build_fake_migration_core(cls.behavior_root, cls.shared_root)
+        cls.behavior_catalog = cls.behavior_root / "current-platform"
+        cls.behavior_identity = cls._resolve(
+            cls.behavior_root / "scripts/current-platform-composition.py",
+            cls.behavior_catalog, cls.behavior_root,
+            cls.shared_root / "provider-behavior.json",
+        )
+        cls.layout_root = cls.shared_root / "provider-layout"
+        shutil.copytree(cls.provider_root, cls.layout_root)
+        for relative, records in (
+            ("output/current-platform/current-base-v1/server/content.zip", {
+                "connections.conf": b"db_type: sqlite\n",
+                "current-base.conf": b"server_port: 43594\n",
+                "conf/server/settings.txt": b"current base server content\n",
+            }),
+            ("output/current-platform/current-base-v1/client/content.zip", {
+                "Cache/config.txt": b"current base client content\n",
+                "Cache/audio/silence.dat": b"invented audio fixture\n",
+            }),
+        ):
+            archive = cls.layout_root / relative
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+                for name, payload in sorted(records.items()):
+                    output.writestr(name, payload)
+        cls.layout_catalog = cls.layout_root / "current-platform"
+        cls.layout_identity = cls._resolve(
+            cls.layout_root / "scripts/current-platform-composition.py",
+            cls.layout_catalog, cls.layout_root,
+            cls.shared_root / "provider-layout.json",
+        )
+        cls.layout_collision_contracts = []
+        for collision_name, entries in (
+            ("parent-case", {"Dir/a.txt": b"a", "dir/b.txt": b"b"}),
+            ("file-prefix", {"node": b"file", "node/child.txt": b"child"}),
+        ):
+            collision_root = cls.shared_root / ("provider-layout-" + collision_name)
+            shutil.copytree(cls.layout_root, collision_root)
+            archive = collision_root / (
+                "output/current-platform/current-base-v1/server/content.zip"
+            )
+            with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as output:
+                for name, payload in entries.items():
+                    output.writestr(name, payload)
+            collision_catalog = collision_root / "current-platform"
+            collision_identity = cls._resolve(
+                collision_root / "scripts/current-platform-composition.py",
+                collision_catalog, collision_root,
+                cls.shared_root / ("provider-layout-" + collision_name + ".json"),
+            )
+            cls.layout_collision_contracts.append(
+                (collision_catalog, collision_identity)
+            )
         cls.candidate_root = cls.shared_root / "noninstallable-artifact-candidate"
         shutil.copytree(cls.provider_root, cls.candidate_root)
         candidate_variant_path = (
@@ -308,10 +607,41 @@ public final class CurrentUpgradeHarness {
         path.mkdir()
         return path
 
+    def complete_packed_source(self) -> tuple[Path, Path]:
+        target, source, report = self.complete_packed_target_source()
+        return source, report
+
+    def complete_packed_target_source(self) -> tuple[Path, Path, Path]:
+        module_path = ROOT / "tests/myworld/test-world-builder-packed-conversion.py"
+        specification = importlib.util.spec_from_file_location(
+            "current_upgrade_packed_fixture", module_path
+        )
+        assert specification is not None and specification.loader is not None
+        module = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(module)
+        helper = module.PackedConversionTest()
+        helper.classes = self.classes
+        parent = self.case_root / "packed-evidence"
+        parent.mkdir()
+        target = helper.fixture(parent)
+        source, report, _ = helper.discover_and_copy(target, parent)
+        configuration = target / "server/conf/preservation.conf"
+        configuration.parent.mkdir(parents=True, exist_ok=True)
+        configuration.write_text(
+            "server_name: Preservation Map Fixture\n"
+            "server_port: 43594\n"
+            "ws_server_port: 43494\n"
+            "db_type: sqlite\n",
+            encoding="utf-8",
+        )
+        return target, source, report
+
     def run_harness(
         self, operation: str, target: Path, workspace: Path, txid: str,
         failures: str = "-", identity: Path | None = None,
         catalog: Path | None = None, adapter: Path | None = None,
+        environment: dict[str, str] | None = None,
+        packed_source: Path | None = None, packed_report: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["java", "-cp", str(self.classes),
@@ -319,8 +649,11 @@ public final class CurrentUpgradeHarness {
              str(target), str(workspace), str(catalog or self.catalog),
              str(identity or self.identity),
              str(adapter or CONTRACTS / "input-adapter-preservation-v1.json"),
-             str(CONTRACTS / "project-capability-v1.json"), txid],
+             str(CONTRACTS / "project-capability-v1.json"), txid,
+             str(packed_source) if packed_source else "-",
+             str(packed_report) if packed_report else "-"],
             cwd=ROOT, text=True, capture_output=True, check=False,
+            env=environment,
         )
 
     def assert_plan_schema(self, plan: dict) -> None:
@@ -459,6 +792,34 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual(before_workspace, tree_snapshot(workspace))
                 self.case.cleanup(); self.setUp()
 
+    def test_preview_requires_both_target_ports_available(self) -> None:
+        for port in (43594, 43494):
+            with self.subTest(port=port):
+                target = self.target("preservation-t0")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                with socket.socket() as listener:
+                    listener.bind(("0.0.0.0", port))
+                    listener.listen(1)
+                    refused = self.run_harness(
+                        "preview", target, workspace, f"occupied-{port}"
+                    )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("CODE=OFFLINE_REQUIRED", refused.stderr)
+                self.assertEqual(before, tree_snapshot(target))
+                self.assertEqual({}, tree_snapshot(workspace))
+                self.case.cleanup(); self.setUp()
+
+    def test_offline_lease_rejects_same_byte_anchor_replacement(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        refused = self.run_harness(
+            "lease-anchor-replaced", target, workspace, "anchor-replaced"
+        )
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("CODE=OFFLINE_REQUIRED", refused.stderr)
+        self.assertIn("identity changed", refused.stderr)
+
     def test_reviewed_preservation_profile_previews_candidate_but_cannot_activate(self) -> None:
         target = self.target("preservation-t0")
         workspace = self.workspace()
@@ -484,10 +845,12 @@ public final class CurrentUpgradeHarness {
             for item in plan["executionProfile"]["executionReadinessConditions"]
         }
         self.assertTrue(readiness["typed-configuration-staging"])
-        self.assertTrue(readiness["closed-sqlite-snapshot-staging"])
-        self.assertTrue(readiness["single-sector-packed-map-parity"])
-        self.assertFalse(readiness["provider-state-schema-migration-row"])
-        self.assertFalse(readiness["complete-canonical-map-package"])
+        self.assertTrue(readiness["closed-sqlite-current-schema-migration"])
+        self.assertTrue(readiness["provider-state-schema-migration-row"])
+        self.assertTrue(readiness["complete-canonical-map-package"])
+        self.assertFalse(readiness["activation-bound-generated-state-inventory"])
+        self.assertFalse(readiness["runnable-current-runtime-layout"])
+        self.assertFalse(readiness["provider-installed-execution-verifier-contract"])
         self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
@@ -515,7 +878,7 @@ public final class CurrentUpgradeHarness {
         )
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-        self.assertIn("Production activation requires executable configuration",
+        self.assertIn("activation-bound generated state",
                       refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
@@ -581,6 +944,19 @@ public final class CurrentUpgradeHarness {
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
+        incomplete_map = subprocess.run(
+            ["java", "-cp", str(self.classes),
+             "com.openrsc.worldbuilder.WorldBuilderCli",
+             "preview-current-runtime-upgrade", *common,
+             "--adapter", "preservation-family-v1",
+             "--packed-source-root", str(target)],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(2, incomplete_map.returncode)
+        self.assertIn("must be supplied together", incomplete_map.stderr)
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_workspace, tree_snapshot(workspace))
+
         applied = subprocess.run(
             ["java", "-cp", str(self.classes),
              "com.openrsc.worldbuilder.WorldBuilderCli",
@@ -613,10 +989,117 @@ public final class CurrentUpgradeHarness {
         self.assertEqual("local-replaces-named-profile", typed["precedence"])
         self.assertEqual("Local Realm", typed["serverName"])
         self.assertEqual(3, typed["experienceRate"])
+        self.assertEqual(3, typed["combatExperienceRate"])
+        self.assertEqual(3, typed["skillingExperienceRate"])
         self.assertEqual(43595, typed["gamePort"])
         self.assertEqual("localhost", typed["bindAddress"])
         self.assertEqual("first-value-wins", typed["duplicatePolicy"])
         self.assertEqual([], typed["externalSecretReferences"])
+
+    def test_colon_configuration_preserves_public_binding_and_explicit_sqlite(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "colon-config-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        (target / "server/conf/local.conf").write_text(
+            "world:\n"
+            "  server_name: Public Preservation\n"
+            "  server_bind_address: 0.0.0.0\n"
+            "  server_port: 43595\n"
+            "  ws_server_port: 43495\n"
+            "database:\n"
+            "  db_engine: sqlite\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        result = self.run_harness("profile-migration", target, workspace, "colon-config")
+        self.assertEqual(0, result.returncode, result.stderr)
+        typed = json.loads(result.stdout)["typedConfiguration"]
+        self.assertEqual("Public Preservation", typed["serverName"])
+        self.assertEqual("0.0.0.0", typed["bindAddress"])
+        self.assertEqual(43595, typed["gamePort"])
+        self.assertEqual(43495, typed["websocketPort"])
+        self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
+
+    def test_real_layout_connections_then_named_profile_are_hash_bound(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "real-config-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        (target / "server/connections.conf").write_text(
+            "db_type: sqlite\nmonitor_ip: localhost\n", encoding="utf-8"
+        )
+        (target / "server/preservation.conf").write_text(
+            "world:\n"
+            "  server_name: Public Preservation\n"
+            "  server_bind_address: 0.0.0.0\n"
+            "  server_port: 43596\n"
+            "  ws_server_port: 43496\n"
+            "  combat_exp_rate: 1\n"
+            "  skilling_exp_rate: 2\n"
+            "  member_world: true\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        result = self.run_harness(
+            "profile-migration", target, workspace, "real-config"
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        typed = json.loads(result.stdout)["typedConfiguration"]
+        self.assertEqual("server/preservation.conf", typed["sourceRelativePath"])
+        self.assertEqual(
+            "connections-first-then-named-profile", typed["precedence"]
+        )
+        self.assertEqual("sqlite", typed["databaseMigration"]["engine"])
+        self.assertEqual("0.0.0.0", typed["bindAddress"])
+        self.assertEqual(1, typed["combatExperienceRate"])
+        self.assertEqual(2, typed["skillingExperienceRate"])
+        self.assertEqual(["member_world", "monitor_ip"], typed["untranslatedKeys"])
+        self.assertIn(
+            "untranslated-legacy-configuration-keys",
+            typed["configurationBlockers"],
+        )
+        self.assertEqual(
+            ["server/connections.conf", "server/preservation.conf"],
+            [item["relativePath"] for item in typed["sourceInventory"]],
+        )
+        for item in typed["sourceInventory"]:
+            source = target / item["relativePath"]
+            self.assertEqual(source.stat().st_size, item["size"])
+            self.assertEqual(hashlib.sha256(source.read_bytes()).hexdigest(), item["sha256"])
+
+    def test_provider_runtime_layout_is_exactly_materialized_and_verified(self) -> None:
+        target = self.target("preservation-t0")
+        for operation in (
+            "runtime-layout", "runtime-layout-tamper", "runtime-layout-extra",
+            "runtime-layout-empty-directory", "runtime-layout-mode",
+        ):
+            with self.subTest(operation=operation):
+                workspace = self.case_root / (operation + "-transactions")
+                workspace.mkdir()
+                result = self.run_harness(
+                    operation, target, workspace, operation,
+                    identity=self.layout_identity, catalog=self.layout_catalog,
+                )
+                if operation == "runtime-layout":
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    layout = json.loads(result.stdout)
+                    self.assertTrue(layout["ready"])
+                    self.assertGreater(len(layout["outputs"]), 5)
+                    paths = {item["relativePath"] for item in layout["outputs"]}
+                    self.assertIn("installed/server/core.jar", paths)
+                    self.assertIn("installed/server/conf/server/settings.txt", paths)
+                    self.assertIn("installed/client/Cache/config.txt", paths)
+                else:
+                    self.assertNotEqual(0, result.returncode)
+                    self.assertIn("CODE=CONVERSION_BLOCKED", result.stderr)
+        for index, (catalog, identity) in enumerate(self.layout_collision_contracts):
+            workspace = self.case_root / f"runtime-layout-collision-{index}"
+            workspace.mkdir()
+            refused = self.run_harness(
+                "runtime-layout", target, workspace, "collision",
+                identity=identity, catalog=catalog,
+            )
+            self.assertNotEqual(0, refused.returncode)
+            self.assertIn("CODE=CONVERSION_BLOCKED", refused.stderr)
 
     def test_production_staged_migrator_renders_config_snapshots_sqlite_and_converts_map(self) -> None:
         target = self.target("preservation-t0")
@@ -624,14 +1107,14 @@ public final class CurrentUpgradeHarness {
         map_source.write_bytes(bytes(48 * 48 * 10))
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
-        database.write_bytes(zlib.decompress(base64.b64decode(
-            "eNrt17FqAkEQBuDZQ0gl2oiVMKWi2OQFcoYlSE6j5wpayaobOLLehbtVEGws86i+hReSs7CxFv+P+Vlmd+YBdjIOImf4M0k32vEzVUkIemEmIu8/BZGndNXf4lF391P+Ha4cKC8AAAAAAACAh3MU4qneaIjj1OmlNXq1Sraxy4rTew2lryQrvxdILm65Ga25P1TyTYY8CvsDP5zzu5x3eJuZNNYbw0rOFA8/8kyDoMPZV2TtwiVO28ti8dr6+5ufKC8AAAAAAAAAuHc1UaK2F8U7EzuzXnxbvTep8M/7EDnk"
-        )))
+        schema = (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+        with sqlite3.connect(database) as writable:
+            writable.executescript(schema)
         connection = sqlite3.connect(f"file:{database}?mode=ro", uri=True)
         self.assertEqual("ok", connection.execute("PRAGMA integrity_check").fetchone()[0])
         connection.close()
         self.assertEqual(
-            "cf9b51d21a6222cc4dd5936538b98e53621fce1bb1f6fc91582c7896a69bc158",
+            "301063f734b269573782995b1aa8ea32edba569dd95276bc9a35db680692f623",
             hashlib.sha256(database.read_bytes()).hexdigest(),
         )
         workspace = self.workspace()
@@ -647,18 +1130,25 @@ public final class CurrentUpgradeHarness {
         execution = plan["migrationPlan"]["stagedExecution"]
         self.assertEqual("current-base-state-migration-v1",
                          execution["requiredStateMigrationContractId"])
-        self.assertEqual("preservation-retro-to-current-base-v1",
-                         execution["requiredStateMigrationRowId"])
+        self.assertEqual([
+            "preservation-retro-sqlite-to-current-base-v1",
+            "preservation-core-sqlite-to-current-base-v1",
+            "preservation-initialized-sqlite-to-current-base-v1",
+        ], execution["requiredStateMigrationRowIds"])
         self.assertEqual(
             ["state-migration-manifest", "contract-schema", "server-runtime"],
             execution["requiredProviderArtifactRoles"],
         )
         self.assertTrue(execution["typedConfigurationReady"])
         self.assertTrue(execution["sqliteSnapshotReady"])
-        self.assertFalse(execution["sqliteSchemaMigrationReady"])
+        self.assertTrue(execution["sqliteSchemaMigrationReady"])
         self.assertFalse(execution["mariaDbMigrationReady"])
-        self.assertTrue(execution["canonicalMapSectorReady"])
-        self.assertEqual(3, len(execution["stagedOutputs"]))
+        self.assertFalse(execution["canonicalMapPackageReady"])
+        self.assertNotIn(
+            "mariadb-external-stage-rollback-not-implemented",
+            execution["readinessBlockers"],
+        )
+        self.assertEqual(1, len(execution["stagedOutputs"]))
         self.assertIn(
             "server/inc/sqlite/preservation.db",
             {record["relativePath"] for record in plan["preimageInventory"]},
@@ -676,11 +1166,26 @@ public final class CurrentUpgradeHarness {
             self.assertEqual(record["size"], output.stat().st_size)
             self.assertEqual(record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest())
             self.assertEqual(0o600, output.stat().st_mode & 0o777)
-        self.assertEqual(database.read_bytes(), (
-            workspace / "staged-output/migration/output/state/preservation.db"
-        ).read_bytes())
+        migrated = workspace / "staged-output/migration/output/state/current-base.db"
+        evidence_path = workspace / (
+            "staged-output/migration/output/state/"
+            "current-base-migration-evidence.json"
+        )
+        self.assertNotEqual(database.read_bytes(), migrated.read_bytes())
+        evidence = json.loads(evidence_path.read_text())
+        self.assertEqual("verified", evidence["status"])
+        self.assertTrue(evidence["sourceUnchanged"])
+        self.assertEqual(evidence["sourceStateSha256"],
+                         evidence["stagedSourceProjectionSha256"])
+        with sqlite3.connect(migrated) as migrated_db:
+            self.assertEqual(
+                "preservation-retro-sqlite-to-current-base-v1",
+                migrated_db.execute(
+                    "SELECT migration_row_id FROM current_base_migrations"
+                ).fetchone()[0],
+            )
         self.assertEqual(before, tree_snapshot(target))
-        for tamper in ("path", "hash", "mode"):
+        for tamper in ("path", "hash", "mode", "row-schema"):
             with self.subTest(staged_output_tamper=tamper):
                 tamper_workspace = self.case_root / f"tamper-{tamper}-transactions"
                 tamper_workspace.mkdir()
@@ -708,6 +1213,194 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
 
+    def test_provider_additional_sqlite_rows_preserve_populated_state(self) -> None:
+        for layout, fingerprint in (
+            ("core", "373648e4f9192ca29d0dda613b6807724776299e5919d93d8af894289ae67296"),
+            ("initialized", "71a3804a2482a78fc96f79c0a3082e38a28d4098748160c9d7bff81ab6bdfe00"),
+        ):
+            with self.subTest(layout=layout):
+                target = self.case_root / (layout + "-target")
+                shutil.copytree(TARGETS / "preservation-t0", target)
+                database = target / "server/inc/sqlite/preservation.db"
+                database.parent.mkdir(parents=True)
+                if layout == "initialized":
+                    shutil.copy2(
+                        PROVIDER / "legacy/docs/inherited-openrsc/sqlite-seeds/preservation.db",
+                        database,
+                    )
+                with sqlite3.connect(database) as writable:
+                    if layout == "core":
+                        writable.executescript(
+                            (PROVIDER / "server/database/sqlite/core.sqlite").read_text()
+                        )
+                    writable.execute(
+                        "INSERT INTO players(id,username,pass,salt,creation_date,creation_ip,"
+                        "banned,offences,muted,kills,npc_kills,x,y) "
+                        "VALUES(913,'editor_fixture','fixture','',0,'0.0.0.0','0',0,'0',0,0,333,444)"
+                    )
+                    writable.execute(
+                        "INSERT INTO curstats(playerID,prayer,magic,woodcut) VALUES(913,31,32,33)"
+                    )
+                workspace = self.case_root / (layout + "-transactions")
+                workspace.mkdir()
+                before = tree_snapshot(target)
+                staged = self.run_harness(
+                    "profile-migration-stage", target, workspace, "state-output",
+                )
+                self.assertEqual(0, staged.returncode, staged.stderr)
+                state = workspace / "state-output/migration/output/state"
+                evidence = json.loads((state / "current-base-migration-evidence.json").read_text())
+                self.assertEqual(
+                    f"preservation-{layout}-sqlite-to-current-base-v1", evidence["migrationRowId"]
+                )
+                self.assertEqual(fingerprint, evidence["sourceSchemaFingerprint"])
+                self.assertEqual(evidence["sourceStateSha256"], evidence["stagedSourceProjectionSha256"])
+                self.assertEqual(before, tree_snapshot(target))
+                with sqlite3.connect(state / "current-base.db") as migrated:
+                    self.assertEqual(("editor_fixture", 333, 444), migrated.execute(
+                        "SELECT username,x,y FROM players WHERE id=913"
+                    ).fetchone())
+                    self.assertEqual((31, 32, 33, 1), migrated.execute(
+                        "SELECT prayer,magic,woodcut,summoning FROM curstats WHERE playerID=913"
+                    ).fetchone())
+
+    def test_descriptor_packed_map_from_unrelated_target_is_refused_zero_write(self) -> None:
+        target = self.target("preservation-t0")
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as writable:
+            writable.executescript(
+                (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+            )
+        packed_source, packed_report = self.complete_packed_source()
+        workspace = self.workspace()
+        target_before = tree_snapshot(target)
+        source_before = tree_snapshot(packed_source)
+        workspace_before = tree_snapshot(workspace)
+        previewed = self.run_harness(
+            "preview-production-packed", target, workspace, "packed-preview",
+            packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, previewed.returncode)
+        self.assertIn("exact target being upgraded", previewed.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+        self.assertEqual(workspace_before, tree_snapshot(workspace))
+
+    def test_exact_target_packed_map_boundary_stages_and_rejects_drift(self) -> None:
+        target, packed_source, packed_report = self.complete_packed_target_source()
+        target_before = tree_snapshot(target)
+        source_before = tree_snapshot(packed_source)
+        workspace = self.workspace()
+        staged = self.run_harness(
+            "map-boundary", target, workspace, "map-positive",
+            packed_source=packed_source, packed_report=packed_report,
+        )
+        self.assertEqual(0, staged.returncode, staged.stderr)
+        map_plan = json.loads(staged.stdout)["mapMigration"]
+        self.assertTrue(map_plan["packageReady"])
+        self.assertGreater(map_plan["terrainCount"], 1)
+        self.assertGreater(map_plan["placementCount"], 0)
+        self.assertGreater(len(map_plan["outputInventory"]), 8)
+        for record in map_plan["outputInventory"]:
+            output = workspace / "map-positive" / record["relativePath"]
+            self.assertEqual(record["size"], output.stat().st_size)
+            self.assertEqual(
+                record["sha256"], hashlib.sha256(output.read_bytes()).hexdigest()
+            )
+            self.assertEqual(0o600, output.stat().st_mode & 0o777)
+        self.assertEqual(target_before, tree_snapshot(target))
+        self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        for operation in ("map-boundary-tamper", "map-boundary-extra"):
+            failure_workspace = self.case_root / (operation + "-transactions")
+            failure_workspace.mkdir()
+            failed = self.run_harness(
+                operation, target, failure_workspace, operation,
+                packed_source=packed_source, packed_report=packed_report,
+            )
+            self.assertNotEqual(0, failed.returncode)
+            self.assertIn("CODE=TARGET_DRIFT", failed.stderr)
+            self.assertEqual(target_before, tree_snapshot(target))
+            self.assertEqual(source_before, tree_snapshot(packed_source))
+
+        drift_source = self.case_root / "map-drift-source"
+        shutil.copytree(packed_source, drift_source)
+        drift_workspace = self.case_root / "map-drift-transactions"
+        drift_workspace.mkdir()
+        drift = self.run_harness(
+            "map-boundary-source-drift", target, drift_workspace, "map-drift",
+            packed_source=drift_source, packed_report=packed_report,
+        )
+        self.assertNotEqual(0, drift.returncode)
+        self.assertIn("CODE=", drift.stderr)
+        self.assertEqual(target_before, tree_snapshot(target))
+
+    def test_mariadb_preview_binds_only_loopback_schema_and_environment_references(self) -> None:
+        fixture_root = ROOT / "tests/fixtures/preservation-production-migration-v1"
+        target = self.case_root / "mariadb-target"
+        shutil.copytree(fixture_root / "targets/local-precedence", target)
+        local = target / "server/conf/local.conf"
+        local.write_text(
+            "server_name=Maria Preview\n"
+            "db_engine=mariadb\n"
+            "db_host=127.0.0.1\n"
+            "db_port=3307\n"
+            "db_name=preservation_source\n"
+            "db_stage_name=current_base_stage\n"
+            "db_user_env=CURRENT_BASE_DB_USER\n"
+            "db_password_env=CURRENT_BASE_DB_PASSWORD\n",
+            encoding="utf-8",
+        )
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        result = self.run_harness("profile-migration", target, workspace, "maria-preview")
+        self.assertEqual(0, result.returncode, result.stderr)
+        migration = json.loads(result.stdout)
+        database = migration["typedConfiguration"]["databaseMigration"]
+        self.assertEqual({
+            "engine": "mariadb", "host": "127.0.0.1", "port": 3307,
+            "sourceSchema": "preservation_source",
+            "stageSchema": "current_base_stage",
+            "userEnvironmentName": "CURRENT_BASE_DB_USER",
+            "passwordEnvironmentName": "CURRENT_BASE_DB_PASSWORD",
+        }, database)
+        self.assertEqual(
+            ["CURRENT_BASE_DB_USER", "CURRENT_BASE_DB_PASSWORD"],
+            migration["typedConfiguration"]["externalSecretReferences"],
+        )
+        binding = migration["stagedExecution"]["providerStateMigration"]
+        self.assertEqual("mariadb", binding["engine"])
+        self.assertEqual("", binding["sourceRelativePath"])
+        self.assertEqual("", binding["sourceSha256"])
+        self.assertEqual("", binding["stageRelativePath"])
+        self.assertIn(
+            "mariadb-external-stage-rollback-not-implemented",
+            migration["stagedExecution"]["readinessBlockers"],
+        )
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual({}, tree_snapshot(workspace))
+
+        for index, replacement in enumerate((
+            ("db_host=127.0.0.1", "db_host=10.0.0.3"),
+            ("db_user_env=CURRENT_BASE_DB_USER", "db_user_env=not-a-safe-reference"),
+            ("db_stage_name=current_base_stage", "db_stage_name=preservation_source"),
+        )):
+            with self.subTest(invalid_mariadb=index):
+                local.write_text(local.read_text().replace(*replacement), encoding="utf-8")
+                invalid_before = tree_snapshot(target)
+                refused = self.run_harness(
+                    "profile-migration", target, workspace, f"maria-refused-{index}"
+                )
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("CODE=CONVERSION_BLOCKED", refused.stderr)
+                self.assertEqual(invalid_before, tree_snapshot(target))
+                self.assertEqual({}, tree_snapshot(workspace))
+                local.write_text(
+                    local.read_text().replace(replacement[1], replacement[0]),
+                    encoding="utf-8",
+                )
+
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):
             with self.subTest(milestone=milestone):
@@ -723,6 +1416,56 @@ public final class CurrentUpgradeHarness {
                 self.assertEqual("rolled-back", receipt["status"])
                 self.assertTrue(receipt["rollbackComplete"])
                 self.case.cleanup(); self.setUp()
+
+    def test_provider_migrator_binding_timeout_output_and_refusal_are_fail_closed(self) -> None:
+        cases = (
+            ("contract-tamper", self.identity, self.catalog, None,
+             "manifest differs from the reviewed inventory"),
+            ("tool-tamper", self.identity, self.catalog, None,
+             "server runtime differs from the reviewed inventory"),
+            ("provider-timeout", self.behavior_identity, self.behavior_catalog,
+             "timeout", "bounded timeout"),
+            ("provider-oversized", self.behavior_identity, self.behavior_catalog,
+             "oversized", "exceeded its output bound"),
+            ("provider-schema-refusal", self.identity, self.catalog, None,
+             "unsupported or customized sqlite source schema"),
+        )
+        for index, (failure, identity, catalog, behavior, diagnostic) in enumerate(cases):
+            with self.subTest(failure=failure):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("preservation-t0")
+                database = target / "server/inc/sqlite/preservation.db"
+                database.parent.mkdir(parents=True)
+                if failure == "provider-schema-refusal":
+                    with sqlite3.connect(database) as connection:
+                        connection.execute("CREATE TABLE custom_state(value INTEGER)")
+                else:
+                    schema = (PROVIDER / "server/database/sqlite/retro.sqlite").read_text()
+                    with sqlite3.connect(database) as connection:
+                        connection.executescript(schema)
+                before = tree_snapshot(target)
+                workspace = self.workspace()
+                environment = dict(os.environ)
+                if behavior:
+                    environment["WORLD_BUILDER_FAKE_MIGRATOR_MODE"] = behavior
+                failures = failure
+                if failure == "provider-oversized":
+                    failures = "provider-oversized"
+                result = self.run_harness(
+                    "profile-migration-provider-refusal", target, workspace,
+                    "provider-refusal", failures=failures, identity=identity,
+                    catalog=catalog, environment=environment,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn(diagnostic, result.stderr)
+                stage = workspace / "provider-refusal"
+                self.assertFalse((stage / "migration/output/state/current-base.db").exists())
+                self.assertFalse((stage / (
+                    "migration/output/state/current-base-migration-evidence.json"
+                )).exists())
+                self.assertFalse((stage / "migration/provider-state-migration-output.log").exists())
+                self.assertEqual(before, tree_snapshot(target))
 
     def test_production_preview_rejects_target_selected_state_paths_zero_write(self) -> None:
         target = self.target("preservation-t0")
@@ -771,6 +1514,82 @@ public final class CurrentUpgradeHarness {
         self.assert_receipt_schema(receipt)
         self.assertEqual("rolled-back", receipt["status"])
         self.assertTrue(receipt["rollbackComplete"])
+
+    def test_process_halt_after_publication_recovers_pending_receipt(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        txid = "halt-after-publication"
+        halted = self.run_harness(
+            "apply", target, workspace, txid,
+            "halt-after-release-published",
+        )
+        self.assertEqual(91, halted.returncode)
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
+        self.assertEqual("pending", receipt["status"])
+        self.assertEqual("release-published", receipt["failureType"])
+        receipt_temporary = workspace / txid / ".receipt.json.tmp"
+        receipt_temporary.write_bytes((workspace / txid / "receipt.json").read_bytes())
+        self.assertNotEqual(before, tree_snapshot(target))
+        recovered = self.run_harness("recover", target, workspace, txid)
+        self.assertEqual(0, recovered.returncode, recovered.stderr)
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertFalse(receipt_temporary.exists())
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
+        self.assertEqual("rolled-back", receipt["status"])
+
+    def test_post_publication_force_failures_roll_back_exact_target(self) -> None:
+        properties = (
+            "worldbuilder.currentRuntime.testReleasePostMoveForceFailure",
+            "worldbuilder.currentRuntime.testLedgerPostMoveForceFailure",
+        )
+        for index, property_name in enumerate(properties):
+            with self.subTest(property_name=property_name):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                environment = dict(os.environ)
+                environment["JAVA_TOOL_OPTIONS"] = "-D" + property_name + "=true"
+                result = self.run_harness(
+                    "apply", target, workspace, f"post-move-force-{index}",
+                    environment=environment,
+                )
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(before, tree_snapshot(target))
+                receipt = json.loads(
+                    (workspace / f"post-move-force-{index}" / "receipt.json").read_text()
+                )
+                self.assertEqual("rolled-back", receipt["status"])
+
+    def test_recovery_reconciles_exact_final_receipt_temporaries(self) -> None:
+        for index, status in enumerate(("successful", "rolled-back")):
+            with self.subTest(status=status):
+                if index:
+                    self.case.cleanup(); self.setUp()
+                target = self.target("managed-n")
+                workspace = self.workspace()
+                before = tree_snapshot(target)
+                txid = "final-temp-" + status
+                environment = dict(os.environ)
+                environment["JAVA_TOOL_OPTIONS"] = (
+                    "-Dworldbuilder.currentRuntime.testReceiptHaltStatus=" + status
+                )
+                failures = "-" if status == "successful" else "after-ledger-activated"
+                halted = self.run_harness(
+                    "apply", target, workspace, txid, failures=failures,
+                    environment=environment,
+                )
+                self.assertEqual(92, halted.returncode)
+                self.assertTrue((workspace / txid / ".receipt.json.tmp").is_file())
+                recovered = self.run_harness("recover", target, workspace, txid)
+                self.assertEqual(0, recovered.returncode, recovered.stderr)
+                receipt = json.loads((workspace / txid / "receipt.json").read_text())
+                self.assertEqual(status, receipt["status"])
+                self.assertFalse((workspace / txid / ".receipt.json.tmp").exists())
+                if status == "rolled-back":
+                    self.assertEqual(before, tree_snapshot(target))
 
     def test_rollback_preserves_observer_drift_without_destructive_cleanup(self) -> None:
         for index, tamper in enumerate((

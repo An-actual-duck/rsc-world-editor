@@ -198,10 +198,19 @@ unknown layouts and executable customization remain zero-write blockers. A
 target file cannot supply an adapter, migrator, build identity, migration ID,
 or executable code.
 
+The packaged historical source-closure resource now binds 1,246 source/resource/
+build records and 22 vendor-dependency records to Preservation commit
+`c0102e60774ab9c9076aabae49f6f97fb6fc4b00`. It contains paths, modes, sizes, and
+hashes only: historical game source, dependency payloads, and user data are not
+copied into the Editor. Its packaged loader rejects missing or altered records.
+This is an intake foundation, not a completed production adapter: configuration,
+content/state recognition, and routing through the classifier still need to be
+connected and tested. Arbitrary old binaries are not trusted or installed.
+
 The supported `preview-current-runtime-upgrade`,
 `apply-current-runtime-upgrade`, and `recover-current-runtime-upgrade` CLI
-commands share that closed profile and transaction engine. Preview is
-zero-write and emits typed legacy configuration, explicit precedence/alias
+commands share that closed profile and transaction engine. Preview
+does not write the target and emits typed legacy configuration, explicit precedence/alias
 translations, durable-state boundaries, canonical-map conversion identity,
 exact preimage inventory, content-addressed external staging, and an exact
 confirmation identity. Apply preserves activation-last publication, installed
@@ -218,33 +227,100 @@ preview can report `UPGRADE_READY`; apply still fails before creating
 transaction evidence or touching the target. Activation has an independent
 compiled `executionReady:false` gate, so provider installability cannot
 silently enable apply.
-The built-in migrator now renders the typed configuration into the staged
-release, validates and copies a closed offline SQLite snapshot byte-exactly,
-and converts a reviewed single-sector packed terrain input through the existing
-codec with exact reverse-parity verification. Every output path, mode, size,
-source hash, and result hash is compiled or plan-bound and is revalidated as
-part of the release tree. SQLite WAL/journal/SHM state, malformed snapshots,
-unrecognized paths, and unsupported map shapes fail before target mutation.
-These are executable staging primitives, not a current-schema data cutover.
-This first bounded row deliberately recognizes only the compiled
-`server/inc/sqlite/preservation.db` source and one 48x48x10-byte terrain
-sector; it does not accept target-selected paths. Staged outputs enforce POSIX
-`0600` modes, so non-POSIX filesystems remain an explicit portability gap and
-must fail rather than silently weaken permissions.
+Preview now proves both the translated game and websocket ports are available
+and briefly acquires an exclusive lock on the reviewed configuration (or
+managed ledger). Apply and recovery hold those target-scoped locks and both
+port reservations for their full critical section, so a server running without
+a sentinel and concurrent transactions are refused. Typed configuration reads
+both `key=value` and provider-style `key: value`, accepts explicit `sqlite`, and
+preserves a bounded public bind address; only the disposable executable
+verification copy may override the bind to literal loopback.
+The built-in migrator now renders typed configuration and invokes the exact
+provider migration class from the staged, inventory-verified `server-runtime`
+artifact. For the compiled `server/inc/sqlite/preservation.db` source it
+requires a closed WAL/journal/SHM-free snapshot, migrates into a new Current
+Base database, verifies the provider's exact evidence contract and source
+immutability, and enforces `0600` output modes. Contract/tool drift, customized
+schemas, timeouts, excessive diagnostics, malformed evidence, and output drift
+fail closed with generated state removed. Non-POSIX filesystems remain an
+explicit portability gap and must fail rather than weaken permissions.
+
+MariaDB preview accepts only literal `127.0.0.1`, distinct bounded source/stage
+schema names, and uppercase environment-variable *names* for credentials;
+secret values never enter the plan. MariaDB apply remains unavailable because
+the Editor does not yet own exact cleanup/recovery of a successfully created
+external stage schema. This is a plan-specific blocker and does not make
+SQLite depend on MariaDB support.
+
+Complete descriptor-backed packed evidence can be supplied with the paired
+`--packed-source-root` and `--packed-discovery-report` options. Preview runs the
+existing complete packed converter in a disposable external directory and
+binds the source/report identity, conversion-plan self-fingerprint, exact plan,
+report and reconciliation hashes, canonical package fingerprint, counts, and
+the sorted byte/mode inventory of every output. Staging repeats conversion from
+the immutable evidence, revalidates every semantic identity, requires the exact
+inventory with no extra files/directories/symlinks, and keeps private files at
+`0600`. Preview never writes the target or transaction workspace. A changed
+source/report or coherent-looking package tamper is a pre-publication refusal.
+Prepared evidence must originate from the exact selected target and still match
+its copied input inventory. An unrelated map is not an initial-upgrade source;
+authored map changes belong to the separate map-import transaction.
+
+Provider content archives now have a bounded, role-derived extraction plan.
+Duplicate paths, case-colliding parent directories, file/directory conflicts,
+oversized entries, and output byte/mode/directory drift are refused. Recovery
+also handles post-rename durability failures and exact interrupted final-receipt
+states while retaining the offline lease. Writable live state/configuration and
+launch wiring remain separate unfinished integration work; extracting the runtime
+alone is not evidence that a target is playable.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
-contract and `preservation-retro-to-current-base-v1` row through the closed
+contract with three exact SQLite source rows (retro, core, and initialized
+Preservation) and a separate retro MariaDB row through the closed
 `state-migration-manifest`, `contract-schema`, and existing `server-runtime`
 roles. Its manifest is fixed at
 `contracts/runtime/current-base-v1/state-migration.json`; it selects
 `com.openrsc.server.database.CurrentBaseStateMigration` from the hash-bound
 `runtime/server/core.jar`, not a separate migration-tool artifact, and has real
-SQLite and loopback MariaDB migration evidence. The Editor does not invoke that
-row or cut over its staged database yet. Activation also requires complete
-canonical-package installation and staged/installed server/client launch,
+SQLite and loopback MariaDB migration evidence. The Editor binds the allowed
+rows for the selected engine during preview and verifies the provider-selected
+SQLite row against its exact schema fingerprint. Its staging executor invokes
+the SQLite path, but the
+transaction does not yet bind the generated state inventory into a recoverable
+installed cutover. Complete recognized descriptor-backed Preservation map
+evidence now runs through the existing
+`WorldBuilderPackedConverter`/`WorldBuilderPackedMap` pipeline (the raw-sector
+shortcut is no longer treated as public evidence) and is fully verified in an
+unpublished stage. Activation still requires materializing the package and
+migrated configuration/state into the provider's server/client layout, binding
+all generated state into recovery, and staged/installed server/client launch,
 handshake, login, gameplay, map, and state verification. Live connections and
-target credentials are not accepted by the current Editor path. There is no
-desktop route yet.
+credential values are not accepted by the current Editor plan. There is no
+desktop route yet. Provider installability, compiled profile readiness, and the
+selected plan's zero-blocker state are all required independently; metadata
+alone cannot authorize apply.
+
+The provider's `candidate-pairing-verifier` remains intentionally build-only.
+It now also supplies a separate inventory-bound `installed-execution-verifier`
+contract and implementation that copies the selected runtime, map and migrated
+state into a private disposable workspace, generates temporary credentials,
+and exercises two actual server/client launch/login/logout cycles. Its evidence
+binds artifact identity, map/state checks, restart persistence and unchanged
+source inputs. Spawn selection currently proves sector-center coverage, not
+arbitrary walkability or complete public transition behavior. The Editor has
+not yet wired this verifier into staged/installed activation; its presence in
+the bundle does not close the execution gate. The Editor must consume the
+closed invocation/evidence contract rather than infer launch arguments or
+promote unbound logs into authority.
+
+Confirmation is a digest of the complete reviewed plan—not merely the target
+classification and provider artifact list—so changing packed evidence,
+configuration/database selection, generated layout, or verifier inputs requires
+a new confirmation. Pending receipts are atomically advanced after backup,
+staging, release publication, and ledger activation. Recovery accepts an exact
+pending receipt after process termination, infers only exact preimage/planned
+states, and removes a temporary ledger file only when it is byte-identical to
+the transaction-owned activation document.
 
 `Import Map Changes` remains a separate transaction. The synthetic harness
 keeps its gate closed before activation and opens it only when classification
