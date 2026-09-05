@@ -447,9 +447,31 @@ final class WorldBuilderCurrentRuntimeContracts {
 				"Resolve the mixed, unknown, or variant-changing ledger state before any mutation."));
 	}
 
+	/** Read-only source evidence, with no composition resolution or activation authority. */
+	static List<Map<String,Object>> inspectPreservationSource(Path targetRoot)
+		throws WorldBuilderContractException {
+		List<Map<String,Object>> result = new ArrayList<Map<String,Object>>();
+		for (Evidence item : classifyHistorical(WorldBuilderReadOnlyTarget.open(targetRoot),
+			WorldBuilderCurrentRuntimeExecutionProfile.preservation().adapter.root)) result.add(item.toJson());
+		return result;
+	}
+
 	private static List<Evidence> classifyHistorical(WorldBuilderReadOnlyTarget target,
 		Map<String,Object> adapter) throws WorldBuilderContractException {
 		String op = "classify-historical-target";
+		boolean sourceIntake = WorldBuilderPreservationSourceIntake.matchesAdapter(adapter);
+		Map<String,Object> sourceConfiguration = null;
+		if (sourceIntake) {
+			try {
+				target.requiredFile("server/preservation.conf");
+				target.requiredFile("server/connections.conf");
+				if (target.exists("server/local.conf")) target.requiredFile("server/local.conf");
+				sourceConfiguration = WorldBuilderCurrentRuntimeExecutionProfile.preservation()
+					.typedConfiguration(target.root);
+			} catch (WorldBuilderContractException unsafe) {
+				// Per-file classification below retains a bounded, value-free blocker.
+			}
+		}
 		List<?> rawRules = array(adapter.get("evidenceRules"), op, "evidenceRules", 1, MAX_RULES);
 		Map<String,Map<String,Object>> rules = new LinkedHashMap<String,Map<String,Object>>();
 		List<Evidence> result = new ArrayList<Evidence>();
@@ -467,6 +489,36 @@ final class WorldBuilderCurrentRuntimeContracts {
 			}
 			String baselineHash = string(rule, "baselineSha256", op);
 			long baselineSize = integer(rule, "baselineSize", op);
+			if (sourceIntake && state.present) {
+				if (!WorldBuilderPreservationSourceIntake.modeMatches(target.requiredFile(path), path)) {
+					result.add(new Evidence(state.role, path, "T5", "blocker", "",
+						"Historical source input mode differs from the reviewed source-layout policy.",
+						state.size, state.sha256));
+					continue;
+				}
+				if (Arrays.asList("server/preservation.conf", "server/local.conf", "server/connections.conf")
+					.contains(path)) {
+					boolean ready = sourceConfiguration != null && ((List<?>)sourceConfiguration
+						.get("configurationBlockers")).isEmpty();
+					String tier = sourceConfiguration == null ? "T5" : ready ? "T2A" : "T3";
+					if (ready && state.sha256.equals(baselineHash)) tier = "T0";
+					result.add(new Evidence(state.role, path, tier,
+						sourceConfiguration == null ? "blocker" : ready ? "typed-configuration" : "port-required",
+						"", sourceConfiguration == null ? "Effective configuration is missing, unsafe or unrepresentable."
+						: ready ? "Reviewed historical defaults and supported effective configuration translations."
+						: "Effective configuration changes or omits historical behavior without a reviewed current port.",
+						state.size, state.sha256));
+					continue;
+				}
+				if (!state.sha256.equals(baselineHash) && !WorldBuilderPreservationSourceClosure
+					.changedTier(path).isEmpty() && !path.endsWith(".jar")) {
+					result.add(new Evidence(state.role, path,
+						WorldBuilderPreservationSourceClosure.changedTier(path), "port-required", "",
+						"Historical source/build behavior changed; review and port it to the current composition.",
+						state.size, state.sha256));
+					continue;
+				}
+			}
 			if ((!state.present && baselineHash.isEmpty())
 				|| state.present && state.sha256.equals(baselineHash) && state.size == baselineSize) {
 				if (state.present) result.add(new Evidence(state.role, path, "T0", "replace", "",
@@ -537,6 +589,22 @@ final class WorldBuilderCurrentRuntimeContracts {
 					relative = target.relative(path);
 					if (rules.containsKey(WorldBuilderPortablePath.collisionKey(relative, op))) continue;
 					WorldBuilderReadOnlyTarget.FileState state = target.requiredState("unclassified", relative);
+					if (sourceIntake && WorldBuilderPreservationSourceClosure.modeMatches(
+						target.requiredFile(relative))) {
+						if (WorldBuilderPreservationSourceIntake.knownVendor(state)) {
+							result.add(new Evidence("historical-vendor-dependency", relative, "T0", "retire", "",
+								"Exact historical dependency input; never adopted as a current runtime dependency.",
+								state.size, state.sha256));
+							continue;
+						}
+						String changedTier = WorldBuilderPreservationSourceClosure.changedTier(relative);
+						if (!changedTier.isEmpty() && relative.endsWith(".java")) {
+							result.add(new Evidence("historical-source-customization", relative, changedTier,
+								"port-required", "", "Additional historical source requires a reviewed current port.",
+								state.size, state.sha256));
+							continue;
+						}
+					}
 					result.add(new Evidence("unclassified", relative, "T5", "blocker", "",
 						"File is inside a bounded probe root but has no reviewed role or policy.",
 						state.size, state.sha256));

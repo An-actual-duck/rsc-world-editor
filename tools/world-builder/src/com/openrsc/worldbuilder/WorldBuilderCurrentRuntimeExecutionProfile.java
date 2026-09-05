@@ -53,12 +53,23 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	static WorldBuilderCurrentRuntimeExecutionProfile preservation()
 		throws WorldBuilderContractException {
+		return preservation(false);
+	}
+
+	/** Isolated staging regression only; never selected by CLI or target evidence. */
+	static WorldBuilderCurrentRuntimeExecutionProfile preservationFixture()
+		throws WorldBuilderContractException {
+		return preservation(true);
+	}
+
+	private static WorldBuilderCurrentRuntimeExecutionProfile preservation(boolean fixture)
+		throws WorldBuilderContractException {
 		WorldBuilderCurrentRuntimeContracts.Document adapter =
 			WorldBuilderCurrentRuntimeContracts.builtIn(
 				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER,
-				preservationAdapterDocument());
+				preservationAdapterDocument(fixture));
 		return new WorldBuilderCurrentRuntimeExecutionProfile(
-			"preservation-family-upgrade-v1", adapter,
+			fixture ? "preservation-staging-fixture-v1" : "preservation-family-upgrade-v1", adapter,
 			"preservation-family-migrator-v1",
 			"current-base-server-r1", "current-base-client-r1",
 			"current-canonical-map-v1", "preservation-typed-configuration-v1",
@@ -155,9 +166,16 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	static WorldBuilderCurrentRuntimeExecutionProfile fromIdentity(Map<String,Object> identity)
 		throws WorldBuilderContractException {
-		WorldBuilderCurrentRuntimeExecutionProfile preservation = preservation();
-		if (canonical(preservation.identity()).equals(canonical(identity))) return preservation;
 		String profileId = string(identity, "profileId");
+		if ("preservation-family-upgrade-v1".equals(profileId)) {
+			WorldBuilderCurrentRuntimeExecutionProfile preservation = preservation();
+			if (canonical(preservation.identity()).equals(canonical(identity))) return preservation;
+		}
+		// Fixture profiles remain activation-disabled and cannot become production authority.
+		if ("preservation-staging-fixture-v1".equals(profileId)) {
+			WorldBuilderCurrentRuntimeExecutionProfile fixture = preservationFixture();
+			if (canonical(fixture.identity()).equals(canonical(identity))) return fixture;
+		}
 		if ("synthetic-current-upgrade-v1".equals(profileId)) {
 			Map<String,Object> expected = new LinkedHashMap<String,Object>();
 			expected.put("profileId", "synthetic-current-upgrade-v1");
@@ -481,8 +499,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			throw refusal("Runtime launch inputs require one complete runnable map/configuration set.");
 	}
 
-	private Map<String,Object> typedConfiguration(Path target)
+	Map<String,Object> typedConfiguration(Path target)
 		throws WorldBuilderContractException {
+		boolean reviewedSource = WorldBuilderPreservationSourceIntake.HISTORICAL_ID.equals(
+			adapter.root.get("historicalRuntimeId"));
 		boolean productionLayout = Files.exists(target.resolve("server/preservation.conf"),
 			LinkOption.NOFOLLOW_LINKS)
 			|| Files.exists(target.resolve("server/local.conf"), LinkOption.NOFOLLOW_LINKS);
@@ -523,6 +543,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		List<Object> untranslated = new ArrayList<Object>();
 		boolean ambiguousColonValue = false;
 		boolean nullOverwriteValue = false;
+		java.util.Set<String> seenLegacyKeys = new java.util.HashSet<String>();
 		List<Path> sources = new ArrayList<Path>();
 		if (productionLayout) {
 			if (!Files.isRegularFile(connections, LinkOption.NOFOLLOW_LINKS)
@@ -565,7 +586,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			if (colon == separator && value.indexOf(':') >= 0)
 				ambiguousColonValue = true;
 			String canonical = alias(legacy);
+			if (reviewedSource && !seenLegacyKeys.add(legacy)) continue;
 			if (canonical == null) {
+				if (reviewedSource && WorldBuilderPreservationSourceIntake.baselineValue(legacy, value))
+					continue; // Reviewed historical defaults are not customizations to discard.
 				if (value.isEmpty() || "null".equalsIgnoreCase(value))
 					nullOverwriteValue = true;
 				if (!untranslated.contains(legacy)) untranslated.add(legacy);
@@ -582,6 +606,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			translation.put("sourceLine", Long.valueOf(index + 1));
 			translations.add(translation);
 		}
+		}
+		if (reviewedSource) for (String key : WorldBuilderPreservationSourceIntake.baselineKeys()) {
+			if (alias(key) == null && !seenLegacyKeys.contains(key)) untranslated.add(key);
 		}
 		String name = values.containsKey("serverName")
 			? values.get("serverName") : "Preservation";
@@ -728,18 +755,27 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return (String)value.get(key);
 	}
 
-	private static Map<String,Object> preservationAdapterDocument() {
+	private static Map<String,Object> preservationAdapterDocument(boolean fixture)
+		throws WorldBuilderContractException {
 		Map<String,Object> root = new LinkedHashMap<String,Object>();
 		root.put("schemaVersion", Long.valueOf(1));
 		root.put("manifestType", "world-builder-input-adapter-v1");
 		root.put("adapterId", PRESERVATION_ADAPTER_ID); root.put("adapterVersion", "v1");
-		root.put("historicalRuntimeId", "preservation-family-reviewed-v1");
-		root.put("evidenceAuthority", "production-reviewed"); root.put("installable", Boolean.FALSE);
+		root.put("historicalRuntimeId", fixture ? "preservation-staging-fixture-v1"
+			: WorldBuilderPreservationSourceIntake.HISTORICAL_ID);
+		root.put("evidenceAuthority", fixture ? "synthetic-fixture" : "production-reviewed");
+		root.put("installable", Boolean.FALSE);
 		root.put("recommendedVariantId", "current-base-v1");
 		root.put("supportedManagedPredecessorReleaseIds",
 			Collections.<Object>singletonList("rsc-current-platform-r0"));
 		root.put("targetLedgerRelativePath", ".world-builder/runtime-ledger-v1.json");
-		root.put("probeRoots", Arrays.<Object>asList("client", "server"));
+		root.put("probeRoots", fixture ? Arrays.<Object>asList("client", "server")
+			: Arrays.<Object>asList("Client_Base", "PC_Client", "server"));
+		if (!fixture) {
+			root.put("evidenceRules", WorldBuilderPreservationSourceIntake.evidenceRules());
+			root.put("adapterManifestHash", ZERO_HASH);
+			return root;
+		}
 		List<Object> rules = new ArrayList<Object>();
 		rules.add(rule("legacy-map-client", "client/cache/landscape.pack", true, 30L,
 			"3ab420b175819030d487ef6bd47959c5818684b11999ba9fd8bd21d29ce7b589", "map",

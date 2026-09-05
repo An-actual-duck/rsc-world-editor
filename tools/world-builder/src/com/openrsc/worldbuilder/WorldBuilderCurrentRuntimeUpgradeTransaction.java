@@ -84,6 +84,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			packedSourceRoot, packedDiscoveryReport, true);
 	}
 
+	/** Non-production topology for isolated migration regressions; activation remains disabled. */
+	Preview previewPreservationFixture(Path targetRoot, Path transactionRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
+		String transactionId, Path packedSourceRoot, Path packedDiscoveryReport)
+		throws IOException, WorldBuilderContractException {
+		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
+			compositionIdentity, null, projectCapability, transactionId,
+			WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture(),
+			packedSourceRoot, packedDiscoveryReport, true);
+	}
+
 	private Preview previewInternal(Path targetRoot, Path transactionRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
 		Path projectCapability, String transactionId,
