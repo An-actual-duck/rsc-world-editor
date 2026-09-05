@@ -174,13 +174,32 @@ final class WorldBuilderPackedConverter {
 		} catch (WorldBuilderContractException refusal) {
 			throw asConversionRefusal(refusal);
 		}
+		return convertPrepared(source, prepare(source), requestedOutput, projectStage);
+	}
+
+	/** Data-only source authority can only be constructed by the compiled genuine adapter. */
+	Result convertPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine, Path requestedOutput)
+		throws IOException, WorldBuilderContractException {
+		genuine.reverify();
+		WorldBuilderPackedConversionSource source = WorldBuilderPackedConversionSource.openPreservation(genuine);
+		WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.preservationData(genuine);
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(source.target, "catalog.json");
+		WorldBuilderPackedConversionModel model = WorldBuilderPackedConversionModel.read(source, configuration,
+			definitions, idFactory, cumulativeRecordLimit);
+		Result result = convertPrepared(source, new Prepared(configuration, definitions, genuine.catalogSha256, model),
+			requestedOutput, genuine.projectStage);
+		genuine.reverify();
+		return result;
+	}
+
+	private Result convertPrepared(WorldBuilderPackedConversionSource source, Prepared prepared,
+		Path requestedOutput, Path projectStage) throws IOException, WorldBuilderContractException {
 		Path output = validateOutput(source, requestedOutput, projectStage);
-		Prepared prepared = prepare(source);
-		WorldBuilderTargetCapability capability = prepared.capability;
 		WorldBuilderAdaptiveConfiguration configuration = prepared.configuration;
-		WorldBuilderCompatibilityEvidence common = prepared.common;
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions = prepared.definitions;
 		WorldBuilderPackedConversionModel model = prepared.model;
-		Map<String,Object> plan = plan(source, capability, configuration);
+		Map<String,Object> plan = plan(source, prepared.definitionSha256, configuration);
 		WorldBuilderAdaptiveContracts.validateParsed(
 			WorldBuilderAdaptiveContracts.Kind.CONVERSION_PLAN, plan);
 		requireSelfFingerprint(plan, "planFingerprintSha256");
@@ -200,7 +219,7 @@ final class WorldBuilderPackedConverter {
 			WorldBuilderReadOnlyTarget stageTarget = WorldBuilderReadOnlyTarget.open(stage);
 			WorldBuilderGenericLayeredPackage validated =
 				WorldBuilderGenericLayeredPackage.inspect(
-					stageTarget, "package", "converted", common.definitions);
+					stageTarget, "package", "converted", definitions);
 			model.requireExactPackage(
 				stageTarget, "package", validated, expectedPackage);
 			if (validated.levelCount != model.levels.size()
@@ -242,7 +261,7 @@ final class WorldBuilderPackedConverter {
 			source.reverify();
 			observe("before-publish", stage);
 			source.reverify();
-			requireFinalStage(stage, common.definitions, model, expectedPackage,
+			requireFinalStage(stage, definitions, model, expectedPackage,
 				planSha256, reportSha256, reconciliationSha256,
 				expectedPackage.files.size() + 3);
 			try {
@@ -383,7 +402,7 @@ final class WorldBuilderPackedConverter {
 
 	private static Map<String,Object> plan(
 		WorldBuilderPackedConversionSource source,
-		WorldBuilderTargetCapability capability,
+		String definitionSha256,
 		WorldBuilderAdaptiveConfiguration configuration)
 		throws WorldBuilderContractException {
 		Map<String,Object> plan = new LinkedHashMap<String,Object>();
@@ -394,7 +413,7 @@ final class WorldBuilderPackedConverter {
 		plan.put("conversionProfileId",
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID);
 		plan.put("sourceFingerprintSha256", source.sourceFingerprintSha256);
-		plan.put("definitionFingerprintSha256", capability.definitionCatalogSha256);
+		plan.put("definitionFingerprintSha256", definitionSha256);
 		plan.put("coordinateMappingId",
 			WorldBuilderPackedCoordinateCodec.COORDINATE_MAPPING_ID);
 		plan.put("placementCompositionProfileId",
@@ -618,19 +637,22 @@ final class WorldBuilderPackedConverter {
 	}
 
 	private static final class Prepared {
-		final WorldBuilderTargetCapability capability;
 		final WorldBuilderAdaptiveConfiguration configuration;
-		final WorldBuilderCompatibilityEvidence common;
+		final WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions;
+		final String definitionSha256;
 		final WorldBuilderPackedConversionModel model;
 
 		Prepared(WorldBuilderTargetCapability capability,
 			WorldBuilderAdaptiveConfiguration configuration,
 			WorldBuilderCompatibilityEvidence common,
 			WorldBuilderPackedConversionModel model) {
-			this.capability = capability;
-			this.configuration = configuration;
-			this.common = common;
-			this.model = model;
+			this(configuration, common.definitions, capability.definitionCatalogSha256, model);
+		}
+		Prepared(WorldBuilderAdaptiveConfiguration configuration,
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions, String definitionSha256,
+			WorldBuilderPackedConversionModel model) {
+			this.configuration = configuration; this.definitions = definitions;
+			this.definitionSha256 = definitionSha256; this.model = model;
 		}
 	}
 

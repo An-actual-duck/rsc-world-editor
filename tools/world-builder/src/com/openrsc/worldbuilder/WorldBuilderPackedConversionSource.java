@@ -32,6 +32,7 @@ final class WorldBuilderPackedConversionSource {
 	final String selectedConfigurationRelativePath;
 	final String selectedConfigurationSha256;
 	final List<WorldBuilderBoundedInventory.Record> inputs;
+	private WorldBuilderPreservationMapEvidence.Prepared preservationSource;
 
 	private WorldBuilderPackedConversionSource(
 		WorldBuilderReadOnlyTarget target,
@@ -60,6 +61,19 @@ final class WorldBuilderPackedConversionSource {
 	static WorldBuilderPackedConversionSource open(Path requestedSourceRoot, Path reportPath)
 		throws IOException, WorldBuilderContractException {
 		return openInternal(requestedSourceRoot, reportPath, null, null);
+	}
+
+	/** Separate immutable data-only authority; no caller-authored discovery flag is accepted. */
+	static WorldBuilderPackedConversionSource openPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine)
+		throws IOException, WorldBuilderContractException {
+		genuine.reverify();
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(genuine.inputRoot);
+		List<WorldBuilderBoundedInventory.Record> verified = verifyExactTree(target, genuine.inputs);
+		WorldBuilderPackedConversionSource source = new WorldBuilderPackedConversionSource(target, genuine.inputRoot,
+			genuine.originalRoot, genuine.originalRoot, Collections.<String,Object>emptyMap(),
+			genuine.fingerprintSha256, "preservation-data", "derivation.json", genuine.derivationSha256, verified);
+		source.preservationSource = genuine;
+		return source;
 	}
 
 	/**
@@ -210,6 +224,11 @@ final class WorldBuilderPackedConversionSource {
 	}
 
 	void reverify() throws WorldBuilderContractException {
+		if (preservationSource != null) {
+			try { preservationSource.reverify(); }
+			catch (IOException changed) { throw blocked("Historical derivation changed during conversion.",
+				"Keep original and derived evidence stable until atomic conversion completes."); }
+		}
 		List<WorldBuilderBoundedInventory.Record> verified = verifyExactTree(target, inputs);
 		if (verified.size() != inputs.size()) {
 			throw blocked("Immutable conversion evidence changed during conversion.",

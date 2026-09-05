@@ -158,6 +158,8 @@ final class WorldBuilderPreservationMapReconciliation {
 		Map<String,Object> report = new LinkedHashMap<String,Object>();
 		report.put("schemaVersion", Long.valueOf(1)); report.put("manifestType", "world-builder-preservation-map-reconciliation");
 		report.put("derivationId", ID); report.put("runtimePromotionApproved", Boolean.FALSE);
+		report.put("historicalSourceCommit", "c0102e60774ab9c9076aabae49f6f97fb6fc4b00");
+		report.put("historicalSourceTree", "6db5536d795abf34f303bb03b20c43b8cfb9e3fe");
 		report.put("decoderEvidenceSha256", evidenceState.sha256); report.put("decoderInventorySha256", DECODE_INVENTORY_SHA256);
 		report.put("sourceSettings", settings); report.put("sourceInventory", inventory(sources));
 		report.put("decodedInventory", probes); report.put("sectorDerivations", sectors);

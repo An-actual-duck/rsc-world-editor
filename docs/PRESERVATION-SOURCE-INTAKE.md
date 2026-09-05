@@ -75,8 +75,15 @@ The pure reconciliation tests currently accept an explicit separately verified
 decoder fixture through `WORLD_BUILDER_PRESERVATION_DECODED_MAP`, containing
 `sectors/` and `evidence.json`, in addition to the exact public Git source input.
 That fixture validates the data consumer only, not provider invocation authority.
-Production remains blocked until invocation is bound to the selected provider's
-contract/core inventory and the complete conversion/project output proof is wired.
+The invocation consumer selects only the composition's hashed server runtime and
+reviewed decoder contract; no historical executable or supplied command is used.
+Its private result can prepare the separate `source/migration/input` data namespace
+from `source/original` plus `source/migration/decoder`. The packed converter has a
+separate internal data-only entry point that reuses complete placement, package and
+reverse-parity checks. It does not invent a target descriptor, runtime evidence or
+dummy asset agreement, and the public generic descriptor parser is unchanged.
+Production remains blocked pending actual inventory-bound invocation/conversion
+verification, runtime semantic proof and connection to project/upgrade preview.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify

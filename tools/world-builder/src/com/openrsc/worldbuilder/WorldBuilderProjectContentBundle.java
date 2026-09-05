@@ -630,6 +630,19 @@ final class WorldBuilderProjectContentBundle {
 		return result;
 	}
 
+	/** Map-only historical ID catalog, not a claim of complete current client visual assets. */
+	static Map<String,Object> preservationMapCatalog(Path original)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(original);
+		for (String name : WorldBuilderPreservationMapReconciliation.DEFINITIONS)
+			WorldBuilderPreservationSourceIntake.requireBaseline(target, "server/conf/server/defs/" + name);
+		Map<String,Object> result = deriveCatalog(original, "preservation-c0102e-data-only", null,
+			new WorldBuilderDefinitionComposition.Profile(null, 85, false, "", "", "", ""));
+		// CompatibilityEvidence uses a file hash, not this content-bundle self hash.
+		result.remove("catalogSha256");
+		return result;
+	}
+
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId)
 		throws IOException, WorldBuilderContractException {
 		return deriveCatalog(root, catalogId, null);
