@@ -64,7 +64,7 @@ final class WorldBuilderCurrentRuntimeLaunchInputs {
 			}
 		}
 		return records(documents(defaults, typed, map.manifest,
-			map.outputFingerprintSha256, map.manifestSha256));
+			runtimePackageFingerprint(map.outputInventory), map.manifestSha256));
 	}
 
 	static void write(Path stage, Map<String,Object> typed, Map<String,Object> execution,
@@ -84,7 +84,7 @@ final class WorldBuilderCurrentRuntimeLaunchInputs {
 		try { manifest = WorldBuilderJsonDocuments.readObject(map.resolve("manifest.json")); }
 		catch (WorldBuilderDiscoveryException invalid) { throw failure("Converted map manifest is malformed."); }
 		Map<String,byte[]> documents = documents(new String(Files.readAllBytes(defaultsPath),
-			StandardCharsets.UTF_8), typed, manifest, (String)mapMigration.get("outputPackageFingerprintSha256"),
+			StandardCharsets.UTF_8), typed, manifest, runtimePackageFingerprint(array(mapMigration.get("outputInventory"))),
 			WorldBuilderHashes.sha256(map.resolve("manifest.json")));
 		if (!records(documents).equals(planned)) throw failure("Runtime launch inputs changed after preview.");
 		// Validate the entire set before creating any launch output; never overwrite a prior set.
@@ -98,6 +98,29 @@ final class WorldBuilderCurrentRuntimeLaunchInputs {
 			Files.write(path, entry.getValue(), StandardOpenOption.WRITE);
 		}
 		WorldBuilderAdaptiveDurability.forceTree(destination);
+	}
+
+	/** Native runtime addressing uses newline-terminated records, unlike conversion proof identities. */
+	static String runtimePackageFingerprint(List<Object> conversionInventory) throws WorldBuilderContractException {
+		Map<String,Map<String,Object>> files = new java.util.TreeMap<String,Map<String,Object>>();
+		for (Object raw : conversionInventory) {
+			Map<String,Object> row = object(raw);
+			String path = WorldBuilderBoundedInventory.string(row.get("relativePath"), "runtime-launch-inputs", "relativePath");
+			if (!path.startsWith(PACKAGE + "/")) continue;
+			String relative = path.substring(PACKAGE.length() + 1);
+			WorldBuilderPortablePath.require(relative, "runtime-launch-inputs");
+			if (files.put(relative, row) != null) throw failure("Duplicate runtime package inventory path.");
+		}
+		if (!files.containsKey("manifest.json")) throw failure("Runtime package inventory lacks its manifest.");
+		StringBuilder canonical = new StringBuilder();
+		for (Map.Entry<String,Map<String,Object>> entry : files.entrySet()) {
+			Map<String,Object> row = entry.getValue();
+			long size = WorldBuilderBoundedInventory.integer(row.get("size"), "runtime-launch-inputs", "size");
+			String hash = WorldBuilderBoundedInventory.string(row.get("sha256"), "runtime-launch-inputs", "sha256");
+			if (size < 1 || !WorldBuilderBoundedInventory.isHash(hash)) throw failure("Malformed runtime package inventory record.");
+			canonical.append(entry.getKey()).append('\0').append(size).append('\0').append(hash).append('\n');
+		}
+		return WorldBuilderHashes.sha256(canonical.toString().getBytes(StandardCharsets.UTF_8));
 	}
 
 	private static boolean eligible(Map<String,Object> typed) {

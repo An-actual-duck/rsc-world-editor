@@ -439,6 +439,25 @@ without imposing its gameplay or content on Base users.
   Advanced defaults remain excluded. Missing prerequisites and unrepresentable
   configuration values remain blockers. Isolated staging proves drift refusal
   and no overwrite, not live-instance installation or Editor verifier invocation.
+  The Editor now has a closed supervised invocation/acceptance component for
+  the installed-execution verifier. It binds the staged provider artifacts,
+  launch inputs, migrated snapshot and converted map; independently rechecks
+  source immutability, composition identity, two restart observations, final
+  disposable state and bounded log hashes. Parent-held stdin is the provider's
+  lifetime channel: cancellation, timeout or parent exit requests owned-process
+  and credential cleanup before evidence can be accepted. An unfinished cleanup
+  requires retained-workspace recovery, never forced deletion or activation.
+  Direct verifier hard-kill is not claimed recoverable. This component and its
+  package-private staged-release seam do not enable production apply: execution
+  evidence still needs activation/receipt binding, supported installed launchers,
+  live-instance state handling and complete post-install/recovery integration.
+  Actual staged-pair integration exposed and corrected a distinct identity
+  boundary: installed profiles must use the provider's newline-framed native
+  package inventory hash, not the converter's NUL-framed proof fingerprint.
+  Both derive from the complete reviewed output inventory; conversion and
+  reverse-parity evidence retain their original identities. Verifier diagnostics
+  are retained only in an owner-readable, 64 KiB-bounded attempt log, not copied
+  into general errors or receipts.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
