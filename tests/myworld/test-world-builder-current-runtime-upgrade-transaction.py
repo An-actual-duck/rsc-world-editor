@@ -334,6 +334,7 @@ public final class CurrentUpgradeHarness {
             || "runtime-layout-extra".equals(operation)
             || "runtime-layout-empty-directory".equals(operation)
             || "runtime-layout-state-policy".equals(operation)
+            || "runtime-layout-map-policy".equals(operation)
             || "runtime-layout-mode".equals(operation)) {
             WorldBuilderProviderCatalog.Composition composition =
                 WorldBuilderProviderCatalog.resolve(catalog, identity);
@@ -365,6 +366,8 @@ public final class CurrentUpgradeHarness {
                         PosixFilePermission.GROUP_READ));
             } else if ("runtime-layout-state-policy".equals(operation)) {
                 ((Map<String,Object>)layout.get("statePolicy")).put("sqliteFile", "replacement.db");
+            } else if ("runtime-layout-map-policy".equals(operation)) {
+                ((Map<String,Object>)layout.get("mapPolicy")).put("rootProperty", "unreviewed.mapRoot");
             }
             WorldBuilderCurrentRuntimeLayout.verify(release, layout);
             System.out.print(WorldBuilderJsonDocuments.pretty(layout));
@@ -564,6 +567,18 @@ public final class CurrentUpgradeHarness {
             cls.layout_policy_root / "scripts/current-platform-composition.py",
             cls.layout_policy_catalog, cls.layout_policy_root,
             cls.shared_root / "provider-layout-unreviewed-state.json",
+        )
+        cls.layout_map_policy_root = cls.shared_root / "provider-layout-unreviewed-map"
+        shutil.copytree(cls.layout_root, cls.layout_map_policy_root)
+        map_profile_path = cls.layout_map_policy_root / "current-platform/runtime/current-base-v1/profile.json"
+        map_profile = json.loads(map_profile_path.read_text())
+        map_profile["mapPolicy"]["externalRootPolicy"] = "allow-aliased-map-roots"
+        map_profile_path.write_text(json.dumps(map_profile, indent=2) + "\n")
+        cls.layout_map_policy_catalog = cls.layout_map_policy_root / "current-platform"
+        cls.layout_map_policy_identity = cls._resolve(
+            cls.layout_map_policy_root / "scripts/current-platform-composition.py",
+            cls.layout_map_policy_catalog, cls.layout_map_policy_root,
+            cls.shared_root / "provider-layout-unreviewed-map.json",
         )
         for collision_name, entries in (
             ("parent-case", {"Dir/a.txt": b"a", "dir/b.txt": b"b"}),
@@ -1106,6 +1121,7 @@ public final class CurrentUpgradeHarness {
         for operation in (
             "runtime-layout", "runtime-layout-tamper", "runtime-layout-extra",
             "runtime-layout-empty-directory", "runtime-layout-mode", "runtime-layout-state-policy",
+            "runtime-layout-map-policy",
         ):
             with self.subTest(operation=operation):
                 workspace = self.case_root / (operation + "-transactions")
@@ -1121,6 +1137,12 @@ public final class CurrentUpgradeHarness {
                     self.assertEqual("openrsc.currentBaseStateRoot", layout["statePolicy"]["sqliteRootProperty"])
                     self.assertEqual("current_base.db", layout["statePolicy"]["sqliteFile"])
                     self.assertEqual("outside-code-runtime", layout["statePolicy"]["durableLocation"])
+                    self.assertEqual({
+                        "rootProperty": "openrsc.worldBuilderInstalledMapRoot",
+                        "externalRootPolicy": "canonical-absolute-directory-disjoint-from-runtime",
+                        "profileBinding": "manifest-sha256-and-package-identity",
+                        "defaultLocation": "profile-relative-package",
+                    }, layout["mapPolicy"])
                     self.assertGreater(len(layout["outputs"]), 5)
                     paths = {item["relativePath"] for item in layout["outputs"]}
                     self.assertIn("installed/server/core.jar", paths)
@@ -1138,6 +1160,15 @@ public final class CurrentUpgradeHarness {
         self.assertNotEqual(0, refused_policy.returncode)
         self.assertIn("reviewed external-state contract", refused_policy.stderr)
         self.assertEqual({}, tree_snapshot(policy_workspace))
+        map_policy_workspace = self.case_root / "unreviewed-map-transactions"
+        map_policy_workspace.mkdir()
+        refused_map_policy = self.run_harness(
+            "runtime-layout", target, map_policy_workspace, "unreviewed-map",
+            identity=self.layout_map_policy_identity, catalog=self.layout_map_policy_catalog,
+        )
+        self.assertNotEqual(0, refused_map_policy.returncode)
+        self.assertIn("reviewed external-map contract", refused_map_policy.stderr)
+        self.assertEqual({}, tree_snapshot(map_policy_workspace))
         for index, (catalog, identity) in enumerate(self.layout_collision_contracts):
             workspace = self.case_root / f"runtime-layout-collision-{index}"
             workspace.mkdir()

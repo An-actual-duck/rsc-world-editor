@@ -220,6 +220,16 @@
             "sqliteOpenPolicy": {"const": "existing-private-file-read-write-no-create"}
           }
         },
+        "mapPolicy": {
+          "type": "object", "additionalProperties": false,
+          "required": ["rootProperty", "externalRootPolicy", "profileBinding", "defaultLocation"],
+          "properties": {
+            "rootProperty": {"const": "openrsc.worldBuilderInstalledMapRoot"},
+            "externalRootPolicy": {"const": "canonical-absolute-directory-disjoint-from-runtime"},
+            "profileBinding": {"const": "manifest-sha256-and-package-identity"},
+            "defaultLocation": {"const": "profile-relative-package"}
+          }
+        },
         "outputs": {"type": "array", "maxItems": 8192, "uniqueItems": true,
           "items": {"$ref": "#/$defs/runtimeLayoutOutput"}},
         "outputInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
@@ -228,9 +238,9 @@
       },
       "allOf": [
         {"if": {"properties": {"ready": {"const": true}}},
-          "then": {"required": ["statePolicy"], "not": {"required": ["reason"]}}},
+          "then": {"required": ["statePolicy", "mapPolicy"], "not": {"required": ["reason"]}}},
         {"if": {"properties": {"ready": {"const": false}}},
-          "then": {"required": ["reason"], "not": {"required": ["statePolicy"]}}}
+          "then": {"required": ["reason"], "not": {"anyOf": [{"required": ["statePolicy"]}, {"required": ["mapPolicy"]}]}}}
       ]
     },
     "runtimeLayoutOutput": {

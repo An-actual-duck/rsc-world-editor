@@ -425,6 +425,12 @@ without imposing its gameplay or content on Base users.
   Disposable staged-release tests cover reload/relocation and drift; production
   apply remains disabled. Live-instance creation/activation/recovery, remaining
   writable paths and Editor verifier invocation remain open.
+  Server/client installed profiles now support an explicit canonical external
+  map root, still bound to the installed manifest hash and package identity.
+  The provider verifier exercises one unchanged external map through both launch
+  cycles, and Editor runtime layouts bind the exact map-selection policy.
+  This removes the requirement to copy the active map into runtime working trees;
+  it does not yet implement the Editor's map-pointer activation transaction.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

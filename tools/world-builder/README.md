@@ -292,6 +292,20 @@ acknowledgement. Migration and verification also escape SQLite file URIs so
 spaces, non-ASCII characters and URI metacharacters in selected directories
 remain literal filesystem paths.
 
+Runnable-layout planning also binds the provider's exact map-location policy.
+Both runtime components now accept `openrsc.worldBuilderInstalledMapRoot` to
+select a canonical absolute map package outside their working and code-artifact
+directories. The installed profile remains authoritative for its manifest hash
+and package identity. An explicit invalid path, alias, overlap or missing/inactive
+profile refuses without falling back to a different map. The generic relative
+layout remains available when the property is omitted. The provider's two-launch
+verifier uses one external map copy, proves it remains unchanged, and reports
+`mapOutsideRuntimeRoots:true` and `mapUnchanged:true`. Editor plans reject
+unreviewed provider policies or changes to the bound map policy. This supplies
+the runtime capability needed for independent map selection; the Editor's
+live-instance installer, atomic map-pointer transaction, recovery and executable
+verification integration are still unfinished.
+
 Staged SQLite migration outputs now have a closed, post-migration byte inventory:
 the migrated database and provider evidence are recorded by portable path, size,
 SHA-256 and private file mode. The activation marker, ledger verification binding,

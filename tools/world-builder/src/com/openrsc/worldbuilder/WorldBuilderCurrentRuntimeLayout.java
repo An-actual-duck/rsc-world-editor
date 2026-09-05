@@ -31,7 +31,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 	static Map<String,Object> inspect(WorldBuilderProviderCatalog.Composition composition)
 		throws IOException, WorldBuilderContractException {
 		Map<String,WorldBuilderProviderCatalog.Artifact> roles = requiredRoles(composition);
-		Map<String,Object> statePolicy = inspectStatePolicy(roles.get("runtime-profile"));
+		Map<String,Object> profile = inspectRuntimeProfile(roles.get("runtime-profile"));
 		for (WorldBuilderProviderCatalog.Artifact artifact : roles.values())
 			if (!Files.getFileStore(artifact.source).supportsFileAttributeView("posix"))
 				throw failure(artifact.sourcePath,
@@ -56,7 +56,8 @@ final class WorldBuilderCurrentRuntimeLayout {
 		result.put("outputInventoryHash", WorldBuilderHashes.sha256(
 			WorldBuilderJsonDocuments.canonical(outputs).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
 		result.put("ready", Boolean.TRUE);
-		result.put("statePolicy", statePolicy);
+		result.put("statePolicy", new LinkedHashMap<String,Object>(object(profile.get("statePolicy"))));
+		result.put("mapPolicy", new LinkedHashMap<String,Object>(object(profile.get("mapPolicy"))));
 		return result;
 	}
 
@@ -158,7 +159,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 		return result;
 	}
 
-	private static Map<String,Object> inspectStatePolicy(WorldBuilderProviderCatalog.Artifact artifact)
+	private static Map<String,Object> inspectRuntimeProfile(WorldBuilderProviderCatalog.Artifact artifact)
 		throws IOException, WorldBuilderContractException {
 		if (!"runtime/profile.json".equals(artifact.bundlePath)
 			|| !WorldBuilderHashes.sha256(artifact.source).equals(string(artifact.inventory, "sha256")))
@@ -171,9 +172,9 @@ final class WorldBuilderCurrentRuntimeLayout {
 		if (!"current-base-runtime-profile-v1".equals(string(profile, "schemaId"))
 			|| !"current-base-v1".equals(string(profile, "variantId")))
 			throw failure("runtime-profile", "Provider state layout is not reviewed Current Base.");
-		Map<String,Object> policy = object(profile.get("statePolicy"));
-		requireStatePolicy(policy);
-		return new LinkedHashMap<String,Object>(policy);
+		requireStatePolicy(object(profile.get("statePolicy")));
+		requireMapPolicy(object(profile.get("mapPolicy")));
+		return profile;
 	}
 
 	private static void requireStatePolicy(Map<String,Object> policy)
@@ -189,6 +190,17 @@ final class WorldBuilderCurrentRuntimeLayout {
 		expected.put("sqliteOpenPolicy", "existing-private-file-read-write-no-create");
 		if (!expected.equals(policy)) throw failure("statePolicy",
 			"Runtime state location differs from the reviewed external-state contract.");
+	}
+
+	private static void requireMapPolicy(Map<String,Object> policy)
+		throws WorldBuilderContractException {
+		Map<String,Object> expected = new LinkedHashMap<String,Object>();
+		expected.put("rootProperty", "openrsc.worldBuilderInstalledMapRoot");
+		expected.put("externalRootPolicy", "canonical-absolute-directory-disjoint-from-runtime");
+		expected.put("profileBinding", "manifest-sha256-and-package-identity");
+		expected.put("defaultLocation", "profile-relative-package");
+		if (!expected.equals(policy)) throw failure("mapPolicy",
+			"Runtime map location differs from the reviewed external-map contract.");
 	}
 
 	private static void addFile(List<Object> outputs,
@@ -303,7 +315,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 		boolean ready = bool(plan, "ready");
 		if (ready) WorldBuilderBoundedInventory.exactKeys(plan, OPERATION, "layoutId",
 			"serverRootRelativePath", "clientRootRelativePath", "outputs",
-			"outputInventoryHash", "ready", "statePolicy");
+			"outputInventoryHash", "ready", "statePolicy", "mapPolicy");
 		else WorldBuilderBoundedInventory.exactKeys(plan, OPERATION, "layoutId",
 			"serverRootRelativePath", "clientRootRelativePath", "outputs",
 			"outputInventoryHash", "ready", "reason");
@@ -318,6 +330,7 @@ final class WorldBuilderCurrentRuntimeLayout {
 			throw failure("layout-plan", "Runnable layout inventory is unbounded.");
 		if (!ready) return;
 		requireStatePolicy(object(plan.get("statePolicy")));
+		requireMapPolicy(object(plan.get("mapPolicy")));
 		String prior = "";
 		for (Object raw : outputs) {
 			Map<String,Object> record = object(raw);
