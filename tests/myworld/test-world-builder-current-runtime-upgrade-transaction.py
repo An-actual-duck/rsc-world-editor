@@ -709,12 +709,10 @@ public final class CurrentUpgradeHarness {
             return
         common = json.loads((SCHEMAS / "adaptive-contract-definitions-v1.schema.json").read_text())
         schema = json.loads((SCHEMAS / "current-runtime-upgrade-receipt-v1.schema.json").read_text())
-        generated = json.loads((SCHEMAS / "current-runtime-generated-state-v1.schema.json").read_text())
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             resolver = jsonschema.RefResolver.from_schema(
-                schema, store={common["$id"]: common, schema["$id"]: schema,
-                               generated["$id"]: generated}
+                schema, store={common["$id"]: common, schema["$id"]: schema}
             )
         errors = list(jsonschema.Draft202012Validator(schema, resolver=resolver).iter_errors(receipt))
         self.assertEqual([], errors, [error.message for error in errors])

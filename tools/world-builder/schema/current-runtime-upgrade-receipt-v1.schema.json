@@ -22,8 +22,29 @@
     "preimageInventoryHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "artifactPlanHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
-    "generatedStateOutputs": {"$ref": "current-runtime-generated-state-v1.schema.json"},
+    "generatedStateOutputs": {"$ref": "#/$defs/generatedStateOutputs"},
     "failureType": {"type": "string", "maxLength": 1024},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+  },
+  "$defs": {
+    "generatedStateOutputs": {
+      "type": "array", "minItems": 0, "maxItems": 2,
+      "oneOf": [{"maxItems": 0}, {"minItems": 2}],
+      "items": {"$ref": "#/$defs/generatedStateRecord"},
+      "prefixItems": [
+        {"properties": {"relativePath": {"const": "migration/output/state/current-base-migration-evidence.json"}, "size": {"maximum": 1048576}}},
+        {"properties": {"relativePath": {"const": "migration/output/state/current-base.db"}, "size": {"maximum": 1073741824}}}
+      ]
+    },
+    "generatedStateRecord": {
+      "type": "object", "additionalProperties": false,
+      "required": ["relativePath", "size", "sha256", "mode"],
+      "properties": {
+        "relativePath": {"type": "string"},
+        "size": {"type": "integer", "minimum": 1},
+        "sha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "mode": {"const": "0600"}
+      }
+    }
   }
 }
