@@ -865,7 +865,7 @@ public final class CurrentUpgradeHarness {
         self.assertTrue(readiness["complete-canonical-map-package"])
         self.assertFalse(readiness["activation-bound-generated-state-inventory"])
         self.assertFalse(readiness["runnable-current-runtime-layout"])
-        self.assertFalse(readiness["provider-installed-execution-verifier-contract"])
+        self.assertFalse(readiness["editor-installed-execution-verifier-integration"])
         self.assertFalse(readiness["staged-runtime-launch-handshake-login-gameplay"])
         self.assertEqual("Preservation",
                          plan["migrationPlan"]["typedConfiguration"]["serverName"])
