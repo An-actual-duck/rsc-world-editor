@@ -62,7 +62,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"preservation-family-migrator-v1",
 			"current-base-server-r1", "current-base-client-r1",
 			"current-canonical-map-v1", "preservation-typed-configuration-v1",
-			"preservation-retro-to-current-base-v1",
+			"preservation-state-to-current-base-v1",
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
@@ -426,7 +426,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		throws WorldBuilderContractException {
 		WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
 			"implementationId", "requiredStateMigrationContractId",
-			"requiredStateMigrationRowId", "requiredProviderArtifactRoles",
+			"requiredStateMigrationRowIds", "requiredProviderArtifactRoles",
 			"providerStateMigration",
 			"typedConfigurationReady", "sqliteSnapshotReady",
 			"sqliteSchemaMigrationReady", "mariaDbMigrationReady",
@@ -436,8 +436,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			string(staged, "implementationId"))
 			|| !"current-base-state-migration-v1".equals(
 				string(staged, "requiredStateMigrationContractId"))
-			|| !"preservation-retro-to-current-base-v1".equals(
-				string(staged, "requiredStateMigrationRowId"))) throw refusal(
+			|| !WorldBuilderPreservationStagedMigrator.migrationRows(
+				string(object(staged.get("providerStateMigration")), "engine")).equals(
+					array(staged.get("requiredStateMigrationRowIds")))) throw refusal(
 			"Production staged migrator identity changed.");
 		if (!array(staged.get("requiredProviderArtifactRoles")).equals(
 			Arrays.<Object>asList("state-migration-manifest", "contract-schema",

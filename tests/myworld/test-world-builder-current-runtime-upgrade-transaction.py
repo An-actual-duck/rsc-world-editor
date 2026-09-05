@@ -1120,8 +1120,11 @@ public final class CurrentUpgradeHarness {
         execution = plan["migrationPlan"]["stagedExecution"]
         self.assertEqual("current-base-state-migration-v1",
                          execution["requiredStateMigrationContractId"])
-        self.assertEqual("preservation-retro-to-current-base-v1",
-                         execution["requiredStateMigrationRowId"])
+        self.assertEqual([
+            "preservation-retro-sqlite-to-current-base-v1",
+            "preservation-core-sqlite-to-current-base-v1",
+            "preservation-initialized-sqlite-to-current-base-v1",
+        ], execution["requiredStateMigrationRowIds"])
         self.assertEqual(
             ["state-migration-manifest", "contract-schema", "server-runtime"],
             execution["requiredProviderArtifactRoles"],
@@ -1166,7 +1169,7 @@ public final class CurrentUpgradeHarness {
                          evidence["stagedSourceProjectionSha256"])
         with sqlite3.connect(migrated) as migrated_db:
             self.assertEqual(
-                "preservation-retro-to-current-base-v1",
+                "preservation-retro-sqlite-to-current-base-v1",
                 migrated_db.execute(
                     "SELECT migration_row_id FROM current_base_migrations"
                 ).fetchone()[0],
@@ -1199,6 +1202,57 @@ public final class CurrentUpgradeHarness {
                 self.assertIn("SQLite sidecar state exists", refused.stderr)
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
+
+    def test_provider_additional_sqlite_rows_preserve_populated_state(self) -> None:
+        for layout, fingerprint in (
+            ("core", "373648e4f9192ca29d0dda613b6807724776299e5919d93d8af894289ae67296"),
+            ("initialized", "71a3804a2482a78fc96f79c0a3082e38a28d4098748160c9d7bff81ab6bdfe00"),
+        ):
+            with self.subTest(layout=layout):
+                target = self.case_root / (layout + "-target")
+                shutil.copytree(TARGETS / "preservation-t0", target)
+                database = target / "server/inc/sqlite/preservation.db"
+                database.parent.mkdir(parents=True)
+                if layout == "initialized":
+                    shutil.copy2(
+                        PROVIDER / "legacy/docs/inherited-openrsc/sqlite-seeds/preservation.db",
+                        database,
+                    )
+                with sqlite3.connect(database) as writable:
+                    if layout == "core":
+                        writable.executescript(
+                            (PROVIDER / "server/database/sqlite/core.sqlite").read_text()
+                        )
+                    writable.execute(
+                        "INSERT INTO players(id,username,pass,salt,creation_date,creation_ip,"
+                        "banned,offences,muted,kills,npc_kills,x,y) "
+                        "VALUES(913,'editor_fixture','fixture','',0,'0.0.0.0','0',0,'0',0,0,333,444)"
+                    )
+                    writable.execute(
+                        "INSERT INTO curstats(playerID,prayer,magic,woodcut) VALUES(913,31,32,33)"
+                    )
+                workspace = self.case_root / (layout + "-transactions")
+                workspace.mkdir()
+                before = tree_snapshot(target)
+                staged = self.run_harness(
+                    "profile-migration-stage", target, workspace, "state-output",
+                )
+                self.assertEqual(0, staged.returncode, staged.stderr)
+                state = workspace / "state-output/migration/output/state"
+                evidence = json.loads((state / "current-base-migration-evidence.json").read_text())
+                self.assertEqual(
+                    f"preservation-{layout}-sqlite-to-current-base-v1", evidence["migrationRowId"]
+                )
+                self.assertEqual(fingerprint, evidence["sourceSchemaFingerprint"])
+                self.assertEqual(evidence["sourceStateSha256"], evidence["stagedSourceProjectionSha256"])
+                self.assertEqual(before, tree_snapshot(target))
+                with sqlite3.connect(state / "current-base.db") as migrated:
+                    self.assertEqual(("editor_fixture", 333, 444), migrated.execute(
+                        "SELECT username,x,y FROM players WHERE id=913"
+                    ).fetchone())
+                    self.assertEqual((31, 32, 33, 1), migrated.execute(
+                        "SELECT prayer,magic,woodcut,summoning FROM curstats WHERE playerID=913"
+                    ).fetchone())
 
     def test_descriptor_packed_map_from_unrelated_target_is_refused_zero_write(self) -> None:
         target = self.target("preservation-t0")

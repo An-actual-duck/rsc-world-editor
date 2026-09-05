@@ -275,14 +275,17 @@ launch wiring remain separate unfinished integration work; extracting the runtim
 alone is not evidence that a target is playable.
 
 The provider now supplies the hash-bound `current-base-state-migration-v1`
-contract and `preservation-retro-to-current-base-v1` row through the closed
+contract with three exact SQLite source rows (retro, core, and initialized
+Preservation) and a separate retro MariaDB row through the closed
 `state-migration-manifest`, `contract-schema`, and existing `server-runtime`
 roles. Its manifest is fixed at
 `contracts/runtime/current-base-v1/state-migration.json`; it selects
 `com.openrsc.server.database.CurrentBaseStateMigration` from the hash-bound
 `runtime/server/core.jar`, not a separate migration-tool artifact, and has real
-SQLite and loopback MariaDB migration evidence. The Editor binds that row
-during preview and its staging executor invokes the SQLite path, but the
+SQLite and loopback MariaDB migration evidence. The Editor binds the allowed
+rows for the selected engine during preview and verifies the provider-selected
+SQLite row against its exact schema fingerprint. Its staging executor invokes
+the SQLite path, but the
 transaction does not yet bind the generated state inventory into a recoverable
 installed cutover. Complete recognized descriptor-backed Preservation map
 evidence now runs through the existing
@@ -297,15 +300,18 @@ desktop route yet. Provider installability, compiled profile readiness, and the
 selected plan's zero-blocker state are all required independently; metadata
 alone cannot authorize apply.
 
-The provider's current `candidate-pairing-verifier` is intentionally build-only
-and cannot close that execution gate. A future provider contract must inventory
-a closed installed-execution verifier role/main class whose arguments are
-limited to the selected composition identity, installed server/client roots,
-generated profile/config/state/map paths, loopback ports, and a disposable
-credential reference. Its hash-bound evidence must cover two launch cycles,
-artifact identity, handshake, login/logout, canonical map/state assertions and
-restart persistence. The Editor will not infer launcher arguments or promote
-log matching into authority in the absence of that contract.
+The provider's `candidate-pairing-verifier` remains intentionally build-only.
+It now also supplies a separate inventory-bound `installed-execution-verifier`
+contract and implementation that copies the selected runtime, map and migrated
+state into a private disposable workspace, generates temporary credentials,
+and exercises two actual server/client launch/login/logout cycles. Its evidence
+binds artifact identity, map/state checks, restart persistence and unchanged
+source inputs. Spawn selection currently proves sector-center coverage, not
+arbitrary walkability or complete public transition behavior. The Editor has
+not yet wired this verifier into staged/installed activation; its presence in
+the bundle does not close the execution gate. The Editor must consume the
+closed invocation/evidence contract rather than infer launch arguments or
+promote unbound logs into authority.
 
 Confirmation is a digest of the complete reviewed plan—not merely the target
 classification and provider artifact list—so changing packed evidence,

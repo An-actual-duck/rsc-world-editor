@@ -384,8 +384,7 @@ without imposing its gameplay or content on Base users.
   migrators, staged and installed runtime verification, project migration,
   broader reviewed fingerprints, and UI consent. The Editor now renders typed
   configuration and executes the provider's hash-bound
-  `current-base-state-migration-v1` /
-  `preservation-retro-to-current-base-v1` SQLite row from the staged
+  `current-base-state-migration-v1` exact retro/core/initialized SQLite rows from the staged
   `server-runtime`, verifies closed evidence/current-schema output and exact
   source immutability, and rejects customized state. MariaDB has a safe
   loopback/schema/environment-name preview contract but remains apply-blocked
@@ -398,11 +397,14 @@ without imposing its gameplay or content on Base users.
   one-sector shortcut is accepted as public migration proof. Materializing that
   package plus migrated configuration/state into runnable server/client roots,
   runnable staged/installed server-client verification, and exact recovery
-  binding for generated state outputs remain open. The provider's present
-  candidate verifier explicitly has build-only authority; production activation
-  additionally needs a bundle-inventoried installed-execution verifier contract
-  with closed arguments and hash-bound two-run handshake/login/map/state/restart
-  evidence. Editor code must not guess launch arguments or trust unbound logs.
+  binding for generated state outputs remain open. The provider's candidate
+  verifier still has build-only authority. A separate bundle-inventoried
+  installed-execution verifier now proves two real server/client launch cycles,
+  handshake/login/map/state/restart checks on private disposable copies, with
+  closed arguments and hash-bound evidence. Editor activation still needs to
+  invoke and verify that contract; complete transition behavior and spawn
+  walkability remain outside this execution proof. Editor code must not guess
+  launch arguments or trust unbound logs.
   Current transaction confirmation now binds the complete plan, and atomic
   pending phase receipts recover a process halt after publication. Preview
   probes, while apply/recovery hold, the translated game/websocket ports and a
