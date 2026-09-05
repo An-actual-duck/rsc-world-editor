@@ -751,7 +751,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 					preview.packedDiscoveryReport, staging, map);
 			}
 			WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(staging,
-				object(migration.get("typedConfiguration")), execution);
+				object(migration.get("typedConfiguration")), execution, map);
 			WorldBuilderPreservationStagedMigrator.stage(preview.targetRoot, staging,
 				execution);
 			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging,

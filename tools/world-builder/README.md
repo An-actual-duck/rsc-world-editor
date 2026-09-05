@@ -306,6 +306,23 @@ the runtime capability needed for independent map selection; the Editor's
 live-instance installer, atomic map-pointer transaction, recovery and executable
 verification integration are still unfinished.
 
+For a complete reviewed packed-map conversion with a runnable provider layout
+and supported SQLite configuration, staging now also produces
+`migration/output/launch/current-base.conf`, `installed-server.json`, and
+`installed-client.json`. Preview binds their exact bytes, sizes, paths and private
+modes. The renderer retains provider defaults and Advanced exclusions while
+translating the public server name, bind address, ports and combat/skilling
+experience rates. The installed profiles bind the converted map's actual package
+identity, fingerprint and manifest bytes. Provider runtime roots remain unchanged;
+no external map or state path is hard-coded into these relocatable inputs.
+
+Incomplete maps/layouts, unresolved configuration keys, MariaDB, and values that
+cannot round-trip through the current runtime configuration parser do not produce
+a partial launch set. Alias, byte, mode and missing-output drift refuses without
+repair or replacement. Isolated staging tests exercise the pinned runtime parser;
+this is not yet Editor invocation of the two-launch verifier, an installed live
+instance, or authorization to activate a target.
+
 Staged SQLite migration outputs now have a closed, post-migration byte inventory:
 the migrated database and provider evidence are recorded by portable path, size,
 SHA-256 and private file mode. The activation marker, ledger verification binding,

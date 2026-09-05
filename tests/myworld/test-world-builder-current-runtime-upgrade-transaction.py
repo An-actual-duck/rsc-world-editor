@@ -245,7 +245,48 @@ public final class CurrentUpgradeHarness {
         WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
             new WorldBuilderCurrentRuntimeUpgradeTransaction(observer);
         try {
-        if ("verify-sealed-stage".equals(operation)) {
+        if ("launch-inputs-stage".equals(operation) || "verify-launch-inputs-stage".equals(operation)) {
+            Path stage = transactions.resolve(transactionId);
+            Map<String,Object> migration;
+            if ("launch-inputs-stage".equals(operation)) {
+                WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(catalog, identity);
+                migration = transaction.inspectReviewedPreservationMigration(target, composition, packedSource, packedReport);
+                Files.createDirectory(stage);
+                for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+                    Path destination = stage.resolve(artifact.bundlePath);
+                    Files.createDirectories(destination.getParent());
+                    Files.copy(artifact.source, destination);
+                }
+                Map<String,Object> execution = (Map<String,Object>)migration.get("stagedExecution");
+                Map<String,Object> map = (Map<String,Object>)migration.get("mapMigration");
+                WorldBuilderCurrentRuntimeLayout.materialize(stage, (Map<String,Object>)execution.get("runtimeLayout"));
+                transaction.stageReviewedPreservationMap(packedSource, packedReport, stage, map);
+                if ("default-drift".equals(failures)) {
+                    Files.write(stage.resolve("installed/server/current-base.conf"), new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("map-drift".equals(failures)) {
+                    Files.write(stage.resolve("migration/output/map/conversion/package/manifest.json"), new byte[] {32}, StandardOpenOption.APPEND);
+                } else if ("partial-set".equals(failures)) {
+                    ((java.util.List<Object>)execution.get("stagedOutputs")).remove(3);
+                } else if ("output-hash".equals(failures)) {
+                    ((Map<String,Object>)((java.util.List<Object>)execution.get("stagedOutputs")).get(1)).put("sha256", "changed");
+                } else if ("existing-output".equals(failures)) {
+                    Files.createDirectory(stage.resolve("migration/output/launch"));
+                    Files.write(stage.resolve("migration/output/launch/user.txt"), new byte[] {42}, StandardOpenOption.CREATE_NEW);
+                }
+                WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
+                    (Map<String,Object>)migration.get("typedConfiguration"), execution, map);
+                WorldBuilderPreservationStagedMigrator.stage(target, stage, execution);
+                Files.write(transactions.resolve(transactionId + ".migration.json"),
+                    WorldBuilderJsonDocuments.pretty(migration).getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
+            } else migration = WorldBuilderJsonDocuments.readObject(transactions.resolve(transactionId + ".migration.json"));
+            WorldBuilderPreservationStagedMigrator.verify(target, stage,
+                (Map<String,Object>)migration.get("stagedExecution"), (Map<String,Object>)migration.get("mapMigration"));
+            System.out.print(WorldBuilderJsonDocuments.pretty(migration));
+        } else if ("render-launch-config".equals(operation)) {
+            Map<String,Object> typed = WorldBuilderJsonDocuments.readObject(target.resolve("typed.json"));
+            System.out.print(WorldBuilderCurrentRuntimeLaunchInputs.render(
+                new String(Files.readAllBytes(target.resolve("defaults.conf")), StandardCharsets.UTF_8), typed));
+        } else if ("verify-sealed-stage".equals(operation)) {
             Map<String,Object> plan = WorldBuilderJsonDocuments.readObject(
                 transactions.resolve(transactionId + ".plan.json"));
             Map<String,Object> receipt = WorldBuilderJsonDocuments.readObject(
@@ -302,7 +343,8 @@ public final class CurrentUpgradeHarness {
             }
             Map<String,Object> execution = (Map<String,Object>)migration.get("stagedExecution");
             WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(stage,
-                (Map<String,Object>)migration.get("typedConfiguration"), execution);
+                (Map<String,Object>)migration.get("typedConfiguration"), execution,
+                (Map<String,Object>)migration.get("mapMigration"));
             WorldBuilderPreservationStagedMigrator.stage(target, stage, execution);
             if ("profile-migration-stage-tamper".equals(operation)) {
                 Path config = stage.resolve(
@@ -500,6 +542,28 @@ public final class CurrentUpgradeHarness {
         if harness_build.returncode:
             raise AssertionError(harness_build.stdout + harness_build.stderr)
 
+        # Exercise the actual pinned runtime parser, without building or launching a server.
+        parser = cls.shared_root / "RuntimeConfigHarness.java"
+        parser.write_text('''package com.openrsc.worldbuilder;
+public final class RuntimeConfigHarness {
+  public static void main(String[] args) throws Exception {
+    com.openrsc.server.util.YMLReader reader = new com.openrsc.server.util.YMLReader();
+    reader.loadFromYML(args[0]);
+    java.util.Map<String,Object> values = new java.util.LinkedHashMap<String,Object>();
+    for (int i = 1; i < args.length; i++) values.put(args[i], reader.getAttribute(args[i]));
+    System.out.print(WorldBuilderJsonDocuments.pretty(values));
+  }
+}
+''', encoding="utf-8")
+        cls.parser_classpath = os.pathsep.join((
+            str(cls.classes), str(PROVIDER / "server/lib/log4j-api-2.17.0.jar"),
+        ))
+        subprocess.run([
+            "javac", "-source", "8", "-target", "8", "-cp", cls.parser_classpath,
+            "-d", str(cls.classes), str(parser),
+            str(PROVIDER / "server/src/com/openrsc/server/util/YMLReader.java"),
+        ], check=True, capture_output=True, text=True)
+
         cls.provider_root = cls.shared_root / "provider"
         shutil.copytree(PROVIDER / "current-platform", cls.provider_root / "current-platform")
         (cls.provider_root / "scripts").mkdir()
@@ -537,7 +601,7 @@ public final class CurrentUpgradeHarness {
         for relative, records in (
             ("output/current-platform/current-base-v1/server/content.zip", {
                 "connections.conf": b"db_type: sqlite\n",
-                "current-base.conf": b"server_port: 43594\n",
+                "current-base.conf": (PROVIDER / "current-platform/runtime/current-base-v1/server/current-base.conf").read_bytes(),
                 "conf/server/settings.txt": b"current base server content\n",
             }),
             ("output/current-platform/current-base-v1/client/content.zip", {
@@ -1413,6 +1477,141 @@ public final class CurrentUpgradeHarness {
         self.assertNotEqual(0, drift.returncode)
         self.assertIn("CODE=", drift.stderr)
         self.assertEqual(target_before, tree_snapshot(target))
+
+    def test_runtime_launch_inputs_bind_translations_and_converted_map(self) -> None:
+        target, source, report = self.complete_packed_target_source()
+        (target / "server/conf/local.conf").write_text(
+            "server_name: Public É World\nserver_bind_address: 0.0.0.0\n"
+            "server_port: 44594\nws_server_port: 44494\n"
+            "combat_exp_rate: 3\nskilling_exp_rate: 2\ndb_type: sqlite\n",
+            encoding="utf-8",
+        )
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(database) as writable:
+            writable.executescript((PROVIDER / "server/database/sqlite/retro.sqlite").read_text())
+        before_target, before_source = tree_snapshot(target), tree_snapshot(source)
+        workspace = self.workspace()
+        result = self.run_harness(
+            "launch-inputs-stage", target, workspace, "launch-inputs",
+            identity=self.layout_identity, catalog=self.layout_catalog,
+            packed_source=source, packed_report=report,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        migration = json.loads(result.stdout)
+        stage = workspace / "launch-inputs"
+        outputs = migration["stagedExecution"]["stagedOutputs"]
+        self.assertEqual(4, len(outputs))
+        for record in outputs:
+            path = stage / record["relativePath"]
+            self.assertEqual(record["sha256"], hashlib.sha256(path.read_bytes()).hexdigest())
+            self.assertEqual(record["size"], path.stat().st_size)
+            self.assertEqual(0o600, path.stat().st_mode & 0o777)
+        launch = stage / "migration/output/launch"
+        rendered = (launch / "current-base.conf").read_text()
+        for line in ("server_name: Public É World", "server_name_welcome: Public É World",
+                     "server_bind_address: 0.0.0.0", "server_port: 44594",
+                     "ws_server_port: 44494", "combat_exp_rate: 3", "skilling_exp_rate: 2",
+                     "db_name: current_base", "want_myworld: false", "want_custom_ui: false"):
+            self.assertIn(line, rendered)
+        expected = {"server_name": "Public É World", "server_name_welcome": "Public É World",
+                    "server_bind_address": "0.0.0.0", "server_port": "44594",
+                    "ws_server_port": "44494", "combat_exp_rate": "3", "skilling_exp_rate": "2",
+                    "db_name": "current_base", "want_myworld": "false", "want_custom_ui": "false"}
+        parsed = subprocess.run([
+            "java", "-cp", self.parser_classpath, "com.openrsc.worldbuilder.RuntimeConfigHarness",
+            str(launch / "current-base.conf"), *expected,
+        ], capture_output=True, text=True, check=True)
+        self.assertEqual(expected, json.loads(parsed.stdout))
+        self.assertEqual(
+            (PROVIDER / "current-platform/runtime/current-base-v1/server/current-base.conf").read_bytes(),
+            (stage / "installed/server/current-base.conf").read_bytes(),
+        )
+        manifest_path = stage / "migration/output/map/conversion/package/manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        fingerprint = migration["mapMigration"]["outputPackageFingerprintSha256"]
+        for role in ("server", "client"):
+            profile = json.loads((launch / f"installed-{role}.json").read_text())
+            self.assertEqual(manifest["packageId"], profile["packageId"])
+            self.assertEqual(manifest["packageVersion"], profile["packageVersion"])
+            self.assertEqual(hashlib.sha256(manifest_path.read_bytes()).hexdigest(), profile["manifestSha256"])
+            self.assertEqual(fingerprint, profile["packageFingerprintSha256"])
+            self.assertEqual(f"world-builder/packages/{fingerprint}/package", profile["packageRelativePath"])
+            self.assertTrue(profile["active"])
+        for changed_file in ("current-base.conf", "installed-server.json", "installed-client.json"):
+            for tamper in ("bytes", "mode", "missing", "symlink", "hardlink"):
+                with self.subTest(changed_file=changed_file, tamper=tamper):
+                    changed = self.case_root / (changed_file + "-" + tamper)
+                    shutil.copytree(workspace, changed)
+                    path = changed / "launch-inputs/migration/output/launch" / changed_file
+                    if tamper == "bytes":
+                        path.write_bytes(path.read_bytes() + b" ")
+                    elif tamper == "mode":
+                        path.chmod(0o644)
+                    elif tamper == "missing":
+                        path.unlink()
+                    else:
+                        other = changed / "unowned"
+                        path.rename(other)
+                        if tamper == "symlink":
+                            path.symlink_to(other)
+                        else:
+                            os.link(other, path)
+                    before = tree_snapshot(changed)
+                    refused = self.run_harness("verify-launch-inputs-stage", target, changed, "launch-inputs")
+                    self.assertNotEqual(0, refused.returncode, refused.stdout)
+                    self.assertEqual(before, tree_snapshot(changed))
+        self.assertEqual(before_target, tree_snapshot(target))
+        self.assertEqual(before_source, tree_snapshot(source))
+        for failure in ("default-drift", "map-drift", "partial-set", "output-hash", "existing-output"):
+            with self.subTest(before_launch_write=failure):
+                failed_workspace = self.case_root / failure
+                failed_workspace.mkdir()
+                refused = self.run_harness(
+                    "launch-inputs-stage", target, failed_workspace, "refused", failures=failure,
+                    identity=self.layout_identity, catalog=self.layout_catalog,
+                    packed_source=source, packed_report=report,
+                )
+                self.assertNotEqual(0, refused.returncode)
+                launch_path = failed_workspace / "refused/migration/output/launch"
+                if failure == "existing-output":
+                    self.assertEqual(["user.txt"], [p.name for p in launch_path.iterdir()])
+                    self.assertEqual(b"*", (launch_path / "user.txt").read_bytes())
+                else:
+                    self.assertFalse(launch_path.exists())
+                self.assertEqual(before_target, tree_snapshot(target))
+                self.assertEqual(before_source, tree_snapshot(source))
+
+    def test_runtime_configuration_renderer_refuses_ambiguous_or_partial_inputs(self) -> None:
+        target = self.case_root / "render-inputs"
+        target.mkdir()
+        workspace = self.workspace()
+        defaults = (PROVIDER / "current-platform/runtime/current-base-v1/server/current-base.conf").read_text()
+        typed = {"serverName": "Public É", "bindAddress": "0.0.0.0", "gamePort": 44594,
+                 "websocketPort": 44494, "combatExperienceRate": 3, "skillingExperienceRate": 2,
+                 "databaseMigration": {"engine": "sqlite"}, "configurationBlockers": []}
+        cases = [("serverName", "name:other"), ("serverName", "line\nserver_port: 1"),
+                 ("serverName", "name#comment"), ("serverName", "null"),
+                 ("bindAddress", "::1"), ("gamePort", 0), ("gamePort", 44494),
+                 ("combatExperienceRate", 101), ("configurationBlockers", ["unknown"]),
+                 ("databaseMigration", {"engine": "mariadb"})]
+        for index, (field, value) in enumerate(cases):
+            with self.subTest(field=field, value=value):
+                (target / "typed.json").write_text(json.dumps({**typed, field: value}))
+                (target / "defaults.conf").write_text(defaults)
+                before = tree_snapshot(target)
+                refused = self.run_harness("render-launch-config", target, workspace, f"bad-{index}")
+                self.assertNotEqual(0, refused.returncode)
+                self.assertIn("CODE=CONVERSION_BLOCKED", refused.stderr)
+                self.assertEqual(before, tree_snapshot(target))
+                self.assertEqual({}, tree_snapshot(workspace))
+        for altered in (defaults + "server_port: 44595\n",
+                        defaults.replace("server_port: 43594", "unreviewed_port: 43594")):
+            (target / "typed.json").write_text(json.dumps(typed))
+            (target / "defaults.conf").write_text(altered)
+            refused = self.run_harness("render-launch-config", target, workspace, "bad-defaults")
+            self.assertNotEqual(0, refused.returncode)
+            self.assertEqual({}, tree_snapshot(workspace))
 
     def test_generated_state_seal_survives_reload_and_rejects_drift_without_writes(self) -> None:
         target = self.target("preservation-t0")

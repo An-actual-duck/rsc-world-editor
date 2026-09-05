@@ -431,6 +431,14 @@ without imposing its gameplay or content on Base users.
   cycles, and Editor runtime layouts bind the exact map-selection policy.
   This removes the requirement to copy the active map into runtime working trees;
   it does not yet implement the Editor's map-pointer activation transaction.
+  Complete map/layout previews now bind a three-file launch-input set: rendered
+  Current Base configuration plus matching server/client installed map profiles.
+  Staging reproduces those bytes from verified provider defaults and the complete
+  converted map, without editing the provider runtime roots. Public names, ports,
+  bind addresses and experience rates round-trip through the pinned runtime parser;
+  Advanced defaults remain excluded. Missing prerequisites and unrepresentable
+  configuration values remain blockers. Isolated staging proves drift refusal
+  and no overwrite, not live-instance installation or Editor verifier invocation.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle

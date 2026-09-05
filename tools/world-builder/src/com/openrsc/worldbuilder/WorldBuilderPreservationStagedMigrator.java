@@ -54,7 +54,8 @@ final class WorldBuilderPreservationStagedMigrator {
 	private WorldBuilderPreservationStagedMigrator() {}
 
 	static Map<String,Object> plan(Path target, Map<String,Object> typed,
-		WorldBuilderProviderCatalog.Composition composition, boolean mapReady)
+		WorldBuilderProviderCatalog.Composition composition, boolean mapReady,
+		WorldBuilderPackedConverter.Inspection mapInspection)
 		throws WorldBuilderContractException {
 		List<Object> outputs = new ArrayList<Object>();
 		byte[] config = WorldBuilderJsonDocuments.pretty(typed)
@@ -110,6 +111,13 @@ final class WorldBuilderPreservationStagedMigrator {
 		}
 		result.put("runtimeLayout", runtimeLayout);
 		List<Object> blockers = new ArrayList<Object>();
+		try {
+			outputs.addAll(WorldBuilderCurrentRuntimeLaunchInputs.plan(composition,
+				typed, runtimeLayout, mapInspection));
+		} catch (IOException unavailable) {
+			throw drift("runtime-launch-inputs", "Provider launch defaults could not be read.", unavailable);
+		}
+		if (outputs.size() == 1) blockers.add("runtime-launch-inputs-not-ready");
 		blockers.addAll(array(typed.get("configurationBlockers")));
 		if ("sqlite".equals(engine) && !sqlitePresent)
 			blockers.add("reviewed-offline-sqlite-snapshot-not-found");
@@ -139,11 +147,12 @@ final class WorldBuilderPreservationStagedMigrator {
 				"preservation-migration");
 			Files.createDirectories(destination.getParent());
 			String kind = string(record, "kind");
-			if ("typed-configuration".equals(kind)) {
+			if ("typed-configuration".equals(kind)
+				|| WorldBuilderCurrentRuntimeLaunchInputs.paths().containsKey(kind)) {
 				if (!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) throw blocked(
-					"Typed configuration bytes must be supplied by the bound migration plan.");
+					"Configuration and launch bytes must be supplied by the bound migration plan.");
 			} else throw blocked("Migration output kind is not compiled into this migrator.");
-			setMode(destination, string(record, "mode"));
+			WorldBuilderReadOnlyTarget.open(stage).requiredFile(relative);
 			requireOutput(destination, record);
 		}
 		Map<String,Object> state = object(execution.get("providerStateMigration"));
@@ -153,7 +162,7 @@ final class WorldBuilderPreservationStagedMigrator {
 	}
 
 	static void writeTypedConfiguration(Path stage, Map<String,Object> typed,
-		Map<String,Object> execution) throws IOException, WorldBuilderContractException {
+		Map<String,Object> execution, Map<String,Object> mapMigration) throws IOException, WorldBuilderContractException {
 		Map<String,Object> record = null;
 		for (Object raw : array(execution.get("stagedOutputs"))) {
 			Map<String,Object> candidate = object(raw);
@@ -168,6 +177,7 @@ final class WorldBuilderPreservationStagedMigrator {
 			StandardOpenOption.WRITE);
 		setMode(destination, string(record, "mode"));
 		requireOutput(destination, record);
+		WorldBuilderCurrentRuntimeLaunchInputs.write(stage, typed, execution, mapMigration);
 	}
 
 	static void verify(Path target, Path stage, Map<String,Object> execution,
@@ -193,6 +203,7 @@ final class WorldBuilderPreservationStagedMigrator {
 				"preservation-migration");
 			if (!Files.exists(output, LinkOption.NOFOLLOW_LINKS)) throw blocked(
 				"Staged migration output is missing.");
+			WorldBuilderReadOnlyTarget.open(stage).requiredFile(stagedRelative);
 			requireOutput(output, record);
 		}
 		Map<String,Object> state = object(execution.get("providerStateMigration"));

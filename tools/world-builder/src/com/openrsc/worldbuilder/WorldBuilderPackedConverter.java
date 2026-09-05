@@ -68,9 +68,11 @@ final class WorldBuilderPackedConverter {
 			Result converted = convert(sourceRoot, discoveryReport, output);
 			normalizePrivateModes(output);
 			Map<String,Object> conversionPlan;
+			Map<String,Object> manifest;
 			try {
 				conversionPlan = WorldBuilderJsonDocuments.readObject(
 					output.resolve("conversion-plan.json"));
+				manifest = WorldBuilderJsonDocuments.readObject(output.resolve("package/manifest.json"));
 			} catch (WorldBuilderDiscoveryException malformed) {
 				throw blocked("Generated conversion plan is malformed.",
 					"Inspect the deterministic converter before retrying preview.");
@@ -81,7 +83,8 @@ final class WorldBuilderPackedConverter {
 				converted.reportSha256, converted.reconciliationSha256,
 				converted.outputFingerprintSha256,
 				converted.terrainCount, converted.placementCount,
-				outputInventory(output, "migration/output/map/conversion"));
+				outputInventory(output, "migration/output/map/conversion"), manifest,
+				WorldBuilderHashes.sha256(output.resolve("package/manifest.json")));
 		} finally {
 			deleteTree(temporary);
 		}
@@ -670,6 +673,8 @@ final class WorldBuilderPackedConverter {
 	}
 
 	static final class Inspection {
+		final Map<String,Object> manifest;
+		final String manifestSha256;
 		final String sourceFingerprintSha256;
 		final String planFingerprintSha256;
 		final String planSha256;
@@ -683,7 +688,9 @@ final class WorldBuilderPackedConverter {
 		Inspection(String sourceFingerprintSha256, String planFingerprintSha256,
 			String planSha256, String reportSha256, String reconciliationSha256,
 			String outputFingerprintSha256, int terrainCount, int placementCount,
-			List<Object> outputInventory) {
+			List<Object> outputInventory, Map<String,Object> manifest, String manifestSha256) {
+			this.manifest = manifest;
+			this.manifestSha256 = manifestSha256;
 			this.sourceFingerprintSha256 = sourceFingerprintSha256;
 			this.planFingerprintSha256 = planFingerprintSha256;
 			this.planSha256 = planSha256;

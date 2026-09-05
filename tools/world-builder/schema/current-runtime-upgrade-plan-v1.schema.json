@@ -191,7 +191,7 @@
       "required": ["relativePath", "kind", "sourceRelativePath", "sourceSha256", "size", "sha256", "mode"],
       "properties": {
         "relativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
-        "kind": {"const": "typed-configuration"},
+        "kind": {"enum": ["typed-configuration", "runtime-configuration", "installed-server-profile", "installed-client-profile"]},
         "sourceRelativePath": {"type": "string", "maxLength": 4096},
         "sourceSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "size": {"type": "integer", "minimum": 0, "maximum": 4294967296},

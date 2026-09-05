@@ -235,6 +235,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		long terrainCount = 0L;
 		long placementCount = 0L;
 		boolean mapReady = false;
+		WorldBuilderPackedConverter.Inspection mapInspection = null;
 		if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
 			try {
 				WorldBuilderPackedConversionSource prepared =
@@ -261,6 +262,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 				conversionReportSha256 = inspected.reportSha256;
 				discoveryReconciliationSha256 = inspected.reconciliationSha256;
 				outputPackageFingerprint = inspected.outputFingerprintSha256;
+				mapInspection = inspected;
 				outputInventory.addAll(inspected.outputInventory);
 				terrainCount = inspected.terrainCount;
 				placementCount = inspected.placementCount;
@@ -290,7 +292,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.put("stagedExecution", syntheticOnly
 			? syntheticStagedExecution()
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
-				composition, mapReady));
+				composition, mapReady, mapInspection));
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
 			"migrationPlanFingerprintSha256");
@@ -463,10 +465,20 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			if ("typed-configuration".equals(kind)) {
 				if (!WorldBuilderPreservationStagedMigrator.CONFIG_OUTPUT.equals(relative)
 					|| !source.isEmpty()) throw refusal("Typed configuration path changed.");
+			} else if (WorldBuilderCurrentRuntimeLaunchInputs.paths().containsKey(kind)) {
+				if (!WorldBuilderCurrentRuntimeLaunchInputs.paths().get(kind).equals(relative)
+					|| !source.isEmpty() || !string(output, "sourceSha256").isEmpty()
+					|| !"0600".equals(string(output, "mode")))
+					throw refusal("Runtime launch input path or ownership changed.");
 			} else throw refusal("Production staged output kind is not compiled.");
 		}
 		if (!kinds.contains("typed-configuration")) throw refusal(
 			"Production staged migration omits typed configuration.");
+		if (kinds.size() != 1 && (kinds.size() != 4
+			|| !kinds.containsAll(WorldBuilderCurrentRuntimeLaunchInputs.paths().keySet())
+			|| !Boolean.TRUE.equals(staged.get("canonicalMapPackageReady"))
+			|| !Boolean.TRUE.equals(object(staged.get("runtimeLayout")).get("ready"))))
+			throw refusal("Runtime launch inputs require one complete runnable map/configuration set.");
 	}
 
 	private Map<String,Object> typedConfiguration(Path target)
