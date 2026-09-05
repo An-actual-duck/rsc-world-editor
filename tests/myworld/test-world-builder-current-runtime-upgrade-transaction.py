@@ -183,6 +183,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.Files;
 import java.nio.file.DirectoryStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermission;
@@ -303,6 +304,13 @@ public final class CurrentUpgradeHarness {
                         PosixFilePermission.OWNER_WRITE,
                         PosixFilePermission.GROUP_READ,
                         PosixFilePermission.OTHERS_READ));
+                } else if ("row-schema".equals(failures)) {
+                    Path evidencePath = stage.resolve(
+                        "migration/output/state/current-base-migration-evidence.json");
+                    Map<String,Object> evidence = WorldBuilderJsonDocuments.readObject(evidencePath);
+                    evidence.put("migrationRowId", "preservation-core-sqlite-to-current-base-v1");
+                    Files.write(evidencePath, WorldBuilderJsonDocuments.pretty(evidence)
+                        .getBytes(StandardCharsets.UTF_8), StandardOpenOption.TRUNCATE_EXISTING);
                 }
             }
             WorldBuilderPreservationStagedMigrator.verify(target, stage, execution,
@@ -459,11 +467,13 @@ public final class CurrentUpgradeHarness {
 }
 ''', encoding="utf-8"
         )
-        subprocess.run(
+        harness_build = subprocess.run(
             ["javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
              "-d", str(cls.classes), str(harness)],
-            cwd=ROOT, check=True, capture_output=True, text=True,
+            cwd=ROOT, capture_output=True, text=True,
         )
+        if harness_build.returncode:
+            raise AssertionError(harness_build.stdout + harness_build.stderr)
 
         cls.provider_root = cls.shared_root / "provider"
         shutil.copytree(PROVIDER / "current-platform", cls.provider_root / "current-platform")
@@ -1175,7 +1185,7 @@ public final class CurrentUpgradeHarness {
                 ).fetchone()[0],
             )
         self.assertEqual(before, tree_snapshot(target))
-        for tamper in ("path", "hash", "mode"):
+        for tamper in ("path", "hash", "mode", "row-schema"):
             with self.subTest(staged_output_tamper=tamper):
                 tamper_workspace = self.case_root / f"tamper-{tamper}-transactions"
                 tamper_workspace.mkdir()

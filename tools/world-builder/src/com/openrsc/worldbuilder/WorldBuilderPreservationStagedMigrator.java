@@ -120,7 +120,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		if (!WorldBuilderBoundedInventory.bool(runtimeLayout.get("ready"),
 				"preservation-migration", "ready"))
 			blockers.add("runnable-current-runtime-layout-materialization-required");
-		blockers.add("provider-installed-execution-verifier-contract-required");
+		blockers.add("editor-installed-execution-verifier-integration-required");
 		result.put("readinessBlockers", blockers);
 		return result;
 	}
