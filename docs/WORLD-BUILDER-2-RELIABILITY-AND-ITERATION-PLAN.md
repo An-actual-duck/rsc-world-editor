@@ -41,11 +41,11 @@ legacy runtime.
 
 The current [candidate scope, collected work and ordered closure plan](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md#candidate-scope-and-closure-checkpoint--2026-09-06)
 distinguishes a supported **Current Base candidate** from a candidate able to
-upgrade the **owner's advanced server**. Base-first is the shortest recommendation,
-not an approved substitution for Advanced. The first candidate's supported target,
-database, customizations and operating systems must be explicit before further
-implementation. Advanced is still non-installable; its required behavior/modules
-are critical path if the first candidate must upgrade that game.
+upgrade the **owner's advanced server**. The owner subsequently selected **Base
+first**. Start with the admitted Preservation SQLite path and Linux validation;
+claim other databases/platforms only after their acceptance. Advanced is still
+non-installable and remains planned follow-up, not a blocker or an implicit
+downgrade of the owner's game.
 
 Published Editor `678b78457f067f0ab947520e64a2b9cfdbe1b5bb` adopts runtime
 `d21021756e59b82844dc16152af60721be1418b5`. Genuine conversion/map consumers and
@@ -63,9 +63,9 @@ acceptance. Existing successful component proofs do not need redesign or repeate
 unchanged validation. Known behavior regressions, state preservation and safe
 interrupted recovery cannot be deferred as polish.
 
-Workers remain stopped; this reconciliation changes documentation only. It
-does not merge handoffs, advance the runtime lock, enable production activation,
-create a candidate or authorize live-target mutation. The broader product/release
+The collection was documentation-only; bounded implementation has now resumed
+under the owner's Base-first choice. Production activation remains disabled;
+the choice does not authorize live-target mutation. The broader product/release
 matrix below remains the destination, not a reason to expand an explicitly
 bounded candidate into indefinite optimization or polishing.
 

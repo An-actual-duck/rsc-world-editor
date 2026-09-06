@@ -46,10 +46,13 @@ If the first candidate must upgrade that game, those requirements are critical
 path work, not optional polish. Never silently select Base or discard advanced
 behavior to claim completion.
 
-The first candidate's target scope has not yet been selected. Documenting the
-Base-first recommendation does not authorize narrowing the overall objective.
-Before resuming implementation, make the supported target, database, permitted
-customizations and operating systems explicit. A candidate may have a bounded
+The owner selected **Base first** after this collection. Current Advanced remains
+on the product roadmap but is not a blocker for this first candidate. The initial
+end-to-end implementation uses the already-admitted Preservation SQLite inputs
+and Linux validation environment; broader database/operating-system support must
+be separately validated before it is claimed. Supported light customizations
+must be explicitly admitted; unknown behavior still refuses before mutation.
+This delivery order does not narrow the overall product objective. A candidate may have a bounded
 support statement; it may not claim untested support. Candidate creation is not
 permission to modify a real server or deploy, and production release gates remain
 separate and unchanged.
@@ -72,8 +75,16 @@ evidence; this documentation update does not rerun them.
 The map findings establish a bounded correction task, not a reason to rebuild
 the converter or repeat unchanged map proofs. Normal instance startup has also
 passed its component proof; the remaining task is production workflow wiring.
-Workers remain stopped at this checkpoint. No handoff is merged or runtime lock
-advanced by this documentation change.
+Workers were stopped for collection. Base-first implementation has now resumed
+with bounded assignments; the collection table records the pre-integration tips.
+Subsequent integration status is recorded below rather than rewriting their
+historical test evidence.
+
+Resumed integration: the normal-instance handoff is merged into the Editor;
+its focused four-test acceptance passed again on the integration checkout.
+This changes test coverage, not production behavior. The runtime skill handoff
+is under manager integration with the bounded map correction; it is not yet
+published or adopted. Production intake and guarded cutover remain next work.
 
 ### Ordered remaining work
 
