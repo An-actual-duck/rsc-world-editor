@@ -5,6 +5,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import contextlib
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -13,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 SOURCE_GIT = os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT")
+KEEP_PROBE = os.environ.get("WORLD_BUILDER_PRESERVATION_KEEP_MAP_PROBE") == "1"
 COMMIT = "c0102e60774ab9c9076aabae49f6f97fb6fc4b00"
 TREE = "6db5536d795abf34f303bb03b20c43b8cfb9e3fe"
 MAIN = "com.openrsc.worldbuilder.PreservationConversionHarness"
@@ -76,6 +79,20 @@ def compile_harness(case):
     return classes
 
 
+@contextlib.contextmanager
+def conversion_probe():
+    # A retained probe is always a new test-owned external directory, never a
+    # caller-supplied target. It contains public inputs and invented config only.
+    path = Path(tempfile.mkdtemp(prefix="preservation-map-conversion-"))
+    try:
+        yield path
+    finally:
+        if KEEP_PROBE:
+            print("Retained sanitized Preservation conversion probe: " + str(path), flush=True)
+        else:
+            shutil.rmtree(path)
+
+
 class PreservationMapConversionApiTest(unittest.TestCase):
     def test_internal_entrypoints_compile_without_granting_invocation_authority(self):
         with tempfile.TemporaryDirectory(prefix="preservation-conversion-api-") as temporary:
@@ -85,10 +102,16 @@ class PreservationMapConversionApiTest(unittest.TestCase):
 @unittest.skipUnless(SOURCE_GIT, "genuine reviewed public source Git input unavailable")
 class PreservationMapConversionTest(unittest.TestCase):
     def test_inventory_bound_decoder_and_full_conversion_preserve_immutable_inputs(self):
+        expected = next(line.split("=", 1)[1] for line in (ROOT / "runtime-provider.lock").read_text().splitlines()
+                        if line.startswith("RUNTIME_PROVIDER_COMMIT="))
+        actual = subprocess.check_output(["git", "-C", str(PROVIDER), "rev-parse", "HEAD"], text=True).strip()
+        self.assertEqual(expected, actual, "materialize the exact adopted provider lock before genuine invocation")
+        self.assertEqual(0, subprocess.run(["git", "-C", str(PROVIDER), "diff", "--quiet", "HEAD", "--"],
+                                         capture_output=True).returncode,
+                         "genuine invocation requires unchanged tracked provider inputs")
         subprocess.run(["python3", "scripts/build-current-base.py"], cwd=PROVIDER,
                        check=True, capture_output=True, text=True, timeout=240)
-        with tempfile.TemporaryDirectory(prefix="preservation-map-conversion-") as temporary:
-            case = Path(temporary)
+        with conversion_probe() as case:
             stage = case / "project-stage"
             original = stage / "source/original"
             original.mkdir(parents=True)

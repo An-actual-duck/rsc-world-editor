@@ -120,6 +120,8 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         self.assertFalse(value["profile"]["executionReady"])
         self.assertFalse(value["fixture"]["executionReady"])
         self.assertIn("JAG map migration/parity", value["profile"]["executionReadinessReason"])
+        self.assertIn("exact Current Base definition equivalence", value["profile"]["executionReadinessReason"])
+        self.assertIn("ladder-removal/client-void", value["profile"]["executionReadinessReason"])
         self.assertNotEqual(value["profile"]["profileId"], value["fixture"]["profileId"])
         self.assertTrue(value["fixturePromotionRefused"])
         evidence = self.evidence(ROOT / "tests/fixtures/current-runtime-upgrade-v1/targets/preservation-t0")

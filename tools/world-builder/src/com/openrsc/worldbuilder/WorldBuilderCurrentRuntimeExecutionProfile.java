@@ -77,7 +77,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
 			"world-builder-current-runtime-activation", false, false,
 			"migration-and-verification-not-implemented",
-			(fixture ? "Isolated staging fixture; " : "Historical JAG map migration/parity is not implemented; ")
+			(fixture ? "Isolated staging fixture; " : "Historical JAG map migration/parity, exact Current Base definition equivalence, and ladder-removal/client-void semantics remain unverified; ")
 			+ "production activation remains disabled pending live-instance installation/recovery and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
 	}
 
@@ -318,8 +318,12 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			? syntheticStagedExecution()
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
 				composition, mapReady, mapInspection));
-		if (sourceIntake) array(object(result.get("stagedExecution")).get("readinessBlockers"))
-			.add("historical-jag-migration-and-parity-required");
+		if (sourceIntake) {
+			List<Object> blockers = array(object(result.get("stagedExecution")).get("readinessBlockers"));
+			blockers.add("historical-jag-migration-and-parity-required");
+			blockers.add("historical-current-base-definition-equivalence-required");
+			blockers.add("historical-ladder-removal-and-client-void-proof-required");
+		}
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
 			"migrationPlanFingerprintSha256");

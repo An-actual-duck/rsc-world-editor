@@ -84,6 +84,13 @@ reverse-parity checks. It does not invent a target descriptor, runtime evidence 
 dummy asset agreement, and the public generic descriptor parser is unchanged.
 Production remains blocked pending actual inventory-bound invocation/conversion
 verification, runtime semantic proof and connection to project/upgrade preview.
+Definition equivalence is a separate required proof: Current Base numeric ID
+limits do not establish compatible values. The reviewed historical well (scenery
+2) occupies two by two tiles, while the inherited provider definition occupies one
+by one; historical support posts (21) are nonblocking but the inherited definition
+blocks. Ordinary item and NPC IDs also contain changed values. The conservative
+provider composition must explicitly reconcile these definitions and corresponding
+client/gameplay behavior; map conversion cannot silently absorb those changes.
 The actual invocation/full-conversion test is
 `test-world-builder-preservation-map-conversion.py`: it uses the exact public Git
 input and builds only the pinned Current Base provider, not historical code. It
@@ -91,6 +98,11 @@ must pass with the published decoder-bearing provider before this slice can clai
 complete map conversion. Its separate API-compilation check is not an invocation
 or map-acceptance pass. New conversion outputs must be outside the entire preserved
 `source` namespace, including the decoder and derivation provenance.
+For a separately assigned runtime semantic check, setting the test-only
+`WORLD_BUILDER_PRESERVATION_KEEP_MAP_PROBE=1` retains and prints one freshly
+allocated external probe directory. It contains the sealed public inputs,
+invented connection configuration, decoder proof and converted package; it is not
+a runtime installation or accepted candidate. The default remains test cleanup.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify
