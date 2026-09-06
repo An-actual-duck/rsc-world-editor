@@ -70,6 +70,19 @@ public final class PlacementV5Probe {
       System.out.println(invoke(WorldBuilderRuntimeCompatibility.class,"currentEncodingSet",
         new Class<?>[]{List.class},versions));return;
     }
+    if (mode.equals("v5-probes")) {
+      Map<String,Object> document=WorldBuilderJsonDocuments.readObject(root.resolve("payload.json"));
+      Object probes=invoke(WorldBuilderRuntimeCompatibility.class,"artifactProbes",
+        new Class<?>[]{Object.class,String.class},document.get("probes"),"fixture");
+      invoke(WorldBuilderRuntimeCompatibility.class,"requireBlockedVoidProbes",new Class<?>[]{List.class},probes);
+      Class<?> type=Class.forName("com.openrsc.worldbuilder.WorldBuilderRuntimeCompatibility$HostIntegration");
+      Constructor<?> constructor=type.getDeclaredConstructors()[0];constructor.setAccessible(true);
+      Map<Integer,Object> matrix=new LinkedHashMap<>();matrix.put(4,probes);matrix.put(5,probes);
+      Object integration=constructor.newInstance("","","",Collections.emptyList(),"",Collections.emptyList(),matrix,Collections.emptyList());
+      Method required=type.getDeclaredMethod("requiredProbes",List.class);required.setAccessible(true);
+      if(((List<?>)required.invoke(integration,Arrays.asList(4))).size()!=4)throw new AssertionError("v4 omitted promised v5 probes");
+      return;
+    }
     Map<String,Object> payload = WorldBuilderJsonDocuments.readObject(root.resolve("payload.json"));
     Map<String,Object> declaration = new LinkedHashMap<>(); declaration.put("encoding",payload.get("encoding"));
     if (mode.equals("journal")) {
@@ -267,6 +280,16 @@ class PlacementV5Test(unittest.TestCase):
             self.assertEqual('true',self.run_probe('capability-versions',tmp,5).strip())
             for version in [3,4,6]:
                 self.assertEqual('false',self.run_probe('capability-versions',tmp,version).strip())
+            probes=[dict(archive='server-core',archiveEntryPath='com/openrsc/server/io/NativeLayeredWorldPackage.class',
+                         requiredClassMarkers=['layered-world-placements-v5','npcRoamCoverage','blocked-void']),
+                    dict(archive='client-runtime',archiveEntryPath='orsc/AdaptiveWorldBuilderClientSession.class',
+                         requiredClassMarkers=['layered-world-placements-v5'])]
+            write_json(Path(tmp)/'payload.json',dict(probes=probes));self.run_probe('v5-probes',tmp)
+            for mutation in [probes[:1],list(reversed(probes)),copy.deepcopy(probes)]:
+                if len(mutation)==2 and mutation[0]['archive']=='server-core':
+                    mutation[0]['requiredClassMarkers'].remove('blocked-void')
+                write_json(Path(tmp)/'payload.json',dict(probes=mutation))
+                self.run_probe('v5-probes',tmp,good=False)
 
 
 if __name__=='__main__':
