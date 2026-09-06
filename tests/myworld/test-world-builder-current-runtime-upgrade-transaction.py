@@ -2059,6 +2059,26 @@ public final class RuntimeConfigHarness {
         self.assertEqual("rolled-back", receipt["status"])
         self.assertTrue(receipt["rollbackComplete"])
 
+    def test_synthetic_receipt_cannot_grant_installed_cutover_authority(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        txid = "forged-installed-cutover"
+        halted = self.run_harness("apply", target, workspace, txid, "halt-after-release-published")
+        self.assertEqual(91, halted.returncode, halted.stderr)
+        receipt_path = workspace / txid / "receipt.json"
+        receipt = json.loads(receipt_path.read_text())
+        receipt["installedActivation"] = {
+            "policyId": "current-base-installed-upgrade-v1", "mode": "initial",
+            "instancePlanSha256": "1" * 64, "cutoverPlanSha256": "2" * 64,
+        }
+        receipt_path.write_text(json.dumps(bind(receipt, "receiptFingerprintSha256")))
+        before = tree_snapshot(target)
+        evidence_before = tree_snapshot(workspace)
+        refused = self.run_harness("recover", target, workspace, txid)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertEqual(evidence_before, tree_snapshot(workspace))
+
     def test_process_halt_after_publication_recovers_pending_receipt(self) -> None:
         target = self.target("managed-n")
         workspace = self.workspace()

@@ -28,6 +28,17 @@
       {"type":"object","additionalProperties":false,"required":[],"properties":{}},
       {"$ref":"#/$defs/runtimeVerificationAttempt"}
     ]},
+    "installedActivation": {"oneOf":[
+      {"type":"object","additionalProperties":false,"required":[],"properties":{}},
+      {"type":"object","additionalProperties":false,
+       "required":["policyId","mode","instancePlanSha256","cutoverPlanSha256"],
+       "properties":{
+         "policyId":{"const":"current-base-installed-upgrade-v1"},
+         "mode":{"enum":["initial","successor"]},
+         "instancePlanSha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+         "cutoverPlanSha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+       }}
+    ]},
     "failureType": {"type": "string", "maxLength": 1024},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },

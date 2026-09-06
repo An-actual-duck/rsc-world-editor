@@ -260,7 +260,7 @@
       "type": "array", "minItems": 1, "maxItems": 3, "uniqueItems": true,
       "items": {"enum": ["preservation-retro-sqlite-to-current-base-v1",
         "preservation-core-sqlite-to-current-base-v1", "preservation-initialized-sqlite-to-current-base-v1",
-        "preservation-retro-mariadb-to-current-base-v1"]}
+        "preservation-retro-mariadb-to-current-base-v1", "current-base-sqlite-to-current-base-v1"]}
     },
     "providerStateMigration": {
       "type": "object", "additionalProperties": false,
