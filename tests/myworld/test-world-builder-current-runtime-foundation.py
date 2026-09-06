@@ -346,7 +346,7 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
     def test_installed_ledger_binding_is_closed_and_generation_scoped(self) -> None:
         ledger = json.loads(EDITOR_CONTRACTS["target-ledger"].read_text())
         instance = ".world-builder/current-runtime/instance"
-        binding = {"instanceRelativePath": instance, "generationId": "generation-1",
+        binding = {"projectId": "base-project", "instanceRelativePath": instance, "generationId": "generation-1",
                    "activeSelectionSha256": "a" * 64}
         for role in ("server", "client"):
             binding[role + "DescriptorRelativePath"] = f"{instance}/generations/generation-1/{role}-launch.json"

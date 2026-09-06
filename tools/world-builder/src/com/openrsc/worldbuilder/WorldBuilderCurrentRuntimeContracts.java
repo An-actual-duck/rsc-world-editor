@@ -233,10 +233,11 @@ final class WorldBuilderCurrentRuntimeContracts {
 		hash(root, "ledgerFingerprintSha256", op, false);
 		if (root.containsKey("installedInstance")) {
 			Map<String,Object> installed = object(root.get("installedInstance"), op, "installedInstance");
-			exact(installed, op, "instanceRelativePath", "generationId", "serverDescriptorRelativePath",
+			exact(installed, op, "projectId", "instanceRelativePath", "generationId", "serverDescriptorRelativePath",
 				"serverDescriptorSha256", "clientDescriptorRelativePath", "clientDescriptorSha256", "activeSelectionSha256");
 			String instance = relative(installed, "instanceRelativePath", op);
 			String generation = identifier(installed, "generationId", op);
+			identifier(installed, "projectId", op);
 			if (!".world-builder/current-runtime/instance".equals(instance)) invalid(op, "Installed instance must use the managed topology.");
 			for (String role : Arrays.asList("server", "client")) {
 				String descriptor = relative(installed, role + "DescriptorRelativePath", op);
