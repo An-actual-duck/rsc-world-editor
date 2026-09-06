@@ -181,6 +181,15 @@ final class WorldBuilderPackedConverter {
 	Result convertPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine, Path requestedOutput)
 		throws IOException, WorldBuilderContractException {
 		genuine.reverify();
+		// The internal project lane must not weaken source/original immutability:
+		// the generic project check only knows about the derived input root.
+		if (requestedOutput == null || !requestedOutput.isAbsolute()
+			|| !requestedOutput.equals(requestedOutput.normalize()) || requestedOutput.getParent() == null
+			|| !requestedOutput.getParent().equals(requestedOutput.getParent().toRealPath())
+			|| requestedOutput.startsWith(genuine.projectStage.resolve("source"))
+			|| genuine.projectStage.resolve("source").startsWith(requestedOutput))
+			throw blocked("Historical conversion output overlaps source/provenance or is not a literal canonical path.",
+				"Use a new output child outside source in the unpublished project stage.");
 		WorldBuilderPackedConversionSource source = WorldBuilderPackedConversionSource.openPreservation(genuine);
 		WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.preservationData(genuine);
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =

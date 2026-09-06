@@ -84,6 +84,13 @@ reverse-parity checks. It does not invent a target descriptor, runtime evidence 
 dummy asset agreement, and the public generic descriptor parser is unchanged.
 Production remains blocked pending actual inventory-bound invocation/conversion
 verification, runtime semantic proof and connection to project/upgrade preview.
+The actual invocation/full-conversion test is
+`test-world-builder-preservation-map-conversion.py`: it uses the exact public Git
+input and builds only the pinned Current Base provider, not historical code. It
+must pass with the published decoder-bearing provider before this slice can claim
+complete map conversion. Its separate API-compilation check is not an invocation
+or map-acceptance pass. New conversion outputs must be outside the entire preserved
+`source` namespace, including the decoder and derivation provenance.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify

@@ -118,6 +118,10 @@ class PreservationMapReconciliationTest(unittest.TestCase):
                 path.write_text(json.dumps(value))
                 self.invoke(evidence=path, succeeds=False)
 
+    def test_evidence_path_must_be_literal_absolute_and_canonical(self):
+        self.invoke(evidence=Path("evidence.json"), succeeds=False)
+        self.invoke(evidence=Path(DECODED) / "sectors" / ".." / "evidence.json", succeeds=False)
+
     def test_raw_output_drift_extra_files_and_aliases_are_refused(self):
         for operation in ("drift", "extra", "alias"):
             with self.subTest(operation=operation):

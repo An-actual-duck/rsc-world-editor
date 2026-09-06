@@ -46,7 +46,9 @@ final class WorldBuilderPreservationMapReconciliation {
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderReadOnlyTarget original = canonical(originalRoot);
 		WorldBuilderReadOnlyTarget decoded = canonical(decodedRoot);
-		WorldBuilderReadOnlyTarget evidenceRoot = canonical(evidencePath.toAbsolutePath().getParent());
+		if (evidencePath == null || !evidencePath.isAbsolute() || !evidencePath.equals(evidencePath.normalize())
+			|| evidencePath.getParent() == null) throw blocked("Decoder evidence requires one literal absolute canonical path.");
+		WorldBuilderReadOnlyTarget evidenceRoot = canonical(evidencePath.getParent());
 		String evidenceName = evidencePath.getFileName().toString();
 		WorldBuilderReadOnlyTarget.FileState evidenceState = evidenceRoot.requiredState("decoder-evidence", evidenceName);
 		if (evidenceState.size > 2 * 1024 * 1024) throw blocked("Decoder evidence exceeds its bounded size.");
