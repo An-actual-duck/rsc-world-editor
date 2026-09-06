@@ -706,6 +706,20 @@ normal server/client login cycles using descriptors produced by the Editor's
 initial-instance constructor, with authenticated session shutdown and both role
 leases proving closure before test cleanup.
 
+That component integration is covered by
+`test-world-builder-initial-instance-integration.py`: it builds the exact pinned
+provider, converts invented source map/account data, and uses the Editor's
+`inspectInitial` / `materializeNew` / `verifyNew` output directly. Two actual
+normal manual-login cycles must render the map and player, retain migrated
+account/inventory/quest/skill state and the client UID, and leave sealed release,
+original inputs, descriptors and active selection unchanged. Startup authority
+comes from each owned process's fresh session announcement plus its exactly bound
+ready record; shutdown uses that session protocol, then actual clean process exit
+and both persistent Editor role leases. Unproven closure retains the disposable
+fixtures and diagnostics; this test has no terminate/kill cleanup fallback.
+This is real initial-instance component proof, not historical intake acceptance,
+transactional cutover implementation, or permission to activate a user target.
+
 The Editor now contains a package-private synthetic transaction foundation for
 the safe structural subset of this sequence. Against sealed synthetic
 installable fixtures only, it implements semantic preview for T0, T1, T2A,
