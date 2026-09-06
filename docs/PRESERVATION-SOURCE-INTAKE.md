@@ -84,6 +84,16 @@ reverse-parity checks. It does not invent a target descriptor, runtime evidence 
 dummy asset agreement, and the public generic descriptor parser is unchanged.
 Production remains blocked pending actual inventory-bound invocation/conversion
 verification, runtime semantic proof and connection to project/upgrade preview.
+The inventory-bound decoder has now run successfully against the adopted provider
+`dcd362ec3381ec4883f3855b7157d9d08e4a60fe`. Full conversion exposed a further real
+input requirement: 146 stock NPC roaming rectangles intersect 58 server-probed
+absent sectors, although every NPC anchor is on present terrain. Historically
+those missing sectors remained fully blocked. The current terrain-covered roaming
+contract refuses these rectangles; passing the decoder alone is not a complete
+conversion result. The original bounds must remain unchanged, including their
+effect on chase limits. A new explicit current blocked-void roaming capability is
+required; clipping bounds or activating client-only map sectors is not an accepted
+repair. Existing generic packages must retain their terrain-covered default.
 Definition equivalence is a separate required proof: Current Base numeric ID
 limits do not establish compatible values. The reviewed historical well (scenery
 2) occupies two by two tiles, while the inherited provider definition occupies one
