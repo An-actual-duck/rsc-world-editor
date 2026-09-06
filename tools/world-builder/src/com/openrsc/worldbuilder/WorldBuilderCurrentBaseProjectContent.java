@@ -110,6 +110,12 @@ final class WorldBuilderCurrentBaseProjectContent {
 	}
 
 	/** Portable immutable evidence, rechecked without consulting a later provider checkout. */
+	static Map<String,Object> verifiedIdentity(Path project) throws IOException, WorldBuilderContractException {
+		verify(project);
+		return read(project.resolve(IDENTITY));
+	}
+
+	/** Portable immutable evidence, rechecked without consulting a later provider checkout. */
 	static Map<String,Object> verify(Path project) throws IOException, WorldBuilderContractException {
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(project);
 		Map<String,Object> binding = read(target.requiredFile(BINDING));

@@ -32,6 +32,24 @@ final class WorldBuilderPreservationPersistentInputs {
 
 	static boolean admits(String relative) { return PATHS.containsKey(relative); }
 
+	static void reverify(Path target, Map<String,Object> binding) throws WorldBuilderContractException {
+		validateEvidence(binding);
+		Map<String,Object> fresh = inspect(WorldBuilderReadOnlyTarget.open(target), true);
+		if (!WorldBuilderJsonDocuments.canonical(fresh).equals(WorldBuilderJsonDocuments.canonical(binding)))
+			throw blocked("Persistent inputs changed after the confirmed preview.");
+	}
+
+	static Path source(Path target, Map<String,Object> binding, String relative) throws WorldBuilderContractException {
+		if (!admits(relative)) throw blocked("Requested state path is outside the closed preservation policy.");
+		reverify(target, binding);
+		for (Object raw : (List<?>)binding.get("inputs")) {
+			Map<?,?> row = (Map<?,?>)raw;
+			if (relative.equals(row.get("relativePath")) && Boolean.TRUE.equals(row.get("present")))
+				return WorldBuilderReadOnlyTarget.open(target).requiredFile(relative);
+		}
+		throw blocked("Requested persistent input was absent from the confirmed preview.");
+	}
+
 	static List<Object> evidenceRules() {
 		List<Object> result = new ArrayList<Object>();
 		for (Map.Entry<String,String> item : PATHS.entrySet()) {

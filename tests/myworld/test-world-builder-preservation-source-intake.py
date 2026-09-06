@@ -45,6 +45,22 @@ public final class PreservationIntakeHarness {
     } else if ("private-inputs".equals(args[0])) {
       result = WorldBuilderPreservationPersistentInputs.inspect(WorldBuilderReadOnlyTarget.open(Paths.get(args[1])), true);
       WorldBuilderPreservationPersistentInputs.validateEvidence(result);
+      WorldBuilderPreservationPersistentInputs.reverify(Paths.get(args[1]), result);
+      for (Object raw : (List<?>)result.get("inputs")) {
+        Map<?,?> row = (Map<?,?>)raw;
+        String relative = (String)row.get("relativePath");
+        if (Boolean.TRUE.equals(row.get("present"))) {
+          if (!Paths.get(args[1]).resolve(relative).equals(WorldBuilderPreservationPersistentInputs.source(Paths.get(args[1]), result, relative)))
+            throw new AssertionError("persistent source resolver returned another path");
+        } else {
+          try { WorldBuilderPreservationPersistentInputs.source(Paths.get(args[1]), result, relative);
+            throw new AssertionError("absent persistent input acquired source authority");
+          } catch (WorldBuilderContractException refused) { }
+        }
+      }
+      try { WorldBuilderPreservationPersistentInputs.source(Paths.get(args[1]), result, "../foreign-private-key");
+        throw new AssertionError("unadmitted private source accepted");
+      } catch (WorldBuilderContractException refused) { }
     } else if ("validate-private-inputs".equals(args[0])) {
       result = WorldBuilderJsonDocuments.readObject(Paths.get(args[1]));
       WorldBuilderPreservationPersistentInputs.validateEvidence(result);

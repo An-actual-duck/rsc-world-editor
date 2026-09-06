@@ -213,6 +213,13 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderProviderCatalog.Composition composition, Path packedSourceRoot,
 		Path packedDiscoveryReport)
 		throws WorldBuilderContractException {
+		return migrationPlan(target, classification, composition, packedSourceRoot, packedDiscoveryReport, null);
+	}
+
+	Map<String,Object> migrationPlan(Path target, Map<String,Object> classification,
+		WorldBuilderProviderCatalog.Composition composition, Path packedSourceRoot,
+		Path packedDiscoveryReport, Path preservationProject)
+		throws WorldBuilderContractException {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("schemaVersion", Long.valueOf(1));
 		result.put("manifestType", "world-builder-current-runtime-migration-plan");
@@ -249,6 +256,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			: "descriptor-backed-world-builder-packed-converter");
 		if (sourceIntake && (packedSourceRoot != null || packedDiscoveryReport != null))
 			throw refusal("Historical Preservation selects JAG/MEM server maps; descriptor-backed ZIP evidence cannot replace the pending reviewed JAG migration/parity path.");
+		if (preservationProject != null && (!sourceIntake || syntheticOnly || packedSourceRoot != null || packedDiscoveryReport != null))
+			throw refusal("A Preservation project is exclusive to the genuine historical source intake and cannot be combined with packed evidence.");
 		if (sourceIntake) {
 			if (!"sqlite".equals(object(typed.get("databaseMigration")).get("engine")))
 				throw refusal("This production Preservation intake admits only a closed SQLite input.");
@@ -267,7 +276,29 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		long placementCount = 0L;
 		boolean mapReady = false;
 		WorldBuilderPackedConverter.Inspection mapInspection = null;
-		if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
+		if (preservationProject != null) {
+			try {
+				WorldBuilderPreservationProjectEvidence.Verified genuine = WorldBuilderPreservationProjectEvidence.open(
+					preservationProject, target, composition);
+				mapInspection = genuine.inspectConversion();
+				sourceFingerprint = mapInspection.sourceFingerprintSha256;
+				conversionPlanFingerprint = mapInspection.planFingerprintSha256;
+				conversionPlanSha256 = mapInspection.planSha256;
+				conversionReportSha256 = mapInspection.reportSha256;
+				discoveryReconciliationSha256 = mapInspection.reconciliationSha256;
+				outputPackageFingerprint = mapInspection.outputFingerprintSha256;
+				outputInventory.addAll(mapInspection.outputInventory);
+				terrainCount = mapInspection.terrainCount;
+				placementCount = mapInspection.placementCount;
+				reportHash = genuine.discoveryReportSha256();
+				mapReady = true;
+				map.put("executionBoundary", WorldBuilderPreservationProjectEvidence.BOUNDARY);
+			} catch (java.io.IOException failure) {
+				throw new WorldBuilderContractException(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+					"current-runtime-migration", "preservation-project", false,
+					"Genuine project evidence cannot be reopened safely.", "Retain the project and review exact source evidence.", failure);
+			}
+		} else if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
 			try {
 				WorldBuilderPackedConversionSource prepared =
 					WorldBuilderPackedConversionSource.open(
@@ -329,9 +360,11 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			staged.put("sqliteSchemaMigrationReady", Boolean.FALSE);
 			List<Object> blockers = array(staged.get("readinessBlockers"));
 			blockers.add("sqlite-schema-validation-pending-provider-sealed-migration");
-			blockers.add("historical-jag-migration-and-parity-required");
-			blockers.add("historical-current-base-definition-equivalence-required");
-			blockers.add("historical-ladder-removal-and-client-void-proof-required");
+			if (!mapReady) {
+				blockers.add("historical-jag-migration-and-parity-required");
+				blockers.add("historical-current-base-definition-equivalence-required");
+				blockers.add("historical-ladder-removal-and-client-void-proof-required");
+			}
 		}
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
@@ -424,6 +457,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		}
 		boolean packageReady = WorldBuilderBoundedInventory.bool(map.get("packageReady"),
 			"current-runtime-migration", "packageReady");
+		if (sourceIntake && !(packageReady ? WorldBuilderPreservationProjectEvidence.BOUNDARY
+			: "historical-jag-conversion-pending").equals(map.get("executionBoundary")))
+			throw refusal("Historical map readiness does not match the compiled genuine execution boundary.");
 		for (String field : Arrays.asList("preparedSourceFingerprintSha256",
 			"discoveryReportSha256", "conversionPlanFingerprintSha256",
 			"conversionPlanSha256", "conversionReportSha256",

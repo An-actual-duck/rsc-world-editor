@@ -62,10 +62,21 @@ final class WorldBuilderPackedConverter {
 	/** Read-only semantic preview used by the current-runtime upgrade transaction. */
 	Inspection inspect(Path sourceRoot, Path discoveryReport)
 		throws IOException, WorldBuilderContractException {
+		return inspect(sourceRoot, discoveryReport, null);
+	}
+
+	Inspection inspectPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine)
+		throws IOException, WorldBuilderContractException {
+		if (genuine == null) throw blocked("Genuine historical evidence is required.", "Reopen the verified Preservation project.");
+		return inspect(null, null, genuine);
+	}
+
+	private Inspection inspect(Path sourceRoot, Path discoveryReport, WorldBuilderPreservationMapEvidence.Prepared genuine)
+		throws IOException, WorldBuilderContractException {
 		Path temporary = Files.createTempDirectory("world-builder-packed-preview-");
 		try {
 			Path output = temporary.resolve("conversion");
-			Result converted = convert(sourceRoot, discoveryReport, output);
+			Result converted = genuine == null ? convert(sourceRoot, discoveryReport, output) : convertPreservationDetached(genuine, output);
 			normalizePrivateModes(output);
 			Map<String,Object> conversionPlan;
 			Map<String,Object> manifest;
@@ -180,6 +191,17 @@ final class WorldBuilderPackedConverter {
 	/** Data-only source authority can only be constructed by the compiled genuine adapter. */
 	Result convertPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine, Path requestedOutput)
 		throws IOException, WorldBuilderContractException {
+		return convertPreservation(genuine, requestedOutput, false);
+	}
+
+	/** Reopened immutable evidence may produce a separate transaction/preview output, never alter its project. */
+	Result convertPreservationDetached(WorldBuilderPreservationMapEvidence.Prepared genuine, Path requestedOutput)
+		throws IOException, WorldBuilderContractException {
+		return convertPreservation(genuine, requestedOutput, true);
+	}
+
+	private Result convertPreservation(WorldBuilderPreservationMapEvidence.Prepared genuine, Path requestedOutput, boolean detached)
+		throws IOException, WorldBuilderContractException {
 		genuine.reverify();
 		// The internal project lane must not weaken source/original immutability:
 		// the generic project check only knows about the derived input root.
@@ -190,6 +212,8 @@ final class WorldBuilderPackedConverter {
 			|| genuine.projectStage.resolve("source").startsWith(requestedOutput))
 			throw blocked("Historical conversion output overlaps source/provenance or is not a literal canonical path.",
 				"Use a new output child outside source in the unpublished project stage.");
+		if (detached && (requestedOutput.startsWith(genuine.projectStage) || genuine.projectStage.startsWith(requestedOutput)))
+			throw blocked("Detached historical conversion overlaps its retained project evidence.", "Select a new independent transaction output.");
 		WorldBuilderPackedConversionSource source = WorldBuilderPackedConversionSource.openPreservation(genuine);
 		WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.preservationData(genuine);
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions =
@@ -197,7 +221,7 @@ final class WorldBuilderPackedConverter {
 		WorldBuilderPackedConversionModel model = WorldBuilderPackedConversionModel.read(source, configuration,
 			definitions, idFactory, cumulativeRecordLimit);
 		Result result = convertPrepared(source, new Prepared(configuration, definitions, genuine.catalogSha256, model),
-			requestedOutput, genuine.projectStage);
+			requestedOutput, detached ? null : genuine.projectStage);
 		genuine.reverify();
 		return result;
 	}
