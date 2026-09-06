@@ -534,16 +534,12 @@ final class WorldBuilderAdaptiveExporter {
 			String relative = string(declaration, "path");
 			Map<String,Object> payload = readObject(requireFile(root,
 				packageRelative + "/" + relative, "placement payload"), relative);
-			if ("layered-world-placements-v3".equals(
-				string(declaration, "encoding"))) {
-				for (Object npcRaw : array(payload.get("npcs"), relative + " npcs")) {
-					object(npcRaw, relative + " npc").put(
-						"respawnSeconds", Long.valueOf(-1L));
-				}
+			try {
+				int version = WorldBuilderPlacementEncoding.validateHeader(payload, declaration.get("encoding"));
+				WorldBuilderPlacementEncoding.promote(payload, declaration, Math.max(4, version));
+			} catch (IllegalArgumentException invalid) {
+				throw new IOException("Cannot normalize placement capability: " + relative, invalid);
 			}
-			payload.put("schemaVersion", Long.valueOf(4L));
-			payload.put("encoding", "layered-world-placements-v4");
-			declaration.put("encoding", "layered-world-placements-v4");
 			declaration.put("sha256", WorldBuilderHashes.sha256(
 				WorldBuilderJsonDocuments.canonical(payload).getBytes(StandardCharsets.UTF_8)));
 		}

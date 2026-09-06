@@ -315,22 +315,24 @@ final class WorldBuilderAdaptiveMutationProfile {
 			WorldBuilderTargetCapability.RELATIVE_PATH,
 			"Target capability changed after the latest successful import.",
 			"Restore the exact compatible target capability before importing again.");
+		String selectedRole = installed.configuration.configurationId;
+		WorldBuilderAdaptiveConfiguration configuration =
+			WorldBuilderAdaptiveConfiguration.select(readOnly, capability, selectedRole).selected;
+		// Mint only after the trusted prior receipt/action and unchanged-evidence
+		// checks above. Historical descriptor metadata is not installed authority.
+		InstalledDiscoveryAuthority authority = new InstalledDiscoveryAuthority(
+			project, installed, capability, configuration, export.packageValue);
 		WorldBuilderAdaptiveDiscoveryReport fresh =
-			new WorldBuilderAdaptiveDiscovery().discover(target,
+			new WorldBuilderAdaptiveDiscovery().discoverInstalled(target,
 				WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(
-					project.discoveryReport));
+					project.discoveryReport), authority);
 		if (!"compatible".equals(fresh.status)) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "target-root",
 			"The currently installed World Builder package is not a compatible import baseline.",
 			"Restore the exact latest successful import before importing again.");
 
-		String selectedRole = installed.configuration.configurationId;
-		WorldBuilderAdaptiveConfiguration configuration =
-			WorldBuilderAdaptiveConfiguration.select(readOnly, capability,
-				selectedRole).selected;
 		WorldBuilderRuntimeCompatibility.Upgrade runtimeCompatibility =
-			WorldBuilderRuntimeCompatibility.inspect(
-				project, target, configuration, capability, export.packageValue);
+			authority.runtimeCompatibility;
 		requireInstallEncodingSupport(
 			runtimeCompatibility.encodingVersions, export.packageValue);
 		String configurationPath = installed.configuration.relativePath;
@@ -2269,6 +2271,118 @@ final class WorldBuilderAdaptiveMutationProfile {
 				value.put("rollbackVerified", Boolean.FALSE);
 			}
 			return value;
+		}
+	}
+
+	/**
+	 * Transient generic installed-host compatibility only. This is not Current
+	 * Base composition authority, a production upgrade ledger, or an input flag.
+	 */
+	static final class InstalledDiscoveryAuthority {
+		private final WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project;
+		private final Plan installed;
+		private final String capabilitySha256, configurationPath, configurationSha256;
+		private final Map<String,String> packages = new LinkedHashMap<String,String>();
+		private final Map<String,WorldBuilderReadOnlyTarget.FileState> targetStates =
+			new LinkedHashMap<String,WorldBuilderReadOnlyTarget.FileState>();
+		private final Map<String,WorldBuilderReadOnlyTarget.FileState> projectStates =
+			new LinkedHashMap<String,WorldBuilderReadOnlyTarget.FileState>();
+		private final WorldBuilderRuntimeCompatibility.Upgrade runtimeCompatibility;
+
+		private InstalledDiscoveryAuthority(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+			Plan installed, WorldBuilderTargetCapability capability,
+			WorldBuilderAdaptiveConfiguration configuration, WorldBuilderGenericLayeredPackage proposed)
+			throws IOException, WorldBuilderContractException {
+			this.project = project; this.installed = installed;
+			this.capabilitySha256 = capability.evidenceSha256;
+			this.configurationPath = configuration.relativePath;
+			this.configurationSha256 = configuration.sha256;
+			WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(installed.targetRoot);
+			WorldBuilderReadOnlyTarget source = WorldBuilderReadOnlyTarget.open(project.projectRoot);
+			for (String path : new String[]{WorldBuilderTargetCapability.RELATIVE_PATH, configurationPath,
+				"server/core.jar", compiledClientRoot(configuration) + "/Open_RSC_Client.jar",
+				WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_DESTINATION,
+				WorldBuilderRuntimeCompatibility.BUILD_DESTINATION,
+				WorldBuilderRuntimeCompatibility.CAPABILITY_DESTINATION,
+				WorldBuilderRuntimeCompatibility.LEGACY_CAPABILITY_DESTINATION,
+				"server/world-builder-runtime/world-builder-managed-runtime.jar",
+				"server/lib/world-builder-managed-runtime.jar", "server/core-gameplay-overlay.jar"}) {
+				targetStates.put(path, target.optionalState("installed-host-proof", path));
+			}
+			for (Action action : installed.actions) targetStates.put(action.destinationRelativePath,
+				target.optionalState("installed-host-proof", action.destinationRelativePath));
+			for (String path : new String[]{WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_SOURCE,
+				"working/runtime/server/core.jar", "working/runtime/client/Open_RSC_Client.jar",
+				"working/runtime/server/conf/world-builder/host-integration/RSCProtocolDecoder.java",
+				WorldBuilderAdaptiveProjectLifecycle.PROJECT_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.SNAPSHOT_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.DISCOVERY_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_RUNTIME_FILE,
+				WorldBuilderAdaptiveRuntimePreparer.INVENTORY_FILE,
+				"receipts/" + installed.transactionId() + ".json",
+				"backups/" + installed.transactionId() + "/mutation-plan.json"}) {
+				projectStates.put(path, source.requiredState("installed-host-source-proof", path));
+			}
+			String choice = "source/migration/choice.json";
+			projectStates.put(choice, source.optionalState("installed-host-source-proof", choice));
+			if ("layered".equals(configuration.representation)) {
+				WorldBuilderCompatibilityEvidence common = WorldBuilderCompatibilityEvidence.inspect(target, capability, configuration);
+				for (String path : new String[]{configuration.serverMapRelativePath, configuration.clientMapRelativePath}) {
+					WorldBuilderGenericLayeredPackage value = WorldBuilderGenericLayeredPackage.inspect(target, path,
+						"installed-host-proof", common.definitions);
+					packages.put(path, value.fingerprintSha256);
+				}
+			}
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject currentProject =
+				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project.projectRoot, true);
+			if (!project.manifest.equals(currentProject.manifest) || !project.snapshot.equals(currentProject.snapshot))
+				throw refusal("Verified project authority changed before installed rediscovery.");
+			this.runtimeCompatibility = WorldBuilderRuntimeCompatibility.inspect(project, installed.targetRoot,
+				configuration, capability, proposed);
+			requireInstallEncodingSupport(runtimeCompatibility.encodingVersions, proposed);
+			requireTarget(target, capability);
+		}
+
+		void requireTarget(WorldBuilderReadOnlyTarget target, WorldBuilderTargetCapability capability)
+			throws WorldBuilderContractException {
+			if (!installed.targetRoot.equals(target.root) || capability == null
+				|| !capabilitySha256.equals(capability.evidenceSha256)) throw refusal("Target or descriptor binding changed.");
+			try {
+				if (!WorldBuilderAdaptiveUndo.changedAfterPaths(installed).isEmpty()) throw refusal("Installed receipt action state changed.");
+				Set<String> destinations = new HashSet<String>();
+				for (Action action : installed.actions) destinations.add(action.destinationRelativePath);
+				verifyUnchangedTargetEvidence(project, target.root, installed.configuration.relativePath, destinations);
+			} catch (IOException unreadable) { throw refusal("Installed receipt evidence could not be reverified."); }
+			requireStates(target, targetStates);
+			requireStates(WorldBuilderReadOnlyTarget.open(project.projectRoot), projectStates);
+		}
+
+		void requireConfiguration(WorldBuilderReadOnlyTarget target, WorldBuilderTargetCapability capability,
+			WorldBuilderAdaptiveConfiguration configuration) throws WorldBuilderContractException {
+			requireTarget(target, capability);
+			if (!configurationPath.equals(configuration.relativePath) || !configurationSha256.equals(configuration.sha256))
+				throw refusal("Installed configuration binding changed.");
+		}
+
+		void requirePackage(WorldBuilderReadOnlyTarget target, WorldBuilderTargetCapability capability,
+			WorldBuilderAdaptiveConfiguration configuration, WorldBuilderGenericLayeredPackage value, String path)
+			throws WorldBuilderContractException {
+			requireConfiguration(target, capability, configuration);
+			if (!value.fingerprintSha256.equals(packages.get(path))) throw refusal("Installed package binding changed.");
+			value.requireAdvertisedEncodings(runtimeCompatibility.encodingVersions, path);
+		}
+
+		private static void requireStates(WorldBuilderReadOnlyTarget target,
+			Map<String,WorldBuilderReadOnlyTarget.FileState> states) throws WorldBuilderContractException {
+			for (WorldBuilderReadOnlyTarget.FileState state : states.values()) {
+				if (!state.stableKey().equals(target.optionalState(state.role, state.relativePath).stableKey()))
+					throw refusal("Observed host artifacts or evidence changed: " + state.relativePath);
+			}
+		}
+
+		private static WorldBuilderContractException refusal(String detail) {
+			return problem(WorldBuilderErrorCodes.TARGET_DRIFT, "installed-host-rediscovery",
+				detail, "Reverify the exact installed transaction and host runtime; no discovery override is accepted.");
 		}
 	}
 

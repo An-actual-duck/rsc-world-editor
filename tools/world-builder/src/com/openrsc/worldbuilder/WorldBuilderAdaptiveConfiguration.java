@@ -58,6 +58,15 @@ final class WorldBuilderAdaptiveConfiguration {
 		this.sha256 = sha256;
 	}
 
+	/** Internal data-only configuration, deliberately not admitted by the public descriptor parser. */
+	static WorldBuilderAdaptiveConfiguration preservationData(WorldBuilderPreservationMapEvidence.Prepared genuine)
+		throws java.io.IOException, WorldBuilderContractException {
+		genuine.reverify();
+		return new WorldBuilderAdaptiveConfiguration("preservation-data", true, "packed",
+			"server/fused.orsc", "client/fused.orsc", "", "", "catalog.json", "catalog.json",
+			Collections.<AssetPair>emptyList(), genuine.placements, "derivation.json", genuine.derivationSha256);
+	}
+
 	static Selection select(
 		WorldBuilderReadOnlyTarget target,
 		WorldBuilderTargetCapability capability,

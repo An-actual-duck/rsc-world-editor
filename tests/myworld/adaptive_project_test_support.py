@@ -50,9 +50,11 @@ FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES = {
     ),
     "com/openrsc/server/io/NativeLayeredWorldPackage.class": (
         b"layered-world-placements-v3\0layered-world-placements-v4\0"
+        b"layered-world-placements-v5\0npcRoamCoverage\0blocked-void\0"
     ),
 }
 FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES = {
+    "orsc/AdaptiveWorldBuilderClientSession.class": b"layered-world-placements-v5\0",
     "orsc/WorldBuilderInstalledClientProfile.class": (
         b"fixture-current-host-client"
     ),
@@ -266,7 +268,7 @@ def host_runtime_capability() -> dict:
         "mapFormatId": "signed-layered-v1",
         "packageSchemaId": "layered-world-package-v1",
         "coordinateModel": "signed-layered-v1",
-        "encodingVersions": [1, 2, 3, 4],
+        "encodingVersions": [1, 2, 3, 4, 5],
         "placementFamilies": ["boundary", "ground-item", "npc", "scenery"],
         "requiredHostCapabilities": [
           {
@@ -422,6 +424,23 @@ def host_runtime_capability() -> dict:
                     ),
                     "requiredClassMarkers": ["layered-world-placements-v4"],
                 }],
+            },
+            {
+                "encodingVersion": 5,
+                "capabilityId": "layered-placement-runtime-v5",
+                "encodings": ["layered-world-placements-v5"],
+                "artifactProbes": [
+                    {
+                        "archive": "server-core",
+                        "archiveEntryPath": "com/openrsc/server/io/NativeLayeredWorldPackage.class",
+                        "requiredClassMarkers": ["layered-world-placements-v5", "npcRoamCoverage", "blocked-void"],
+                    },
+                    {
+                        "archive": "client-runtime",
+                        "archiveEntryPath": "orsc/AdaptiveWorldBuilderClientSession.class",
+                        "requiredClassMarkers": ["layered-world-placements-v5"],
+                    },
+                ],
             },
         ],
         "receiptMigration": {

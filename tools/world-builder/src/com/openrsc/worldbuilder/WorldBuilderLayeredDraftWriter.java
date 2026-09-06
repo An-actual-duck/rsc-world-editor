@@ -236,21 +236,14 @@ final class WorldBuilderLayeredDraftWriter {
 		Path placementPayload = packageRoot.resolve(placementPath).normalize();
 		requireContained(packageRoot, placementPayload, placementPath);
 		Files.createDirectories(placementPayload.getParent());
-		Map<String,Object> empty = new LinkedHashMap<String,Object>();
-		empty.put("boundaries", new ArrayList<Object>());
-		empty.put("encoding", "layered-world-placements-v4");
-		empty.put("groundItems", new ArrayList<Object>());
-		empty.put("level", Long.valueOf(level));
-		empty.put("npcs", new ArrayList<Object>());
-		empty.put("scenery", new ArrayList<Object>());
-		empty.put("schemaVersion", Long.valueOf(4));
-		empty.put("worldSpace", "global");
+		Map<String,Object> empty = WorldBuilderPlacementEncoding.empty("global", level,
+			WorldBuilderPlacementEncoding.packageVersion(placements));
 		Files.write(
 			placementPayload,
 			WorldBuilderJsonDocuments.pretty(empty).getBytes(StandardCharsets.UTF_8),
 			StandardOpenOption.CREATE_NEW);
 		Map<String,Object> placementRecord = new LinkedHashMap<String,Object>();
-		placementRecord.put("encoding", "layered-world-placements-v4");
+		placementRecord.put("encoding", empty.get("encoding"));
 		placementRecord.put(
 			"id", "spoiled-milk-builder-l"
 				+ WorldBuilderLayeredPackage.signedToken(level));

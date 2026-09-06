@@ -346,6 +346,20 @@
     {
       "kind": "definition",
       "mode": "100644",
+      "path": "server/conf/server/defs/DoorDef.xml",
+      "sha256": "086ae534ea3bcc5ef47ae806ea0f9239632a2dfbb42493da18a0ce8644a1007b",
+      "size": 66822
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
+      "path": "server/conf/server/defs/GameObjectDef.xml",
+      "sha256": "11ad1bce81c57f95020a5b977bb8fbcd5e4fb3215384a362a385247bad934202",
+      "size": 425647
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
       "path": "server/conf/server/defs/ItemDefs.json",
       "sha256": "fa09a749ecfe8f2cea5a01ac9d908af5bd39a748136acd17d917b7c7cc5b801b",
       "size": 891244
@@ -353,9 +367,30 @@
     {
       "kind": "definition",
       "mode": "100644",
+      "path": "server/conf/server/defs/ItemDefsCustom.json",
+      "sha256": "9b997565965b7bbec5bdbce49249fcae58bab8ba1facf1e5a284646b3b24666a",
+      "size": 212411
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
       "path": "server/conf/server/defs/NpcDefs.json",
       "sha256": "21a1e0c6c48e3e8681ae16e59cf5ed48671db8a98b1d5aac806633546738c9fa",
       "size": 772373
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
+      "path": "server/conf/server/defs/NpcDefsCustom.json",
+      "sha256": "3d41de3b35ce579eb158a5ba27fe7f6a8613c437875c7b3f3db1eaaae07e366c",
+      "size": 34565
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
+      "path": "server/conf/server/defs/TileDef.xml",
+      "sha256": "f5df462fbedaf9cb3769e4573d16457c1d8f13a3da876c502d7067ff90a0ceda",
+      "size": 2817
     },
     {
       "kind": "definition",
@@ -381,9 +416,23 @@
     {
       "kind": "definition",
       "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsDiscontinued.json",
+      "sha256": "47153ab5de65e802e6124546d5e58b98fb41f6b03a957329ab1eff6cc368697f",
+      "size": 178
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
       "path": "server/conf/server/defs/locs/SceneryLocs.json",
       "sha256": "f6367ece079ec20a1032cd4b175bd9ad07b3ec9f2008a086bd08750953090380",
       "size": 2235876
+    },
+    {
+      "kind": "definition",
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsDiscontinued.json",
+      "sha256": "61b6c43296a8e5d9ff697297cf8031fa787fb9eae01bd12757ddff193034bda0",
+      "size": 105
     },
     {
       "kind": "configuration",

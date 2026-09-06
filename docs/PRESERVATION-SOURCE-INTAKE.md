@@ -9,7 +9,7 @@ Production activation remains disabled. This is not candidate acceptance.
 The historical identity is commit `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree
 `6db5536d795abf34f303bb03b20c43b8cfb9e3fe`. The packaged source closure binds
 1,246 source/build/resource records and 22 historical vendor dependencies. The
-new `preservation-c0102e-source-intake.json` resource additionally seals 16 public
+new `preservation-c0102e-source-intake.json` resource additionally seals 23 public
 configuration, map, definition and launcher paths. It contains metadata only.
 
 The source files are required. Vendor dependencies may be absent because the
@@ -34,11 +34,88 @@ The set also includes the historical pair of
 `client/cache/landscape.pack`. Both reviewed files contain 945,225 bytes with
 SHA-256 `48ed0e1634b870888f96c0bc3e31cbaf152570b913140fdfd3596897a3eb29fa`.
 The matching client uses that ZIP, while the server normally selects JAG/MEM.
-Their identical ZIP hashes do not establish server/client map parity. Lossless
-historical JAG/MEM decoding and selected-world comparison are still required.
+Their identical ZIP hashes do not establish server/client map parity. The
+historical JAG/MEM decoding and selected-world proof described below are required.
 Production preview identifies `historical-jag-conversion-pending` and its explicit
 readiness blocker. Descriptor-backed ZIP evidence cannot substitute for this
 unfinished migration path.
+
+## Field-wise map reconciliation (data proof, not activation)
+
+The compiled reconciliation component verifies the reviewed provider decoder's
+complete 1,680-outcome inventory, its 352 raw sectors and all 1,764 client ZIP
+entries. It never modifies either input. Separate reverse proofs retain the
+historical server bytes and the derived presentation bytes; the two are not
+misrepresented as byte-identical source maps.
+
+Elevation, ground texture and roof values come from the historical client because
+the reviewed server does not consume them for gameplay. Overlay, walls, diagonal
+values and effective placements retain server authority. The 291 client scenery
+markers in two Lumbridge sectors serve the historical login background only;
+they are retained in source provenance, not added to the live world.
+
+One reviewed discrepancy at `(312,516,level -1)` retains server overlay `0` instead
+of client overlay `8`. The latter independently blocks terrain. Ladder 199 at the
+same tile blocks while present, but that does not prove equivalent behavior after
+its removal. The report displays the correction and keeps interaction/removal
+verification explicitly pending. Pixel-identical client preservation is not
+claimed. Any unfamiliar discrepancy remains a pre-conversion blocker.
+
+The 1,412 client-only sectors comprise 1,328 server-probed absences and 84 sectors
+outside the server probe domain. Their exact bytes remain source provenance;
+they are not promoted into playable terrain. Adjacent background rendering may
+differ and is explicitly reported, not silently described as visual parity.
+
+Effective stock content includes seven definition files (base and Custom item/NPC
+registries plus tile, door and scenery XML), all four base placement families and
+the active discontinued scenery/NPC files. Historical settings select these last
+two files even on stock Preservation. NPC multiplicity must survive composition.
+
+The pure reconciliation tests currently accept an explicit separately verified
+decoder fixture through `WORLD_BUILDER_PRESERVATION_DECODED_MAP`, containing
+`sectors/` and `evidence.json`, in addition to the exact public Git source input.
+That fixture validates the data consumer only, not provider invocation authority.
+The invocation consumer selects only the composition's hashed server runtime and
+reviewed decoder contract; no historical executable or supplied command is used.
+Its private result can prepare the separate `source/migration/input` data namespace
+from `source/original` plus `source/migration/decoder`. The packed converter has a
+separate internal data-only entry point that reuses complete placement, package and
+reverse-parity checks. It does not invent a target descriptor, runtime evidence or
+dummy asset agreement, and the public generic descriptor parser is unchanged.
+Production remains blocked pending runtime semantic proof and connection to
+project/upgrade preview. The actual inventory-bound decoder and full conversion
+now pass against adopted published provider
+`d21021756e59b82844dc16152af60721be1418b5`: 352 sectors, 32,410 placements,
+complete four-family reconciliation and 352 reverse matches with zero mismatches.
+All 3,609 NPC records retain their exact normalized historical bounds and
+multiplicities, including 146 roaming rectangles intersecting 58 server-probed
+absent sectors. Every NPC anchor is on present terrain. Explicit placement v5
+declares `npcRoamCoverage: blocked-void`; it retains those authoritative bounds
+without activating absent cells or clipping chase limits. Existing v4 packages
+and new empty worlds retain their terrain-covered default. See the
+[consumer checkpoint](PRESERVATION-V5-CONSUMER-CHECKPOINT.md) for the capability,
+save/export and installed-host rediscovery boundaries.
+
+Definition equivalence remains a separate required proof: Current Base numeric
+ID limits do not establish compatible values. The initial audit found differences
+between reviewed historical definitions and inherited provider definitions,
+including the well's two-by-two footprint, nonblocking support posts, and ordinary
+item/NPC values. Provider-owned composition tests must prove the resulting
+definitions and corresponding client/gameplay behavior; this map-conversion
+checkpoint does not substitute for that acceptance or assert that inherited
+definition differences remain present in the newly adopted provider.
+
+The actual invocation/full-conversion test is
+`test-world-builder-preservation-map-conversion.py`: it uses the exact public Git
+input and builds only the pinned Current Base provider, not historical code. It
+passes with the adopted published provider. Its separate API-compilation check
+is not an invocation or map-acceptance pass. New conversion outputs must be outside
+the entire preserved `source` namespace, including decoder and derivation evidence.
+For a separately assigned runtime semantic check, setting the test-only
+`WORLD_BUILDER_PRESERVATION_KEEP_MAP_PROBE=1` retains and prints one freshly
+allocated external probe directory. It contains the sealed public inputs,
+invented connection configuration, decoder proof and converted package; it is not
+a runtime installation or accepted candidate. The default remains test cleanup.
 
 Effective configuration follows connections-first and local-replaces-named
 precedence. Sealed hashes of 291 nonempty historical configuration values identify
@@ -86,9 +163,9 @@ row. Missing external source is reported as unavailable, never a synthetic pass.
   generated files without globally ignoring unknown executable inputs.
 - Bind initialized and populated state through provider schema evidence, not a
   fixture database file hash.
-- Implement descriptor-free JAG/MEM landscape discovery and complete map
-  conversion with the actual historical definition/placement selection rules.
-  The old fallback requires `custom_landscape: true` and MyWorld-specific inputs;
+- Connect the verified internal descriptor-free JAG/MEM derivation and full map
+  conversion to production project discovery and upgrade preview. The old
+  fallback requires `custom_landscape: true` and MyWorld-specific inputs;
   it is not a Preservation adapter.
 - Feed current project capabilities, installation, subsequent managed upgrades,
   map-only import and desktop selection through those proven inputs.

@@ -230,8 +230,7 @@ final class WorldBuilderLayeredPackage {
 				|| !uniqueLevels.contains(Integer.valueOf(level))
 				|| !placementLevels.add(Integer.valueOf(level))
 				|| !placementIds.add(id)
-				|| !("layered-world-placements-v3".equals(placementEncoding)
-					|| "layered-world-placements-v4".equals(placementEncoding))
+				|| !WorldBuilderPlacementEncoding.supports(placementEncoding)
 				|| packagePlacementEncoding != null
 					&& !packagePlacementEncoding.equals(placementEncoding)) {
 				throw new WorldBuilderDiscoveryException(
@@ -483,14 +482,12 @@ final class WorldBuilderLayeredPackage {
 		Path path, String worldSpace, int level, String declaredEncoding)
 		throws IOException, WorldBuilderDiscoveryException {
 		Map<String,Object> payload = WorldBuilderJsonDocuments.readObject(path);
-		exactKeys(payload, "boundaries", "encoding", "groundItems", "level",
-			"npcs", "scenery", "schemaVersion", "worldSpace");
-		String encoding = string(payload, "encoding");
-		int schemaVersion = integer(payload, "schemaVersion");
-		if (!(schemaVersion == 3 && "layered-world-placements-v3".equals(encoding)
-				|| schemaVersion == 4 && "layered-world-placements-v4".equals(encoding))
-			|| !declaredEncoding.equals(encoding)
-			|| !worldSpace.equals(string(payload, "worldSpace"))
+		try {
+			WorldBuilderPlacementEncoding.validateHeader(payload, declaredEncoding);
+		} catch (IllegalArgumentException invalid) {
+			throw new WorldBuilderDiscoveryException("Invalid placement header: " + path + ": " + invalid.getMessage());
+		}
+		if (!worldSpace.equals(string(payload, "worldSpace"))
 			|| level != integer(payload, "level")) {
 			throw new WorldBuilderDiscoveryException(
 				"Layered placement payload identity is invalid: " + path);

@@ -361,6 +361,9 @@ final class WorldBuilderRuntimeCompatibility {
 
 	private static HostIntegration requireHostIntegration(Map<String,Object> capability)
 		throws WorldBuilderContractException {
+		if (!currentEncodingSet(integerList(capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE))) {
+			throw hostIntegrationProblem("Current host capability must retain exactly encoding versions 1 through 5.");
+		}
 		if (WorldBuilderAdaptiveExporter.integer(capability, "schemaVersion") != 3L
 			|| !"world-builder-host-runtime-capability-v3".equals(
 				WorldBuilderAdaptiveExporter.string(capability, "capabilityId"))
@@ -463,16 +466,18 @@ final class WorldBuilderRuntimeCompatibility {
 			"native-layered-terrain-wire-v1",
 			"native-layered-terrain-wire-v2-u16",
 			"layered-placement-runtime-v3",
-			"layered-placement-runtime-v4"
+			"layered-placement-runtime-v4",
+			"layered-placement-runtime-v5"
 		};
 		List<List<String>> encodings = java.util.Arrays.asList(
 			java.util.Arrays.asList("raw-layered-sector-v1"),
 			java.util.Arrays.asList("raw-layered-sector-v2-u16",
 				"visual-layered-sector-v2-u16", "structural-layered-sector-v2-u16"),
 			java.util.Arrays.asList("layered-world-placements-v3"),
-			java.util.Arrays.asList("layered-world-placements-v4"));
-		if (matrix.size() != 4) throw hostIntegrationProblem(
-			"Package encoding capability matrix must cover versions 1 through 4.");
+			java.util.Arrays.asList("layered-world-placements-v4"),
+			java.util.Arrays.asList("layered-world-placements-v5"));
+		if (matrix.size() != 5) throw hostIntegrationProblem(
+			"Package encoding capability matrix must cover versions 1 through 5.");
 		for (int index = 0; index < matrix.size(); index++) {
 			Map<String,Object> item = WorldBuilderAdaptiveExporter.object(
 				matrix.get(index), "packageEncodingCapability");
@@ -487,8 +492,10 @@ final class WorldBuilderRuntimeCompatibility {
 				throw hostIntegrationProblem(
 					"Package encoding capability matrix identity is unsupported.");
 			}
-			packageProbes.put(Integer.valueOf(version), artifactProbes(
-				item.get("artifactProbes"), "package encoding artifact probes"));
+			List<ArtifactProbe> probes = artifactProbes(
+				item.get("artifactProbes"), "package encoding artifact probes");
+			if (version == 5) requireBlockedVoidProbes(probes);
+			packageProbes.put(Integer.valueOf(version), probes);
 		}
 
 		Map<String,Object> migration = WorldBuilderAdaptiveExporter.object(
@@ -569,6 +576,20 @@ final class WorldBuilderRuntimeCompatibility {
 			result.add(new ArtifactProbe(archive, entry, markers));
 		}
 		return result;
+	}
+
+	private static void requireBlockedVoidProbes(List<ArtifactProbe> probes)
+		throws WorldBuilderContractException {
+		if (probes.size() != 2
+			|| !"server-core".equals(probes.get(0).archive)
+			|| !"com/openrsc/server/io/NativeLayeredWorldPackage.class".equals(probes.get(0).archiveEntryPath)
+			|| !java.util.Arrays.asList("layered-world-placements-v5", "npcRoamCoverage", "blocked-void")
+				.equals(probes.get(0).requiredClassMarkers)
+			|| !"client-runtime".equals(probes.get(1).archive)
+			|| !"orsc/AdaptiveWorldBuilderClientSession.class".equals(probes.get(1).archiveEntryPath)
+			|| !java.util.Arrays.asList("layered-world-placements-v5").equals(probes.get(1).requiredClassMarkers)) {
+			throw hostIntegrationProblem("Current host v5 server/client roaming capability probes are incomplete or changed.");
+		}
 	}
 
 	private static String requiredSha256(String value)
@@ -997,11 +1018,12 @@ final class WorldBuilderRuntimeCompatibility {
 	}
 
 	private static boolean currentEncodingSet(List<Integer> values) {
-		return values.size() == 4
+		return values.size() == 5
 			&& Integer.valueOf(1).equals(values.get(0))
 			&& Integer.valueOf(2).equals(values.get(1))
 			&& Integer.valueOf(3).equals(values.get(2))
-			&& Integer.valueOf(4).equals(values.get(3));
+			&& Integer.valueOf(4).equals(values.get(3))
+			&& Integer.valueOf(5).equals(values.get(4));
 	}
 
 	private static boolean sameIdentity(
@@ -1779,8 +1801,10 @@ final class WorldBuilderRuntimeCompatibility {
 				if (probes == null || probes.isEmpty()) throw hostIntegrationProblem(
 					"Selected package encoding version " + version
 						+ " has no concrete host artifact capability.");
-				result.addAll(probes);
 			}
+			// Verify the complete selected current provider promise, even when this
+			// particular package currently uses only older encodings.
+			for (List<ArtifactProbe> probes : packageProbes.values()) result.addAll(probes);
 			return result;
 		}
 	}

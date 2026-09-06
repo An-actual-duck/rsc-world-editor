@@ -57,6 +57,7 @@ final class WorldBuilderPackedConversionModel {
 	final List<Object> decisions;
 	final Map<String,ReconciliationFamily> reconciliation;
 	final int reverseMatched;
+	final int placementEncodingVersion;
 
 	private WorldBuilderPackedConversionModel(
 		List<TerrainSector> terrain,
@@ -66,7 +67,8 @@ final class WorldBuilderPackedConversionModel {
 		List<String> placementIdentities,
 		List<Object> placementSummaries,
 		List<Object> decisions,
-		Map<String,ReconciliationFamily> reconciliation) {
+		Map<String,ReconciliationFamily> reconciliation, int placementEncodingVersion) {
+		this.placementEncodingVersion = placementEncodingVersion;
 		this.terrain = Collections.unmodifiableList(new ArrayList<TerrainSector>(terrain));
 		this.placements = Collections.unmodifiableList(new ArrayList<Placement>(placements));
 		this.levels = Collections.unmodifiableList(new ArrayList<Integer>(levels));
@@ -323,10 +325,10 @@ final class WorldBuilderPackedConversionModel {
 		Map<Integer,Integer> perLevel = new HashMap<Integer,Integer>();
 		for (Placement placement : placements) {
 			requireCoverage(terrainCoverage, placement);
-			if (placement.minimum != null) {
+			if (placement.minimum != null && source.placementEncodingVersion() != 5) {
 				requireCoverageRectangle(terrainCoverage, placement);
 			}
-			String semantic = placement.semantic();
+			String semantic = placement.semantic(source.placementEncodingVersion());
 			semantics.add(semantic);
 			identities.add(WorldBuilderPlacementSemantics.identity(
 				placement.placementId, semantic));
@@ -369,7 +371,7 @@ final class WorldBuilderPackedConversionModel {
 		}
 		return new WorldBuilderPackedConversionModel(terrain, placements,
 			new ArrayList<Integer>(levelSet), semantics, identities, summaryDocuments,
-			decisionDocuments, reconciliation);
+			decisionDocuments, reconciliation, source.placementEncodingVersion());
 	}
 
 	List<Object> reconciliationFamilies(WorldBuilderGenericLayeredPackage validated)
@@ -447,7 +449,7 @@ final class WorldBuilderPackedConversionModel {
 		for (Map.Entry<Integer,List<Placement>> level : byLevel.entrySet()) {
 			Collections.sort(level.getValue());
 			Map<String,Object> payload = placementPayload(
-				level.getKey().intValue(), level.getValue());
+				level.getKey().intValue(), level.getValue(), placementEncodingVersion);
 			String relative = placementPath(level.getKey().intValue());
 			Path path = packageRoot.resolve(relative).normalize();
 			requireContained(packageRoot, path, relative);
@@ -455,7 +457,7 @@ final class WorldBuilderPackedConversionModel {
 			writeExpected(path, relative, WorldBuilderJsonDocuments.pretty(payload)
 				.getBytes(StandardCharsets.UTF_8), expectedFiles);
 			Map<String,Object> declaration = new LinkedHashMap<String,Object>();
-			declaration.put("encoding", "layered-world-placements-v4");
+			declaration.put("encoding", WorldBuilderPlacementEncoding.encoding(placementEncodingVersion));
 			declaration.put("id", "global-l"
 				+ WorldBuilderLayeredPackage.signedToken(level.getKey().intValue()));
 			declaration.put("level", Long.valueOf(level.getKey().intValue()));
@@ -1024,10 +1026,9 @@ final class WorldBuilderPackedConversionModel {
 		}
 	}
 
-	private static Map<String,Object> placementPayload(int level, List<Placement> placements) {
+	private static Map<String,Object> placementPayload(int level, List<Placement> placements, int version) {
 		Map<String,Object> payload = new LinkedHashMap<String,Object>();
-		payload.put("schemaVersion", Long.valueOf(4L));
-		payload.put("encoding", "layered-world-placements-v4");
+		WorldBuilderPlacementEncoding.writeHeader(payload, version);
 		payload.put("worldSpace", WORLD_SPACE);
 		payload.put("level", Long.valueOf(level));
 		for (String family : Arrays.asList("boundary", "ground-item", "npc", "scenery")) {
@@ -1392,6 +1393,10 @@ final class WorldBuilderPackedConversionModel {
 		}
 
 		String semantic() {
+			return semantic(WorldBuilderPlacementEncoding.DEFAULT_VERSION);
+		}
+
+		String semantic(int version) {
 			if ("boundary".equals(family)) {
 				return WorldBuilderPlacementSemantics.boundary(
 					level, definitionId, x, y, direction);
@@ -1401,6 +1406,8 @@ final class WorldBuilderPackedConversionModel {
 					level, definitionId, x, y, amount, respawn);
 			}
 			if ("npc".equals(family)) {
+				if (version == 5) return WorldBuilderPlacementSemantics.npcBlockedVoid(
+					level, definitionId, x, y, minimum.x, minimum.y, maximum.x, maximum.y, -1);
 				return WorldBuilderPlacementSemantics.npc(level, definitionId, x, y,
 					minimum.x, minimum.y, maximum.x, maximum.y, -1);
 			}

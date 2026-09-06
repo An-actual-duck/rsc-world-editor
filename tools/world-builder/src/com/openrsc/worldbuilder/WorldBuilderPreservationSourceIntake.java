@@ -15,7 +15,7 @@ import java.util.Map;
 /** Compiled, metadata-only historical source-layout authority; never executes target code. */
 final class WorldBuilderPreservationSourceIntake {
 	private static final String RESOURCE = "/com/openrsc/worldbuilder/preservation-c0102e-source-intake.json";
-	private static final String RESOURCE_HASH = "635974a038dd20e9c54cac932ccf14400235db151e110d52a40be9562304cd24";
+	private static final String RESOURCE_HASH = "b609c7cb5f08cd53f3e22cb6db5ad44c47839c0806c66b2d2bf6818efcb53ca8";
 	static final String HISTORICAL_ID = "preservation-c0102e-source-layout-v1";
 	private static volatile Map<String,Object> metadata;
 
@@ -70,6 +70,23 @@ final class WorldBuilderPreservationSourceIntake {
 
 	static java.util.Set<String> baselineKeys() throws WorldBuilderContractException {
 		return object(document().get("configurationValueHashes")).keySet();
+	}
+
+	/** Revalidates one compiled public input; caller metadata cannot add authority. */
+	static WorldBuilderReadOnlyTarget.FileState requireBaseline(
+		WorldBuilderReadOnlyTarget target, String relative) throws WorldBuilderContractException {
+		for (Object raw : array(document().get("records"))) {
+			Map<String,Object> record = object(raw);
+			if (!relative.equals(record.get("path"))) continue;
+			WorldBuilderReadOnlyTarget.FileState state = target.requiredState("historical-input", relative);
+			if (Long.valueOf(state.size).equals(record.get("size"))
+				&& state.sha256.equals(record.get("sha256"))) return state;
+			break;
+		}
+		throw new WorldBuilderContractException(WorldBuilderErrorCodes.CONVERSION_BLOCKED,
+			"preservation-map-reconciliation", relative, false,
+			"Historical map composition input is absent, changed, or not sealed by this adapter.",
+			"Keep the original inputs unchanged; custom map compositions need a reviewed adapter.");
 	}
 
 	static boolean knownVendor(WorldBuilderReadOnlyTarget.FileState state)

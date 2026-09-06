@@ -116,10 +116,12 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         value = self.invoke("identity")
         self.assertEqual("production-reviewed", value["adapter"]["evidenceAuthority"])
         self.assertEqual("preservation-c0102e-source-layout-v1", value["adapter"]["historicalRuntimeId"])
-        self.assertEqual(1264, len(value["adapter"]["evidenceRules"]))
+        self.assertEqual(1271, len(value["adapter"]["evidenceRules"]))
         self.assertFalse(value["profile"]["executionReady"])
         self.assertFalse(value["fixture"]["executionReady"])
         self.assertIn("JAG map migration/parity", value["profile"]["executionReadinessReason"])
+        self.assertIn("exact Current Base definition equivalence", value["profile"]["executionReadinessReason"])
+        self.assertIn("ladder-removal/client-void", value["profile"]["executionReadinessReason"])
         self.assertNotEqual(value["profile"]["profileId"], value["fixture"]["profileId"])
         self.assertTrue(value["fixturePromotionRefused"])
         evidence = self.evidence(ROOT / "tests/fixtures/current-runtime-upgrade-v1/targets/preservation-t0")
@@ -147,7 +149,7 @@ class PreservationSourceIntakeTest(unittest.TestCase):
     def test_exact_historical_source_map_and_configuration_are_recognized(self):
         target = self.target()
         rows = self.evidence(target)
-        self.assertEqual(1263, len(rows))
+        self.assertEqual(1270, len(rows))
         self.assertTrue(all(row["tier"] in ("T0", "T2A") for row in rows),
                         [row for row in rows if row["tier"] not in ("T0", "T2A")])
         typed = self.invoke("config", target)

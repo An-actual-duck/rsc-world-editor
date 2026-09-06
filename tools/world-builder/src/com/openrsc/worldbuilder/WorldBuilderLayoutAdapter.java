@@ -18,6 +18,17 @@ interface WorldBuilderLayoutAdapter {
 		WorldBuilderTargetCapability capability,
 		String requestedConfigurationRole) throws WorldBuilderContractException;
 
+	default WorldBuilderAdapterInspection inspect(WorldBuilderReadOnlyTarget target,
+		WorldBuilderTargetCapability capability, String requestedConfigurationRole,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority)
+		throws WorldBuilderContractException {
+		if (authority != null) throw WorldBuilderReadOnlyTarget.problem(
+			WorldBuilderErrorCodes.CAPABILITY_MISMATCH, "target-root",
+			"This adapter cannot consume installed-host rediscovery authority.",
+			"Use the original compiled installed map adapter.");
+		return inspect(target, capability, requestedConfigurationRole);
+	}
+
 	enum Probe {
 		NO_EVIDENCE,
 		RECOGNIZABLE,

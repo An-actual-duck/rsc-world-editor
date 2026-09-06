@@ -340,17 +340,16 @@ final class WorldBuilderGenericLayeredPackage {
 				|| !placementSetIds.add(id)
 				|| previousPlacementLevel != null && previousPlacementLevel.intValue() >= level
 				|| !worldSpace.equals(string(placement, "worldSpace", manifestRelative))
-				|| !("layered-world-placements-v3".equals(placementEncoding)
-					|| "layered-world-placements-v4".equals(placementEncoding))
+				|| !WorldBuilderPlacementEncoding.supports(placementEncoding)
 				|| packagePlacementEncoding != null
 					&& !packagePlacementEncoding.equals(placementEncoding)) {
 				throw problem(WorldBuilderErrorCodes.MALFORMED_SERVER, manifestRelative,
 					"Layered placement-set declarations are invalid or not canonical.",
-					"Declare exactly one ascending v3 or v4 placement set per level.");
+					"Declare exactly one ascending, uniformly encoded v3, v4 or v5 placement set per level.");
 			}
 			packagePlacementEncoding = placementEncoding;
 			requiredEncodingVersions.add(Integer.valueOf(
-				"layered-world-placements-v4".equals(placementEncoding) ? 4 : 3));
+				WorldBuilderPlacementEncoding.version(placementEncoding)));
 			previousPlacementLevel = Integer.valueOf(level);
 			String packagePath = portableRelative(placement, "path", manifestRelative);
 			String targetPath = child(packageRelative, packagePath, manifestRelative);
@@ -448,6 +447,15 @@ final class WorldBuilderGenericLayeredPackage {
 		return blockingBaseColor;
 	}
 
+	void requireAdvertisedEncodings(List<Integer> advertised, String path)
+		throws WorldBuilderContractException {
+		if (!advertised.containsAll(requiredEncodingVersions)) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, path,
+				"Layered package requires an encoding absent from the matching target/runtime capability.",
+				"Use a truthful compatible server/client pair; do not remove placement policy to disguise unsupported data.");
+		}
+	}
+
 	private static PlacementCounts validatePlacements(
 		WorldBuilderReadOnlyTarget target,
 		String path,
@@ -460,20 +468,26 @@ final class WorldBuilderGenericLayeredPackage {
 		String declaredEncoding)
 		throws WorldBuilderContractException {
 		Map<String,Object> payload = target.readObject(path);
-		exact(payload, path, "boundaries", "encoding", "groundItems", "level",
-			"npcs", "scenery", "schemaVersion", "worldSpace");
+		try {
+			WorldBuilderPlacementEncoding.validateHeader(payload, declaredEncoding);
+		} catch (IllegalArgumentException invalid) {
+			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, path,
+				invalid.getMessage(), "Use the exact declared placement schema and NPC roaming policy.");
+		}
 		long schemaVersion = integer(payload, "schemaVersion", path);
 		String placementEncoding = string(payload, "encoding", path);
 		if (!(schemaVersion == 3L
 				&& "layered-world-placements-v3".equals(placementEncoding)
 				|| schemaVersion == 4L
-				&& "layered-world-placements-v4".equals(placementEncoding))
+				&& "layered-world-placements-v4".equals(placementEncoding)
+				|| schemaVersion == 5L
+				&& "layered-world-placements-v5".equals(placementEncoding))
 			|| !declaredEncoding.equals(placementEncoding)
 			|| level != signedInteger(payload, "level", path)
 			|| !worldSpace.equals(string(payload, "worldSpace", path))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_FORMAT, path,
 				"Layered placement payload identity does not match its declaration.",
-				"Use one exact layered-world-placements-v3 or v4 payload for the declared level.");
+				"Use one exact layered-world-placements-v3, v4 or v5 payload for the declared level.");
 		}
 		Set<String> placementIds = new HashSet<String>();
 		long boundaryCount = validateBoundaries(array(payload.get("boundaries"), path,
@@ -484,7 +498,7 @@ final class WorldBuilderGenericLayeredPackage {
 			definitions, placementIds, semantics, identities);
 		long npcCount = validateNpcs(array(payload.get("npcs"), path,
 			"npcs", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
-			definitions, placementIds, semantics, identities, schemaVersion >= 4L);
+			definitions, placementIds, semantics, identities, schemaVersion >= 4L, schemaVersion == 5L);
 		long sceneryCount = validateScenery(array(payload.get("scenery"), path,
 			"scenery", 0, MAX_PLACEMENTS_PER_SET), path, level, terrainCoverage,
 			definitions, placementIds, semantics, identities);
@@ -567,7 +581,7 @@ final class WorldBuilderGenericLayeredPackage {
 		List<?> records, String path, int level, Set<String> terrain,
 		WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions,
 		Set<String> placementIds, List<String> semantics, List<String> identities,
-		boolean placementRespawn)
+		boolean placementRespawn, boolean blockedVoid)
 		throws WorldBuilderContractException {
 		String previous = null;
 		for (Object raw : records) {
@@ -603,8 +617,11 @@ final class WorldBuilderGenericLayeredPackage {
 			previous = key;
 			definitions.require("npc", id, path);
 			requireCoverage(terrain, level, start.x, start.y, path);
-			requireCoverageRectangle(terrain, level, minimum, maximum, path);
-			String semantic = placementRespawn
+			if (!blockedVoid) requireCoverageRectangle(terrain, level, minimum, maximum, path);
+			String semantic = blockedVoid
+				? WorldBuilderPlacementSemantics.npcBlockedVoid(level, id,
+					start.x, start.y, minimum.x, minimum.y, maximum.x, maximum.y, respawn)
+				: placementRespawn
 				? WorldBuilderPlacementSemantics.npc(level, id,
 					start.x, start.y, minimum.x, minimum.y,
 					maximum.x, maximum.y, respawn)
