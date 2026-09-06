@@ -208,6 +208,12 @@ public final class CurrentUpgradeHarness {
         Path adapter = Paths.get(args[6]);
         Path project = Paths.get(args[7]);
         String transactionId = args[8];
+        if ("validate-state-binding".equals(operation)) {
+            WorldBuilderPreservationStagedMigrator.validateStateBinding(
+                WorldBuilderJsonDocuments.readObject(target));
+            System.out.println("valid-binding-only");
+            return;
+        }
         Path packedSource = args.length > 9 && !"-".equals(args[9])
             ? Paths.get(args[9]) : null;
         Path packedReport = args.length > 10 && !"-".equals(args[10])
@@ -1382,6 +1388,45 @@ public final class RuntimeConfigHarness {
                 self.assertIn("SQLite sidecar state exists", refused.stderr)
                 self.assertEqual(before_refused, tree_snapshot(refused_target))
                 self.assertEqual({}, tree_snapshot(refused_workspace))
+
+    def test_current_successor_binding_is_closed_and_separate_from_historical_input(self) -> None:
+        # Grammar-only acceptance does not invoke or authorize an unpublished provider.
+        binding = {
+            "contractBundlePath": "contracts/runtime/current-base-v1/state-migration.json",
+            "contractSha256": "f1a055b77fc54aa4157414991972be83a43a5c48da0518da5ac6c91101b5e94a",
+            "toolBundlePath": "runtime/server/core.jar", "toolSha256": "1" * 64,
+            "toolArtifactRole": "server-runtime",
+            "mainClass": "com.openrsc.server.database.CurrentBaseStateMigration",
+            "migrationRowIds": ["current-base-sqlite-to-current-base-v1"], "engine": "sqlite",
+            "sourceRelativePath": ".world-builder/current-runtime/instance/state/server/current_base.db",
+            "sourceSha256": "2" * 64, "stageRelativePath": "migration/output/state/current-base.db",
+            "evidenceRelativePath": "migration/output/state/current-base-migration-evidence.json",
+            "evidenceSchemaId": "current-base-state-migration-evidence-v1",
+            "host": "", "port": 0, "sourceSchema": "", "stageSchema": "",
+            "userEnvironmentName": "", "passwordEnvironmentName": "",
+        }
+        with tempfile.TemporaryDirectory(prefix="successor-binding-leaf-") as directory:
+            source = Path(directory) / "binding.json"
+            def check(value):
+                source.write_text(json.dumps(value), encoding="utf-8")
+                return subprocess.run(["java", "-cp", str(self.classes),
+                    "com.openrsc.worldbuilder.CurrentUpgradeHarness", "validate-state-binding", "-",
+                    str(source), *[str(source)] * 5, "leaf"],
+                    cwd=ROOT, capture_output=True, text=True)
+            self.assertEqual(0, check(binding).returncode)
+            self.assertEqual(0, check(dict(binding, sourceRelativePath=
+                ".world-builder/current-runtime/instance/state/upgrade-2/server/current_base.db")).returncode)
+            for key, value in [
+                ("contractSha256", "fed89bd2add4fdc064d37b28b9332d30de34ec6875f9ec5618844d167bd0974b"),
+                ("contractSha256", "0" * 64), ("engine", "mariadb"),
+                ("sourceRelativePath", "server/inc/sqlite/preservation.db"),
+                ("sourceRelativePath", ".world-builder/current-runtime/instance/state/../server/current_base.db"),
+                ("sourceRelativePath", ".world-builder/current-runtime/instance/state/../outside/server/current_base.db"),
+                ("sourceRelativePath", ".world-builder/current-runtime/instance/state/upgrade-2/client/current_base.db"),
+                ("migrationRowIds", ["current-base-sqlite-to-current-base-v1", "preservation-retro-sqlite-to-current-base-v1"]),
+            ]:
+                with self.subTest(key=key, value=value):
+                    self.assertNotEqual(0, check(dict(binding, **{key: value})).returncode)
 
     def test_provider_additional_sqlite_rows_preserve_populated_state(self) -> None:
         for layout, fingerprint in (
