@@ -2313,9 +2313,18 @@ final class WorldBuilderAdaptiveMutationProfile {
 				target.optionalState("installed-host-proof", action.destinationRelativePath));
 			for (String path : new String[]{WorldBuilderRuntimeCompatibility.HOST_CAPABILITY_SOURCE,
 				"working/runtime/server/core.jar", "working/runtime/client/Open_RSC_Client.jar",
-				"working/runtime/server/conf/world-builder/host-integration/RSCProtocolDecoder.java"}) {
+				"working/runtime/server/conf/world-builder/host-integration/RSCProtocolDecoder.java",
+				WorldBuilderAdaptiveProjectLifecycle.PROJECT_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.SNAPSHOT_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.DISCOVERY_FILE,
+				WorldBuilderAdaptiveProjectLifecycle.WORKING_RUNTIME_FILE,
+				WorldBuilderAdaptiveRuntimePreparer.INVENTORY_FILE,
+				"receipts/" + installed.transactionId() + ".json",
+				"backups/" + installed.transactionId() + "/mutation-plan.json"}) {
 				projectStates.put(path, source.requiredState("installed-host-source-proof", path));
 			}
+			String choice = "source/migration/choice.json";
+			projectStates.put(choice, source.optionalState("installed-host-source-proof", choice));
 			if ("layered".equals(configuration.representation)) {
 				WorldBuilderCompatibilityEvidence common = WorldBuilderCompatibilityEvidence.inspect(target, capability, configuration);
 				for (String path : new String[]{configuration.serverMapRelativePath, configuration.clientMapRelativePath}) {

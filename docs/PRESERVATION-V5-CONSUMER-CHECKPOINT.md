@@ -36,6 +36,10 @@ descriptor, configuration, both installed packages, and exact observed target
 and project runtime artifact hashes, and rechecks them at use. It is deliberately
 not Current Base composition authority or a production runtime-upgrade ledger;
 the existing generic custom-host compatibility policy remains separate.
+The proof also pins project/snapshot/discovery/runtime metadata, the runtime
+inventory, the successful receipt and durable mutation plan, and the optional
+migration choice (including absence). Metadata drift between discovery passes
+is rejected without repeatedly running the full project verifier at each use.
 
 Editor-only synthetic tests exercise closed headers, duplicate NPCs, present
 anchors, bounded void, v4 refusal, mixed empty-set refusal, actual composition,

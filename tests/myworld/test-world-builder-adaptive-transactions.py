@@ -2659,16 +2659,26 @@ public final class InstalledHostProofDriftHarness {
       throw new AssertionError("proof accepted another package");
     } catch(WorldBuilderContractException expected) { }
     for(final Path file : Arrays.asList(targetRoot.resolve("server/core.jar"),
-        targetRoot.resolve("client/Open_RSC_Client.jar"),projectRoot.resolve("working/runtime/server/core.jar"))) {
-      final byte[] before=Files.readAllBytes(file);
+        targetRoot.resolve("client/Open_RSC_Client.jar"),projectRoot.resolve("working/runtime/server/core.jar"),
+        projectRoot.resolve("project.json"),projectRoot.resolve("source/snapshot-manifest.json"),
+        projectRoot.resolve("discovery/report.json"),projectRoot.resolve("working/runtime/runtime.json"),
+        projectRoot.resolve("working/runtime/runtime-assets.sha256"),projectRoot.resolve("source/migration/choice.json"),
+        projectRoot.resolve("receipts/"+receipt.transactionId()+".json"),
+        projectRoot.resolve("backups/"+receipt.transactionId()+"/mutation-plan.json"))) {
+      final boolean existed=Files.exists(file),parentExisted=Files.exists(file.getParent());
+      final byte[] before=existed?Files.readAllBytes(file):new byte[0];
       try {
         WorldBuilderAdaptiveDiscovery discovery=new WorldBuilderAdaptiveDiscovery(WorldBuilderLayoutAdapterRegistry.standard(),
           new WorldBuilderAdaptiveDiscovery.Observer(){public void betweenVerificationPasses(Path root,int attempt)throws Exception{
+            Files.createDirectories(file.getParent());
             Files.write(file,Arrays.copyOf(before,before.length+1));
           }});
         WorldBuilderAdaptiveDiscoveryReport report=discovery.discoverInstalled(targetRoot,configuration.configurationId,authority);
         if("compatible".equals(report.status))throw new AssertionError("changed artifact retained transient authority");
-      } finally { Files.write(file,before); }
+      } finally {
+        if(existed)Files.write(file,before);else Files.deleteIfExists(file);
+        if(!parentExisted)Files.deleteIfExists(file.getParent());
+      }
       authority.requireTarget(target,capability);
     }
   }
