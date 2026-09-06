@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -35,6 +36,8 @@ public final class PreservationIntakeHarness {
         WorldBuilderCurrentRuntimeExecutionProfile.fromIdentity(forged);
         throw new AssertionError("renamed fixture became production authority");
       } catch (WorldBuilderContractException expected) { result.put("fixturePromotionRefused", true); }
+    } else if ("private-inputs".equals(args[0])) {
+      result = WorldBuilderPreservationPersistentInputs.inspect(WorldBuilderReadOnlyTarget.open(Paths.get(args[1])), true);
     } else if ("config".equals(args[0])) {
       result = p.typedConfiguration(Paths.get(args[1]));
     } else if ("reject-zip".equals(args[0])) {
@@ -116,7 +119,7 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         value = self.invoke("identity")
         self.assertEqual("production-reviewed", value["adapter"]["evidenceAuthority"])
         self.assertEqual("preservation-c0102e-source-layout-v1", value["adapter"]["historicalRuntimeId"])
-        self.assertEqual(1271, len(value["adapter"]["evidenceRules"]))
+        self.assertEqual(1280, len(value["adapter"]["evidenceRules"]))
         self.assertFalse(value["profile"]["executionReady"])
         self.assertFalse(value["fixture"]["executionReady"])
         self.assertIn("JAG map migration/parity", value["profile"]["executionReadinessReason"])
@@ -145,6 +148,51 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                 self.assertNotEqual(0, result.returncode)
                 self.assertIn("sealed historical source intake metadata", result.stderr)
 
+    def test_private_input_policy_binds_only_metadata_and_keeps_schema_pending(self):
+        target = Path(tempfile.mkdtemp(prefix="private-inputs-", dir=self.root))
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as connection:
+            connection.execute("CREATE TABLE invented_secret(value TEXT)")
+            connection.execute("INSERT INTO invented_secret VALUES ('never-copy-private-player-state')")
+        database.chmod(0o600)
+        private, public = target / "server/server.pem", target / "server/client.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:512", "-out", str(private)], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True, capture_output=True)
+        private.chmod(0o600); public.chmod(0o600)
+        before = {str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
+                  for path in target.rglob("*") if path.is_file()}
+        value = self.invoke("private-inputs", target)
+        self.assertTrue(value["requiredInputsPresent"])
+        self.assertFalse(value["activationApproved"])
+        self.assertEqual("pending-provider-sealed-migration", value["schemaValidation"])
+        self.assertEqual(9, len(value["inputs"]))
+        self.assertTrue(all(not row["copyIntoProject"] for row in value["inputs"]))
+        self.assertEqual(6, sum(not row["present"] for row in value["inputs"]))
+        self.assertNotIn("never-copy-private-player-state", json.dumps(value))
+        self.assertNotIn("BEGIN PRIVATE KEY", json.dumps(value))
+        self.assertEqual(before, {str(path.relative_to(target)): hashlib.sha256(path.read_bytes()).hexdigest()
+                                 for path in target.rglob("*") if path.is_file()})
+        def refused():
+            result = subprocess.run(["java", "-cp", os.pathsep.join((str(self.classes), str(JAR))), MAIN,
+                                     "private-inputs", str(target)], capture_output=True, text=True)
+            self.assertNotEqual(0, result.returncode)
+            self.assertNotIn("never-copy-private-player-state", result.stderr)
+            self.assertNotIn("BEGIN PRIVATE KEY", result.stderr)
+        for mode in (0o644, 0o660):
+            with self.subTest(database_mode=mode):
+                database.chmod(mode); refused()
+        database.chmod(0o600)
+        sidecar = database.with_name(database.name + "-wal")
+        sidecar.write_bytes(b"invented incomplete state"); refused(); sidecar.unlink()
+        saved = public.read_bytes()
+        public.write_bytes(b"not a public key"); refused(); public.write_bytes(saved)
+        public.unlink(); refused(); public.write_bytes(saved); public.chmod(0o600)
+        alias = target / "linked-private-key"
+        os.link(private, alias); refused(); alias.unlink()
+        private.rename(alias); private.symlink_to(alias); refused(); private.unlink(); alias.rename(private)
+        self.assertTrue(self.invoke("private-inputs", target)["requiredInputsPresent"])
+
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_exact_historical_source_map_and_configuration_are_recognized(self):
         target = self.target()
@@ -163,6 +211,55 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         for archive in ("maps64.jag", "maps64.mem", "land64.jag", "land64.mem"):
             self.assertTrue(any(r["relativePath"] == "server/conf/server/data/maps/" + archive
                                 and r["tier"] == "T0" for r in rows))
+
+    @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for production discovery")
+    def test_production_discovery_admits_jag_without_private_file_copy_authority(self):
+        target = self.target()
+        database = target / "server/inc/sqlite/preservation.db"
+        database.parent.mkdir(parents=True)
+        with sqlite3.connect(database) as connection:
+            connection.executescript((ROOT / ".runtime-provider/server/database/sqlite/retro.sqlite").read_text())
+        database.chmod(0o600)
+        private, public = target / "server/server.pem", target / "server/client.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:512", "-out", str(private)], check=True, capture_output=True)
+        subprocess.run(["openssl", "pkey", "-in", str(private), "-pubout", "-out", str(public)], check=True, capture_output=True)
+        private.chmod(0o600); public.chmod(0o600)
+        def discover():
+            return subprocess.run(["java", "-jar", str(JAR), "discover-adaptive", "--target-root", str(target)],
+                                  capture_output=True, text=True, timeout=40)
+        accepted = discover()
+        self.assertEqual(0, accepted.returncode, accepted.stdout + accepted.stderr)
+        report = json.loads(accepted.stdout)
+        self.assertEqual("compatible", report["status"])
+        self.assertEqual("historical-jag", report["representation"])
+        self.assertEqual("preservation-source-jag-v1", report["capability"]["adapterId"])
+        self.assertFalse(report["descriptor"]["present"])
+        self.assertFalse((target / "world-builder-target.json").exists())
+        paths = [row["relativePath"] for row in report["files"]]
+        self.assertNotIn("server/server.pem", paths)
+        self.assertNotIn("server/client.pem", paths)
+        self.assertNotIn("server/inc/sqlite/preservation.db", paths)
+        self.assertIn("pending-provider-sealed-migration", accepted.stdout)
+        original = database.read_bytes()
+        with sqlite3.connect(database) as connection:
+            connection.execute("INSERT INTO players(username,pass,salt) VALUES ('inventedstate','private-password','')")
+        changed = discover()
+        self.assertEqual(0, changed.returncode, changed.stdout + changed.stderr)
+        self.assertNotEqual(report["discoveryFingerprintSha256"], json.loads(changed.stdout)["discoveryFingerprintSha256"])
+        self.assertNotIn("private-password", changed.stdout)
+        database.write_bytes(original)
+        for relative, payload in (("server/unknown-private.bin", b"private-password"),
+                                  ("server/inc/sqlite/preservation.db-wal", b"unclosed"),
+                                  ("server/local.conf", b"custom_landscape: true\n")):
+            path = target / relative
+            path.write_bytes(payload); path.chmod(0o600)
+            with self.subTest(refusal=relative):
+                refused = discover()
+                self.assertNotEqual(0, refused.returncode)
+                self.assertEqual("blocked", json.loads(refused.stdout)["status"])
+                self.assertNotIn("private-password", refused.stdout)
+                self.assertEqual(payload, path.read_bytes())
+            path.unlink()
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_light_effective_configuration_preserves_defaults_and_unknown_behavior_blocks(self):

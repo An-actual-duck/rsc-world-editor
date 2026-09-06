@@ -34,7 +34,7 @@
       }
     },
     "selectedConfiguration": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/roleStateReference"},
-    "representation": {"enum": ["layered", "none", "packed", "unknown"]},
+    "representation": {"enum": ["layered", "none", "packed", "historical-jag", "unknown"]},
     "capability": {"$ref": "#/$defs/capabilityReference"},
     "files": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/inventory"},
     "checks": {
@@ -73,7 +73,7 @@
         "properties": {
           "selectedConfiguration": {"properties": {"present": {"const": true}}},
           "capability": {"properties": {"resolved": {"const": true}}},
-          "representation": {"enum": ["layered", "packed"]},
+          "representation": {"enum": ["layered", "packed", "historical-jag"]},
           "files": {
             "minItems": 1,
             "contains": {"properties": {"present": {"const": true}}}
@@ -83,6 +83,12 @@
           }
         }
       }
+    },
+    {
+      "if": {"properties": {"status": {"const": "compatible"}, "representation": {"const": "historical-jag"}}},
+      "then": {"properties": {"descriptor": {"properties": {"present": {"const": false}}},
+        "capability": {"properties": {"adapterId": {"const": "preservation-source-jag-v1"},
+          "capabilityId": {"const": "preservation-c0102e-data-conversion-v1"}}}}}
     },
     {
       "if": {"properties": {"status": {"const": "standalone"}}},

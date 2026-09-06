@@ -484,7 +484,7 @@ final class WorldBuilderCurrentRuntimeInstance {
         Absent(Path source, String destination) { this.source = source; this.destination = destination; }
     }
 
-    private static void validateKeyPair(Path privatePath, Path publicPath) throws IOException, WorldBuilderContractException {
+    static void validateKeyPair(Path privatePath, Path publicPath) throws IOException, WorldBuilderContractException {
         try {
             java.security.PrivateKey privateKey = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pem(privatePath, "PRIVATE KEY")));
             java.security.PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(pem(publicPath, "PUBLIC KEY")));

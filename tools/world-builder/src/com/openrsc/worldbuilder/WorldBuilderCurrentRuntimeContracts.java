@@ -490,6 +490,17 @@ final class WorldBuilderCurrentRuntimeContracts {
 			String baselineHash = string(rule, "baselineSha256", op);
 			long baselineSize = integer(rule, "baselineSize", op);
 			if (sourceIntake && state.present) {
+				if (WorldBuilderPreservationPersistentInputs.admits(path)) {
+					try {
+						WorldBuilderPreservationPersistentInputs.validate(target, path, state.size);
+						result.add(new Evidence(state.role, path, "T2B", "preserve-state", "",
+							"Bounded persistent input retained externally; database schema validation remains pending provider sealed migration.", state.size, state.sha256));
+					} catch (WorldBuilderContractException unsafe) {
+						result.add(new Evidence(state.role, path, "T5", "blocker", "",
+							"Persistent input is unsafe or differs from the compiled admission policy.", state.size, state.sha256));
+					}
+					continue;
+				}
 				if (!WorldBuilderPreservationSourceIntake.modeMatches(target.requiredFile(path), path)) {
 					result.add(new Evidence(state.role, path, "T5", "blocker", "",
 						"Historical source input mode differs from the reviewed source-layout policy.",
