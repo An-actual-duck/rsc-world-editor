@@ -1136,7 +1136,7 @@ public final class mudclient {
     def target_project(
         self, base: Path, representation="layered", install_enabled=True,
         port_evidence=False, offline_evidence=None,
-        supported_encodings=(1, 2, 3, 4),
+        supported_encodings=(1, 2, 3, 4, 5),
         source_placement_v4=False,
         working_elevation=None,
         working_npc_respawn=None,
@@ -2255,7 +2255,7 @@ public final class mudclient {
                     / "server/conf/world-builder/installed-runtime-capability-v3.json"
                 ).read_text(encoding="utf-8")
             )
-            self.assertEqual([1, 2, 3, 4], capability["encodingVersions"])
+            self.assertEqual([1, 2, 3, 4, 5], capability["encodingVersions"])
             self.assertEqual(
                 "rsc-world-editor-runtime-host-server-v3",
                 capability["serverBuildId"],
@@ -2614,7 +2614,7 @@ public final class mudclient {
             )
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
-    def test_host_runtime_probes_only_encodings_required_by_selected_package(self):
+    def test_host_runtime_proves_complete_current_capability_for_older_packages(self):
         game_state_entry = "com/openrsc/server/GameStateUpdater.class"
         with tempfile.TemporaryDirectory(prefix="adaptive-import-v1-probes-") as temp:
             target, installation, project, export = self.target_project(
@@ -2629,7 +2629,8 @@ public final class mudclient {
                 "import-adaptive", "--project", project, "--export", export,
                 "--target-root", target,
             )
-            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertEqual(3, preview.returncode, preview.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", preview.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
         with tempfile.TemporaryDirectory(prefix="adaptive-import-v2-probes-") as temp:

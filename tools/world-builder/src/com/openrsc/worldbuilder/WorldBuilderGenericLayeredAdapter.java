@@ -132,7 +132,7 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 			|| !capability.encodingVersions.contains(Integer.valueOf(1))
 			|| !capability.encodingVersions.contains(Integer.valueOf(3))
 			|| !Arrays.asList(Integer.valueOf(1), Integer.valueOf(2),
-				Integer.valueOf(3), Integer.valueOf(4)).containsAll(
+				Integer.valueOf(3), Integer.valueOf(4), Integer.valueOf(5)).containsAll(
 					capability.encodingVersions)
 			|| !capability.editExistingLevels || !capability.createLevels
 			|| !capability.placementFamilies.equals(families)

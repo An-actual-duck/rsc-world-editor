@@ -92,6 +92,17 @@ public final class mudclient {
 
 
 def add_current_host_capability(target: Path) -> None:
+    # Only this explicit current-host fixture promises v5. Historical/generic
+    # target evidence and the retained installed-v1/v2 fixtures remain unchanged.
+    capability_path = target / "server/world-builder-capabilities.json"
+    capability = json.loads(capability_path.read_text(encoding="utf-8"))
+    capability["map"]["encodingVersions"] = [1, 2, 3, 4, 5]
+    project_support.write_json(capability_path, capability)
+    for side in ("server", "client"):
+        path = target / side / "evidence/runtime.json"
+        evidence = json.loads(path.read_text(encoding="utf-8"))
+        evidence["encodingVersions"] = [1, 2, 3, 4, 5]
+        project_support.write_json(path, evidence)
     project_support.write_json(
         target / "server/conf/world-builder/installed-runtime-capability-v3.json",
         project_support.host_runtime_capability(),

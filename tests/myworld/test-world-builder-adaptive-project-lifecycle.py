@@ -4955,14 +4955,14 @@ public final class UpgradeNpcPlacements {
             )
             capability_path = target / "server/world-builder-capabilities.json"
             capability = json.loads(capability_path.read_text(encoding="utf-8"))
-            capability["map"]["encodingVersions"] = [1, 2, 3, 4]
+            capability["map"]["encodingVersions"] = [1, 2, 3, 4, 5]
             write_json(capability_path, capability)
             for runtime_path in (
                 target / "server/evidence/runtime.json",
                 target / "client/evidence/runtime.json",
             ):
                 evidence = json.loads(runtime_path.read_text(encoding="utf-8"))
-                evidence["encodingVersions"] = [1, 2, 3, 4]
+                evidence["encodingVersions"] = [1, 2, 3, 4, 5]
                 write_json(runtime_path, evidence)
             write_json(
                 target
