@@ -448,9 +448,10 @@ without imposing its gameplay or content on Base users.
   and credential cleanup before evidence can be accepted. An unfinished cleanup
   requires retained-workspace recovery, never forced deletion or activation.
   Direct verifier hard-kill is not claimed recoverable. This component and its
-  package-private staged-release seam do not enable production apply: execution
-  evidence still needs activation/receipt binding, supported installed launchers,
-  live-instance state handling and complete post-install/recovery integration.
+  package-private staged-release seam do not enable production apply:
+  the complete public staging-to-activation path still needs end-to-end proof,
+  supported installed launchers, live-instance state handling and complete
+  post-install/recovery integration.
   Actual staged-pair integration exposed and corrected a distinct identity
   boundary: installed profiles must use the provider's newline-framed native
   package inventory hash, not the converter's NUL-framed proof fingerprint.
@@ -458,10 +459,65 @@ without imposing its gameplay or content on Base users.
   reverse-parity evidence retain their original identities. Verifier diagnostics
   are retained only in an owner-readable, 64 KiB-bounded attempt log, not copied
   into general errors or receipts.
+  Installed-instance offline leasing now has an Editor-side primitive which
+  holds the persistent server and client locks in a fixed order, then reserves
+  both ports. It never creates or replaces locks, checks private canonical
+  singly-linked identities, and releases partial acquisitions on refusal.
+  Cross-process tests also prove that refusing a same-JVM overlap does not
+  accidentally release the original POSIX locks. This is a transaction seam,
+  not enabled managed-target activation. Rendered complete configuration now
+  explicitly selects SQLite without relying on historical `connections.conf`.
+  Managed upgrade plans now retain the installation UUID. A separate initial
+  instance component copies only explicitly bound state and side-state into a
+  fresh private topology, renders stable server/client launch descriptors, and
+  validates closed initial-output evidence after relocation/restart. Its
+  read-only recovery token requires an independently confirmed plan fingerprint;
+  it neither authorizes cleanup nor restores a database changed by gameplay.
+  These are component proofs, not an installed public target acceptance run.
+  Real supervised verification now writes a sealed historical execution report.
+  Preview binds the composition identity byte hash; activation, ledger evidence
+  and phase receipts bind the report inventory. Readback parses its closed body
+  against the expected composition, immutable code, map, launch inputs and
+  migrated snapshot, rather than accepting an arbitrary file with a matching
+  inventory hash. Actual disposable pair tests cover seal creation, relocation,
+  and foreign/malformed evidence refusal. A migration-only staging checkpoint is
+  explicitly not an execution-verified checkpoint; the latter requires the seal.
+  Unproven verifier cleanup retains `recovery-required`, never a completed
+  rollback claim. Restarted production Recovery currently refuses retained
+  verifier attempts until the provider's durable supervisor/child lease and
+  revoked-intent contract is integrated; PID/port checks are not that proof.
+  Verified staging also rejects aliased parents and overlapping source/provider
+  paths before creating any output.
+  Remaining cutover work must separate mutable live state from sealed migration
+  evidence and journal the active launch selection with the ledger while
+  holding both role leases. Retired descriptors must be refused
+  by the actual JVM after it acquires its role lease, not only by a wrapper.
+  The pending cutover design also requires a durable
+  `installation/pending-cutover.json` guard before publishing target changes.
+  Both normal JVM entry points must refuse any guard entry after taking their
+  role lease and before writable initialization. The Editor removes the exact
+  transaction-owned guard only after the pointer and ledger are durably verified
+  together, or after exact rollback. Leases alone are insufficient: a manager
+  crash releases them while a pointer/ledger update may still be incomplete.
+  This is pending integration, not an enabled cutover or recovery claim.
+  The next verifier integration must journal generated outputs and the exact
+  prepared recovery authority before spawning the provider. Every post-spawn
+  failure requires provider closure evidence before rollback can be recorded as
+  complete; an exited supervisor alone does not prove that its children stopped.
+  Recovery must authenticate the plan, receipt and retained tool before using
+  that authority. Historical execution reports never grant cleanup authority.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
   rows twice with composition-bound evidence and no required skips.
+  Current Base acceptance must compare effective behavior, not just definition
+  availability or disabled Advanced flags. The public-content review has found
+  stock model-name/archive inconsistencies and stock equipment still entering
+  owner-specific combat, devotion and ring-effect dispatch. Resolve these with
+  explicit composition-bound public policies and real runtime regressions;
+  neither guessed model aliases nor arbitrary stat conversions establish
+  preservation. Full genuine-map collision, ladder and client void-boundary
+  proofs remain required independently of these content checks.
 
 Ordinary map import becomes a map-only transaction once the target ledger
 proves that its selected current composition is installed. The complete current

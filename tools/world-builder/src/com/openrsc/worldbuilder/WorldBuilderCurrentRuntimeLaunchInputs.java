@@ -167,6 +167,9 @@ final class WorldBuilderCurrentRuntimeLaunchInputs {
 		if (replacements.get("server_port").equals(replacements.get("ws_server_port")))
 			throw failure("Runtime ports must differ.");
 		Set<String> required = new HashSet<String>(replacements.keySet());
+		// Managed launch reads this complete file, never historical connections.conf.
+		// Older provider defaults omit the engine, so append it when absent.
+		replacements.put("db_type", "sqlite");
 		replacements.put("combat_exp_rate", number(typed, "combatExperienceRate", 100));
 		replacements.put("skilling_exp_rate", number(typed, "skillingExperienceRate", 100));
 		Set<String> found = new HashSet<String>();

@@ -237,6 +237,10 @@ public final class CurrentUpgradeHarness {
                     if (selected(failures, milestone)) {
                         throw new Exception("injected-" + milestone);
                     }
+                    if (selected(failures, "recovery-required-" + milestone)) {
+                        throw new WorldBuilderContractException(WorldBuilderErrorCodes.RECOVERY_REQUIRED,
+                            "fixture", "verifier-cleanup", false, "Invented unresolved child cleanup", "Retain evidence");
+                    }
                     if (selected(failures, "halt-" + milestone)) {
                         Runtime.getRuntime().halt(91);
                     }
@@ -472,6 +476,7 @@ public final class CurrentUpgradeHarness {
         } else if ("preview-production".equals(operation)
             || "preview-production-packed".equals(operation)
             || "stage-production-packed".equals(operation)
+            || "stage-production-packed-verified".equals(operation)
             || "verify-production-packed-tamper".equals(operation)
             || "verify-production-packed-extra".equals(operation)
             || "stage-production-packed-source-drift".equals(operation)
@@ -483,22 +488,30 @@ public final class CurrentUpgradeHarness {
                 || "preview-production-packed".equals(operation)) {
                 System.out.print(preview.toJson());
             } else if ("stage-production-packed".equals(operation)
+                || "stage-production-packed-verified".equals(operation)
                 || "verify-production-packed-tamper".equals(operation)
                 || "verify-production-packed-extra".equals(operation)
                 || "stage-production-packed-source-drift".equals(operation)) {
                 Path stage = transactions.resolve(transactionId);
+                if ("stage-alias".equals(failures)) stage = transactions.resolve("alias").resolve(transactionId);
+                Path attempt = "attempt-alias".equals(failures)
+                    ? transactions.resolve("alias").resolve(transactionId + ".verification")
+                    : transactions.resolve(transactionId + ".verification");
                 if ("stage-production-packed-source-drift".equals(operation)) {
                     try (java.util.stream.Stream<Path> paths = Files.walk(packedSource)) {
                         Path changed = paths.filter(Files::isRegularFile).sorted().findFirst().get();
                         Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
                     }
                 }
-                Map<String,Object> executionPlan = transaction.stageReviewedRelease(preview, stage);
+                Map<String,Object> executionPlan = "stage-production-packed-verified".equals(operation)
+                    ? transaction.stageReviewedVerifiedRelease(preview, stage, attempt)
+                    : transaction.stageReviewedRelease(preview, stage);
                 Files.write(transactions.resolve(transactionId + ".plan.json"),
                     preview.toJson().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
                 Files.write(transactions.resolve(transactionId + ".checkpoint.json"),
                     WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeUpgradeTransaction.receipt(
-                        executionPlan, "pending", false, false, "", "staging-verified"))
+                        executionPlan, "pending", false, false, "",
+                        "stage-production-packed-verified".equals(operation) ? "staging-verified" : "migration-staged"))
                         .getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
                 if ("verify-production-packed-tamper".equals(operation)) {
                     Path map = stage.resolve(
@@ -839,6 +852,10 @@ public final class RuntimeConfigHarness {
                                  plan["projectCapability"]["capabilityFingerprintSha256"])
                 self.assertFalse(plan["mapImportAvailableBeforeApply"])
                 self.assertFalse(plan["mutationOccurred"])
+                if fixture == "managed-n":
+                    prior = json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())
+                    self.assertEqual(prior["targetInstallationId"],
+                                     plan["activationLedger"]["targetInstallationId"])
                 self.case.cleanup()
                 self.setUp()
 
@@ -851,6 +868,8 @@ public final class RuntimeConfigHarness {
                 target = self.target(fixture)
                 workspace = self.workspace()
                 before = tree_snapshot(target)
+                prior_id = (json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())
+                            ["targetInstallationId"] if fixture == "managed-n" else None)
                 txid = f"apply-{index}"
                 gated = self.run_harness("map-gate", target, workspace, txid)
                 self.assertEqual("false", gated.stdout)
@@ -869,6 +888,9 @@ public final class RuntimeConfigHarness {
                 self.assertEqual("external-same-filesystem-outside-active-target", plan["stagingPolicy"])
                 self.assertFalse((workspace / txid / "staging").exists())
                 self.assertTrue((target / plan["releaseRelativePath"]).is_dir())
+                if prior_id is not None:
+                    self.assertEqual(prior_id, json.loads(
+                        (target / ".world-builder/runtime-ledger-v1.json").read_text())["targetInstallationId"])
                 gated = self.run_harness("map-gate", target, workspace, txid)
                 self.assertEqual(0, gated.returncode, gated.stderr)
                 self.assertEqual("true", gated.stdout)
@@ -1518,12 +1540,12 @@ public final class RuntimeConfigHarness {
         for line in ("server_name: Public É World", "server_name_welcome: Public É World",
                      "server_bind_address: 0.0.0.0", "server_port: 44594",
                      "ws_server_port: 44494", "combat_exp_rate: 3", "skilling_exp_rate: 2",
-                     "db_name: current_base", "want_myworld: false", "want_custom_ui: false"):
+                     "db_name: current_base", "db_type: sqlite", "want_myworld: false", "want_custom_ui: false"):
             self.assertIn(line, rendered)
         expected = {"server_name": "Public É World", "server_name_welcome": "Public É World",
                     "server_bind_address": "0.0.0.0", "server_port": "44594",
                     "ws_server_port": "44494", "combat_exp_rate": "3", "skilling_exp_rate": "2",
-                    "db_name": "current_base", "want_myworld": "false", "want_custom_ui": "false"}
+                    "db_name": "current_base", "db_type": "sqlite", "want_myworld": "false", "want_custom_ui": "false"}
         parsed = subprocess.run([
             "java", "-cp", self.parser_classpath, "com.openrsc.worldbuilder.RuntimeConfigHarness",
             str(launch / "current-base.conf"), *expected,
@@ -1617,11 +1639,23 @@ public final class RuntimeConfigHarness {
                 self.assertEqual(before, tree_snapshot(target))
                 self.assertEqual({}, tree_snapshot(workspace))
         for altered in (defaults + "server_port: 44595\n",
+                        defaults + "db_type: mysql\ndb_type: sqlite\n",
                         defaults.replace("server_port: 43594", "unreviewed_port: 43594")):
             (target / "typed.json").write_text(json.dumps(typed))
             (target / "defaults.conf").write_text(altered)
             refused = self.run_harness("render-launch-config", target, workspace, "bad-defaults")
             self.assertNotEqual(0, refused.returncode)
+            self.assertEqual({}, tree_snapshot(workspace))
+
+        for supplied in (defaults, defaults + "db_type: mysql\n"):
+            (target / "typed.json").write_text(json.dumps(typed))
+            (target / "defaults.conf").write_text(supplied)
+            before = tree_snapshot(target)
+            rendered = self.run_harness("render-launch-config", target, workspace, "engine")
+            self.assertEqual(0, rendered.returncode, rendered.stderr)
+            self.assertEqual(["db_type: sqlite"], [line for line in rendered.stdout.splitlines()
+                             if line.startswith("db_type:")])
+            self.assertEqual(before, tree_snapshot(target))
             self.assertEqual({}, tree_snapshot(workspace))
 
     def test_generated_state_seal_survives_reload_and_rejects_drift_without_writes(self) -> None:
@@ -1676,7 +1710,7 @@ public final class RuntimeConfigHarness {
             "database-hardlink", "missing-database", "extra-sidecar", "extra-directory",
             "missing-seal", "empty-seal", "unbound-seal", "unknown-field", "duplicate-path",
             "outside-path", "oversized", "receipt-transaction", "receipt-status",
-            "receipt-version", "activation-seal",
+            "receipt-version", "activation-seal", "verified-phase-without-runtime-seal",
             "contradictory-pending", "pending-drops-seal",
         ):
             with self.subTest(mutation=mutation):
@@ -1728,6 +1762,8 @@ public final class RuntimeConfigHarness {
                     altered["status"] = "unreviewed-phase"
                 elif mutation == "receipt-version":
                     altered["schemaVersion"] = 2
+                elif mutation == "verified-phase-without-runtime-seal":
+                    altered["failureType"] = "staging-verified"
                 elif mutation == "activation-seal":
                     marker = release / "activation.json"
                     activation = json.loads(marker.read_text())
@@ -1831,6 +1867,38 @@ public final class RuntimeConfigHarness {
                     local.read_text().replace(replacement[1], replacement[0]),
                     encoding="utf-8",
                 )
+
+    def test_verified_staging_aliases_refuse_before_any_output(self) -> None:
+        target = self.target("preservation-t0")
+        (target / "client/cache/landscape.pack").write_bytes(bytes(48 * 48 * 10))
+        workspace = self.workspace()
+        (workspace / "alias").symlink_to(target, target_is_directory=True)
+        target_before, workspace_before = tree_snapshot(target), tree_snapshot(workspace)
+        for failure in ("stage-alias", "attempt-alias"):
+            with self.subTest(failure=failure):
+                result = self.run_harness("stage-production-packed-verified", target, workspace,
+                    "alias-refusal", failure, identity=self.layout_identity, catalog=self.layout_catalog)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("CODE=UNSAFE_PATH", result.stderr)
+                self.assertEqual(target_before, tree_snapshot(target))
+                self.assertEqual(workspace_before, tree_snapshot(workspace))
+
+    def test_unproven_execution_cleanup_retains_recovery_status(self) -> None:
+        target = self.target("portable-data-t2b")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        txid = "unproven-cleanup"
+        result = self.run_harness("apply", target, workspace, txid,
+                                  "recovery-required-after-staging")
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("CODE=RECOVERY_REQUIRED", result.stderr)
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
+        self.assert_receipt_schema(receipt)
+        self.assertEqual("recovery-required", receipt["status"])
+        self.assertFalse(receipt["rollbackComplete"])
+        self.assertEqual("execution-cleanup-unproven", receipt["failureType"])
+        self.assertTrue((workspace / txid / "staging").is_dir())
+        self.assertEqual(before, tree_snapshot(target))
 
     def test_interruption_and_activation_failure_roll_back_exact_target(self) -> None:
         for milestone in ("after-staging", "after-release-published", "after-ledger-activated"):
