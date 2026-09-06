@@ -377,7 +377,7 @@ final class WorldBuilderCurrentRuntimeInstance {
         for (String path : expectedFiles.keySet()) addParents(path, directories);
         for (String path : directories) if (expected.put(path, directoryRecord("0700")) != null) throw failure("Output file collides with a directory.");
         if (!expected.equals(output)) throw failure("Serialized output inventory differs from the exact initial topology and bytes.");
-        return new InitialOutputPlan(array(document.get("outputInventory")), stage, release);
+        return new InitialOutputPlan(array(document.get("outputInventory")), stage, release, instance);
     }
 
     /** Read-only; any gameplay/extra session output makes the initial seal fail. Never cleans up. */
@@ -386,10 +386,38 @@ final class WorldBuilderCurrentRuntimeInstance {
         if (!inventory(actual, true).equals(plan.outputInventory)) throw failure("Initial instance output has drifted; this evidence cannot authorize live-state restoration or cleanup.");
     }
 
+    /** Detached initial evidence only, behind the exact journaled guard. Never authorizes cleanup itself. */
+    static void verifyGuardedInitialOutputs(InitialOutputPlan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        verifyInitialCutoverOutputs(plan, root, cutover, true);
+    }
+
+    /** Exact initial inventory after metadata rollback; any gameplay or partial construction refuses. */
+    static void verifyRolledBackInitialOutputs(InitialOutputPlan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        verifyInitialCutoverOutputs(plan, root, cutover, false);
+    }
+
+    private static void verifyInitialCutoverOutputs(InitialOutputPlan plan, Path root,
+        WorldBuilderCurrentRuntimeCutover.Plan cutover, boolean guarded) throws IOException, WorldBuilderContractException {
+        Path actual = directory(root); disjoint(actual, plan.stage); disjoint(actual, plan.release);
+        if (!actual.equals(plan.instance) || !actual.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))
+            || cutover.beforeSelection != null || cutover.beforeLedger != null)
+            throw failure("Initial recovery evidence does not select this absent predecessor installation.");
+        List<Object> expected = new ArrayList<Object>(plan.outputInventory);
+        Object selection = treeRow("installation/active-launch.json", bytesRecord(cutover.afterSelection));
+        if (!expected.contains(selection)) throw failure("Initial recovery selection differs from its construction evidence.");
+        if (guarded) expected.add(treeRow("installation/pending-cutover.json", bytesRecord(cutover.guard)));
+        else expected.remove(selection);
+        sortInventory(expected);
+        if (!inventory(actual, true).equals(expected))
+            throw failure("Initial recovery output differs from its exact phase inventory; retain it for recovery.");
+    }
+
     static final class InitialOutputPlan {
         private final List<Object> outputInventory;
-        private final Path stage, release;
-        private InitialOutputPlan(List<Object> outputInventory, Path stage, Path release) { this.outputInventory = outputInventory; this.stage = stage; this.release = release; }
+        private final Path stage, release, instance;
+        private InitialOutputPlan(List<Object> outputInventory, Path stage, Path release, Path instance) { this.outputInventory = outputInventory; this.stage = stage; this.release = release; this.instance = instance; }
     }
 
     private static void requireInitialProjection(Map<String,Object> spec, Path release, Path instance) throws WorldBuilderContractException {

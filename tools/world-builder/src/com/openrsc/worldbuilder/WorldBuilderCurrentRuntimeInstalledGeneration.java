@@ -12,7 +12,7 @@ final class WorldBuilderCurrentRuntimeInstalledGeneration {
     private WorldBuilderCurrentRuntimeInstalledGeneration() { }
 
     static Map<String,Object> bind(Map<String,Object> ledger, Path target, Map<String,Object> spec,
-        Map<String,Object> composition, Map<String,Object> mapManifest)
+        Map<String,Object> composition, Map<String,Object> mapManifest, String projectId)
         throws WorldBuilderContractException {
         requireContentIdentity(ledger, composition, mapManifest);
         Map<String,Object> generation = WorldBuilderCurrentRuntimeInstance.renderGeneration(spec);
@@ -20,6 +20,7 @@ final class WorldBuilderCurrentRuntimeInstalledGeneration {
             || !Objects.equals(ledger.get("targetInstallationId"), spec.get("installationId")))
             throw unsafe("Ledger and projected instance identity disagree.");
         Map<String,Object> binding = new LinkedHashMap<String,Object>();
+        binding.put("projectId", projectId);
         binding.put("instanceRelativePath", INSTANCE); binding.put("generationId", spec.get("generationId"));
         for (String role : Arrays.asList("server", "client")) {
             binding.put(role + "DescriptorRelativePath", INSTANCE + "/generations/" + spec.get("generationId") + "/" + role + "-launch.json");

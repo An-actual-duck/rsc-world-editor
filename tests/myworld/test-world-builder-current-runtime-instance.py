@@ -88,12 +88,12 @@ public final class InstanceHarness {
     if (input.containsKey("drift")) Files.write(Paths.get((String)input.get("drift")), new byte[]{99}, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     if (input.containsKey("symlink")) Files.createSymbolicLink(Paths.get((String)input.get("symlink")), stage);
     Path output = Paths.get((String)input.get("output"));
-    if ("construct-guarded".equals(args[0])) {
+    if ("construct-guarded".equals(args[0]) || "construct-rollback".equals(args[0])) {
       Path target=Paths.get((String)input.get("target"));
       Map<String,Object> ledger=WorldBuilderJsonDocuments.readObject(root.resolve("ledger-template.json"));
       ledger.put("targetInstallationId",input.get("installationId"));
       ledger=WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger,target,(Map<String,Object>)document.get("specification"),
-        WorldBuilderJsonDocuments.readObject(root.resolve("identity.json")),WorldBuilderJsonDocuments.readObject(stage.resolve("migration/output/map/conversion/package/manifest.json")));
+        WorldBuilderJsonDocuments.readObject(root.resolve("identity.json")),WorldBuilderJsonDocuments.readObject(stage.resolve("migration/output/map/conversion/package/manifest.json")), "base-project");
       Map<String,Object> generation=(Map<String,Object>)document.get("generation");
       WorldBuilderCurrentRuntimeCutover.Plan cutover=WorldBuilderCurrentRuntimeCutover.inspect(target,"initial","","",
         WorldBuilderJsonDocuments.pretty(generation.get("activeSelection")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
@@ -101,8 +101,18 @@ public final class InstanceHarness {
       WorldBuilderCurrentRuntimeCutover.journal(cutover,root.resolve("cutover-journal"));
       WorldBuilderCurrentRuntimeInstance.materializeGuarded(plan,output,cutover);
       WorldBuilderCurrentRuntimeInstance.verifyGuardedNew(plan,output,cutover);
+      WorldBuilderCurrentRuntimeInstance.InitialOutputPlan token = WorldBuilderCurrentRuntimeInstance.validateInitialOutputPlan(document, (String)document.get("planFingerprintSha256"));
+      WorldBuilderCurrentRuntimeInstance.verifyGuardedInitialOutputs(token,output,cutover);
       if(!Files.exists(output.resolve("installation/pending-cutover.json"))) throw new AssertionError("startup guard absent");
       try(WorldBuilderCurrentRuntimeInstanceLease lease=WorldBuilderCurrentRuntimeInstanceLease.acquire(output.resolve("installation"))) {
+        if ("construct-rollback".equals(args[0])) {
+          new WorldBuilderCurrentRuntimeCutover().recover(cutover,root.resolve("cutover-journal"),lease);
+          WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(token,output,cutover);
+          Files.write(output.resolve("state/server/current_base.db"),new byte[]{1},StandardOpenOption.APPEND);
+          try { WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(token,output,cutover); throw new AssertionError("drift accepted"); }
+          catch (WorldBuilderContractException expected) { }
+          System.out.print(WorldBuilderJsonDocuments.pretty(document)); return;
+        }
         new WorldBuilderCurrentRuntimeCutover().apply(cutover,root.resolve("cutover-journal"),lease);
       }
       WorldBuilderCurrentRuntimeInstance.verifyNew(plan,output);
@@ -278,6 +288,17 @@ public final class InstanceHarness {
         descriptor = self.instance / "generations/first-generation/client-launch.json"
         descriptor.write_bytes(descriptor.read_bytes() + b" ")
         self.invoke("verify-installed", success=False)
+
+    def test_detached_initial_recovery_inventory(self):
+        target = self.root / "target"
+        parent = target / ".world-builder/current-runtime"
+        parent.mkdir(parents=True)
+        self.instance = parent / "instance"
+        self.request.update(target=str(target), instance=str(self.instance), output=str(self.instance))
+        self.invoke("construct-rollback")
+        self.assertFalse((self.instance / "installation/active-launch.json").exists())
+        self.assertFalse((self.instance / "installation/pending-cutover.json").exists())
+        self.assertFalse((target / ".world-builder/runtime-ledger-v1.json").exists())
 
     def test_final_projection_can_precede_release_and_instance_publication(self):
         self.request["release"] = str(self.root / "future" / "release")
