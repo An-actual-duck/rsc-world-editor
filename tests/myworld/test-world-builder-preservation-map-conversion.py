@@ -180,11 +180,11 @@ class PreservationMapConversionTest(unittest.TestCase):
             expected_npcs, emitted_npcs, placement_ids = Counter(), Counter(), set()
             for name in ["NpcLocs.json", "NpcLocsDiscontinued.json"]:
                 for row in json.loads((derived / "placements" / name).read_text())["npclocs"]:
-                    plane = row["start"]["y"] // 944
+                    plane = row["start"]["Y"] // 944
                     level = [0, 1, 2, -1][plane]
-                    expected_npcs[(level, row["id"], row["start"]["x"], row["start"]["y"] % 944,
-                                   row["min"]["x"], row["min"]["y"] % 944,
-                                   row["max"]["x"], row["max"]["y"] % 944, -1)] += 1
+                    expected_npcs[(level, row["id"], row["start"]["X"], row["start"]["Y"] % 944,
+                                   row["min"]["X"], row["min"]["Y"] % 944,
+                                   row["max"]["X"], row["max"]["Y"] % 944, -1)] += 1
             void_bounds = 0
             for declaration in manifest["placementSets"]:
                 self.assertEqual("layered-world-placements-v5", declaration["encoding"])

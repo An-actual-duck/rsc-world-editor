@@ -34,8 +34,8 @@ The set also includes the historical pair of
 `client/cache/landscape.pack`. Both reviewed files contain 945,225 bytes with
 SHA-256 `48ed0e1634b870888f96c0bc3e31cbaf152570b913140fdfd3596897a3eb29fa`.
 The matching client uses that ZIP, while the server normally selects JAG/MEM.
-Their identical ZIP hashes do not establish server/client map parity. Lossless
-historical JAG/MEM decoding and selected-world comparison are still required.
+Their identical ZIP hashes do not establish server/client map parity. The
+historical JAG/MEM decoding and selected-world proof described below are required.
 Production preview identifies `historical-jag-conversion-pending` and its explicit
 readiness blocker. Descriptor-backed ZIP evidence cannot substitute for this
 unfinished migration path.
@@ -82,32 +82,35 @@ from `source/original` plus `source/migration/decoder`. The packed converter has
 separate internal data-only entry point that reuses complete placement, package and
 reverse-parity checks. It does not invent a target descriptor, runtime evidence or
 dummy asset agreement, and the public generic descriptor parser is unchanged.
-Production remains blocked pending actual inventory-bound invocation/conversion
-verification, runtime semantic proof and connection to project/upgrade preview.
-The inventory-bound decoder has now run successfully against the adopted provider
-`dcd362ec3381ec4883f3855b7157d9d08e4a60fe`. Full conversion exposed a further real
-input requirement: 146 stock NPC roaming rectangles intersect 58 server-probed
-absent sectors, although every NPC anchor is on present terrain. Historically
-those missing sectors remained fully blocked. The current terrain-covered roaming
-contract refuses these rectangles; passing the decoder alone is not a complete
-conversion result. The original bounds must remain unchanged, including their
-effect on chase limits. A new explicit current blocked-void roaming capability is
-required; clipping bounds or activating client-only map sectors is not an accepted
-repair. Existing generic packages must retain their terrain-covered default.
-Definition equivalence is a separate required proof: Current Base numeric ID
-limits do not establish compatible values. The reviewed historical well (scenery
-2) occupies two by two tiles, while the inherited provider definition occupies one
-by one; historical support posts (21) are nonblocking but the inherited definition
-blocks. Ordinary item and NPC IDs also contain changed values. The conservative
-provider composition must explicitly reconcile these definitions and corresponding
-client/gameplay behavior; map conversion cannot silently absorb those changes.
+Production remains blocked pending runtime semantic proof and connection to
+project/upgrade preview. The actual inventory-bound decoder and full conversion
+now pass against adopted published provider
+`d21021756e59b82844dc16152af60721be1418b5`: 352 sectors, 32,410 placements,
+complete four-family reconciliation and 352 reverse matches with zero mismatches.
+All 3,609 NPC records retain their exact normalized historical bounds and
+multiplicities, including 146 roaming rectangles intersecting 58 server-probed
+absent sectors. Every NPC anchor is on present terrain. Explicit placement v5
+declares `npcRoamCoverage: blocked-void`; it retains those authoritative bounds
+without activating absent cells or clipping chase limits. Existing v4 packages
+and new empty worlds retain their terrain-covered default. See the
+[consumer checkpoint](PRESERVATION-V5-CONSUMER-CHECKPOINT.md) for the capability,
+save/export and installed-host rediscovery boundaries.
+
+Definition equivalence remains a separate required proof: Current Base numeric
+ID limits do not establish compatible values. The initial audit found differences
+between reviewed historical definitions and inherited provider definitions,
+including the well's two-by-two footprint, nonblocking support posts, and ordinary
+item/NPC values. Provider-owned composition tests must prove the resulting
+definitions and corresponding client/gameplay behavior; this map-conversion
+checkpoint does not substitute for that acceptance or assert that inherited
+definition differences remain present in the newly adopted provider.
+
 The actual invocation/full-conversion test is
 `test-world-builder-preservation-map-conversion.py`: it uses the exact public Git
 input and builds only the pinned Current Base provider, not historical code. It
-must pass with the published decoder-bearing provider before this slice can claim
-complete map conversion. Its separate API-compilation check is not an invocation
-or map-acceptance pass. New conversion outputs must be outside the entire preserved
-`source` namespace, including the decoder and derivation provenance.
+passes with the adopted published provider. Its separate API-compilation check
+is not an invocation or map-acceptance pass. New conversion outputs must be outside
+the entire preserved `source` namespace, including decoder and derivation evidence.
 For a separately assigned runtime semantic check, setting the test-only
 `WORLD_BUILDER_PRESERVATION_KEEP_MAP_PROBE=1` retains and prints one freshly
 allocated external probe directory. It contains the sealed public inputs,
@@ -160,9 +163,9 @@ row. Missing external source is reported as unavailable, never a synthetic pass.
   generated files without globally ignoring unknown executable inputs.
 - Bind initialized and populated state through provider schema evidence, not a
   fixture database file hash.
-- Implement descriptor-free JAG/MEM landscape discovery and complete map
-  conversion with the actual historical definition/placement selection rules.
-  The old fallback requires `custom_landscape: true` and MyWorld-specific inputs;
+- Connect the verified internal descriptor-free JAG/MEM derivation and full map
+  conversion to production project discovery and upgrade preview. The old
+  fallback requires `custom_landscape: true` and MyWorld-specific inputs;
   it is not a Preservation adapter.
 - Feed current project capabilities, installation, subsequent managed upgrades,
   map-only import and desktop selection through those proven inputs.
