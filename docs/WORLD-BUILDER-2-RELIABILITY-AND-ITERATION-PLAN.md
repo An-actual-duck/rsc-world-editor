@@ -492,6 +492,14 @@ without imposing its gameplay or content on Base users.
   evidence and journal the active launch selection with the ledger while
   holding both role leases. Retired descriptors must be refused
   by the actual JVM after it acquires its role lease, not only by a wrapper.
+  The pending cutover design also requires a durable
+  `installation/pending-cutover.json` guard before publishing target changes.
+  Both normal JVM entry points must refuse any guard entry after taking their
+  role lease and before writable initialization. The Editor removes the exact
+  transaction-owned guard only after the pointer and ledger are durably verified
+  together, or after exact rollback. Leases alone are insufficient: a manager
+  crash releases them while a pointer/ledger update may still be incomplete.
+  This is pending integration, not an enabled cutover or recovery claim.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
