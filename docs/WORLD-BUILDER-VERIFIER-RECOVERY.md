@@ -1,8 +1,10 @@
 # Current Base disposable verifier recovery
 
 This is transaction infrastructure, not permission to activate a real target.
-Production apply remains disabled. The Editor adoption requires the published,
-locked provider contract and real integration tests before candidate acceptance.
+Production apply remains disabled. The Editor uses the published, locked
+provider's durable supervision contract. Real disposable-pair and interrupted
+recovery checks pass; this does not replace the remaining full-product candidate
+and production activation gates.
 
 The real verifier runs only disposable copies of the selected server, client,
 map and migrated state. Preparation and execution are separate. Before starting
@@ -46,6 +48,12 @@ unbound attempts remain explicit recovery refusals. Uncertain evidence is
 retained, including a crash during preparation before a receipt was committed.
 
 Focused coverage lives in `test-world-builder-verifier-authority.py` and
-`test-world-builder-installed-runtime-verification.py`; real pair, interrupted
-transaction and relocated-release recovery gates require the exact locked
-provider. Primitive fixture acceptance is not proof that gameplay ran.
+`test-world-builder-installed-runtime-verification.py`. The latter exercises
+real two-launch verification/sealing, preparation interrupted before launch,
+a busy actual role lease, changed retained tools, repeated closure after the
+old staged paths disappear, and an explicitly test-owned Editor JVM hard-kill
+followed by authenticated provider closure. Its temporary inputs and authority
+are retained if cleanup cannot be proven. Transaction regressions separately
+cover durable phase reconciliation and interrupted publication. These tests use
+invented disposable data and the exact locked provider; primitive fixture
+acceptance is not proof that gameplay ran or that a real target was upgraded.
