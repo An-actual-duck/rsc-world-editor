@@ -8,7 +8,7 @@
     "schemaVersion", "manifestType", "transactionId", "planFingerprintSha256",
     "status", "mutationOccurred", "rollbackComplete", "recoveryRequired",
     "preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
-    "failureType", "receiptFingerprintSha256", "generatedStateOutputs"
+    "failureType", "receiptFingerprintSha256", "generatedStateOutputs", "runtimeExecutionOutputs"
   ],
   "properties": {
     "schemaVersion": {"const": 1},
@@ -23,10 +23,22 @@
     "artifactPlanHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
     "generatedStateOutputs": {"$ref": "#/$defs/generatedStateOutputs"},
+    "runtimeExecutionOutputs": {"type":"array","maxItems":1,"items":{"$ref":"#/$defs/runtimeExecutionRecord"}},
     "failureType": {"type": "string", "maxLength": 1024},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
   "$defs": {
+    "runtimeExecutionRecord": {
+      "type":"object","additionalProperties":false,
+      "required":["relativePath","size","sha256","mode","verifierContractSha256"],
+      "properties":{
+        "relativePath":{"const":"migration/output/verification/installed-execution-evidence.json"},
+        "size":{"type":"integer","minimum":1,"maximum":1048576},
+        "sha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "mode":{"const":"0600"},
+        "verifierContractSha256":{"const":"b13aaa9f247dbcfd8c5cb55ea2535f07f76400ae9d12d1cf654197be1b3afe55"}
+      }
+    },
     "generatedStateOutputs": {
       "type": "array", "minItems": 0, "maxItems": 2,
       "oneOf": [{"maxItems": 0}, {"minItems": 2}],

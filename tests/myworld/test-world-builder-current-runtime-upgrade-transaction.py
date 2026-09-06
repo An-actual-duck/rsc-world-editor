@@ -472,6 +472,7 @@ public final class CurrentUpgradeHarness {
         } else if ("preview-production".equals(operation)
             || "preview-production-packed".equals(operation)
             || "stage-production-packed".equals(operation)
+            || "stage-production-packed-verified".equals(operation)
             || "verify-production-packed-tamper".equals(operation)
             || "verify-production-packed-extra".equals(operation)
             || "stage-production-packed-source-drift".equals(operation)
@@ -483,6 +484,7 @@ public final class CurrentUpgradeHarness {
                 || "preview-production-packed".equals(operation)) {
                 System.out.print(preview.toJson());
             } else if ("stage-production-packed".equals(operation)
+                || "stage-production-packed-verified".equals(operation)
                 || "verify-production-packed-tamper".equals(operation)
                 || "verify-production-packed-extra".equals(operation)
                 || "stage-production-packed-source-drift".equals(operation)) {
@@ -493,7 +495,9 @@ public final class CurrentUpgradeHarness {
                         Files.write(changed, new byte[] {32}, StandardOpenOption.APPEND);
                     }
                 }
-                Map<String,Object> executionPlan = transaction.stageReviewedRelease(preview, stage);
+                Map<String,Object> executionPlan = "stage-production-packed-verified".equals(operation)
+                    ? transaction.stageReviewedVerifiedRelease(preview, stage, transactions.resolve(transactionId + ".verification"))
+                    : transaction.stageReviewedRelease(preview, stage);
                 Files.write(transactions.resolve(transactionId + ".plan.json"),
                     preview.toJson().getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW);
                 Files.write(transactions.resolve(transactionId + ".checkpoint.json"),
