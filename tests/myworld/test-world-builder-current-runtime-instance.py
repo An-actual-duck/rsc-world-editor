@@ -47,6 +47,15 @@ import java.util.*;
 public final class InstanceHarness {
   @SuppressWarnings("unchecked") public static void main(String[] args) throws Exception {
     Path root = Paths.get(args[1]);
+    if ("verify-serialized".equals(args[0]) || "validate-serialized".equals(args[0])) {
+      Map<String,Object> serialized = WorldBuilderJsonDocuments.readObject(root.resolve("plan.json"));
+      WorldBuilderCurrentRuntimeInstance.InitialOutputPlan plan =
+        WorldBuilderCurrentRuntimeInstance.validateInitialOutputPlan(serialized, args[2]);
+      // The validation token has detached evidence, not a writable caller-owned map.
+      ((List<Object>)serialized.get("outputInventory")).clear();
+      if ("verify-serialized".equals(args[0])) WorldBuilderCurrentRuntimeInstance.verifyInitialOutputs(plan, Paths.get(args[3]));
+      System.out.print("{\"verified\":true}"); return;
+    }
     Map<String,Object> input = WorldBuilderJsonDocuments.readObject(root.resolve("request.json"));
     if ("render".equals(args[0])) {
       System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeInstance.renderGeneration(input)));
@@ -213,6 +222,21 @@ public final class InstanceHarness {
         self.assertEqual(str(self.root / "future/instance/state/server"), descriptor["stateRoot"])
         self.assertFalse((self.root / "future").exists())
 
+    def test_staging_cannot_overlap_projected_immutable_release(self):
+        self.request["release"] = str(self.root / "future-release")
+        for path in (self.root / "future-release", self.root / "future-release/installed/server",
+                     self.root / "future-release/migration/output/map/conversion/package",
+                     self.root / "future-release/runtime/profile.json"):
+            with self.subTest(path=path):
+                self.request["output"] = str(path)
+                self.invoke("construct", success=False)
+                self.assertFalse((self.root / "future-release").exists())
+        # Existing canonical parent exercises the overlap check rather than missing-parent refusal.
+        (self.root / "future-release").mkdir()
+        self.request["output"] = str(self.root / "future-release/unpublished-output")
+        self.invoke("construct", success=False)
+        self.assertEqual([], list((self.root / "future-release").iterdir()))
+
     def test_pure_map_and_runtime_generations_preserve_selected_mutable_paths(self):
         spec = self.invoke()["specification"]
         prior = self.invoke("render", spec)
@@ -282,6 +306,85 @@ public final class InstanceHarness {
     def test_initial_readback_rejects_mutated_live_copy(self):
         self.invoke("tamper", success=False)
         self.assertTrue(self.instance.is_dir())  # No destructive cleanup after failure.
+
+    def serialized(self, plan, output=None, confirmed=None, success=True):
+        write(self.root / "plan.json", plan)
+        args = ["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.InstanceHarness",
+                "verify-serialized" if output else "validate-serialized", str(self.root),
+                confirmed if confirmed is not None else plan["planFingerprintSha256"]]
+        if output:
+            args.append(str(output))
+        result = subprocess.run(args, capture_output=True, text=True, timeout=60)
+        if success:
+            self.assertEqual(0, result.returncode, result.stderr)
+        else:
+            self.assertNotEqual(0, result.returncode)
+        return result
+
+    @staticmethod
+    def reseal(plan):
+        unsigned = {key: value for key, value in plan.items() if key != "planFingerprintSha256"}
+        plan["planFingerprintSha256"] = hashlib.sha256(canonical(unsigned)).hexdigest()
+        return plan
+
+    def test_recovery_readback_after_source_relocation_and_process_restart(self):
+        self.request["release"] = str(self.root / "published-release")
+        self.request["instance"] = str(self.root / "published-instance")
+        self.request["output"] = str(self.root / "construction-staging")
+        plan = self.invoke("construct")
+        self.stage.rename(self.root / "published-release")
+        (self.root / "construction-staging").rename(self.root / "published-instance")
+        # Source paths no longer exist. The new JVM must only inspect exact owned output.
+        (self.root / "side").rename(self.root / "relocated-side-sources")
+        output = self.root / "published-instance"
+        self.serialized(plan, output)
+        before = snapshot(output)
+        self.serialized(plan, output, confirmed="f" * 64, success=False)
+        self.assertEqual(before, snapshot(output))
+        with sqlite3.connect(output / "state/server/current_base.db") as connection:
+            connection.execute("insert into preserved values ('gameplay-after-construction')")
+        changed = snapshot(output)
+        self.serialized(plan, output, success=False)
+        self.assertEqual(changed, snapshot(output))  # Never rolls back or deletes live state.
+
+    def test_serialized_plan_refuses_forged_closed_metadata_and_inventories(self):
+        original = self.invoke("construct")
+        self.serialized(original, self.instance)
+        mutations = [
+            lambda p: p.update(manifestType="untrusted-output-claim"),
+            lambda p: p.update(unexpected=True),
+            lambda p: p["generation"]["serverDescriptor"].update(role="client"),
+            lambda p: p["outputInventory"][1].update(relativePath="../victim"),
+            lambda p: p["outputInventory"].append(copy.deepcopy(p["outputInventory"][-1])),
+            lambda p: p["outputInventory"][0].update(mode="0755"),
+            lambda p: p["copies"][0]["source"].update(size=-1),
+            lambda p: p["copies"][0]["source"].update(type="symlink"),
+            lambda p: p["absentSideStateSources"][0].update(relativePath="state/server/side/server.pem"),
+            lambda p: p["specification"].update(serverCodeTreeSha256="f" * 64),
+            lambda p: p.update(projectedInstanceRoot=str(self.root / "wrong-final-root")),
+        ]
+        before = snapshot(self.instance)
+        for index, mutate in enumerate(mutations):
+            with self.subTest(index=index):
+                plan = copy.deepcopy(original); mutate(plan); self.reseal(plan)
+                self.serialized(plan, self.instance, success=False)
+        stale = copy.deepcopy(original); stale["failurePolicy"] = "force-cleanup"
+        self.serialized(stale, self.instance, success=False)
+        self.assertEqual(before, snapshot(self.instance))
+
+    def test_serialized_readback_rejects_extra_linked_or_nonprivate_output(self):
+        plan = self.invoke("construct")
+        extra = self.instance / "working/server/unreviewed.log"
+        write(extra, b"new-live-session")
+        self.serialized(plan, self.instance, success=False)
+        extra.unlink()
+        side = self.instance / "state/client/side/uid.dat"
+        side.chmod(0o644)
+        self.serialized(plan, self.instance, success=False)
+        side.chmod(0o600)
+        alias = self.root / "linked-instance"
+        alias.symlink_to(self.instance, target_is_directory=True)
+        self.serialized(plan, alias, success=False)
 
 
 if __name__ == "__main__":

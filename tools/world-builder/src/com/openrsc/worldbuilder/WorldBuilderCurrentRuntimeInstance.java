@@ -95,7 +95,7 @@ final class WorldBuilderCurrentRuntimeInstance {
             throw failure("Side-state sources must explicitly bind every supported present or absent name.");
         Set<Path> sidePaths = new HashSet<Path>();
         List<Copy> copies = new ArrayList<Copy>();
-        List<Path> absentSources = new ArrayList<Path>();
+        List<Absent> absentSources = new ArrayList<Absent>();
         for (String role : Arrays.asList("server", "client")) {
             Map<String,Path> sources = "server".equals(role) ? server : client;
             for (Map.Entry<String,Path> entry : sources.entrySet()) {
@@ -106,7 +106,7 @@ final class WorldBuilderCurrentRuntimeInstance {
                     if (required) throw failure("Required preserved side-state is absent.");
                     disjoint(source, instance); if (!stage.equals(release)) disjoint(source, release);
                     if (!sidePaths.add(source)) throw failure("Absent side-state paths alias.");
-                    absentSources.add(source); continue;
+                    absentSources.add(new Absent(source, "state/" + role + "/side/" + entry.getKey())); continue;
                 }
                 regular(source);
                 // The public key may be intentionally copied to both roles; no other input aliases.
@@ -133,8 +133,10 @@ final class WorldBuilderCurrentRuntimeInstance {
         documents.put(generationPath + "client-launch.json", json(generation.get("clientDescriptor")));
         documents.put("installation/active-launch.json", json(generation.get("activeSelection")));
         documents.put("installation/server.lock", new byte[0]); documents.put("installation/client.lock", new byte[0]);
-        Plan result = new Plan(stage, instance, sourceTree, spec, copies, absentSources, documents);
+        Plan result = new Plan(stage, release, instance, sourceTree, spec, copies, absentSources, documents);
         result.verifySources();
+        Map<String,Object> serialized = result.document();
+        validateInitialOutputPlan(serialized, string(serialized, "planFingerprintSha256"));
         return result;
     }
 
@@ -210,9 +212,10 @@ final class WorldBuilderCurrentRuntimeInstance {
     static void materializeNew(Plan plan, Path newRoot) throws IOException, WorldBuilderContractException {
         Path root = projected(newRoot); absent(root); directory(root.getParent());
         disjoint(root, plan.stage);
+        disjoint(root, plan.finalRelease);
         if (!root.equals(plan.finalRoot)) disjoint(root, plan.finalRoot);
         for (Copy copy : plan.copies) disjoint(root, copy.source);
-        for (Path source : plan.absentSources) disjoint(root, source);
+        for (Absent source : plan.absentSources) disjoint(root, source.source);
         plan.verifySources();
         Files.createDirectory(root, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
         Object rootKey = Files.readAttributes(root, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS).fileKey();
@@ -245,19 +248,191 @@ final class WorldBuilderCurrentRuntimeInstance {
         plan.verifySources();
     }
 
+    /**
+     * Reconstructs READ-ONLY initial-output evidence after a process restart. The fingerprint must
+     * come from the transaction's independently trusted confirmed journal, not from this document.
+     * No source paths are opened. This token grants neither deletion nor restoration/live-state reuse.
+     */
+    static InitialOutputPlan validateInitialOutputPlan(Map<String,Object> input, String confirmedFingerprint)
+        throws WorldBuilderContractException {
+        exact(input, "schemaVersion", "manifestType", "specification", "sourceReleaseRoot", "projectedReleaseRoot",
+            "projectedInstanceRoot", "sourceReleaseInventory", "outputInventory", "copies", "generation",
+            "absentSideStateSources", "failurePolicy", "planFingerprintSha256");
+        requireHash(confirmedFingerprint);
+        if (array(input.get("sourceReleaseInventory")).size() > 100000 || array(input.get("outputInventory")).size() > 128
+            || array(input.get("copies")).size() > 13 || array(input.get("absentSideStateSources")).size() > 6
+            || json(input).length > WorldBuilderContractLimits.MAX_JSON_BYTES) throw failure("Serialized construction plan exceeds its bound.");
+        Map<String,Object> document = copy(input);
+        if (number(document.get("schemaVersion")) != 1
+            || !"world-builder-current-instance-construction-plan".equals(document.get("manifestType"))
+            || !"retain-new-partial-output-for-journaled-recovery".equals(document.get("failurePolicy")))
+            throw failure("Unsupported initial construction evidence identity.");
+        String claimed = string(document, "planFingerprintSha256");
+        Map<String,Object> unsigned = new LinkedHashMap<String,Object>(document); unsigned.remove("planFingerprintSha256");
+        if (!confirmedFingerprint.equals(claimed) || !claimed.equals(hashBytes(WorldBuilderJsonDocuments.canonical(unsigned).getBytes(StandardCharsets.UTF_8))))
+            throw failure("Construction document differs from the independently confirmed plan.");
+        Map<String,Object> spec = object(document.get("specification"));
+        Map<String,Object> generation = renderGeneration(spec);
+        if (!generation.equals(object(document.get("generation")))) throw failure("Serialized launch pair differs from its pure projection.");
+        Path stage = lexical(string(document, "sourceReleaseRoot"));
+        Path release = lexical(string(document, "projectedReleaseRoot")), instance = lexical(string(document, "projectedInstanceRoot"));
+        disjoint(stage, instance); disjoint(release, instance); if (!stage.equals(release)) disjoint(stage, release);
+        requireInitialProjection(spec, release, instance);
+        Map<String,Map<String,Object>> source = validateInventory(array(document.get("sourceReleaseInventory")), false);
+        Map<String,Map<String,Object>> output = validateInventory(array(document.get("outputInventory")), true);
+        for (String role : Arrays.asList("server", "client")) {
+            requireSourceHash(source, LAUNCH + "installed-" + role + ".json", string(spec, role + "MapProfileSha256"));
+            if (!string(spec, role + "CodeTreeSha256").equals(inventoryFingerprint(source, "installed/" + role + "/", false)))
+                throw failure("Projected code hash differs from the sealed source inventory.");
+        }
+        requireSourceHash(source, "runtime/profile.json", string(spec, "runtimeProfileSha256"));
+        requireSourceHash(source, LAUNCH + "current-base.conf", string(spec, "serverConfigurationSha256"));
+        if (!string(spec, "mapPackageFingerprintSha256").equals(inventoryFingerprint(source, MAP + "/", true)))
+            throw failure("Projected map hash differs from the sealed source inventory.");
+        Set<String> required = names("state/server/current_base.db", "state/client/side/client.pem");
+        for (String name : SERVER_REQUIRED) required.add("state/server/side/" + name);
+        Set<String> optional = new HashSet<String>();
+        for (String name : SERVER_OPTIONAL) optional.add("state/server/side/" + name);
+        for (String name : CLIENT_OPTIONAL) optional.add("state/client/side/" + name);
+        Map<String,Map<String,Object>> expectedFiles = new TreeMap<String,Map<String,Object>>();
+        Map<Path,String> sourcePaths = new HashMap<Path,String>();
+        for (Object raw : array(document.get("copies"))) {
+            Map<String,Object> row = object(raw); exact(row, "sourcePath", "relativePath", "source");
+            String relative = portable(string(row, "relativePath"));
+            if (!required.contains(relative) && !optional.contains(relative)) throw failure("Construction copy selects an unsupported output.");
+            Path sourcePath = lexical(string(row, "sourcePath")); disjoint(sourcePath, instance);
+            if (!stage.equals(release)) disjoint(sourcePath, release);
+            String prior = sourcePaths.put(sourcePath, relative);
+            if (prior != null && !(names(prior, relative).equals(names("state/server/side/client.pem", "state/client/side/client.pem"))))
+                throw failure("Serialized construction sources alias.");
+            Map<String,Object> record = object(row.get("source")); validateFileRecord(record);
+            if (expectedFiles.put(relative, outputRecord(record)) != null) throw failure("Repeated construction destination.");
+            if (relative.equals("state/server/current_base.db")) {
+                String database = "migration/output/state/current-base.db";
+                if (!sourcePath.equals(stage.resolve(database)) || !record.equals(source.get(database))) throw failure("Initial database copy is not the sealed migration output.");
+            } else {
+                long maximum = relative.endsWith(".pem") ? 65536L : 1048576L;
+                if (number(record.get("size")) > maximum) throw failure("Side-state copy exceeds its bound.");
+            }
+        }
+        if (!expectedFiles.keySet().containsAll(required)) throw failure("Initial construction omits required state.");
+        Set<String> absence = new HashSet<String>();
+        for (Object raw : array(document.get("absentSideStateSources"))) {
+            Map<String,Object> row = object(raw); exact(row, "sourcePath", "relativePath");
+            String relative = portable(string(row, "relativePath"));
+            Path sourcePath = lexical(string(row, "sourcePath")); disjoint(sourcePath, instance);
+            if (!stage.equals(release)) disjoint(sourcePath, release);
+            if (!optional.contains(relative) || expectedFiles.containsKey(relative) || !absence.add(relative)
+                || sourcePaths.put(sourcePath, relative) != null) throw failure("Known-absent side-state is duplicated, aliased, or unsupported.");
+        }
+        Set<String> dispositions = new HashSet<String>(expectedFiles.keySet()); dispositions.addAll(absence);
+        if (!dispositions.equals(union(required, optional))) throw failure("Side-state presence/absence is incomplete.");
+        String prefix = "generations/" + string(spec, "generationId") + "/";
+        Map<String,Object> identity = output.get(prefix + "composition-identity.json");
+        if (identity == null || !"file".equals(identity.get("type")) || number(identity.get("size")) < 2
+            || number(identity.get("size")) > 1048576 || !spec.get("compositionIdentitySha256").equals(identity.get("sha256")))
+            throw failure("Generated composition identity is not bound to its initial output.");
+        expectedFiles.put(prefix + "composition-identity.json", identity);
+        for (String role : Arrays.asList("server", "client")) {
+            if (!expectedFiles.get("state/" + role + "/side/client.pem").get("sha256").equals(spec.get(role + "PublicKeySha256")))
+                throw failure("Initial trust copy differs from its launch binding.");
+            expectedFiles.put(prefix + role + "-launch.json", bytesRecord(json(generation.get(role + "Descriptor"))));
+            expectedFiles.put("installation/" + role + ".lock", bytesRecord(new byte[0]));
+        }
+        expectedFiles.put("installation/active-launch.json", bytesRecord(json(generation.get("activeSelection"))));
+        Map<String,Map<String,Object>> expected = new TreeMap<String,Map<String,Object>>(expectedFiles);
+        Set<String> directories = names("");
+        for (String path : Arrays.asList("installation/sessions/server", "installation/sessions/client", "state/server/side", "state/client/side", "working/server", "working/client")) addDirectories(path, directories);
+        for (String path : expectedFiles.keySet()) addParents(path, directories);
+        for (String path : directories) if (expected.put(path, directoryRecord("0700")) != null) throw failure("Output file collides with a directory.");
+        if (!expected.equals(output)) throw failure("Serialized output inventory differs from the exact initial topology and bytes.");
+        return new InitialOutputPlan(array(document.get("outputInventory")), stage, release);
+    }
+
+    /** Read-only; any gameplay/extra session output makes the initial seal fail. Never cleans up. */
+    static void verifyInitialOutputs(InitialOutputPlan plan, Path root) throws IOException, WorldBuilderContractException {
+        Path actual = directory(root); disjoint(actual, plan.stage); disjoint(actual, plan.release);
+        if (!inventory(actual, true).equals(plan.outputInventory)) throw failure("Initial instance output has drifted; this evidence cannot authorize live-state restoration or cleanup.");
+    }
+
+    static final class InitialOutputPlan {
+        private final List<Object> outputInventory;
+        private final Path stage, release;
+        private InitialOutputPlan(List<Object> outputInventory, Path stage, Path release) { this.outputInventory = outputInventory; this.stage = stage; this.release = release; }
+    }
+
+    private static void requireInitialProjection(Map<String,Object> spec, Path release, Path instance) throws WorldBuilderContractException {
+        Map<String,Path> paths = new LinkedHashMap<String,Path>();
+        paths.put("installationRoot", instance.resolve("installation"));
+        paths.put("compositionIdentityPath", instance.resolve("generations/" + string(spec, "generationId") + "/composition-identity.json"));
+        paths.put("runtimeProfilePath", release.resolve("runtime/profile.json")); paths.put("serverConfigurationPath", release.resolve(LAUNCH + "current-base.conf")); paths.put("mapRoot", release.resolve(MAP));
+        for (String role : Arrays.asList("server", "client")) {
+            paths.put(role + "MapProfilePath", release.resolve(LAUNCH + "installed-" + role + ".json"));
+            paths.put(role + "CodeRoot", release.resolve("installed/" + role)); paths.put(role + "WorkingRoot", instance.resolve("working/" + role));
+            paths.put(role + "StateRoot", instance.resolve("state/" + role)); paths.put(role + "SideStateRoot", instance.resolve("state/" + role + "/side"));
+        }
+        for (Map.Entry<String,Path> entry : paths.entrySet()) if (!entry.getValue().toString().equals(spec.get(entry.getKey()))) throw failure("Initial descriptor path differs from the fixed projected topology.");
+    }
+
+    private static Map<String,Map<String,Object>> validateInventory(List<Object> rows, boolean outputs) throws WorldBuilderContractException {
+        Map<String,Map<String,Object>> result = new TreeMap<String,Map<String,Object>>(); Set<String> folded = new HashSet<String>();
+        String previous = null; long total = 0;
+        for (Object raw : rows) {
+            Map<String,Object> row = object(raw); String path = string(row, "relativePath");
+            if (!path.isEmpty()) portable(path);
+            if (previous != null && previous.compareTo(path) >= 0 || !folded.add(path.toLowerCase(Locale.ROOT))) throw failure("Inventory paths are repeated, aliased, or unsorted.");
+            previous = path; Map<String,Object> record = new LinkedHashMap<String,Object>(row); record.remove("relativePath");
+            if ("directory".equals(record.get("type"))) {
+                exact(record, "type", "mode"); if (!string(record, "mode").matches("[0-7]{4}")) throw failure("Invalid directory mode.");
+                if (outputs && !"0700".equals(record.get("mode"))) throw failure("Initial output directory mode differs.");
+            } else {
+                validateFileRecord(record); total += number(record.get("size"));
+                if (path.isEmpty() || outputs && !"0600".equals(record.get("mode"))) throw failure("Invalid initial output file.");
+            }
+            if (total > MAX_TREE_BYTES) throw failure("Inventory exceeds total byte bound.");
+            result.put(path, record);
+        }
+        if (!result.containsKey("") || !"directory".equals(result.get("").get("type"))) throw failure("Inventory omits its directory root.");
+        for (String path : result.keySet()) if (!path.isEmpty()) {
+            int slash = path.lastIndexOf('/'); String parent = slash < 0 ? "" : path.substring(0, slash);
+            if (!result.containsKey(parent) || !"directory".equals(result.get(parent).get("type"))) throw failure("Inventory path lacks its exact directory parent.");
+        }
+        return result;
+    }
+    private static void validateFileRecord(Map<String,Object> record) throws WorldBuilderContractException {
+        exact(record, "type", "mode", "size", "sha256");
+        if (!"file".equals(record.get("type")) || !string(record, "mode").matches("[0-7]{4}")
+            || number(record.get("size")) < 0 || number(record.get("size")) > 1073741824L) throw failure("Invalid bounded regular-file record.");
+        requireHash(string(record, "sha256"));
+    }
+    private static String portable(String path) throws WorldBuilderContractException { return WorldBuilderPortablePath.require(path, OP); }
+    private static void requireSourceHash(Map<String,Map<String,Object>> source, String path, String hash) throws WorldBuilderContractException {
+        if (!source.containsKey(path) || !"file".equals(source.get(path).get("type")) || !hash.equals(source.get(path).get("sha256"))) throw failure("Bound source document differs from its sealed inventory.");
+    }
+    private static String inventoryFingerprint(Map<String,Map<String,Object>> rows, String prefix, boolean map) throws WorldBuilderContractException {
+        StringBuilder text = new StringBuilder(); int count = 0; long total = 0;
+        for (Map.Entry<String,Map<String,Object>> entry : rows.entrySet()) if (entry.getKey().startsWith(prefix) && "file".equals(entry.getValue().get("type"))) {
+            count++; total += number(entry.getValue().get("size")); text.append(entry.getKey().substring(prefix.length())).append('\0');
+            if (map) text.append(entry.getValue().get("size")).append('\0'); text.append(entry.getValue().get("sha256")).append(map ? '\n' : '\0');
+        }
+        if (count == 0 || count > 20000 || total > 1073741824L) throw failure("Sealed runtime input tree exceeds its bound.");
+        return hashBytes(text.toString().getBytes(StandardCharsets.UTF_8));
+    }
+    private static Map<String,Object> bytesRecord(byte[] bytes) { Map<String,Object> result = new LinkedHashMap<String,Object>(); result.put("type", "file"); result.put("mode", "0600"); result.put("size", Long.valueOf(bytes.length)); result.put("sha256", hashBytes(bytes)); return result; }
+
     static final class Plan {
-        private final Path stage, finalRoot;
+        private final Path stage, finalRelease, finalRoot;
         private final List<Object> sourceInventory, outputInventory;
         private final Map<String,Object> specification;
         private final List<Copy> copies;
-        private final List<Path> absentSources;
+        private final List<Absent> absentSources;
         private final Map<String,byte[]> documents;
         private final SortedSet<String> directories;
-        private Plan(Path stage, Path finalRoot, List<Object> sourceInventory, Map<String,Object> specification,
-            List<Copy> copies, List<Path> absentSources, Map<String,byte[]> documents) throws WorldBuilderContractException {
-            this.stage = stage; this.finalRoot = finalRoot; this.sourceInventory = sourceInventory;
+        private Plan(Path stage, Path finalRelease, Path finalRoot, List<Object> sourceInventory, Map<String,Object> specification,
+            List<Copy> copies, List<Absent> absentSources, Map<String,byte[]> documents) throws WorldBuilderContractException {
+            this.stage = stage; this.finalRelease = finalRelease; this.finalRoot = finalRoot; this.sourceInventory = sourceInventory;
             this.specification = copy(specification); this.copies = new ArrayList<Copy>(copies); this.documents = documents;
-            this.absentSources = new ArrayList<Path>(absentSources);
+            this.absentSources = new ArrayList<Absent>(absentSources);
             directories = new TreeSet<String>(); directories.add("");
             for (String path : Arrays.asList("installation/sessions/server", "installation/sessions/client", "state/server/side", "state/client/side", "working/server", "working/client")) addDirectories(path, directories);
             Map<String,Map<String,Object>> files = new TreeMap<String,Map<String,Object>>();
@@ -276,13 +451,17 @@ final class WorldBuilderCurrentRuntimeInstance {
             Map<String,Object> result = new LinkedHashMap<String,Object>();
             result.put("schemaVersion", Long.valueOf(1)); result.put("manifestType", "world-builder-current-instance-construction-plan");
             result.put("specification", copy(specification)); result.put("sourceReleaseRoot", stage.toString());
+            result.put("projectedReleaseRoot", finalRelease.toString()); result.put("projectedInstanceRoot", finalRoot.toString());
             result.put("sourceReleaseInventory", sourceInventory); result.put("outputInventory", outputInventory);
             List<Object> rows = new ArrayList<Object>();
             for (Copy item : copies) {
                 Map<String,Object> row = new LinkedHashMap<String,Object>(); row.put("sourcePath", item.source.toString()); row.put("relativePath", item.destination); row.put("source", item.record); rows.add(row);
             }
             result.put("copies", rows); result.put("generation", renderGeneration(specification));
-            List<Object> absent = new ArrayList<Object>(); for (Path path : absentSources) absent.add(path.toString());
+            List<Object> absent = new ArrayList<Object>();
+            for (Absent item : absentSources) {
+                Map<String,Object> row = new LinkedHashMap<String,Object>(); row.put("sourcePath", item.source.toString()); row.put("relativePath", item.destination); absent.add(row);
+            }
             result.put("absentSideStateSources", absent);
             result.put("failurePolicy", "retain-new-partial-output-for-journaled-recovery");
             result.put("planFingerprintSha256", hashBytes(WorldBuilderJsonDocuments.canonical(result).getBytes(StandardCharsets.UTF_8)));
@@ -291,13 +470,18 @@ final class WorldBuilderCurrentRuntimeInstance {
         private void verifySources() throws IOException, WorldBuilderContractException {
             if (!sourceInventory.equals(inventory(stage, false))) throw failure("Reviewed release changed during instance construction.");
             for (Copy item : copies) requireRecord(item.source, item.record);
-            for (Path path : absentSources) { projected(path); if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw failure("Reviewed absent side-state appeared during construction."); }
+            for (Absent item : absentSources) { projected(item.source); if (Files.exists(item.source, LinkOption.NOFOLLOW_LINKS)) throw failure("Reviewed absent side-state appeared during construction."); }
         }
     }
 
     private static final class Copy {
         final Path source; final String destination; final Map<String,Object> record;
         Copy(Path source, String destination, Map<String,Object> record) { this.source = source; this.destination = destination; this.record = record; }
+    }
+
+    private static final class Absent {
+        final Path source; final String destination;
+        Absent(Path source, String destination) { this.source = source; this.destination = destination; }
     }
 
     private static void validateKeyPair(Path privatePath, Path publicPath) throws IOException, WorldBuilderContractException {
