@@ -75,20 +75,27 @@ final class WorldBuilderCurrentRuntimeCutover {
     }
 
     /** Both installed role leases must already be held by the owning transaction. */
-    void apply(Plan plan, Path journal, WorldBuilderCurrentRuntimeInstanceLease lease)
+    static void guard(Plan plan, Path journal, WorldBuilderCurrentRuntimeInstanceLease lease)
         throws IOException, WorldBuilderContractException {
         authenticate(plan, journal); lease.verifyHeld(plan.target.resolve(INSTANCE));
-        Path installation = plan.target.resolve(INSTANCE);
-        Path guard = installation.resolve(GUARD);
-        absent(journal.resolve("commit.json")); absent(journal.resolve("rollback.json"));
+        for (String name : Arrays.asList("commit.json", "rollback.json", "commit.pending", "rollback.pending"))
+            absent(journal.resolve(name));
         requireStartingPair(plan);
         for (String relative : Arrays.asList(SELECTION, LEDGER))
             for (String phase : Arrays.asList("forward", "rollback"))
                 absent(temporary(plan.target.resolve(relative), plan, phase));
-        byte[] startingSelection = optional(plan.target.resolve(SELECTION));
+        Path guard = plan.target.resolve(INSTANCE).resolve(GUARD);
         if (Files.exists(guard, LinkOption.NOFOLLOW_LINKS)) requireBytes(guard, plan.guard);
         else writeNew(guard, plan.guard);
-        WorldBuilderAdaptiveDurability.forceDirectory(installation);
+        WorldBuilderAdaptiveDurability.forceDirectory(guard.getParent());
+    }
+
+    void apply(Plan plan, Path journal, WorldBuilderCurrentRuntimeInstanceLease lease)
+        throws IOException, WorldBuilderContractException {
+        guard(plan, journal, lease);
+        Path installation = plan.target.resolve(INSTANCE);
+        Path guard = installation.resolve(GUARD);
+        byte[] startingSelection = optional(plan.target.resolve(SELECTION));
         try {
             observer.at("guard-durable");
             lease.verifyHeld(installation); requireBytes(guard, plan.guard); requireStartingPair(plan);

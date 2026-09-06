@@ -73,6 +73,11 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		instance.verifyHeld();
 	}
 
+	WorldBuilderCurrentRuntimeInstanceLease installedLease() throws IOException, WorldBuilderContractException {
+		verifyInstalledHeld();
+		return instance;
+	}
+
 	static void inspect(Path target, Map<String,Object> typed,
 		boolean syntheticFixture)
 		throws IOException, WorldBuilderContractException {
