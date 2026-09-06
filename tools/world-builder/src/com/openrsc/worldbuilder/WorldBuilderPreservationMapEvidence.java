@@ -1,7 +1,6 @@
 package com.openrsc.worldbuilder;
 
 import java.io.IOException;
-import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -26,6 +25,17 @@ final class WorldBuilderPreservationMapEvidence {
 
 	static Prepared prepare(Path projectStage, WorldBuilderPreservationJagDecoder.Result decoder)
 		throws IOException, WorldBuilderContractException {
+		return derive(projectStage, decoder, false);
+	}
+
+	static Prepared reopen(Path project, WorldBuilderProviderCatalog.Composition composition)
+		throws IOException, WorldBuilderContractException {
+		return derive(project, WorldBuilderPreservationJagDecoder.reopen(project.resolve("source/original"),
+			composition, project.resolve("source/migration/decoder")), true);
+	}
+
+	private static Prepared derive(Path projectStage, WorldBuilderPreservationJagDecoder.Result decoder, boolean existing)
+		throws IOException, WorldBuilderContractException {
 		if (projectStage == null || !projectStage.isAbsolute() || !projectStage.equals(projectStage.normalize())
 			|| !projectStage.equals(projectStage.toRealPath())) throw blocked("Project staging path is noncanonical.");
 		Path original = projectStage.resolve("source/original");
@@ -39,20 +49,18 @@ final class WorldBuilderPreservationMapEvidence {
 			|| !matchesJson(decoder.attempt, "invocation.json", decoder.invocationJson))
 			throw blocked("Inventory-bound provider invocation no longer agrees with the immutable map sources.");
 		Path input = migration.resolve("input");
-		if (Files.exists(input, LinkOption.NOFOLLOW_LINKS)) throw blocked("Derived map input already exists; it cannot be overwritten.");
-		Files.createDirectory(input, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+		if (Files.exists(input, LinkOption.NOFOLLOW_LINKS) != existing) throw blocked("Derived map input existence differs from the selected operation.");
+		if (!existing) Files.createDirectory(input, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
 		List<WorldBuilderBoundedInventory.Record> inputs = new ArrayList<WorldBuilderBoundedInventory.Record>();
-		write(input, "reconciliation.json", fresh.reportJson(), "historical-map-reconciliation", inputs);
-		write(input, "invocation.json", decoder.invocationJson, "provider-decoder-invocation", inputs);
+		write(input, "reconciliation.json", fresh.reportJson(), "historical-map-reconciliation", inputs, existing);
+		write(input, "invocation.json", decoder.invocationJson, "provider-decoder-invocation", inputs, existing);
 		write(input, "catalog.json", WorldBuilderJsonDocuments.pretty(WorldBuilderProjectContentBundle.preservationMapCatalog(original)),
-			"historical-definition-catalog", inputs);
+			"historical-definition-catalog", inputs, existing);
 		String scenery = "server/conf/server/defs/GameObjectDef.xml";
 		byte[] sceneryBytes = Files.readAllBytes(WorldBuilderReadOnlyTarget.open(original).requiredFile(scenery));
-		write(input, scenery, sceneryBytes, "server-definition.scenery", inputs);
-		Path terrain = input.resolve("server/fused.orsc");
-		Files.createDirectories(terrain.getParent());
-		try (OutputStream raw = Files.newOutputStream(terrain, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
-			ZipOutputStream archive = new ZipOutputStream(raw)) {
+		write(input, scenery, sceneryBytes, "server-definition.scenery", inputs, existing);
+		java.io.ByteArrayOutputStream terrain = new java.io.ByteArrayOutputStream();
+		try (ZipOutputStream archive = new ZipOutputStream(terrain)) {
 			for (Map.Entry<String,byte[]> sector : fresh.packedSectors().entrySet()) {
 				ZipEntry entry = new ZipEntry(sector.getKey());
 				entry.setMethod(ZipEntry.STORED); entry.setSize(sector.getValue().length); entry.setCompressedSize(sector.getValue().length);
@@ -60,10 +68,8 @@ final class WorldBuilderPreservationMapEvidence {
 				archive.putNextEntry(entry); archive.write(sector.getValue()); archive.closeEntry();
 			}
 		}
-		add(input, "server/fused.orsc", "server-terrain", inputs);
-		Files.createDirectory(input.resolve("client"));
-		Files.copy(terrain, input.resolve("client/fused.orsc"));
-		add(input, "client/fused.orsc", "client-terrain", inputs);
+		write(input, "server/fused.orsc", terrain.toByteArray(), "server-terrain", inputs, existing);
+		write(input, "client/fused.orsc", terrain.toByteArray(), "client-terrain", inputs, existing);
 		List<WorldBuilderAdaptiveConfiguration.PlacementSource> placements = new ArrayList<WorldBuilderAdaptiveConfiguration.PlacementSource>();
 		List<Object> corrections = new ArrayList<Object>();
 		String[][] selected = {
@@ -91,7 +97,7 @@ final class WorldBuilderPreservationMapEvidence {
 			Map<String,Object> value = new LinkedHashMap<String,Object>(); value.put(spec[4], records);
 			String role = spec[1] + "-historical-" + index;
 			String path = "placements/" + spec[0];
-			write(input, path, WorldBuilderJsonDocuments.pretty(value), "placement." + role, inputs);
+			write(input, path, WorldBuilderJsonDocuments.pretty(value), "placement." + role, inputs, existing);
 			placements.add(new WorldBuilderAdaptiveConfiguration.PlacementSource(role, spec[1], spec[2], index,
 				"packed-" + spec[1] + "-locations-v1", path));
 		}
@@ -105,14 +111,14 @@ final class WorldBuilderPreservationMapEvidence {
 		derivation.put("npcRoamBoundsPolicy", "retain-exact-bounded-rectangles-present-anchor-absent-cells-blocked");
 		derivation.put("inputInventory", documents(inputs));
 		WorldBuilderAdaptiveExporter.bindFingerprint(derivation, "sourceFingerprintSha256");
-		write(input, "derivation.json", WorldBuilderJsonDocuments.pretty(derivation), "historical-data-derivation", inputs);
+		write(input, "derivation.json", WorldBuilderJsonDocuments.pretty(derivation), "historical-data-derivation", inputs, existing);
 		Collections.sort(inputs, ORDER);
 		Prepared prepared = new Prepared(projectStage, original, input, decoder.attempt,
 			(String)derivation.get("sourceFingerprintSha256"), WorldBuilderHashes.sha256(input.resolve("catalog.json")),
 			WorldBuilderHashes.sha256(input.resolve("derivation.json")), inputs, placements,
 			fresh.reportJson(), decoder.invocationJson);
 		prepared.reverify();
-		WorldBuilderAdaptiveDurability.forceDirectory(input);
+		if (!existing) WorldBuilderAdaptiveDurability.forceDirectory(input);
 		return prepared;
 	}
 
@@ -131,18 +137,31 @@ final class WorldBuilderPreservationMapEvidence {
 		}
 		return result;
 	}
-	private static void write(Path root, String relative, String value, String role, List<WorldBuilderBoundedInventory.Record> inputs)
-		throws IOException, WorldBuilderContractException { write(root, relative, value.getBytes(StandardCharsets.UTF_8), role, inputs); }
-	private static void write(Path root, String relative, byte[] value, String role, List<WorldBuilderBoundedInventory.Record> inputs)
+	private static void write(Path root, String relative, String value, String role, List<WorldBuilderBoundedInventory.Record> inputs, boolean existing)
+		throws IOException, WorldBuilderContractException { write(root, relative, value.getBytes(StandardCharsets.UTF_8), role, inputs, existing); }
+	private static void write(Path root, String relative, byte[] value, String role, List<WorldBuilderBoundedInventory.Record> inputs, boolean existing)
 		throws IOException, WorldBuilderContractException {
-		Path file = root.resolve(relative); Files.createDirectories(file.getParent());
-		Files.write(file, value, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE); add(root, relative, role, inputs);
+		Path file = root.resolve(relative);
+		if (!existing) {
+			Files.createDirectories(file.getParent());
+			Files.write(file, value, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+		} else {
+			WorldBuilderReadOnlyTarget.FileState actual = WorldBuilderReadOnlyTarget.open(root).requiredState(role, relative);
+			if (actual.size != value.length || !actual.sha256.equals(WorldBuilderHashes.sha256(value)))
+				throw blocked("Retained derivation no longer matches the compiled recipe: " + relative);
+		}
+		add(root, relative, role, inputs, existing);
 	}
-	private static void add(Path root, String relative, String role, List<WorldBuilderBoundedInventory.Record> inputs)
+	private static void add(Path root, String relative, String role, List<WorldBuilderBoundedInventory.Record> inputs, boolean existing)
 		throws IOException, WorldBuilderContractException {
 		Path file = WorldBuilderReadOnlyTarget.open(root).requiredFile(relative);
-		Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-		WorldBuilderAdaptiveDurability.forceFile(file);
+		if (existing) {
+			if (!Files.getPosixFilePermissions(file, LinkOption.NOFOLLOW_LINKS).equals(PosixFilePermissions.fromString("rw-------")))
+				throw blocked("Retained derivation permissions changed.");
+		} else {
+			Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
+			WorldBuilderAdaptiveDurability.forceFile(file);
+		}
 		WorldBuilderReadOnlyTarget.FileState state = WorldBuilderReadOnlyTarget.open(root).requiredState(role, relative);
 		inputs.add(new WorldBuilderBoundedInventory.Record(role, relative, true, state.size, state.sha256));
 	}
@@ -176,10 +195,24 @@ final class WorldBuilderPreservationMapEvidence {
 			if (!inputRoot.equals(projectStage.resolve("source/migration/input")) || !inputRoot.equals(inputRoot.toRealPath()))
 				throw blocked("Derived source namespace changed or became aliased.");
 			WorldBuilderReadOnlyTarget root = WorldBuilderReadOnlyTarget.open(inputRoot);
+			java.util.Set<String> expectedPaths = new java.util.HashSet<String>();
 			for (WorldBuilderBoundedInventory.Record expected : inputs) {
+				expectedPaths.add(expected.relativePath);
 				WorldBuilderReadOnlyTarget.FileState actual = root.requiredState(expected.role, expected.relativePath);
 				if (actual.size != expected.size || !actual.sha256.equals(expected.sha256)) throw blocked("Derived input drifted: " + expected.relativePath);
 			}
+			java.util.Set<String> actualPaths = new java.util.HashSet<String>();
+			try (java.util.stream.Stream<Path> paths = Files.walk(inputRoot)) {
+				java.util.Iterator<Path> iterator = paths.iterator(); int count = 0;
+				while (iterator.hasNext()) {
+					Path path = iterator.next();
+					if (++count > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) throw blocked("Derived input tree is unbounded.");
+					if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) continue;
+					String relative = inputRoot.relativize(path).toString().replace('\\', '/');
+					root.requiredFile(relative); actualPaths.add(relative);
+				}
+			}
+			if (!actualPaths.equals(expectedPaths)) throw blocked("Derived input closure contains missing or extra files.");
 			if (!reconciliationJson.equals(WorldBuilderPreservationMapReconciliation.inspect(originalRoot,
 				decoderAttempt.resolve("sectors"), decoderAttempt.resolve("evidence.json")).reportJson()))
 				throw blocked("Historical source/provenance no longer reconstructs the exact derived map.");

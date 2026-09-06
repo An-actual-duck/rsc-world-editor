@@ -72,6 +72,42 @@ final class WorldBuilderPreservationJagDecoder {
 			if (before.size != after.size || !before.sha256.equals(after.sha256)) throw blocked("Historical archive changed during decoder execution.");
 		}
 		WorldBuilderPreservationMapReconciliation.Plan plan = WorldBuilderPreservationMapReconciliation.inspect(original, sectors, evidence);
+		String proofJson = proof(composition, core, contract, plan, evidence);
+		Path reconciliation = requestedAttempt.resolve("reconciliation.json");
+		writeNew(reconciliation, plan.reportJson());
+		writeNew(requestedAttempt.resolve("invocation.json"), proofJson);
+		WorldBuilderAdaptiveDurability.forceDirectory(requestedAttempt);
+		return new Result(requestedAttempt, plan, proofJson);
+	}
+
+	/** Reopen sealed project data with the exact selected provider; no process is launched. */
+	static Result reopen(Path originalRoot, WorldBuilderProviderCatalog.Composition composition, Path attempt)
+		throws IOException, WorldBuilderContractException {
+		Path original = directory(originalRoot); directory(attempt); disjoint(original, attempt);
+		if (composition == null || !composition.installable || !"current-base-v1".equals(composition.string("variantId")))
+			throw blocked("Historical evidence requires the exact selected Current Base composition.");
+		WorldBuilderProviderCatalog.Artifact core = artifact(composition, "server-runtime", "runtime/server/core.jar");
+		WorldBuilderProviderCatalog.Artifact contract = artifact(composition, "input-adapter-manifest", CONTRACT_PATH);
+		verifyArtifact(core); verifyArtifact(contract);
+		if (!CONTRACT_SHA256.equals(contract.inventory.get("sha256"))) throw blocked("Selected decoder contract is not reviewed.");
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(original);
+		for (String name : ARCHIVES) WorldBuilderPreservationSourceIntake.requireBaseline(target, MAP_DIRECTORY + name);
+		WorldBuilderPreservationMapReconciliation.Plan plan = WorldBuilderPreservationMapReconciliation.inspect(
+			original, attempt.resolve("sectors"), attempt.resolve("evidence.json"));
+		String expected = proof(composition, core, contract, plan, attempt.resolve("evidence.json"));
+		WorldBuilderReadOnlyTarget retained = WorldBuilderReadOnlyTarget.open(attempt);
+		for (String name : Arrays.asList("invocation.json", "reconciliation.json")) {
+			WorldBuilderReadOnlyTarget.FileState actual = retained.requiredState("decoder-evidence", name);
+			byte[] bytes = ("invocation.json".equals(name) ? expected : plan.reportJson()).getBytes(StandardCharsets.UTF_8);
+			if (actual.size != bytes.length || !actual.sha256.equals(WorldBuilderHashes.sha256(bytes)))
+				throw blocked("Retained decoder evidence differs from selected composition or immutable inputs.");
+		}
+		return new Result(attempt, plan, expected);
+	}
+
+	private static String proof(WorldBuilderProviderCatalog.Composition composition,
+		WorldBuilderProviderCatalog.Artifact core, WorldBuilderProviderCatalog.Artifact contract,
+		WorldBuilderPreservationMapReconciliation.Plan plan, Path evidence) throws IOException, WorldBuilderContractException {
 		Map<String,Object> proof = new LinkedHashMap<String,Object>();
 		proof.put("schemaVersion", Long.valueOf(1)); proof.put("manifestType", "world-builder-preservation-decoder-invocation");
 		proof.put("compositionIdentity", composition.identity);
@@ -82,12 +118,7 @@ final class WorldBuilderPreservationJagDecoder {
 		proof.put("reconciliationSha256", WorldBuilderHashes.sha256(plan.reportJson().getBytes(StandardCharsets.UTF_8)));
 		proof.put("runtimePromotionApproved", Boolean.FALSE);
 		WorldBuilderAdaptiveExporter.bindFingerprint(proof, "invocationFingerprintSha256");
-		Path reconciliation = requestedAttempt.resolve("reconciliation.json");
-		writeNew(reconciliation, plan.reportJson());
-		String proofJson = WorldBuilderJsonDocuments.pretty(proof);
-		writeNew(requestedAttempt.resolve("invocation.json"), proofJson);
-		WorldBuilderAdaptiveDurability.forceDirectory(requestedAttempt);
-		return new Result(requestedAttempt, plan, proofJson);
+		return WorldBuilderJsonDocuments.pretty(proof);
 	}
 
 	private static WorldBuilderProviderCatalog.Artifact artifact(WorldBuilderProviderCatalog.Composition composition,

@@ -701,7 +701,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		}
 	}
 
-	private static void requireClosedSqliteSnapshot(Path target, Path source)
+	static void requireClosedSqliteSnapshot(Path target, Path source)
 		throws WorldBuilderContractException {
 		if (!safeRegular(source)) throw blocked("SQLite state is missing, linked, or non-regular.");
 		for (String suffix : new String[] {"-journal", "-wal", "-shm"}) {

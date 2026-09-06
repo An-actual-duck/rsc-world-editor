@@ -72,6 +72,14 @@
   },
   "allOf": [
     {
+      "if": {"properties": {"executionProfile": {"properties": {"profileId": {"const": "preservation-family-upgrade-v1"}}}}},
+      "then": {"properties": {"migrationPlan": {"required": ["persistentInputs"], "properties": {
+        "stagedExecution": {"required": ["sqliteSchemaMigrationReady", "sqliteSnapshotReady", "readinessBlockers"], "properties": {"sqliteSchemaMigrationReady": {"const": false}, "sqliteSnapshotReady": {"const": true},
+          "readinessBlockers": {"contains": {"const": "sqlite-schema-validation-pending-provider-sealed-migration"}}}}
+      }}}},
+      "else": {"properties": {"migrationPlan": {"not": {"required": ["persistentInputs"]}}}}
+    },
+    {
       "if": {"properties": {"classificationStatus": {"const": "NOT_INSTALLABLE"}}},
       "then": {"properties": {"activationAuthorized": {"const": false}}}
     },
@@ -81,6 +89,334 @@
     }
   ],
   "$defs": {
+    "persistentInputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schemaVersion",
+        "manifestType",
+        "policyId",
+        "inputs",
+        "requiredInputsPresent",
+        "schemaValidation",
+        "activationApproved",
+        "fingerprintSha256"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "manifestType": {
+          "const": "world-builder-preservation-private-inputs"
+        },
+        "policyId": {
+          "const": "preservation-c0102e-private-inputs-v1"
+        },
+        "inputs": {
+          "type": "array",
+          "minItems": 9,
+          "maxItems": 9,
+          "prefixItems": [
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "Client_Base/clientSettings.conf"
+                    },
+                    "role": {
+                      "const": "preserved-client-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/alertwords.txt"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/badwords.txt"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/client.pem"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": true
+                    },
+                    "present": {
+                      "const": true
+                    },
+                    "size": {
+                      "maximum": 65536
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/goodwords.txt"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/inc/sqlite/preservation.db"
+                    },
+                    "role": {
+                      "const": "preserved-database"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": true
+                    },
+                    "present": {
+                      "const": true
+                    },
+                    "size": {
+                      "maximum": 4294967296
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/ipbans.temp"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/ipbans.txt"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": false
+                    },
+                    "size": {
+                      "maximum": 1048576
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/persistentInput"
+                },
+                {
+                  "properties": {
+                    "relativePath": {
+                      "const": "server/server.pem"
+                    },
+                    "role": {
+                      "const": "preserved-server-side-state"
+                    },
+                    "requiredForNormalInstance": {
+                      "const": true
+                    },
+                    "present": {
+                      "const": true
+                    },
+                    "size": {
+                      "maximum": 65536
+                    }
+                  }
+                }
+              ]
+            }
+          ],
+          "items": false
+        },
+        "requiredInputsPresent": {
+          "const": true
+        },
+        "schemaValidation": {
+          "const": "pending-provider-sealed-migration"
+        },
+        "activationApproved": {
+          "const": false
+        },
+        "fingerprintSha256": {
+          "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+        }
+      }
+    },
+    "persistentInput": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "role",
+        "relativePath",
+        "present",
+        "size",
+        "sha256",
+        "requiredForNormalInstance",
+        "copyIntoProject"
+      ],
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "relativePath": {
+          "type": "string"
+        },
+        "present": {
+          "type": "boolean"
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967296
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^([0-9a-f]{64})?$"
+        },
+        "requiredForNormalInstance": {
+          "type": "boolean"
+        },
+        "copyIntoProject": {
+          "const": false
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "present": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "size": {
+                "const": 0
+              },
+              "sha256": {
+                "const": ""
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "sha256": {
+                "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+              }
+            }
+          }
+        }
+      ]
+    },
     "executionProfile": {
       "type": "object", "additionalProperties": false,
       "required": ["profileId", "migratorId", "serverBuildId", "clientBuildId",
@@ -128,6 +464,7 @@
         "typedConfiguration": {"type": "object"},
         "durableStateMigrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "durableState": {"type": "array", "maxItems": 8192, "items": {"type": "object"}},
+        "persistentInputs": {"$ref": "#/$defs/persistentInputs"},
         "mapMigration": {"$ref": "#/$defs/mapMigration"},
         "stagedExecution": {
           "type": "object", "additionalProperties": false,

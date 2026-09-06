@@ -44,6 +44,7 @@ public final class PreservationConversionHarness {
       stage.resolve("source/migration/decoder"), null); throw new AssertionError("decoder overwrote an attempt");
     } catch (WorldBuilderContractException expected) { }
     WorldBuilderPreservationMapEvidence.Prepared prepared = WorldBuilderPreservationMapEvidence.prepare(stage, decoded);
+    prepared = WorldBuilderPreservationMapEvidence.reopen(stage, composition);
     WorldBuilderPackedConverter converter = new WorldBuilderPackedConverter();
     for (String unsafe : new String[]{"source/original/new-output", "source/migration/new-output"}) {
       try { converter.convertPreservation(prepared, stage.resolve(unsafe));
@@ -52,9 +53,47 @@ public final class PreservationConversionHarness {
       if (Files.exists(stage.resolve(unsafe))) throw new AssertionError("unsafe output was created");
     }
     WorldBuilderPackedConverter.Result converted = converter.convertPreservation(prepared, stage.resolve("conversion"));
+    WorldBuilderPackedConverter.Inspection inspected = converter.inspectPreservation(prepared);
+    if (!converted.outputFingerprintSha256.equals(inspected.outputFingerprintSha256))
+      throw new AssertionError("reopened genuine read-only preview differs from conversion");
+    // The report below is deliberately test metadata, not a published project or
+    // authority to execute a target. This lane tests receipt-bound reopen only.
+    Files.createDirectories(stage.resolve("discovery"));
+    Files.write(stage.resolve("discovery/report.json"), "{}\\n".getBytes("UTF-8"));
+    java.util.Map<String,Object> expected = new java.util.LinkedHashMap<String,Object>();
+    expected.put("executionBoundary", WorldBuilderPreservationProjectEvidence.BOUNDARY);
+    expected.put("packageReady", Boolean.TRUE);
+    expected.put("preparedSourceFingerprintSha256", inspected.sourceFingerprintSha256);
+    expected.put("discoveryReportSha256", WorldBuilderHashes.sha256(stage.resolve("discovery/report.json")));
+    expected.put("conversionPlanFingerprintSha256", inspected.planFingerprintSha256);
+    expected.put("conversionPlanSha256", inspected.planSha256);
+    expected.put("conversionReportSha256", inspected.reportSha256);
+    expected.put("discoveryReconciliationSha256", inspected.reconciliationSha256);
+    expected.put("outputPackageFingerprintSha256", inspected.outputFingerprintSha256);
+    expected.put("terrainCount", Long.valueOf(inspected.terrainCount));
+    expected.put("placementCount", Long.valueOf(inspected.placementCount));
+    expected.put("outputInventory", inspected.outputInventory);
+    WorldBuilderPreservationProjectEvidence.Verified retained = WorldBuilderPreservationProjectEvidence.reopenStaged(stage, composition, expected);
+    Path copy = stage.getParent().resolve("retained-source");
+    retained.stageSource(copy);
+    Path relocated = stage.getParent().resolve("relocated-retained-source");
+    Files.move(copy, relocated);
+    if (Files.exists(copy)) throw new AssertionError("old staged path still exists");
+    WorldBuilderPreservationProjectEvidence.Verified reopened = WorldBuilderPreservationProjectEvidence.reopenStaged(relocated, composition, expected);
+    WorldBuilderPackedConverter.Result detached = reopened.convert(stage.getParent().resolve("detached-conversion"));
+    if (!detached.outputFingerprintSha256.equals(converted.outputFingerprintSha256)) throw new AssertionError("relocated baseline differs");
+    java.util.Map<String,Object> changed = new java.util.LinkedHashMap<String,Object>(expected);
+    changed.put("placementCount", Long.valueOf(inspected.placementCount + 1));
+    try { WorldBuilderPreservationProjectEvidence.reopenStaged(relocated, composition, changed);
+      throw new AssertionError("changed expected migration accepted");
+    } catch (WorldBuilderContractException refused) { }
+    Path catalog = relocated.resolve("source/migration/input/catalog.json");
+    Files.write(catalog, new byte[]{32}, StandardOpenOption.APPEND);
+    try { reopened.inspectConversion(); throw new AssertionError("retained source drift accepted"); }
+    catch (WorldBuilderContractException refused) { }
     try { converter.convertPreservation(prepared, stage.resolve("conversion"));
       throw new AssertionError("existing output was overwritten");
-    } catch (WorldBuilderContractException expected) { }
+    } catch (WorldBuilderContractException refused) { }
     prepared.reverify();
     System.out.print(converted.toJson());
   }
