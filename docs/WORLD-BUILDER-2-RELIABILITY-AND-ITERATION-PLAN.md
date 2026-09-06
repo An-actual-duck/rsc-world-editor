@@ -50,10 +50,14 @@ downgrade of the owner's game.
 Published Editor `678b78457f067f0ab947520e64a2b9cfdbe1b5bb` adopts runtime
 `d21021756e59b82844dc16152af60721be1418b5`. Genuine conversion/map consumers and
 durable verifier recovery are integrated. The collected normal-instance launch
-proof and Base skill/state/protocol correction are READY but unmerged. Genuine
-map semantic tests have substantial passing evidence but remain unmerged and
-not READY because of the identified tree/projectile discrepancy. Exact tips,
-test evidence and limitations are recorded in the linked checkpoint.
+proof and Base skill/state/protocol correction were READY at collection. Normal
+instance acceptance is now integrated in published Editor `df87491`; the skills
+correction and resolved Base-only tree/projectile discrepancy are integrated in
+published runtime `04ddc2fbed81fdff8aac095a4e029316603af558`. Full runtime coverage
+passed across the initial run and resumed tail after a test-only source-assertion
+correction; the five explicit genuine-map checks passed without skips. Runtime
+adoption remains pending a coherent Editor integration. Exact tips, test evidence
+and limitations are recorded in the linked checkpoint.
 
 The remaining order is: close material runtime incompatibilities and integrate
 completed work; connect genuine intake/project/preview and persistent state;

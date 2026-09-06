@@ -9,9 +9,10 @@
 | Last reconciled | 2026-09-06, collected handoffs and bounded candidate closure plan |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
-| Checkpoint scope | Documentation only; does not restart workers, enable activation or authorize live-target mutation |
-| Published Editor implementation | `678b78457f067f0ab947520e64a2b9cfdbe1b5bb` |
-| Published and adopted runtime | `d21021756e59b82844dc16152af60721be1418b5` |
+| Checkpoint scope | Base-first implementation resumed; production activation remains disabled and live-target mutation unauthorized |
+| Published Editor implementation | `df87491e5c8df74fa558925de5c249be745104fc` (includes normal-instance acceptance) |
+| Published runtime | `04ddc2fbed81fdff8aac095a4e029316603af558`; adoption pending coherent Editor integration |
+| Editor's adopted runtime | `d21021756e59b82844dc16152af60721be1418b5` |
 | Preservation fixture | `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree `6db5536d795abf34f303bb03b20c43b8cfb9e3fe` |
 | Core-copy evidence | `fec94c8731b5521410963575ef0f2fa5c05ef0b3`, tree `22051f8cff480975f3f1d2d1c7e2af836d9d7ff0`, tag `v0.2.87` |
 
@@ -83,8 +84,44 @@ historical test evidence.
 Resumed integration: the normal-instance handoff is merged into the Editor;
 its focused four-test acceptance passed again on the integration checkout.
 This changes test coverage, not production behavior. The runtime skill handoff
-is under manager integration with the bounded map correction; it is not yet
-published or adopted. Production intake and guarded cutover remain next work.
+and exact map correction `219ee1a6195700fa573de59d79e14c884970cc25` are now
+integrated in published runtime `04ddc2fbed81fdff8aac095a4e029316603af558`.
+The Base-only tree correction removes all 7,376 strict populated-map projectile
+differences without changing non-Base policy. Full runtime suite coverage passed
+in two segments: the initial run reached an obsolete inherited spear source
+assertion; only that assertion was made composition-aware, then the failed check
+and every remaining entrypoint passed. No production code/input changed between
+segments, so the passing prefix was reused. The explicit genuine-map module
+passed all five tests in 90.963 seconds, with no recorded suite skips. This is
+not a claim that the original uninterrupted command exited successfully.
+The Editor still pins `d2102175`; adopt at a coherent integration boundary, not
+after every component checkpoint. Base combat damage/devotion/ring differences,
+production intake and guarded cutover remain open.
+
+The active intake assignment connects the production discovery, project-creation
+and preview routes to the existing pinned JAG decoder and canonical converter.
+It binds exact supported SQLite and persistent side-state inputs without copying
+private bytes into project or public evidence. A closed SQLite input may be
+reported as **pending provider schema validation**, never as migration-ready:
+sealed staging must run the provider migration before activation is possible.
+Preview completeness does not grant apply authority. This milestone does not
+include cutover or require a new validate-only provider API.
+
+Required intake dependency found during implementation: generic project content
+expects Advanced-only asset roles, while genuine Preservation conversion proves
+map IDs, not a complete runnable visual bundle. Base project creation must
+project the selected provider's inventory-bound Base data/visual artifacts into
+the existing project content/runtime shape. Do not invent visual authority,
+require Advanced content, or call a catalog-only conversion authoring-ready.
+This bounded Base projection belongs to project wiring, not optional polish.
+
+Active ownership after publication: Editor AI-1 owns
+`feat/base-production-intake`; runtime AI-1 owns
+`fix/current-base-public-combat` from published `04ddc2fb`. The latter addresses
+the already-known public combat/equipment/devotion/ring behavior with focused
+effective-runtime checks and unchanged non-Base controls. Neither assignment
+includes broader audits, new runtime generations or production release. The
+merged map-semantics slot has returned to idle.
 
 ### Ordered remaining work
 
