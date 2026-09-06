@@ -6,12 +6,12 @@
 | --- | --- |
 | Status | Active planning decision and evidence review |
 | Captured | 2026-09-04 |
-| Last reconciled | 2026-09-04, public Base/Advanced adaptability and light-customization intake |
+| Last reconciled | 2026-09-06, collected handoffs and bounded candidate closure plan |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
-| Current candidate | Rejected; the pinned generic-core design is not a safe customized-host upgrade |
-| Implementation authorization | None in this review; inspection and documentation only |
-| Editor evidence | `a3a1f8664179cfdd7e7e54d9089a472d956c17b9` |
-| Runtime-provider evidence | `112eea42420d835ac9d208be687127eb7ae7f455` |
+| Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
+| Checkpoint scope | Documentation only; does not restart workers, enable activation or authorize live-target mutation |
+| Published Editor implementation | `678b78457f067f0ab947520e64a2b9cfdbe1b5bb` |
+| Published and adopted runtime | `d21021756e59b82844dc16152af60721be1418b5` |
 | Preservation fixture | `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree `6db5536d795abf34f303bb03b20c43b8cfb9e3fe` |
 | Core-copy evidence | `fec94c8731b5521410963575ef0f2fa5c05ef0b3`, tree `22051f8cff480975f3f1d2d1c7e2af836d9d7ff0`, tag `v0.2.87` |
 
@@ -23,6 +23,115 @@ build, activation, or upgrade authority changed.
 The active reliability plan remains the historical incident and work log. This
 document is the smaller current source for the replacement architecture,
 fixture matrix, staged implementation order, and release gates.
+
+## Candidate scope and closure checkpoint — 2026-09-06
+
+This checkpoint is the current delivery plan. Older implementation observations
+below are historical unless explicitly reconciled here. The product direction
+and safety contracts remain unchanged; component acceptance is not completion
+of the user-facing upgrade/import workflow.
+
+### Base candidate versus owner's advanced-server candidate
+
+A **Current Base candidate** targets an explicitly supported Preservation-like
+server with no previous map upgrade and admitted light customization. It must
+perform a real runtime upgrade, preserve supported behavior and durable state,
+and then support separate map-only imports. This is the shortest proposed first
+candidate, not a substitute for the owner's advanced-server upgrade.
+
+An **owner's advanced-server candidate** additionally requires an installable
+Current Advanced composition, its reviewed behavior/module disposition and the
+matching migration/client path. Current Advanced is still non-installable.
+If the first candidate must upgrade that game, those requirements are critical
+path work, not optional polish. Never silently select Base or discard advanced
+behavior to claim completion.
+
+The first candidate's target scope has not yet been selected. Documenting the
+Base-first recommendation does not authorize narrowing the overall objective.
+Before resuming implementation, make the supported target, database, permitted
+customizations and operating systems explicit. A candidate may have a bounded
+support statement; it may not claim untested support. Candidate creation is not
+permission to modify a real server or deploy, and production release gates remain
+separate and unchanged.
+
+### Collected work: integrated, ready, and incomplete
+
+All collected worker tips were clean and pushed. READY means ready for manager
+review/integration, not already adopted. Recorded tests below are existing
+evidence; this documentation update does not rerun them.
+
+| Work | Evidence and current boundary |
+| --- | --- |
+| Published foundation | Editor `678b78457f067f0ab947520e64a2b9cfdbe1b5bb` adopts runtime `d21021756e59b82844dc16152af60721be1418b5`. The runtime full suite passed; Editor's 37-module suite passed, with 29 explicit-input source/discovery checks subsequently passing without skips. Packaged native OpenGL and native PowerShell acceptance remain outstanding. |
+| Genuine conversion and map consumers | Integrated: 32,410 placements, all 3,609 NPC records including 146 void-crossing bounds, 352 terrain reverse matches and zero mismatches. Save/export and repeated v4/v5 imports pass through generic installed-host authority; this does not yet establish the current-composition map-only transaction. |
+| Durable verifier recovery | Integrated: real disposable pair execution, retained executable/authority validation, busy-lease and tamper refusal, and authenticated closure after an owned Editor JVM interruption. Production activation remains disabled. |
+| Normal Editor-created instance | Editor READY `b976d3c5d50028e5f5f355b451c7bc000112faa3`, unmerged: two actual normal login/restart cycles, visible map/player, retained account state, immutable-input checks and session-bound shutdown. Four new tests and 16 constructor/lease tests passed. No production constructor change was needed. |
+| Public Base skills/state/protocol | Runtime READY `c6f504f4c6873d94fbbef041b55b507a7fe38c97`, unmerged: classic 18-skill identities, independent SQLite state, XP routing, equipment requirements, client controls and corrected stats payload. Focused candidate/build, runtime, schema and state/protocol checks passed. Full runtime integration gate remains pending; combat damage, devotion and ring behavior are not resolved by this slice. |
+| Genuine-map semantics | Runtime checkpoint `b6176c0ae8168eadfc86bc20e92d61ce44bd087c`, unmerged and not READY: all 811,008 present tiles match historical movement, including populated scenery/boundaries; NPC bounds, ladder lifecycle, real plugin transitions and client CPU/void checks passed. The strict populated-map test still fails on 7,376 projectile flags, attributed to the inherited tree allowance. No runtime correction is included. Modern hostile-shot behavior is a separate policy and is not proven by historical tile flags. |
+
+The map findings establish a bounded correction task, not a reason to rebuild
+the converter or repeat unchanged map proofs. Normal instance startup has also
+passed its component proof; the remaining task is production workflow wiring.
+Workers remain stopped at this checkpoint. No handoff is merged or runtime lock
+advanced by this documentation change.
+
+### Ordered remaining work
+
+1. **Close runtime correctness and integrate collected work.** Review the exact
+   READY tips, fix the identified Base tree/projectile difference, and resolve
+   the already-known material Base combat/equipment/devotion/ring differences.
+   Preserve non-Base behavior. Use bounded, representative executable checks
+   tied to the supported target, not an open-ended audit of every interaction.
+   If the chosen candidate is Advanced, include its required composition and
+   behavior/module work. Publish the tested runtime and adopt its exact revision
+   at a coherent integration boundary.
+2. **Connect supported intake to project creation and preview.** Consume the
+   proven genuine JAG/map derivation through the actual production route.
+   Bind recognized databases, keys, settings and other persistent side-state;
+   preserve their intended destinations without copying secrets into project
+   or release artifacts. Admit supported declarative customization and give
+   actionable pre-mutation refusals for unported or unknown inputs. Working
+   converter and instance test seams are not substitutes for this connection.
+3. **Complete upgrade and separate map-only activation.** Reuse existing
+   staging, confirmation, backups, leases and verifier recovery. Bind the actual
+   instance, generation and ledger; implement initial and supported managed
+   successor-state preparation, including an explicit current-to-current
+   state validation/migration contract. Hold the durable startup guard while
+   switching selection and ledger. Persist the commit decision before removing
+   the guard; post-commit recovery must preserve subsequent gameplay, never
+   restore an old database over it. Map-only import retains runtime code and
+   player/side-state. Wire supported launcher and Editor controls to this path.
+4. **Run complete candidate acceptance, then package.** On a disposable populated
+   supported target, execute upgrade → normal login → edit → import → restart →
+   second import, plus a supported managed successor upgrade. Verify retained
+   player state and critical refusal/interruption/recovery cases, including
+   post-commit gameplay. Run consolidated integration gates and fresh packaged
+   acceptance on every claimed operating system. Once these pass, produce the
+   explicitly scoped candidate and hand it over; do not delay for unrelated
+   polishing. Candidate archives are not promoted into production releases.
+
+### Stop conditions and usage discipline
+
+- Each new task must identify a concrete failure of the supported candidate
+  workflow or a required integrity invariant. Track owner, completion evidence
+  and stopping condition. New mandatory discoveries should be reported with
+  their scope impact before expanding the assignment.
+- Data loss, broken upgrade/import or startup, unsafe recovery, and material
+  unintended gameplay changes are blockers. Preview, exact confirmation,
+  external-backup guidance, offline leases, verified backups and no-force
+  recovery are not negotiable optimizations.
+- Defer cosmetic polish, speculative refactoring, performance tuning without a
+  demonstrated usability problem, arbitrary historical layouts and hypothetical
+  modules outside the declared candidate. Deferred support must remain explicit
+  and safely refused, not silently accepted.
+- Reuse accepted component evidence until relevant code, inputs or contracts
+  change. Run focused regressions during implementation and full required suites
+  at coherent integration/release boundaries. Do not repeatedly rerun broad
+  suites merely to collect status or gain reassurance.
+- Keep assignments bounded; default to one implementation worker, adding a
+  second only for a concrete independent critical-path task. Report integrated,
+  READY and incomplete work separately. Passing more component tests alone is
+  not progress to declare a candidate complete.
 
 ## Decision
 
