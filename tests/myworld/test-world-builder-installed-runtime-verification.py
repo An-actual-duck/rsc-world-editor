@@ -175,6 +175,8 @@ class VerifierProcessFixture {
         return {
             "schemaId": "current-base-installed-execution-evidence-v1", "manifestType": "current-base-installed-execution-evidence",
             "verifierId": "current-base-installed-execution-v1", "verifierContractSha256": contract, "status": "verified",
+            "supervision": {"invocationId": "12345678-1234-4234-9234-123456789abc", "closed": True,
+                            **{key: HASH for key in ("supervisionSha256", "invocationSha256", "intentSha256", "revocationSha256")}},
             "composition": {**identity, "identitySha256": HASH},
             "source": {**{key: HASH for key in ("serverTreeBeforeSha256", "serverTreeAfterSha256", "clientTreeBeforeSha256",
                                                   "clientTreeAfterSha256", "inputSetBeforeSha256", "inputSetAfterSha256")}, "unchanged": True},
@@ -202,6 +204,8 @@ class VerifierProcessFixture {
                    ("execution", "mapPackageFingerprint", "b" * 64), ("execution", "serverPort", 43594),
                    ("execution", "mapUnchanged", False), ("execution", "credentialDeleted", False),
                    ("execution", "workingStateFinalSha256", HASH), ("execution", "extra", "unknown")]
+        changes += [("supervision", "closed", False), ("supervision", "intentSha256", ""),
+                    ("supervision", "invocationId", "not-a-uuid"), ("supervision", "extra", True)]
         for section, key, value in changes:
             with self.subTest(section=section, key=key):
                 changed = copy.deepcopy(evidence)
