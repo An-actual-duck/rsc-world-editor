@@ -129,7 +129,7 @@ for key, value in expected.items():
             f"FAIL: Installed runtime capability mismatch for {key}: "
             f"expected {value!r}, found {capability.get(key)!r}"
         )
-if capability.get("encodingVersions") != [1, 2, 3, 4]:
+if capability.get("encodingVersions") != [1, 2, 3, 4, 5]:
     raise SystemExit("FAIL: Installed runtime encoding contract drifted")
 required = capability.get("requiredHostCapabilities")
 if not isinstance(required, list) or [item.get("capabilityId") for item in required] != [
@@ -163,10 +163,28 @@ if build != {
 }:
     raise SystemExit("FAIL: Installed runtime pinned-core build integration drifted")
 matrix = capability.get("packageEncodingCapabilities", [])
-if [item.get("encodingVersion") for item in matrix] != [1, 2, 3, 4] or any(
+if [item.get("encodingVersion") for item in matrix] != [1, 2, 3, 4, 5] or any(
     not item.get("artifactProbes") for item in matrix
 ):
     raise SystemExit("FAIL: Installed runtime package capability evidence drifted")
+if matrix[4] != {
+    "encodingVersion": 5,
+    "capabilityId": "layered-placement-runtime-v5",
+    "encodings": ["layered-world-placements-v5"],
+    "artifactProbes": [
+        {
+            "archive": "server-core",
+            "archiveEntryPath": "com/openrsc/server/io/NativeLayeredWorldPackage.class",
+            "requiredClassMarkers": ["layered-world-placements-v5", "npcRoamCoverage", "blocked-void"],
+        },
+        {
+            "archive": "client-runtime",
+            "archiveEntryPath": "orsc/AdaptiveWorldBuilderClientSession.class",
+            "requiredClassMarkers": ["layered-world-placements-v5"],
+        },
+    ],
+}:
+    raise SystemExit("FAIL: Installed runtime blocked-void placement capability drifted")
 migration = capability.get("receiptMigration", {})
 if migration.get("retiredTargetRelativePaths") != [
     "server/conf/world-builder/installed-runtime-capability-v1.json",
