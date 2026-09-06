@@ -202,7 +202,9 @@ final class WorldBuilderCurrentRuntimeContracts {
 
 	private static void validateLedger(Map<String,Object> root, String op)
 		throws WorldBuilderContractException {
-		exact(root, op, "schemaVersion", "manifestType", "targetInstallationId",
+		Map<String,Object> legacyFields = new LinkedHashMap<String,Object>(root);
+		legacyFields.remove("installedInstance");
+		exact(legacyFields, op, "schemaVersion", "manifestType", "targetInstallationId",
 			"platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId", "variantManifestHash",
 			"moduleSetHash", "bundleInventoryHash", "bundleSpecId", "bundleSpecHash",
 			"inputAdapterContractId", "inputAdapterId",
@@ -229,6 +231,21 @@ final class WorldBuilderCurrentRuntimeContracts {
 		hash(root, "verificationEvidenceHash", op, false);
 		identifiers(root.get("transactionReceiptIds"), op, "transactionReceiptIds", 0, MAX_LIST);
 		hash(root, "ledgerFingerprintSha256", op, false);
+		if (root.containsKey("installedInstance")) {
+			Map<String,Object> installed = object(root.get("installedInstance"), op, "installedInstance");
+			exact(installed, op, "instanceRelativePath", "generationId", "serverDescriptorRelativePath",
+				"serverDescriptorSha256", "clientDescriptorRelativePath", "clientDescriptorSha256", "activeSelectionSha256");
+			String instance = relative(installed, "instanceRelativePath", op);
+			String generation = identifier(installed, "generationId", op);
+			if (!".world-builder/current-runtime/instance".equals(instance)) invalid(op, "Installed instance must use the managed topology.");
+			for (String role : Arrays.asList("server", "client")) {
+				String descriptor = relative(installed, role + "DescriptorRelativePath", op);
+				if (!(instance + "/generations/" + generation + "/" + role + "-launch.json").equals(descriptor))
+					invalid(op, "Installed descriptor differs from its immutable generation path.");
+				hash(installed, role + "DescriptorSha256", op, false);
+			}
+			hash(installed, "activeSelectionSha256", op, false);
+		}
 	}
 
 	private static void validateClassification(Map<String,Object> root, String op)

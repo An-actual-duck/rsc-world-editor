@@ -47,6 +47,9 @@ import java.util.*;
 public final class InstanceHarness {
   @SuppressWarnings("unchecked") public static void main(String[] args) throws Exception {
     Path root = Paths.get(args[1]);
+    if ("verify-installed".equals(args[0])) {
+      System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(root.resolve("target")))); return;
+    }
     if ("verify-serialized".equals(args[0]) || "validate-serialized".equals(args[0])) {
       Map<String,Object> serialized = WorldBuilderJsonDocuments.readObject(root.resolve("plan.json"));
       WorldBuilderCurrentRuntimeInstance.InitialOutputPlan plan =
@@ -87,8 +90,9 @@ public final class InstanceHarness {
     Path output = Paths.get((String)input.get("output"));
     if ("construct-guarded".equals(args[0])) {
       Path target=Paths.get((String)input.get("target"));
-      Map<String,Object> ledger=new LinkedHashMap<String,Object>();
-      ledger.put("manifestType","world-builder-current-target-runtime-ledger"); ledger.put("targetInstallationId",input.get("installationId"));
+      Map<String,Object> ledger=WorldBuilderJsonDocuments.readObject(root.resolve("ledger-template.json"));
+      ledger.put("targetInstallationId",input.get("installationId"));
+      ledger=WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger,target,(Map<String,Object>)document.get("specification"));
       Map<String,Object> generation=(Map<String,Object>)document.get("generation");
       WorldBuilderCurrentRuntimeCutover.Plan cutover=WorldBuilderCurrentRuntimeCutover.inspect(target,"initial","","",
         WorldBuilderJsonDocuments.pretty(generation.get("activeSelection")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
@@ -101,6 +105,7 @@ public final class InstanceHarness {
         new WorldBuilderCurrentRuntimeCutover().apply(cutover,root.resolve("cutover-journal"),lease);
       }
       WorldBuilderCurrentRuntimeInstance.verifyNew(plan,output);
+      if(!document.get("specification").equals(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target))) throw new AssertionError("installed generation differs");
       System.out.print(WorldBuilderJsonDocuments.pretty(document)); return;
     }
     WorldBuilderCurrentRuntimeInstance.materializeNew(plan, output);
@@ -129,6 +134,7 @@ public final class InstanceHarness {
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="editor-instance-fixture-")
         self.root = Path(self.temporary.name)
+        write(self.root / "ledger-template.json", json.loads((ROOT / "tests/fixtures/current-runtime-upgrade-v1/targets/managed-n/.world-builder/runtime-ledger-v1.json").read_text()))
         self.stage = self.root / "release"
         self.instance = self.root / "instance"
         for path, data in {"installed/server/core.jar": b"fixture-server", "installed/server/plugins.jar": b"fixture-plugins",
@@ -244,6 +250,14 @@ public final class InstanceHarness {
         self.assertEqual(UUID, json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())["targetInstallationId"])
         self.assertEqual(before_stage, snapshot(self.stage))
         self.assertEqual(before_side, snapshot(self.root / "side"))
+        with sqlite3.connect(self.instance / "state/server/current_base.db") as connection:
+            connection.execute("insert into preserved values ('postcommit-gameplay')")
+        (self.stage / "migration/output/state/current-base.db").write_bytes(b"retired historical snapshot")
+        specification = self.invoke("verify-installed")
+        self.assertEqual(str(self.instance / "state/server"), specification["serverStateRoot"])
+        descriptor = self.instance / "generations/first-generation/client-launch.json"
+        descriptor.write_bytes(descriptor.read_bytes() + b" ")
+        self.invoke("verify-installed", success=False)
 
     def test_final_projection_can_precede_release_and_instance_publication(self):
         self.request["release"] = str(self.root / "future" / "release")
