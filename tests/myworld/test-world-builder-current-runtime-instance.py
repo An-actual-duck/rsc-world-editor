@@ -92,7 +92,8 @@ public final class InstanceHarness {
       Path target=Paths.get((String)input.get("target"));
       Map<String,Object> ledger=WorldBuilderJsonDocuments.readObject(root.resolve("ledger-template.json"));
       ledger.put("targetInstallationId",input.get("installationId"));
-      ledger=WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger,target,(Map<String,Object>)document.get("specification"));
+      ledger=WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger,target,(Map<String,Object>)document.get("specification"),
+        WorldBuilderJsonDocuments.readObject(root.resolve("identity.json")),WorldBuilderJsonDocuments.readObject(stage.resolve("migration/output/map/conversion/package/manifest.json")));
       Map<String,Object> generation=(Map<String,Object>)document.get("generation");
       WorldBuilderCurrentRuntimeCutover.Plan cutover=WorldBuilderCurrentRuntimeCutover.inspect(target,"initial","","",
         WorldBuilderJsonDocuments.pretty(generation.get("activeSelection")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
@@ -177,6 +178,15 @@ public final class InstanceHarness {
                  "client-runtime": "installed/client/Open_RSC_Client.jar", "runtime-profile": "runtime/profile.json"}
         write(self.root / "identity.json", {"installable": True, "variantId": "current-base-v1",
               "bundleInventory": [{"role": role, "sha256": sha(self.stage / path)} for role, path in roles.items()]})
+        ledger = json.loads((self.root / "ledger-template.json").read_text())
+        identity = json.loads((self.root / "identity.json").read_text())
+        for field in ("platformReleaseId", "platformManifestHash", "schemaSetHash", "variantManifestHash", "moduleSetHash",
+                      "bundleInventoryHash", "bundleSpecId", "bundleSpecHash", "inputAdapterContractId"):
+            identity[field] = ledger[field]
+        ledger["variantId"] = "current-base-v1"
+        ledger["activeMapPackageId"] = "fixture-map"
+        write(self.root / "ledger-template.json", ledger)
+        write(self.root / "identity.json", identity)
         outputs = [{"relativePath": str(path.relative_to(self.stage)), "kind": "fixture", "source": "fixture", "size": path.stat().st_size,
                     "sha256": sha(path), "mode": "0600"} for path in sorted((self.stage / "installed").rglob("*")) if path.is_file()]
         write(self.root / "layout.json", {"layoutId": "current-base-runnable-layout-v1", "serverRootRelativePath": "installed/server",
@@ -255,6 +265,16 @@ public final class InstanceHarness {
         (self.stage / "migration/output/state/current-base.db").write_bytes(b"retired historical snapshot")
         specification = self.invoke("verify-installed")
         self.assertEqual(str(self.instance / "state/server"), specification["serverStateRoot"])
+        ledger_path = target / ".world-builder/runtime-ledger-v1.json"
+        original = json.loads(ledger_path.read_text())
+        for field in ("platformReleaseId", "bundleInventoryHash", "activeMapPackageId"):
+            changed = dict(original)
+            changed[field] = "a" * 64 if field.endswith("Hash") else "wrong-generation"
+            changed["ledgerFingerprintSha256"] = "0" * 64
+            changed["ledgerFingerprintSha256"] = hashlib.sha256(canonical(changed)).hexdigest()
+            write(ledger_path, changed)
+            self.invoke("verify-installed", success=False)
+        write(ledger_path, original)
         descriptor = self.instance / "generations/first-generation/client-launch.json"
         descriptor.write_bytes(descriptor.read_bytes() + b" ")
         self.invoke("verify-installed", success=False)

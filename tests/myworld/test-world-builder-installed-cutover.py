@@ -25,6 +25,9 @@ public final class CutoverHarness {
   WorldBuilderCurrentRuntimeCutover cutover=new WorldBuilderCurrentRuntimeCutover(point -> {
    if(point.equals(args[4])) {
     if("halt".equals(args[5])) Runtime.getRuntime().halt(73);
+    if("drift".equals(args[5])) {
+     Files.write(target.resolve(".world-builder/current-runtime/instance/installation/active-launch.json"),new byte[]{99}); return;
+    }
     throw new java.io.IOException("injected "+point);
    }
   });
@@ -200,6 +203,23 @@ public final class CutoverHarness {
         self.assertNotEqual(0, self.run_cutover("recover").returncode)
         self.assertEqual(self.new_selection, self.selection.read_bytes())
         self.assertTrue(self.guard.exists())
+
+    def test_mid_cutover_selection_drift_is_not_overwritten(self):
+        self.prepare()
+        self.assertNotEqual(0, self.run_cutover("apply", "ledger-published", "drift").returncode)
+        self.assertEqual(b"c", self.selection.read_bytes())
+        self.assertEqual(self.new_ledger, self.ledger.read_bytes())
+        self.assertTrue(self.guard.exists())
+        self.assertFalse((self.journal / "commit.json").exists())
+
+    def test_known_foreign_temporary_refuses_before_publication(self):
+        self.prepare()
+        temp = self.selection.with_name("." + self.selection.name + ".cutover-1.forward")
+        self.put(temp, b"foreign")
+        self.assertNotEqual(0, self.run_cutover("apply").returncode)
+        self.assert_pair(False)
+        self.assertFalse(self.guard.exists())
+        self.assertEqual(b"foreign", temp.read_bytes())
 
     def test_links_and_unknown_temporary_refuse_without_replacement(self):
         self.prepare()

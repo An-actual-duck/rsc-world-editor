@@ -82,6 +82,10 @@ final class WorldBuilderCurrentRuntimeCutover {
         Path guard = installation.resolve(GUARD);
         absent(journal.resolve("commit.json")); absent(journal.resolve("rollback.json"));
         requireStartingPair(plan);
+        for (String relative : Arrays.asList(SELECTION, LEDGER))
+            for (String phase : Arrays.asList("forward", "rollback"))
+                absent(temporary(plan.target.resolve(relative), plan, phase));
+        byte[] startingSelection = optional(plan.target.resolve(SELECTION));
         if (Files.exists(guard, LinkOption.NOFOLLOW_LINKS)) requireBytes(guard, plan.guard);
         else writeNew(guard, plan.guard);
         WorldBuilderAdaptiveDurability.forceDirectory(installation);
@@ -91,6 +95,8 @@ final class WorldBuilderCurrentRuntimeCutover {
             replace(plan.target.resolve(LEDGER), plan.afterLedger, plan, "forward");
             observer.at("ledger-published");
             lease.verifyHeld(installation); requireBytes(guard, plan.guard);
+            requireBytes(plan.target.resolve(LEDGER), plan.afterLedger);
+            requireBytesOrAbsent(plan.target.resolve(SELECTION), startingSelection);
             replace(plan.target.resolve(SELECTION), plan.afterSelection, plan, "forward");
             observer.at("selection-published");
             requirePair(plan, true); lease.verifyHeld(installation); requireBytes(guard, plan.guard);

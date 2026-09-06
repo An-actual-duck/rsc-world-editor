@@ -11,8 +11,10 @@ final class WorldBuilderCurrentRuntimeInstalledGeneration {
     static final String LEDGER = ".world-builder/runtime-ledger-v1.json";
     private WorldBuilderCurrentRuntimeInstalledGeneration() { }
 
-    static Map<String,Object> bind(Map<String,Object> ledger, Path target, Map<String,Object> spec)
+    static Map<String,Object> bind(Map<String,Object> ledger, Path target, Map<String,Object> spec,
+        Map<String,Object> composition, Map<String,Object> mapManifest)
         throws WorldBuilderContractException {
+        requireContentIdentity(ledger, composition, mapManifest);
         Map<String,Object> generation = WorldBuilderCurrentRuntimeInstance.renderGeneration(spec);
         if (!target.resolve(INSTANCE + "/installation").toString().equals(spec.get("installationRoot"))
             || !Objects.equals(ledger.get("targetInstallationId"), spec.get("installationId")))
@@ -51,6 +53,9 @@ final class WorldBuilderCurrentRuntimeInstalledGeneration {
             requireHash(path(string(input, "path")), string(input, "sha256"));
         }
         spec.put("mapRoot", server.get("mapRoot")); spec.put("mapPackageFingerprintSha256", server.get("mapPackageFingerprintSha256"));
+        requireContentIdentity(ledger,
+            readBound(path(string(spec, "compositionIdentityPath")), string(spec, "compositionIdentitySha256")),
+            read(path(string(spec, "mapRoot")).resolve("manifest.json")));
         Map<String,Object> endpoint = object(server.get("endpoint")); spec.put("host", endpoint.get("host")); spec.put("gamePort", endpoint.get("gamePort"));
         for (String role : Arrays.asList("server", "client")) {
             Map<String,Object> descriptor = role.equals("server") ? server : client;
@@ -82,8 +87,20 @@ final class WorldBuilderCurrentRuntimeInstalledGeneration {
 
     private static Map<String,Object> readBound(Path path, String hash) throws IOException, WorldBuilderContractException {
         requireHash(path, hash);
+        return read(path);
+    }
+    private static Map<String,Object> read(Path path) throws IOException, WorldBuilderContractException {
+        regular(path);
         try { return WorldBuilderJsonDocuments.readObject(path); }
         catch (WorldBuilderDiscoveryException invalid) { throw unsafe("Malformed immutable installed metadata."); }
+    }
+    private static void requireContentIdentity(Map<String,Object> ledger, Map<String,Object> composition,
+        Map<String,Object> manifest) throws WorldBuilderContractException {
+        for (String field : Arrays.asList("platformReleaseId", "platformManifestHash", "schemaSetHash", "variantId",
+            "variantManifestHash", "moduleSetHash", "bundleInventoryHash", "bundleSpecId", "bundleSpecHash", "inputAdapterContractId"))
+            if (!string(ledger, field).equals(string(composition, field))) throw unsafe("Ledger composition differs from its installed launch identity.");
+        if (!string(ledger, "activeMapPackageId").equals(string(manifest, "packageId")))
+            throw unsafe("Ledger map identity differs from its activated package.");
     }
     private static void requireHash(Path path, String hash) throws IOException, WorldBuilderContractException {
         regular(path);
