@@ -448,7 +448,7 @@ without imposing its gameplay or content on Base users.
   and credential cleanup before evidence can be accepted. An unfinished cleanup
   requires retained-workspace recovery, never forced deletion or activation.
   Direct verifier hard-kill is not claimed recoverable. This component and its
-  package-private staged-release seam do not enable production apply: execution
+  package-private staged-release seam do not enable production apply:
   the complete public staging-to-activation path still needs end-to-end proof,
   supported installed launchers, live-instance state handling and complete
   post-install/recovery integration.
