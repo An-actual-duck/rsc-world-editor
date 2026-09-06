@@ -56,6 +56,11 @@ final class WorldBuilderCurrentRuntimeInstanceLease implements Closeable {
 	}
 
 	/** Recheck before each protected mutation; a replaced path is not lease authority. */
+	void verifyHeld(Path expectedInstallation) throws IOException, WorldBuilderContractException {
+		if (!root.equals(expectedInstallation)) throw refusal("Held role leases belong to a different installation.");
+		verifyHeld();
+	}
+
 	void verifyHeld() throws IOException, WorldBuilderContractException {
 		if (closed || !rootIdentity.equals(identity(root, true)))
 			throw refusal("The installed role-lease directory changed or its lease was closed.");

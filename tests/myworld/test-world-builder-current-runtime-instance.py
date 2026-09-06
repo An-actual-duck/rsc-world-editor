@@ -85,6 +85,24 @@ public final class InstanceHarness {
     if (input.containsKey("drift")) Files.write(Paths.get((String)input.get("drift")), new byte[]{99}, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     if (input.containsKey("symlink")) Files.createSymbolicLink(Paths.get((String)input.get("symlink")), stage);
     Path output = Paths.get((String)input.get("output"));
+    if ("construct-guarded".equals(args[0])) {
+      Path target=Paths.get((String)input.get("target"));
+      Map<String,Object> ledger=new LinkedHashMap<String,Object>();
+      ledger.put("manifestType","world-builder-current-target-runtime-ledger"); ledger.put("targetInstallationId",input.get("installationId"));
+      Map<String,Object> generation=(Map<String,Object>)document.get("generation");
+      WorldBuilderCurrentRuntimeCutover.Plan cutover=WorldBuilderCurrentRuntimeCutover.inspect(target,"initial","","",
+        WorldBuilderJsonDocuments.pretty(generation.get("activeSelection")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+        WorldBuilderJsonDocuments.pretty(ledger).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      WorldBuilderCurrentRuntimeCutover.journal(cutover,root.resolve("cutover-journal"));
+      WorldBuilderCurrentRuntimeInstance.materializeGuarded(plan,output,cutover);
+      WorldBuilderCurrentRuntimeInstance.verifyGuardedNew(plan,output,cutover);
+      if(!Files.exists(output.resolve("installation/pending-cutover.json"))) throw new AssertionError("startup guard absent");
+      try(WorldBuilderCurrentRuntimeInstanceLease lease=WorldBuilderCurrentRuntimeInstanceLease.acquire(output.resolve("installation"))) {
+        new WorldBuilderCurrentRuntimeCutover().apply(cutover,root.resolve("cutover-journal"),lease);
+      }
+      WorldBuilderCurrentRuntimeInstance.verifyNew(plan,output);
+      System.out.print(WorldBuilderJsonDocuments.pretty(document)); return;
+    }
     WorldBuilderCurrentRuntimeInstance.materializeNew(plan, output);
     WorldBuilderCurrentRuntimeInstance.verifyNew(plan, output);
     if ("tamper".equals(args[0])) {
@@ -211,6 +229,21 @@ public final class InstanceHarness {
             connection.execute("insert into preserved values ('normal-gameplay')")
         self.assertEqual(before_stage, snapshot(self.stage))
         self.assertEqual(pointer, json.loads((self.instance / "installation/active-launch.json").read_text()))
+
+    def test_initial_guarded_construction_and_metadata_commit(self):
+        target = self.root / "target"
+        parent = target / ".world-builder/current-runtime"
+        parent.mkdir(parents=True)
+        self.instance = parent / "instance"
+        self.request.update(target=str(target), instance=str(self.instance), output=str(self.instance))
+        before_stage = snapshot(self.stage)
+        before_side = snapshot(self.root / "side")
+        self.invoke("construct-guarded")
+        self.assertFalse((self.instance / "installation/pending-cutover.json").exists())
+        self.assertTrue((self.root / "cutover-journal/commit.json").exists())
+        self.assertEqual(UUID, json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())["targetInstallationId"])
+        self.assertEqual(before_stage, snapshot(self.stage))
+        self.assertEqual(before_side, snapshot(self.root / "side"))
 
     def test_final_projection_can_precede_release_and_instance_publication(self):
         self.request["release"] = str(self.root / "future" / "release")

@@ -210,6 +210,18 @@ final class WorldBuilderCurrentRuntimeInstance {
 
     /** Writes only a wholly absent root. Partial failure is retained for journaled recovery, never force-cleaned. */
     static void materializeNew(Plan plan, Path newRoot) throws IOException, WorldBuilderContractException {
+        materializeNew(plan, newRoot, null);
+    }
+
+    /** Initial production construction publishes the durable startup guard before launch metadata. */
+    static void materializeGuarded(Plan plan, Path newRoot, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        if (!newRoot.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))
+            || !newRoot.equals(plan.finalRoot)) throw failure("Initial guard belongs to another projected instance.");
+        materializeNew(plan, newRoot, cutover.guard);
+    }
+
+    private static void materializeNew(Plan plan, Path newRoot, byte[] guard) throws IOException, WorldBuilderContractException {
         Path root = projected(newRoot); absent(root); directory(root.getParent());
         disjoint(root, plan.stage);
         disjoint(root, plan.finalRelease);
@@ -226,6 +238,13 @@ final class WorldBuilderCurrentRuntimeInstance {
                 Files.createDirectory(root.resolve(relative), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             }
         }
+        if (guard != null) {
+            Path guardPath = root.resolve("installation/pending-cutover.json");
+            requireWriteParent(root, rootKey, guardPath);
+            writeNew(guardPath, guard);
+            WorldBuilderAdaptiveDurability.forceFile(guardPath);
+            WorldBuilderAdaptiveDurability.forceDirectory(guardPath.getParent());
+        }
         for (Copy copy : plan.copies) {
             requireRecord(copy.source, copy.record);
             Path target = root.resolve(copy.destination);
@@ -238,13 +257,25 @@ final class WorldBuilderCurrentRuntimeInstance {
             writeNew(root.resolve(document.getKey()), document.getValue());
         }
         WorldBuilderAdaptiveDurability.forceTree(root);
-        verifyNew(plan, root);
+        verifyConstructed(plan, root, guard);
         WorldBuilderAdaptiveDurability.forceDirectory(root.getParent());
     }
 
     /** Initial construction verification only: intentionally not a perpetual live-state validator. */
     static void verifyNew(Plan plan, Path root) throws IOException, WorldBuilderContractException {
-        if (!inventory(directory(root), true).equals(plan.outputInventory)) throw failure("New instance readback differs from its complete construction inventory.");
+        verifyConstructed(plan, root, null);
+    }
+
+    static void verifyGuardedNew(Plan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        if (!root.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))) throw failure("Guard verification selects another instance.");
+        verifyConstructed(plan, root, cutover.guard);
+    }
+
+    private static void verifyConstructed(Plan plan, Path root, byte[] guard) throws IOException, WorldBuilderContractException {
+        List<Object> expected = new ArrayList<Object>(plan.outputInventory);
+        if (guard != null) { expected.add(treeRow("installation/pending-cutover.json", bytesRecord(guard))); sortInventory(expected); }
+        if (!inventory(directory(root), true).equals(expected)) throw failure("New instance readback differs from its complete construction inventory.");
         plan.verifySources();
     }
 
