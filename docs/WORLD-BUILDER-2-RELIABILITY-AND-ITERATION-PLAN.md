@@ -483,9 +483,10 @@ without imposing its gameplay or content on Base users.
   and foreign/malformed evidence refusal. A migration-only staging checkpoint is
   explicitly not an execution-verified checkpoint; the latter requires the seal.
   Unproven verifier cleanup retains `recovery-required`, never a completed
-  rollback claim. Restarted production Recovery currently refuses retained
-  verifier attempts until the provider's durable supervisor/child lease and
-  revoked-intent contract is integrated; PID/port checks are not that proof.
+  rollback claim. Restarted Recovery now authenticates retained verifier tools
+  and authority against the confirmed plan before requesting provider closure.
+  Durable supervisor/child leases and revoked intent establish closure; PID/port
+  checks are not that proof. Production target activation remains disabled.
   Verified staging also rejects aliased parents and overlapping source/provider
   paths before creating any output.
   Remaining cutover work must separate mutable live state from sealed migration
@@ -499,9 +500,9 @@ without imposing its gameplay or content on Base users.
   transaction-owned guard only after the pointer and ledger are durably verified
   together, or after exact rollback. Leases alone are insufficient: a manager
   crash releases them while a pointer/ledger update may still be incomplete.
-  This is pending integration, not an enabled cutover or recovery claim.
-  The next verifier integration must journal generated outputs and the exact
-  prepared recovery authority before spawning the provider. Every post-spawn
+  Provider guard refusal is implemented; Editor guard orchestration and actual
+  cutover remain pending. Verifier integration now journals generated outputs
+  and the exact prepared recovery authority before spawning the provider. Every post-spawn
   failure requires provider closure evidence before rollback can be recorded as
   complete; an exited supervisor alone does not prove that its children stopped.
   Recovery must authenticate the plan, receipt and retained tool before using
@@ -513,8 +514,13 @@ without imposing its gameplay or content on Base users.
   v5 blocked-void NPC roaming, reviewed public definitions/visuals and bounded
   gameplay corrections, and preservation of Base Firemaking state on load.
   Exact-pin Editor integration is isolated from published Editor `main` and
-  passes dependency parity; genuine full-map conversion and real Editor recovery
-  acceptance are still being verified. This is not candidate or cutover approval.
+  passes dependency parity. Genuine full-map conversion and real Editor recovery
+  checks now pass; the combined Editor full-suite gate is pending. Conversion
+  preserves all 32,410 placements, including all 146 void-crossing NPC bounds,
+  with 352 terrain reverse matches and zero mismatches. Recovery checks include
+  an owned Editor JVM hard-kill, busy leases, retained-tool tampering and closure
+  after old staging paths disappear. These are disposable-fixture proofs, not
+  candidate or cutover approval.
   The map consumer's focused regressions additionally prove repeated v4/v5
   imports with an unchanged historical descriptor through verified generic
   installed-host authority. That authority binds artifacts, packages and metadata;
