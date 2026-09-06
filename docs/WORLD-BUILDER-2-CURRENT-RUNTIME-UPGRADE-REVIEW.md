@@ -675,11 +675,36 @@ experience.
     module-set handshake,
     authenticate a synthetic test account, load the map, and exercise selected
     content/gameplay sentinels.
-11. Revalidate the target, apply the reviewed state and content changes, and
-    atomically switch the managed-runtime pointer.
-12. Repeat normal launch/login/map verification against the installed target.
-13. Write the active ledger and successful receipt last. On any earlier
-   failure, restore the exact before-state or leave a precise recovery record.
+11. Revalidate the target while holding both persistent installed role leases.
+    Durably record exact ownership of `installation/pending-cutover.json`
+    before publishing launchable paths. Both actual JVMs refuse any guard entry
+    after acquiring their role lease and before writable initialization.
+12. Publish the reviewed generation, atomically replace the active selection
+    and ledger separately under that guard, and verify their exact agreement.
+    For a managed runtime upgrade, branch the current live database and admitted
+    side-state into a fresh private successor; never reuse the old release's
+    sealed migration snapshot as current player state. Map-only import retains
+    the current code, configuration, database and side-state paths.
+13. Persist the transaction's durable commit decision before removing its exact
+    guard. Before that decision, exact rollback restores the pointer/ledger
+    preimages or retains recovery evidence. After it, recovery is finalize-only:
+    a restarted server may already have changed successor state, so an older
+    pending receipt cannot authorize restoring the predecessor database.
+14. Complete supported normal launch/login/map acceptance on a disposable
+    installed target. Production target operation requires its own authority;
+    a post-commit verification failure never grants destructive rollback over
+    subsequent gameplay. Final receipts record the committed decision and
+    verification separately.
+
+This guarded cutover is the required design, not an implemented activation
+claim. The provider already refuses guarded starts; Editor guard orchestration,
+installed-generation/ledger binding and managed successor-state preparation
+remain unfinished. Managed Current Base state needs an explicit reviewed
+current-to-current validation/migration path, distinct from historical
+retro/core/initialized database adapters. The first integration proof is two
+normal server/client login cycles using descriptors produced by the Editor's
+initial-instance constructor, with authenticated session shutdown and both role
+leases proving closure before test cleanup.
 
 The Editor now contains a package-private synthetic transaction foundation for
 the safe structural subset of this sequence. Against sealed synthetic

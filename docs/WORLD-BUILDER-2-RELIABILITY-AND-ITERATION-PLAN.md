@@ -513,9 +513,11 @@ without imposing its gameplay or content on Base users.
   launches, pending-cutover refusal, durable verifier lifetime/recovery, explicit
   v5 blocked-void NPC roaming, reviewed public definitions/visuals and bounded
   gameplay corrections, and preservation of Base Firemaking state on load.
-  Exact-pin Editor integration is isolated from published Editor `main` and
-  passes dependency parity. Genuine full-map conversion and real Editor recovery
-  checks now pass; the combined Editor full-suite gate is pending. Conversion
+  Exact-pin Editor integration passes dependency parity.
+  Genuine full-map conversion and real Editor recovery
+  checks now pass. The combined Editor full suite passed all 37 modules; its
+  opt-in source/discovery follow-up passed 29 tests without skips, while native
+  packaged-client and PowerShell acceptance remain separate. Conversion
   preserves all 32,410 placements, including all 146 void-crossing NPC bounds,
   with 352 terrain reverse matches and zero mismatches. Recovery checks include
   an owned Editor JVM hard-kill, busy leases, retained-tool tampering and closure
