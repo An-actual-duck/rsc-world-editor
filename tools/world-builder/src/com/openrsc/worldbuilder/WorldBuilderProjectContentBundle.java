@@ -648,6 +648,15 @@ final class WorldBuilderProjectContentBundle {
 		return deriveCatalog(root, catalogId, null);
 	}
 
+	/** Full native Base registry projection; callers must bind both complete provider payloads. */
+	static Map<String,Object> currentBaseNativeCatalog(Path nativeRoot)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> result = deriveCatalog(nativeRoot, "current-base-native-authoring-v1", null,
+			new WorldBuilderDefinitionComposition.Profile(null, 85, false, "", "", "", ""));
+		result.remove("catalogSha256");
+		return result;
+	}
+
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId,
 		WorldBuilderPackedSourceLayout layout)
 		throws IOException, WorldBuilderContractException {
