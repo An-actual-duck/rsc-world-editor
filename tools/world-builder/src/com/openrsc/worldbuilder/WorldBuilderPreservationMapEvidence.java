@@ -100,6 +100,9 @@ final class WorldBuilderPreservationMapEvidence {
 		derivation.put("derivationId", WorldBuilderPreservationMapReconciliation.ID);
 		derivation.put("authority", "compiled-historical-data-only"); derivation.put("runtimePromotionApproved", Boolean.FALSE);
 		derivation.put("placementCorrections", corrections);
+		derivation.put("placementEncoding", "layered-world-placements-v5");
+		derivation.put("npcRoamCoverage", WorldBuilderPlacementEncoding.BLOCKED_VOID);
+		derivation.put("npcRoamBoundsPolicy", "retain-exact-bounded-rectangles-present-anchor-absent-cells-blocked");
 		derivation.put("inputInventory", documents(inputs));
 		WorldBuilderAdaptiveExporter.bindFingerprint(derivation, "sourceFingerprintSha256");
 		write(input, "derivation.json", WorldBuilderJsonDocuments.pretty(derivation), "historical-data-derivation", inputs);

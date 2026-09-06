@@ -34,6 +34,10 @@ final class WorldBuilderPackedConversionSource {
 	final List<WorldBuilderBoundedInventory.Record> inputs;
 	private WorldBuilderPreservationMapEvidence.Prepared preservationSource;
 
+	int placementEncodingVersion() {
+		return preservationSource == null ? WorldBuilderPlacementEncoding.DEFAULT_VERSION : 5;
+	}
+
 	private WorldBuilderPackedConversionSource(
 		WorldBuilderReadOnlyTarget target,
 		Path canonicalSourceRoot,

@@ -30,6 +30,12 @@ final class WorldBuilderPlacementSemantics {
 		return key("scenery", level, id, x, y, direction);
 	}
 
+	static String npcBlockedVoid(int level, int id, int startX, int startY,
+		int minimumX, int minimumY, int maximumX, int maximumY, int respawnSeconds) {
+		return npc(level, id, startX, startY, minimumX, minimumY, maximumX, maximumY,
+			respawnSeconds) + '\u0000' + "npcRoamCoverage=" + WorldBuilderPlacementEncoding.BLOCKED_VOID;
+	}
+
 	static String identity(String placementId, String semantic) {
 		return placementId + '\u0000' + semantic;
 	}

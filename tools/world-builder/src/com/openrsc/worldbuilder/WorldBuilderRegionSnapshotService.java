@@ -860,11 +860,11 @@ final class WorldBuilderRegionSnapshotService {
 				int targetLevel = checkedAdd(level,
 					integer(map(raw), "levelOffset"), "incoming footprint level");
 				Footprint incomingFootprint = footprint(family, absolute);
-				Point unavailable = live.firstUnavailable(targetLevel, incomingFootprint);
+				Point unavailable = live.firstUnavailablePlacement(targetLevel, family, absolute);
 				if (unavailable != null) {
 						addCollision(collisions, "incoming-footprint-unavailable", targetLevel,
 							unavailable.x, unavailable.y, "Incoming " + singularFamily(family)
-								+ " footprint extends beyond declared terrain coverage.");
+								+ " requires terrain unavailable under the destination placement policy.");
 						blocked = true;
 				}
 				for (PlacementRef occupied : preserved.query(targetLevel, incomingFootprint)) {
@@ -3377,6 +3377,17 @@ final class WorldBuilderRegionSnapshotService {
 			return true;
 		}
 
+		Point firstUnavailablePlacement(int level, String family, Map<String,Object> record) {
+			Map<String,Object> payload = placements.get(Integer.valueOf(level));
+			if ("npcs".equals(family) && payload != null
+				&& WorldBuilderPlacementEncoding.validateHeader(payload,
+					placementDeclarations.get(Integer.valueOf(level)).get("encoding")) == 5) {
+				Point anchor = point(record.get("start"));
+				return tile(level, anchor.x, anchor.y) == null ? anchor : null;
+			}
+			return firstUnavailable(level, footprint(family, record));
+		}
+
 		Point firstUnavailable(int level, Footprint footprint) {
 			for (long sectorX = Math.floorDiv(footprint.minimumX, 48);
 				sectorX <= (long)Math.floorDiv(footprint.maximumX, 48); sectorX++) {
@@ -3420,18 +3431,8 @@ final class WorldBuilderRegionSnapshotService {
 
 		private static void upgradeNpcPlacementEncoding(
 			Map<String,Object> payload, Map<String,Object> declaration) {
-			if (!"layered-world-placements-v3".equals(text(payload, "encoding"))) {
-				return;
-			}
-			for (Object raw : list(payload, "npcs")) {
-				Map<String,Object> npc = map(raw);
-				if (!npc.containsKey("respawnSeconds")) {
-					npc.put("respawnSeconds", Long.valueOf(-1));
-				}
-			}
-			payload.put("encoding", "layered-world-placements-v4");
-			payload.put("schemaVersion", Long.valueOf(4));
-			declaration.put("encoding", "layered-world-placements-v4");
+			int version = WorldBuilderPlacementEncoding.validateHeader(payload, declaration.get("encoding"));
+			WorldBuilderPlacementEncoding.promote(payload, declaration, Math.max(4, version));
 		}
 
 		private static String key(int level, int x, int y) {

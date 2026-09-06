@@ -463,16 +463,18 @@ final class WorldBuilderRuntimeCompatibility {
 			"native-layered-terrain-wire-v1",
 			"native-layered-terrain-wire-v2-u16",
 			"layered-placement-runtime-v3",
-			"layered-placement-runtime-v4"
+			"layered-placement-runtime-v4",
+			"layered-placement-runtime-v5"
 		};
 		List<List<String>> encodings = java.util.Arrays.asList(
 			java.util.Arrays.asList("raw-layered-sector-v1"),
 			java.util.Arrays.asList("raw-layered-sector-v2-u16",
 				"visual-layered-sector-v2-u16", "structural-layered-sector-v2-u16"),
 			java.util.Arrays.asList("layered-world-placements-v3"),
-			java.util.Arrays.asList("layered-world-placements-v4"));
-		if (matrix.size() != 4) throw hostIntegrationProblem(
-			"Package encoding capability matrix must cover versions 1 through 4.");
+			java.util.Arrays.asList("layered-world-placements-v4"),
+			java.util.Arrays.asList("layered-world-placements-v5"));
+		if (matrix.size() != 5) throw hostIntegrationProblem(
+			"Package encoding capability matrix must cover versions 1 through 5.");
 		for (int index = 0; index < matrix.size(); index++) {
 			Map<String,Object> item = WorldBuilderAdaptiveExporter.object(
 				matrix.get(index), "packageEncodingCapability");
@@ -997,11 +999,12 @@ final class WorldBuilderRuntimeCompatibility {
 	}
 
 	private static boolean currentEncodingSet(List<Integer> values) {
-		return values.size() == 4
+		return values.size() == 5
 			&& Integer.valueOf(1).equals(values.get(0))
 			&& Integer.valueOf(2).equals(values.get(1))
 			&& Integer.valueOf(3).equals(values.get(2))
-			&& Integer.valueOf(4).equals(values.get(3));
+			&& Integer.valueOf(4).equals(values.get(3))
+			&& Integer.valueOf(5).equals(values.get(4));
 	}
 
 	private static boolean sameIdentity(

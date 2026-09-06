@@ -371,15 +371,8 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 					"New level placement payload already exists.");
 			}
 			Files.createDirectories(payloadPath.getParent());
-			Map<String,Object> payload=new LinkedHashMap<String,Object>();
-			payload.put("boundaries",new ArrayList<Object>());
-			payload.put("encoding","layered-world-placements-v4");
-			payload.put("groundItems",new ArrayList<Object>());
-			payload.put("level",Long.valueOf(creation.level));
-			payload.put("npcs",new ArrayList<Object>());
-			payload.put("scenery",new ArrayList<Object>());
-			payload.put("schemaVersion",Long.valueOf(4));
-			payload.put("worldSpace","global");
+			Map<String,Object> payload = WorldBuilderPlacementEncoding.empty("global", creation.level,
+				WorldBuilderPlacementEncoding.packageVersion(placements));
 			Files.write(
 				payloadPath,
 				WorldBuilderJsonDocuments.pretty(payload)
@@ -393,7 +386,7 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 			}
 			Map<String,Object> declaration=
 				new LinkedHashMap<String,Object>();
-			declaration.put("encoding","layered-world-placements-v4");
+			declaration.put("encoding",payload.get("encoding"));
 			declaration.put("id",placementId);
 			declaration.put("level",Long.valueOf(creation.level));
 			declaration.put("path",placementPath);
@@ -531,32 +524,12 @@ final class WorldBuilderLayeredTerrainDraftJournal {
 		List<Object> npcs,
 		Map<String,Object> declaration)
 		throws WorldBuilderDiscoveryException {
-		String encoding = text(payload, "encoding");
-		int schemaVersion = number(payload, "schemaVersion");
-		String declaredEncoding = text(declaration, "encoding");
-		if ("layered-world-placements-v4".equals(encoding)
-			&& schemaVersion == 4
-			&& encoding.equals(declaredEncoding)) {
-			return false;
+		try {
+			int version = WorldBuilderPlacementEncoding.validateHeader(payload, declaration.get("encoding"));
+			return WorldBuilderPlacementEncoding.promote(payload, declaration, Math.max(4, version));
+		} catch (IllegalArgumentException invalid) {
+			throw new WorldBuilderDiscoveryException("Builder-created NPC placement encoding is unsupported: " + invalid.getMessage());
 		}
-		if (!"layered-world-placements-v3".equals(encoding)
-			|| schemaVersion != 3
-			|| !encoding.equals(declaredEncoding)) {
-			throw new WorldBuilderDiscoveryException(
-				"Builder-created NPC placement payload encoding is unsupported.");
-		}
-		for (Object value : npcs) {
-			Map<String,Object> record = object(value);
-			if (record.containsKey("respawnSeconds")) {
-				throw new WorldBuilderDiscoveryException(
-					"Legacy NPC placement contains an unexpected respawn field.");
-			}
-			record.put("respawnSeconds", Long.valueOf(-1));
-		}
-		payload.put("encoding", "layered-world-placements-v4");
-		payload.put("schemaVersion", Long.valueOf(4));
-		declaration.put("encoding", "layered-world-placements-v4");
-		return true;
 	}
 
 	private static Set<String> placementIds(Map<String,Object> payload)

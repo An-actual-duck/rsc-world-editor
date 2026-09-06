@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from collections import Counter
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
@@ -151,6 +152,8 @@ class PreservationMapConversionTest(unittest.TestCase):
             self.assertFalse(derivation["runtimePromotionApproved"])
             self.assertEqual("compiled-historical-data-only", derivation["authority"])
             self.assertEqual(1, len(derivation["placementCorrections"]))
+            self.assertEqual("layered-world-placements-v5", derivation["placementEncoding"])
+            self.assertEqual("blocked-void", derivation["npcRoamCoverage"])
             invocation = json.loads((derived / "invocation.json").read_text())
             self.assertEqual(0, invocation["exitCode"])
             self.assertFalse(invocation["runtimePromotionApproved"])
@@ -169,6 +172,41 @@ class PreservationMapConversionTest(unittest.TestCase):
             for family, count in {"boundary": 967, "scenery": 26815, "npc": 3609, "ground-item": 1019}.items():
                 self.assertEqual(count, families[family]["effectiveRecords"])
                 self.assertEqual(count, families[family]["emittedRecords"])
+            package = stage / "conversion/package"
+            manifest = json.loads((package / "manifest.json").read_text())
+            coverage = {(row["level"], row["sectorX"], row["sectorY"])
+                        for row in manifest["terrainSectors"]}
+            self.assertEqual(352, len(coverage))
+            expected_npcs, emitted_npcs, placement_ids = Counter(), Counter(), set()
+            for name in ["NpcLocs.json", "NpcLocsDiscontinued.json"]:
+                for row in json.loads((derived / "placements" / name).read_text())["npclocs"]:
+                    plane = row["start"]["y"] // 944
+                    level = [0, 1, 2, -1][plane]
+                    expected_npcs[(level, row["id"], row["start"]["x"], row["start"]["y"] % 944,
+                                   row["min"]["x"], row["min"]["y"] % 944,
+                                   row["max"]["x"], row["max"]["y"] % 944, -1)] += 1
+            void_bounds = 0
+            for declaration in manifest["placementSets"]:
+                self.assertEqual("layered-world-placements-v5", declaration["encoding"])
+                body = json.loads((package / declaration["path"]).read_text())
+                self.assertEqual(5, body["schemaVersion"])
+                self.assertEqual("blocked-void", body["npcRoamCoverage"])
+                level = body["level"]
+                for row in body["npcs"]:
+                    start, low, high = row["start"], row["roamBounds"]["minimum"], row["roamBounds"]["maximum"]
+                    self.assertNotIn(row["placementId"], placement_ids)
+                    placement_ids.add(row["placementId"])
+                    self.assertIn((level, start["x"] // 48, start["y"] // 48), coverage)
+                    self.assertLessEqual(high["x"] - low["x"], 128)
+                    self.assertLessEqual(high["y"] - low["y"], 128)
+                    absent = any((level, x, y) not in coverage
+                                 for x in range(low["x"] // 48, high["x"] // 48 + 1)
+                                 for y in range(low["y"] // 48, high["y"] // 48 + 1))
+                    void_bounds += int(absent)
+                    emitted_npcs[(level, row["npcId"], start["x"], start["y"], low["x"], low["y"],
+                                  high["x"], high["y"], row["respawnSeconds"])] += 1
+            self.assertEqual(146, void_bounds)
+            self.assertEqual(expected_npcs, emitted_npcs, "retain every exact bound and duplicate, never clamp")
 
 
 if __name__ == "__main__":

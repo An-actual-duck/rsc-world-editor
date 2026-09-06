@@ -134,6 +134,7 @@ add_group() {
 				test-world-builder-supervision.py
 				test-world-builder-project-revisions.py
 				test-world-builder-wide-elevation-v2.py
+				test-world-builder-placement-v5.py
 			)
 			;;
 		transactions)
