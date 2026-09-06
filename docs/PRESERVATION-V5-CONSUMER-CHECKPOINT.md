@@ -26,6 +26,17 @@ The retired adaptive-v2 contract remains unchanged. This deliberate future
 requirement means old-lock runtime compatibility gates are not final proof for
 this branch.
 
+Ordinary descriptor-backed discovery requires every actual package encoding to
+be advertised by matching target/server/client evidence. A historical descriptor
+is not silently rewritten after import. Chained map import instead creates a
+private-constructor, transient installed-host rediscovery proof only after the
+successful prior receipt, exact action state, unchanged source evidence, and
+current host capability/probes have verified. The proof binds the fixed target,
+descriptor, configuration, both installed packages, and exact observed target
+and project runtime artifact hashes, and rechecks them at use. It is deliberately
+not Current Base composition authority or a production runtime-upgrade ledger;
+the existing generic custom-host compatibility policy remains separate.
+
 Editor-only synthetic tests exercise closed headers, duplicate NPCs, present
 anchors, bounded void, v4 refusal, mixed empty-set refusal, actual composition,
 new levels, journal/region normalization, region coverage routing, export

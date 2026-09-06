@@ -2614,6 +2614,163 @@ public final class mudclient {
             )
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
+    def assert_installed_host_proof_rechecks_at_use(self, project, export, target):
+        # Leaf-only reflection reaches the private constructor after the same
+        # successful receipt validation/prepare path; never product authority.
+        java = self.classes.parent / "InstalledHostProofDriftHarness.java"
+        java.write_text(r'''
+package com.openrsc.worldbuilder;
+import java.nio.file.*;
+import java.lang.reflect.*;
+import java.util.*;
+public final class InstalledHostProofDriftHarness {
+  public static void main(String[] args) throws Exception {
+    Path projectRoot=Paths.get(args[0]), exportRoot=Paths.get(args[1]), targetRoot=Paths.get(args[2]);
+    WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project=WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(projectRoot,true);
+    WorldBuilderAdaptiveExporter.VerifiedExport proposed=WorldBuilderAdaptiveExporter.validate(exportRoot,project);
+    Method latest=WorldBuilderAdaptiveImporter.class.getDeclaredMethod("latestOutstandingSuccessfulImport",Path.class);
+    latest.setAccessible(true);
+    WorldBuilderAdaptiveReceipt.State receipt=(WorldBuilderAdaptiveReceipt.State)latest.invoke(null,projectRoot);
+    WorldBuilderAdaptiveExporter.VerifiedExport previousExport=WorldBuilderAdaptiveUndo.findExport(project,receipt.exportFingerprint());
+    WorldBuilderAdaptiveMutationProfile.Plan previous=WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project,previousExport,targetRoot,receipt.transactionId());
+    WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(previous,receipt);
+    previous=WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(previous);
+    WorldBuilderAdaptiveMutationProfile.prepareChained(project,proposed,targetRoot,UUID.randomUUID().toString(),previous);
+    WorldBuilderReadOnlyTarget target=WorldBuilderReadOnlyTarget.open(targetRoot);
+    WorldBuilderTargetCapability capability=WorldBuilderTargetCapability.read(target);
+    WorldBuilderAdaptiveConfiguration configuration=WorldBuilderAdaptiveConfiguration.select(target,capability,previous.configuration.configurationId).selected;
+    Constructor<?> constructor=WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority.class.getDeclaredConstructor(
+      WorldBuilderAdaptiveProjectLifecycle.VerifiedProject.class,WorldBuilderAdaptiveMutationProfile.Plan.class,
+      WorldBuilderTargetCapability.class,WorldBuilderAdaptiveConfiguration.class,WorldBuilderGenericLayeredPackage.class);
+    if(!Modifier.isPrivate(constructor.getModifiers()))throw new AssertionError("authority constructor is exposed");
+    constructor.setAccessible(true);
+    final WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority=
+      (WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority)constructor.newInstance(project,previous,capability,configuration,proposed.packageValue);
+    authority.requireTarget(target,capability);
+    try { authority.requireTarget(WorldBuilderReadOnlyTarget.open(projectRoot),capability);
+      throw new AssertionError("proof accepted another target root");
+    } catch(WorldBuilderContractException expected) { }
+    if(!previous.configuration.sha256.equals(configuration.sha256)) {
+      try { authority.requireConfiguration(target,capability,previous.configuration);
+        throw new AssertionError("proof accepted historical configuration");
+      } catch(WorldBuilderContractException expected) { }
+    }
+    try { authority.requirePackage(target,capability,configuration,proposed.packageValue,configuration.serverMapRelativePath);
+      throw new AssertionError("proof accepted another package");
+    } catch(WorldBuilderContractException expected) { }
+    for(final Path file : Arrays.asList(targetRoot.resolve("server/core.jar"),
+        targetRoot.resolve("client/Open_RSC_Client.jar"),projectRoot.resolve("working/runtime/server/core.jar"))) {
+      final byte[] before=Files.readAllBytes(file);
+      try {
+        WorldBuilderAdaptiveDiscovery discovery=new WorldBuilderAdaptiveDiscovery(WorldBuilderLayoutAdapterRegistry.standard(),
+          new WorldBuilderAdaptiveDiscovery.Observer(){public void betweenVerificationPasses(Path root,int attempt)throws Exception{
+            Files.write(file,Arrays.copyOf(before,before.length+1));
+          }});
+        WorldBuilderAdaptiveDiscoveryReport report=discovery.discoverInstalled(targetRoot,configuration.configurationId,authority);
+        if("compatible".equals(report.status))throw new AssertionError("changed artifact retained transient authority");
+      } finally { Files.write(file,before); }
+      authority.requireTarget(target,capability);
+    }
+  }
+}
+''')
+        result = subprocess.run(["javac", "-source", "8", "-target", "8", "-cp", str(self.classes),
+                                 "-d", str(self.classes), str(java)], capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        before = project_support.tree_bytes(target)
+        result = subprocess.run(["java", "-cp", str(self.classes),
+                                 "com.openrsc.worldbuilder.InstalledHostProofDriftHarness",
+                                 str(project), str(export), str(target)], capture_output=True,text=True,timeout=30)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual(before, project_support.tree_bytes(target))
+
+    def test_second_import_uses_verified_host_not_immutable_old_descriptor(self):
+        for version in (4, 5):
+            with self.subTest(version=version), tempfile.TemporaryDirectory(prefix="adaptive-host-chain-") as temp:
+                target, installation, project, export = self.target_project(
+                    Path(temp), supported_encodings=(1, 3), working_npc_respawn=30,
+                )
+                descriptor = target / "server/world-builder-capabilities.json"
+                descriptor_before = descriptor.read_bytes()
+                if version == 5:
+                    package = project / "working/layered-world/package"
+                    manifest_path = package / "manifest.json"
+                    manifest = json.loads(manifest_path.read_text())
+                    for declaration in manifest["placementSets"]:
+                        path = package / declaration["path"]
+                        body = json.loads(path.read_text())
+                        body.update(schemaVersion=5, encoding="layered-world-placements-v5",
+                                    npcRoamCoverage="blocked-void")
+                        project_support.write_json(path, body)
+                        declaration.update(encoding=body["encoding"], sha256=project_support.sha256(path))
+                    project_support.write_json(manifest_path, manifest)
+                    saved = self.run_cli("save-project", "--project", project)
+                    self.assertEqual(0, saved.returncode, saved.stderr)
+                    result = self.run_cli("export-adaptive", "--project", project)
+                    self.assertEqual(0, result.returncode, result.stderr)
+                    export = Path(json.loads(result.stdout)["exportDirectory"])
+                first = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                                "--export", export, "--target-root", target)
+                self.assertEqual(0, first.returncode, first.stderr)
+                self.assertEqual(descriptor_before, descriptor.read_bytes())
+                ordinary = self.run_cli("discover-adaptive", "--target-root", target)
+                self.assertEqual(3, ordinary.returncode, "ordinary discovery cannot borrow installed authority")
+                project_support.change_working_terrain(project)
+                saved = self.run_cli("save-project", "--project", project)
+                self.assertEqual(0, saved.returncode, saved.stderr)
+                result = self.run_cli("export-adaptive", "--project", project)
+                self.assertEqual(0, result.returncode, result.stderr)
+                second_export = Path(json.loads(result.stdout)["exportDirectory"])
+                args = ("import-adaptive", "--project", project, "--export", second_export, "--target-root", target)
+                preview = self.run_cli(*args)
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                if version == 5:
+                    self.assert_installed_host_proof_rechecks_at_use(project, second_export, target)
+                    host = target / "server/conf/world-builder/installed-runtime-capability-v3.json"
+                    original_host = host.read_bytes()
+                    malformed_host = json.loads(original_host)
+                    malformed_host["encodingVersions"] = [1, 2, 3, 4]
+                    for bad in (None, b"{}\n", json.dumps(malformed_host).encode()):
+                        if bad is None: host.unlink()
+                        else: host.write_bytes(bad)
+                        before = project_support.tree_bytes(target, installation)
+                        refused = self.run_cli(*args)
+                        self.assertEqual(3, refused.returncode, refused.stderr)
+                        self.assertEqual(before, project_support.tree_bytes(target, installation))
+                        host.write_bytes(original_host)
+                    for archive, entry in ((target / "server/core.jar", "com/openrsc/server/io/NativeLayeredWorldPackage.class"),
+                                           (target / "client/Open_RSC_Client.jar", "orsc/AdaptiveWorldBuilderClientSession.class")):
+                        original = archive.read_bytes()
+                        self.rewrite_runtime_entry(archive, entry, b"missing-v5-policy-markers")
+                        before = project_support.tree_bytes(target, installation)
+                        refused = self.run_cli(*args)
+                        self.assertEqual(3, refused.returncode, refused.stderr)
+                        self.assertEqual(before, project_support.tree_bytes(target, installation))
+                        archive.write_bytes(original)
+                    configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+                    package = target / configuration["serverMapRelativePath"]
+                    manifest_path = package / "manifest.json"
+                    original_manifest = manifest_path.read_bytes()
+                    manifest = json.loads(original_manifest)
+                    declaration = manifest["placementSets"][0]
+                    path = package / declaration["path"]
+                    original_payload = path.read_bytes()
+                    body = json.loads(original_payload)
+                    body.update(schemaVersion=6, encoding="layered-world-placements-v6")
+                    project_support.write_json(path, body)
+                    declaration.update(encoding=body["encoding"], sha256=project_support.sha256(path))
+                    project_support.write_json(manifest_path, manifest)
+                    before = project_support.tree_bytes(target, installation)
+                    refused = self.run_cli(*args)
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertEqual(before, project_support.tree_bytes(target, installation))
+                    path.write_bytes(original_payload)
+                    manifest_path.write_bytes(original_manifest)
+                second = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                                 "--export", second_export, "--target-root", target)
+                self.assertEqual(0, second.returncode, second.stderr)
+                self.assertEqual(descriptor_before, descriptor.read_bytes())
+
     def test_host_runtime_proves_complete_current_capability_for_older_packages(self):
         game_state_entry = "com/openrsc/server/GameStateUpdater.class"
         with tempfile.TemporaryDirectory(prefix="adaptive-import-v1-probes-") as temp:

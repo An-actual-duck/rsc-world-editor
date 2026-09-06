@@ -83,6 +83,14 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderReadOnlyTarget target,
 		WorldBuilderTargetCapability capability,
 		String requestedConfigurationRole) throws WorldBuilderContractException {
+		return inspect(target, capability, requestedConfigurationRole, null);
+	}
+
+	@Override
+	public WorldBuilderAdapterInspection inspect(WorldBuilderReadOnlyTarget target,
+		WorldBuilderTargetCapability capability, String requestedConfigurationRole,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority)
+		throws WorldBuilderContractException {
 		if (capability == null) {
 			return inspectLegacyFallback(target, requestedConfigurationRole);
 		}
@@ -98,9 +106,10 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 				descriptorConfigurationRole(
 					target, capability, requestedConfigurationRole));
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		if (authority != null) authority.requireConfiguration(target, capability, configuration);
 		if ("layered".equals(configuration.representation)) {
 			return inspectInstalledLayered(target, capability, selection,
-				requestedConfigurationRole);
+				requestedConfigurationRole, authority);
 		}
 		if (!"packed".equals(configuration.representation)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
@@ -175,7 +184,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderReadOnlyTarget target,
 		WorldBuilderTargetCapability capability,
 		WorldBuilderAdaptiveConfiguration.Selection selection,
-		String requestedConfigurationRole)
+		String requestedConfigurationRole,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority)
 		throws WorldBuilderContractException {
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
 		if (!capability.installEnabled
@@ -194,6 +204,13 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		WorldBuilderGenericLayeredPackage client =
 			WorldBuilderGenericLayeredPackage.inspect(target,
 				configuration.clientMapRelativePath, "client", common.definitions);
+		if (authority == null) {
+			server.requireAdvertisedEncodings(capability.encodingVersions, configuration.serverMapRelativePath);
+			client.requireAdvertisedEncodings(capability.encodingVersions, configuration.clientMapRelativePath);
+		} else {
+			authority.requirePackage(target, capability, configuration, server, configuration.serverMapRelativePath);
+			authority.requirePackage(target, capability, configuration, client, configuration.clientMapRelativePath);
+		}
 		if (!server.packageId.equals(client.packageId)
 			|| !server.packageVersion.equals(client.packageVersion)
 			|| !server.worldSpace.equals(client.worldSpace)

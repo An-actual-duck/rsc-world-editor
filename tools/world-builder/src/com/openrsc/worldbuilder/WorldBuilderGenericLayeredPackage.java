@@ -447,6 +447,15 @@ final class WorldBuilderGenericLayeredPackage {
 		return blockingBaseColor;
 	}
 
+	void requireAdvertisedEncodings(List<Integer> advertised, String path)
+		throws WorldBuilderContractException {
+		if (!advertised.containsAll(requiredEncodingVersions)) {
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, path,
+				"Layered package requires an encoding absent from the matching target/runtime capability.",
+				"Use a truthful compatible server/client pair; do not remove placement policy to disguise unsupported data.");
+		}
+	}
+
 	private static PlacementCounts validatePlacements(
 		WorldBuilderReadOnlyTarget target,
 		String path,

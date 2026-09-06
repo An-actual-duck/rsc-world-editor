@@ -22,6 +22,7 @@ final class WorldBuilderAdaptiveDiscovery {
 
 	private final WorldBuilderLayoutAdapterRegistry registry;
 	private final Observer observer;
+	private final WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority installedAuthority;
 
 	WorldBuilderAdaptiveDiscovery() {
 		this(WorldBuilderLayoutAdapterRegistry.standard(), NO_OP_OBSERVER);
@@ -29,8 +30,21 @@ final class WorldBuilderAdaptiveDiscovery {
 
 	WorldBuilderAdaptiveDiscovery(
 		WorldBuilderLayoutAdapterRegistry registry, Observer observer) {
+		this(registry, observer, null);
+	}
+
+	private WorldBuilderAdaptiveDiscovery(WorldBuilderLayoutAdapterRegistry registry, Observer observer,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority) {
 		this.registry = registry;
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
+		this.installedAuthority = authority;
+	}
+
+	WorldBuilderAdaptiveDiscoveryReport discoverInstalled(Path root, String role,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority)
+		throws WorldBuilderContractException {
+		if (authority == null) throw new IllegalArgumentException("Verified installed authority is required.");
+		return new WorldBuilderAdaptiveDiscovery(registry, observer, authority).discover(root, role);
 	}
 
 	WorldBuilderAdaptiveDiscoveryReport discover(Path requestedRoot, String requestedRole)
@@ -162,8 +176,9 @@ final class WorldBuilderAdaptiveDiscovery {
 		String requestedRole,
 		List<WorldBuilderLayoutAdapter.ProbeResult> probes) {
 		try {
+			if (installedAuthority != null) installedAuthority.requireTarget(target, capability);
 			return Pass.compatible(descriptor, capability,
-				adapter.inspect(target, capability, requestedRole), probes);
+				adapter.inspect(target, capability, requestedRole, installedAuthority), probes);
 		} catch (WorldBuilderContractException refusal) {
 			String representation = capability == null
 				? "packed" : capability.sourceRepresentations.size() == 1

@@ -40,6 +40,14 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 		WorldBuilderReadOnlyTarget target,
 		WorldBuilderTargetCapability capability,
 		String requestedConfigurationRole) throws WorldBuilderContractException {
+		return inspect(target, capability, requestedConfigurationRole, null);
+	}
+
+	@Override
+	public WorldBuilderAdapterInspection inspect(WorldBuilderReadOnlyTarget target,
+		WorldBuilderTargetCapability capability, String requestedConfigurationRole,
+		WorldBuilderAdaptiveMutationProfile.InstalledDiscoveryAuthority authority)
+		throws WorldBuilderContractException {
 		if (capability == null || !ID.equals(capability.adapterId)) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
 				WorldBuilderTargetCapability.RELATIVE_PATH,
@@ -51,6 +59,7 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 			WorldBuilderAdaptiveConfiguration.select(target, capability,
 				requestedConfigurationRole);
 		WorldBuilderAdaptiveConfiguration configuration = selection.selected;
+		if (authority != null) authority.requireConfiguration(target, capability, configuration);
 		if (!"layered".equals(configuration.representation)) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 				configuration.relativePath,
@@ -65,6 +74,13 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 			target, configuration.serverMapRelativePath, "server", common.definitions);
 		WorldBuilderGenericLayeredPackage client = WorldBuilderGenericLayeredPackage.inspect(
 			target, configuration.clientMapRelativePath, "client", common.definitions);
+		if (authority == null) {
+			server.requireAdvertisedEncodings(capability.encodingVersions, configuration.serverMapRelativePath);
+			client.requireAdvertisedEncodings(capability.encodingVersions, configuration.clientMapRelativePath);
+		} else {
+			authority.requirePackage(target, capability, configuration, server, configuration.serverMapRelativePath);
+			authority.requirePackage(target, capability, configuration, client, configuration.clientMapRelativePath);
+		}
 		if (!server.packageId.equals(client.packageId)
 			|| !server.packageVersion.equals(client.packageVersion)
 			|| !server.worldSpace.equals(client.worldSpace)

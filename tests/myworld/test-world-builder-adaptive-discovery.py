@@ -910,6 +910,41 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertIn("1 scenery", placement["observed"])
             self.assertIn("strictly read-only", result.stderr)
 
+    def test_v5_map_requires_matching_advertised_runtime_capability(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-v5-capability-") as temp:
+            root = self.descriptor_fixture(temp)
+            for side in ("server", "client"):
+                package = root / side / "maps/active"
+                manifest_path = package / "manifest.json"
+                manifest = json.loads(manifest_path.read_text())
+                declaration = manifest["placementSets"][0]
+                path = package / declaration["path"]
+                payload = json.loads(path.read_text())
+                payload.update(schemaVersion=5, encoding="layered-world-placements-v5",
+                               npcRoamCoverage="blocked-void")
+                payload["npcs"][0]["respawnSeconds"] = -1
+                payload["npcs"][0]["roamBounds"]["minimum"]["x"] = -5
+                write_json(path, payload)
+                declaration.update(encoding=payload["encoding"], sha256=sha256(path))
+                write_json(manifest_path, manifest)
+            descriptor_path = root / "server/world-builder-capabilities.json"
+            for versions, compatible in [([1, 2, 3, 4], False), ([1, 2, 3, 4, 5], True),
+                                         ([1, 2, 3, 4, 5, 6], False)]:
+                descriptor = json.loads(descriptor_path.read_text())
+                descriptor["map"]["encodingVersions"] = versions
+                write_json(descriptor_path, descriptor)
+                for side in ("server", "client"):
+                    path = root / side / "evidence/runtime.json"
+                    evidence = json.loads(path.read_text())
+                    evidence["encodingVersions"] = versions
+                    write_json(path, evidence)
+                result, report = self.assert_read_only(root)
+                self.assertEqual(0 if compatible else 3, result.returncode, result.stderr)
+                if compatible:
+                    self.assertEqual("compatible", report["status"])
+                else:
+                    self.assertIn("CAPABILITY_MISMATCH", result.stderr)
+
     def test_descriptor_packed_map_inventories_composition_and_all_families(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-packed-") as temp:
             root = self.descriptor_fixture(temp, representation="packed")
