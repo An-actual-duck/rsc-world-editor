@@ -215,8 +215,23 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			Files.createDirectory(staging);
 			WorldBuilderAdaptiveDurability.forceDirectory(staging);
 			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
-			executionPlan = stageRelease(reviewed, staging,
-				reviewed.profile.syntheticOnly ? null : transaction.resolve("runtime-verification"));
+			executionPlan = stageMigration(reviewed, staging);
+			writeReceipt(receipt, receipt(executionPlan, "pending", false, false, "", "migration-staged"));
+			if (!reviewed.profile.syntheticOnly) {
+				WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
+					reviewed.providerCatalogRoot, reviewed.compositionIdentity);
+				WorldBuilderInstalledRuntimeVerifier.Prepared prepared = WorldBuilderInstalledRuntimeVerifier.prepare(
+					staging, composition, object(executionPlan.get("migrationPlan")), generatedStateOutputs(executionPlan),
+					transaction.resolve("runtime-verification"), null);
+				// Keep this binding in the catch path even if the durable receipt publication fails.
+				executionPlan = bindRuntimeAttempt(executionPlan, prepared.authority);
+				WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(transaction.resolve("runtime-verification"),
+					prepared.authority, array(executionPlan.get("artifactPlan")));
+				writeReceipt(receipt, receipt(executionPlan, "pending", false, false, "", "verification-prepared"));
+				observe("before-runtime-verification", transaction.resolve("runtime-verification"));
+				executionPlan = bindRuntimeExecution(executionPlan, WorldBuilderCurrentRuntimeExecutionEvidence.execute(prepared));
+			}
+			finishStaging(reviewed, staging, executionPlan);
 			writeReceipt(receipt, receipt(executionPlan, "pending", false,
 				false, "", "staging-verified"));
 			observe("after-staging", staging);
@@ -249,6 +264,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			return new Result(string(reviewed.plan, "transactionId"), "successful",
 				receipt, release);
 		} catch (Throwable failure) {
+			if (!runtimeAttempt(executionPlan).isEmpty()) {
+				try { WorldBuilderCurrentRuntimeVerifierAuthority.close(runtimeAttempt(executionPlan), array(executionPlan.get("artifactPlan"))); }
+				catch (Throwable unproven) {
+					WorldBuilderContractException retained = WorldBuilderCurrentRuntimeVerifierAuthority.unsafe(
+						"Transaction failure has no authentic provider closure; retain all verifier evidence.");
+					retained.addSuppressed(failure); retained.addSuppressed(unproven); failure = retained;
+				}
+			}
 			if (failure instanceof WorldBuilderContractException
 				&& WorldBuilderErrorCodes.RECOVERY_REQUIRED.equals(((WorldBuilderContractException)failure).code())) {
 				// In particular, an unfinished verifier may still own processes and writable
@@ -324,11 +347,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		}
 		validatePlanFingerprint(plan);
 		validateRecoveryPlan(plan);
-		if (!bool(object(plan.get("executionProfile")), "syntheticOnly")
-			&& Files.exists(transaction.resolve("runtime-verification"), LinkOption.NOFOLLOW_LINKS))
-			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "runtime-verification", false,
-				"Verifier process cleanup cannot yet be proven after restart; retained execution evidence is not an offline lease.",
-				"Keep the transaction and target unchanged until the provider's durable child-lifetime recovery contract is available.");
 		if (!transactionId.equals(string(plan, "transactionId"))) throw problem(
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "transactionId", true,
 			"Recovery transaction identity does not match its directory.",
@@ -358,6 +376,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
 				object(object(plan.get("migrationPlan")).get("typedConfiguration")),
 				bool(object(plan.get("executionProfile")), "syntheticOnly"))) {
+			Map<String,Object> attempt = runtimeAttempt(plan);
+			if (!attempt.isEmpty()) {
+				WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(transaction.resolve("runtime-verification"),
+					attempt, array(plan.get("artifactPlan")));
+				WorldBuilderCurrentRuntimeVerifierAuthority.close(attempt, array(plan.get("artifactPlan")));
+			} else if (Files.exists(transaction.resolve("runtime-verification"), LinkOption.NOFOLLOW_LINKS)) {
+				throw WorldBuilderCurrentRuntimeVerifierAuthority.unsafe(
+					"Unbound historical verifier attempt cannot grant process cleanup authority.");
+			}
 			if (pendingReceiptTemporary != null
 				&& "successful".equals(pendingReceiptTemporary.status)) {
 				verifyInstalled(target, plan);
@@ -763,6 +790,20 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 	private Map<String,Object> stageRelease(Preview preview, Path staging, Path verificationAttempt)
 		throws IOException, WorldBuilderContractException {
+		Map<String,Object> executionPlan = stageMigration(preview, staging);
+		if (verificationAttempt != null) {
+			WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
+				preview.providerCatalogRoot, preview.compositionIdentity);
+			executionPlan = bindRuntimeExecution(executionPlan,
+				WorldBuilderCurrentRuntimeExecutionEvidence.run(staging, composition,
+					object(executionPlan.get("migrationPlan")), generatedStateOutputs(executionPlan), verificationAttempt));
+		}
+		finishStaging(preview, staging, executionPlan);
+		return executionPlan;
+	}
+
+	private Map<String,Object> stageMigration(Preview preview, Path staging)
+		throws IOException, WorldBuilderContractException {
 		WorldBuilderProviderCatalog.Composition composition =
 			WorldBuilderProviderCatalog.resolve(preview.providerCatalogRoot,
 				preview.compositionIdentity);
@@ -809,18 +850,20 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderPreservationStagedMigrator.verify(preview.targetRoot, staging,
 				execution, map);
 		}
-		Map<String,Object> executionPlan = bindGeneratedState(preview.plan,
+		return bindGeneratedState(preview.plan,
 			preview.profile.syntheticOnly ? Collections.<Object>emptyList()
 				: WorldBuilderCurrentRuntimeGeneratedState.capture(staging));
-		if (verificationAttempt != null) executionPlan = bindRuntimeExecution(executionPlan,
-			WorldBuilderCurrentRuntimeExecutionEvidence.run(staging, composition,
-				object(executionPlan.get("migrationPlan")), generatedStateOutputs(executionPlan), verificationAttempt));
+	}
+
+	private void finishStaging(Preview preview, Path staging, Map<String,Object> executionPlan)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
+			preview.providerCatalogRoot, preview.compositionIdentity);
 		Map<String,Object> activation = activationDocument(executionPlan);
 		writeNew(staging.resolve("activation.json"),
 			WorldBuilderJsonDocuments.pretty(activation));
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
-		return executionPlan;
 	}
 
 	Map<String,Object> inspectReviewedPreservationMigration(Path target,
@@ -1225,6 +1268,20 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			? new ArrayList<Object>(array(document.get("runtimeExecutionOutputs"))) : Collections.<Object>emptyList();
 	}
 
+	private static Map<String,Object> runtimeAttempt(Map<String,Object> document) throws WorldBuilderContractException {
+		return document.containsKey("runtimeVerificationAttempt")
+			? object(document.get("runtimeVerificationAttempt")) : Collections.<String,Object>emptyMap();
+	}
+
+	private static Map<String,Object> bindRuntimeAttempt(Map<String,Object> plan, Map<String,Object> attempt)
+		throws WorldBuilderContractException {
+		WorldBuilderCurrentRuntimeVerifierAuthority.validate(attempt, true);
+		if (bool(object(plan.get("executionProfile")), "syntheticOnly") && !attempt.isEmpty())
+			throw activationMismatch("runtimeVerificationAttempt");
+		Map<String,Object> result = new LinkedHashMap<String,Object>(plan);
+		result.put("runtimeVerificationAttempt", attempt); return result;
+	}
+
 	private static Map<String,Object> bindRuntimeExecution(Map<String,Object> execution,
 		List<Object> records) throws WorldBuilderContractException {
 		WorldBuilderCurrentRuntimeExecutionEvidence.validate(records, true);
@@ -1256,6 +1313,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		validateExecutionReceipt(plan, priorReceipt);
 		List<Object> generated = generatedStateOutputs(priorReceipt);
 		List<Object> runtime = runtimeExecutionOutputs(priorReceipt);
+		Map<String,Object> attempt = runtimeAttempt(priorReceipt);
 		if (pendingReceipt != null) {
 			validateExecutionReceipt(plan, pendingReceipt);
 			List<Object> pendingGenerated = generatedStateOutputs(pendingReceipt);
@@ -1267,8 +1325,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			if (!runtime.isEmpty() && !canonicalHash(runtime).equals(canonicalHash(pendingRuntime)))
 				throw recoveryDrift("runtimeExecutionOutputs", new IOException("phase receipts disagree about execution proof"));
 			if (runtime.isEmpty()) runtime = pendingRuntime;
+			Map<String,Object> pendingAttempt = runtimeAttempt(pendingReceipt);
+			if (!attempt.isEmpty() && !canonicalHash(attempt).equals(canonicalHash(pendingAttempt)))
+				throw recoveryDrift("runtimeVerificationAttempt", new IOException("phase receipts disagree about live authority"));
+			if (attempt.isEmpty()) attempt = pendingAttempt;
 		}
-		return bindRuntimeExecution(bindGeneratedState(plan, generated), runtime);
+		return bindRuntimeAttempt(bindRuntimeExecution(bindGeneratedState(plan, generated), runtime), attempt);
 	}
 
 	private static void validateExecutionReceipt(Map<String,Object> plan, Map<String,Object> receipt)
@@ -1287,7 +1349,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		List<Object> runtime = runtimeExecutionOutputs(receipt);
 		WorldBuilderCurrentRuntimeExecutionEvidence.validate(runtime,
 			synthetic || !requiresSeal || "pending".equals(status)
-				&& "migration-staged".equals(string(receipt, "failureType")));
+				&& Arrays.asList("migration-staged", "verification-prepared").contains(string(receipt, "failureType")));
+		Map<String,Object> attempt = runtimeAttempt(receipt);
+		WorldBuilderCurrentRuntimeVerifierAuthority.validate(attempt, true);
+		if (synthetic && !attempt.isEmpty()) throw activationMismatch("runtimeVerificationAttempt");
+		if (!synthetic && "pending".equals(status) && "verification-prepared".equals(string(receipt, "failureType")) && attempt.isEmpty())
+			throw recoveryDrift("runtimeVerificationAttempt", new IOException("prepared phase lacks its authority binding"));
 		Map<String,Object> execution = bindRuntimeExecution(bindGeneratedState(plan, generated), runtime);
 		if ("successful".equals(status) && !string(execution, "verificationEvidenceHash").equals(
 			string(receipt, "verificationEvidenceHash")))
@@ -1784,6 +1851,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		receipt.put("verificationEvidenceHash", verification);
 		receipt.put("generatedStateOutputs", generatedStateOutputs(plan));
 		receipt.put("runtimeExecutionOutputs", runtimeExecutionOutputs(plan));
+		receipt.put("runtimeVerificationAttempt", runtimeAttempt(plan));
 		receipt.put("failureType", failureType == null ? "" : failureType);
 		receipt.put("receiptFingerprintSha256", ZERO_HASH);
 		bindFingerprint(receipt, "receiptFingerprintSha256");
@@ -2101,11 +2169,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 	private static void validateReceiptFingerprint(Map<String,Object> receipt)
 		throws WorldBuilderContractException {
-		WorldBuilderBoundedInventory.exactKeys(receipt, OPERATION,
+		// Legacy unbound receipts remain readable, but can never authorize verifier cleanup.
+		List<String> receiptKeys = new ArrayList<String>(Arrays.asList(
 			"schemaVersion", "manifestType", "transactionId", "planFingerprintSha256",
 			"status", "mutationOccurred", "rollbackComplete", "recoveryRequired",
 			"preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
-			"failureType", "receiptFingerprintSha256", "generatedStateOutputs", "runtimeExecutionOutputs");
+			"failureType", "receiptFingerprintSha256", "generatedStateOutputs", "runtimeExecutionOutputs"));
+		if (receipt.containsKey("runtimeVerificationAttempt")) receiptKeys.add("runtimeVerificationAttempt");
+		WorldBuilderBoundedInventory.exactKeys(receipt, OPERATION, receiptKeys.toArray(new String[0]));
+		WorldBuilderCurrentRuntimeVerifierAuthority.validate(runtimeAttempt(receipt), true);
 		WorldBuilderCurrentRuntimeGeneratedState.validate(generatedStateOutputs(receipt), true);
 		WorldBuilderCurrentRuntimeExecutionEvidence.validate(runtimeExecutionOutputs(receipt), true);
 		String status = string(receipt, "status");

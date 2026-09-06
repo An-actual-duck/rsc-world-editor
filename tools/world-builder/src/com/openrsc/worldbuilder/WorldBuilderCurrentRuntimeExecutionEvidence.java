@@ -24,11 +24,17 @@ final class WorldBuilderCurrentRuntimeExecutionEvidence {
 	static List<Object> run(Path release, WorldBuilderProviderCatalog.Composition composition,
 		Map<String,Object> migration, List<Object> generated, Path attempt)
 		throws IOException, WorldBuilderContractException {
+		return execute(WorldBuilderInstalledRuntimeVerifier.prepare(release, composition, migration, generated, attempt, null));
+	}
+
+	static List<Object> execute(WorldBuilderInstalledRuntimeVerifier.Prepared prepared)
+		throws IOException, WorldBuilderContractException {
+		Path release = prepared.release;
+		Map<String,Object> migration = prepared.migration;
 		Path output = WorldBuilderPortablePath.resolveContained(release, PATH, OPERATION);
 		if (Files.exists(output.getParent(), LinkOption.NOFOLLOW_LINKS))
 			throw invalid("Execution evidence destination already exists.");
-		Map<String,Object> evidence = WorldBuilderInstalledRuntimeVerifier.verify(
-			release, composition, migration, generated, attempt, null);
+		Map<String,Object> evidence = WorldBuilderInstalledRuntimeVerifier.execute(prepared, null);
 		byte[] bytes = WorldBuilderJsonDocuments.pretty(evidence).getBytes(StandardCharsets.UTF_8);
 		if (bytes.length == 0 || bytes.length > MAX_BYTES) throw invalid("Verified execution evidence exceeds its bound.");
 		Files.createDirectory(output.getParent(), PosixFilePermissions.asFileAttribute(
@@ -45,8 +51,8 @@ final class WorldBuilderCurrentRuntimeExecutionEvidence {
 		record.put("mode", "0600");
 		record.put("verifierContractSha256", WorldBuilderInstalledRuntimeVerifier.CONTRACT_HASH);
 		List<Object> result = Collections.<Object>singletonList(Collections.unmodifiableMap(record));
-		verify(release, result, composition.identity, WorldBuilderHashes.sha256(
-			WorldBuilderJsonDocuments.pretty(composition.identity).getBytes(StandardCharsets.UTF_8)), migration);
+		verify(release, result, prepared.identity, WorldBuilderHashes.sha256(
+			WorldBuilderJsonDocuments.pretty(prepared.identity).getBytes(StandardCharsets.UTF_8)), migration);
 		return result;
 	}
 

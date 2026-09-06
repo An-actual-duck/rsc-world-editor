@@ -25,7 +25,7 @@ import java.util.function.BooleanSupplier;
 
 /** Executes only the reviewed provider verifier; its game processes use disposable copies. */
 final class WorldBuilderInstalledRuntimeVerifier {
-    static final String CONTRACT_HASH = "b13aaa9f247dbcfd8c5cb55ea2535f07f76400ae9d12d1cf654197be1b3afe55";
+    static final String CONTRACT_HASH = "227abec8c5180b80a504591083c2d4d000152d2047dba5fa27202cdce56659da";
     static final String CONTRACT = "contracts/runtime/current-base-v1/installed-execution-verifier.json";
     static final String MAIN = "com.openrsc.server.database.CurrentBaseInstalledExecutionVerifier";
     private static final String OP = "installed-runtime-verification";
@@ -42,7 +42,35 @@ final class WorldBuilderInstalledRuntimeVerifier {
 
     private WorldBuilderInstalledRuntimeVerifier() { }
 
+    static final class Prepared {
+        final Path release, attempt, workspace;
+        private final Path[] inputs;
+        final Map<String,Object> identity;
+        final Map<String,Object> migration, authority;
+        final List<Object> generated;
+        final List<Object> trustedArtifacts;
+        final String serverHash, clientHash, inputHash;
+        final int serverPort, websocketPort;
+        Prepared(Path release, Path attempt, Path[] inputs, WorldBuilderProviderCatalog.Composition composition,
+            Map<String,Object> migration, List<Object> generated, Map<String,Object> authority, List<Object> trustedArtifacts,
+            String serverHash, String clientHash, String inputHash, int serverPort, int websocketPort) {
+            this.release = release; this.attempt = attempt; this.workspace = attempt.resolve("execution");
+            this.inputs = inputs.clone(); this.identity = WorldBuilderCurrentRuntimeVerifierAuthority.snapshot(composition.identity);
+            this.migration = WorldBuilderCurrentRuntimeVerifierAuthority.snapshot(migration);
+            this.generated = WorldBuilderCurrentRuntimeVerifierAuthority.snapshotList(generated);
+            this.authority = WorldBuilderCurrentRuntimeVerifierAuthority.snapshot(authority);
+            this.trustedArtifacts = WorldBuilderCurrentRuntimeVerifierAuthority.snapshotList(trustedArtifacts); this.serverHash = serverHash;
+            this.clientHash = clientHash; this.inputHash = inputHash; this.serverPort = serverPort; this.websocketPort = websocketPort;
+        }
+    }
+
     static Map<String,Object> verify(Path requestedRelease, WorldBuilderProviderCatalog.Composition composition,
+        Map<String,Object> migration, List<Object> generatedState, Path requestedAttempt,
+        BooleanSupplier cancellation) throws IOException, WorldBuilderContractException {
+        return execute(prepare(requestedRelease, composition, migration, generatedState, requestedAttempt, cancellation), cancellation);
+    }
+
+    static Prepared prepare(Path requestedRelease, WorldBuilderProviderCatalog.Composition composition,
         Map<String,Object> migration, List<Object> generatedState, Path requestedAttempt,
         BooleanSupplier cancellation) throws IOException, WorldBuilderContractException {
         Path release = canonicalDirectory(requestedRelease);
@@ -59,6 +87,7 @@ final class WorldBuilderInstalledRuntimeVerifier {
         roles.put("runtime-profile", "runtime/profile.json");
         roles.put("installed-execution-verifier", CONTRACT);
         Set<String> found = new HashSet<String>();
+        List<Object> trustedArtifacts = new ArrayList<Object>();
         for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
             Path providerRoot = artifact.source;
             for (int i = 0; i < Paths.get(artifact.sourcePath).getNameCount(); i++) providerRoot = providerRoot.getParent();
@@ -70,6 +99,8 @@ final class WorldBuilderInstalledRuntimeVerifier {
             Path file = regular(release, artifact.bundlePath);
             if (!WorldBuilderHashes.sha256(file).equals(string(artifact.inventory, "sha256")))
                 throw failure("Verifier artifact differs from the selected composition.");
+            Map<String,Object> trusted = new LinkedHashMap<String,Object>(artifact.inventory);
+            trusted.put("bundlePath", artifact.bundlePath); trustedArtifacts.add(trusted);
         }
         if (!found.equals(roles.keySet()) || !CONTRACT_HASH.equals(WorldBuilderHashes.sha256(regular(release, CONTRACT))))
             throw failure("Provider verifier is not the compiled supervised execution contract.");
@@ -77,6 +108,9 @@ final class WorldBuilderInstalledRuntimeVerifier {
         if (cancelled(cancellation)) throw failure("Verification cancelled before execution.");
 
         Files.createDirectory(attempt, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
+        WorldBuilderAdaptiveDurability.forceDirectory(attempt.getParent());
+        WorldBuilderCurrentRuntimeVerifierAuthority.retainTools(attempt,
+            regular(release, "runtime/server/core.jar"), regular(release, CONTRACT));
         Path identityPath = attempt.resolve("composition-identity.json");
         Files.createFile(identityPath, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
         Files.write(identityPath, WorldBuilderJsonDocuments.pretty(composition.identity).getBytes(StandardCharsets.UTF_8),
@@ -95,15 +129,45 @@ final class WorldBuilderInstalledRuntimeVerifier {
              ServerSocket websocket = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
             serverPort = game.getLocalPort(); websocketPort = websocket.getLocalPort();
         }
-        List<String> command = new ArrayList<String>(Arrays.asList(javaExecutable(), "-cp",
-            regular(release, "runtime/server/core.jar").toString(), MAIN));
         String[] names = {"contract", "composition-identity", "runtime-profile", "installed-server-root",
             "installed-client-root", "server-config", "server-profile", "client-profile", "map-package",
             "state-db", "workspace", "server-port", "websocket-port", "evidence"};
-        Object[] values = {release.resolve(CONTRACT), identityPath, inputs[1], server, client, inputs[2], inputs[3],
+        Object[] values = {attempt.resolve("provider-tools/contract.json"), identityPath, inputs[1], server, client, inputs[2], inputs[3],
             inputs[4], inputs[5], inputs[6], workspace, serverPort, websocketPort, evidencePath};
-        for (int i = 0; i < names.length; i++) { command.add("--" + names[i]); command.add(values[i].toString()); }
-        runCommand(command, attempt, cancellation, RUN_SECONDS, CLEANUP_SECONDS);
+        Map<String,String> options = new LinkedHashMap<String,String>();
+        for (int i = 0; i < names.length; i++) options.put(names[i], values[i].toString());
+        Map<String,Object> authority = WorldBuilderCurrentRuntimeVerifierAuthority.prepare(attempt, options);
+        WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(attempt, authority, trustedArtifacts);
+        return new Prepared(release, attempt, inputs, composition, migration, generatedState, authority, trustedArtifacts,
+            serverHash, clientHash, inputHash, serverPort, websocketPort);
+    }
+
+    /** Caller has durably journaled Prepared.authority before entering this method. */
+    static Map<String,Object> execute(Prepared prepared, BooleanSupplier cancellation)
+        throws IOException, WorldBuilderContractException {
+        Path release = prepared.release, attempt = prepared.attempt, workspace = prepared.workspace;
+        Path server = release.resolve("installed/server"), client = release.resolve("installed/client");
+        Path[] inputs = prepared.inputs;
+        String serverHash = prepared.serverHash, clientHash = prepared.clientHash, inputHash = prepared.inputHash;
+        Map<String,Object> migration = prepared.migration;
+        List<Object> generatedState = prepared.generated;
+        int serverPort = prepared.serverPort, websocketPort = prepared.websocketPort;
+        WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(attempt, prepared.authority, prepared.trustedArtifacts);
+        Map<String,Object> closure;
+        try {
+            runCommand(WorldBuilderCurrentRuntimeVerifierAuthority.launchCommand(prepared.authority), attempt,
+                cancellation, RUN_SECONDS, CLEANUP_SECONDS);
+        } catch (IOException | WorldBuilderContractException | RuntimeException failure) {
+            try { WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority, prepared.trustedArtifacts); }
+            catch (IOException | WorldBuilderContractException unproven) { unproven.addSuppressed(failure); throw unproven; }
+            if (failure instanceof WorldBuilderContractException
+                && WorldBuilderErrorCodes.RECOVERY_REQUIRED.equals(((WorldBuilderContractException)failure).code())) {
+                WorldBuilderContractException closedFailure = failure("Verification failed; subsequent provider recovery proved closure.");
+                closedFailure.addSuppressed(failure); throw closedFailure;
+            }
+            throw failure;
+        }
+        closure = WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority, prepared.trustedArtifacts);
         if (cancelled(cancellation)) throw failure("Verification cancelled; evidence is not accepted.");
         validateSources(release, migration, generatedState);
         if (!serverHash.equals(treeHash(server)) || !clientHash.equals(treeHash(client))
@@ -113,7 +177,11 @@ final class WorldBuilderInstalledRuntimeVerifier {
         Path evidence = regular(attempt, "evidence.json");
         if (Files.size(evidence) > MAX_EVIDENCE) throw failure("Verifier evidence exceeds its bound.");
         Map<String,Object> result = read(evidence);
-        validateEvidence(result, composition.identity, WorldBuilderHashes.sha256(identityPath),
+        Map<String,Object> supervision = object(result.get("supervision"));
+        WorldBuilderCurrentRuntimeVerifierAuthority.bind(prepared.authority, supervision);
+        for (String key : Arrays.asList("intentSha256", "revocationSha256"))
+            if (!closure.get(key).equals(supervision.get(key))) throw failure("Execution and recovery evidence disagree.");
+        validateEvidence(result, prepared.identity, WorldBuilderHashes.sha256(inputs[0]),
             serverHash, clientHash, inputHash, WorldBuilderCurrentRuntimeLaunchInputs.runtimePackageFingerprint(
                 array(object(migration.get("mapMigration")).get("outputInventory"))),
             serverPort, websocketPort, workspace);
@@ -152,8 +220,10 @@ final class WorldBuilderInstalledRuntimeVerifier {
     static void runCommand(List<String> command, Path directory, BooleanSupplier cancellation,
         long timeoutSeconds, long cleanupSeconds) throws IOException, WorldBuilderContractException {
         ProcessBuilder builder = new ProcessBuilder(command).directory(directory.toFile()).redirectErrorStream(true);
-        for (String key : Arrays.asList("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "CLASSPATH"))
-            builder.environment().remove(key);
+        for (String key : new ArrayList<String>(builder.environment().keySet()))
+            if (key.startsWith("OPENRSC_") || key.startsWith("SPOILED_MILK_")
+                || Arrays.asList("JAVA_TOOL_OPTIONS", "JDK_JAVA_OPTIONS", "_JAVA_OPTIONS", "CLASSPATH").contains(key))
+                builder.environment().remove(key);
         Path diagnostic = directory.resolve("verifier-output.log");
         Files.createFile(diagnostic, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
         OutputStream diagnosticOutput = Files.newOutputStream(diagnostic, StandardOpenOption.WRITE);
@@ -229,11 +299,20 @@ final class WorldBuilderInstalledRuntimeVerifier {
     static void validatePortableEvidence(Map<String,Object> evidence, Map<String,Object> identity, String identityHash,
         String serverHash, String clientHash, String inputsHash, String mapFingerprint,
         int serverPort, int websocketPort) throws WorldBuilderContractException {
-        exact(evidence, "schemaId", "manifestType", "verifierId", "verifierContractSha256", "status", "composition", "source", "execution", "runs", "logs");
+        exact(evidence, "schemaId", "manifestType", "verifierId", "verifierContractSha256", "status", "composition", "source", "execution", "runs", "logs", "supervision");
         equal(evidence, "schemaId", "current-base-installed-execution-evidence-v1");
         equal(evidence, "manifestType", "current-base-installed-execution-evidence");
         equal(evidence, "verifierId", "current-base-installed-execution-v1");
         equal(evidence, "verifierContractSha256", CONTRACT_HASH); equal(evidence, "status", "verified");
+        Map<String,Object> supervision = object(evidence.get("supervision"));
+        exact(supervision, "invocationId", "supervisionSha256", "invocationSha256", "intentSha256", "revocationSha256", "closed");
+        String invocationId = string(supervision, "invocationId");
+        try {
+            if (!java.util.UUID.fromString(invocationId).toString().equals(invocationId)) throw new IllegalArgumentException();
+        } catch (IllegalArgumentException invalid) { throw failure("Verifier invocation identity is malformed."); }
+        for (String field : Arrays.asList("supervisionSha256", "invocationSha256", "intentSha256", "revocationSha256"))
+            hash(supervision, field);
+        truth(supervision, "closed");
         Map<String,Object> composition = object(evidence.get("composition"));
         exact(composition, "platformReleaseId", "platformManifestHash", "variantId", "variantManifestHash", "moduleSetHash", "bundleInventoryHash", "identitySha256");
         for (String field : IDENTITY) equal(composition, field, string(identity, field));

@@ -24,10 +24,55 @@
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
     "generatedStateOutputs": {"$ref": "#/$defs/generatedStateOutputs"},
     "runtimeExecutionOutputs": {"type":"array","maxItems":1,"items":{"$ref":"#/$defs/runtimeExecutionRecord"}},
+    "runtimeVerificationAttempt": {"oneOf":[
+      {"type":"object","additionalProperties":false,"required":[],"properties":{}},
+      {"$ref":"#/$defs/runtimeVerificationAttempt"}
+    ]},
     "failureType": {"type": "string", "maxLength": 1024},
     "receiptFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
   },
   "$defs": {
+    "runtimeVerificationAttempt": {
+      "type":"object","additionalProperties":false,
+      "required":["schemaVersion","attemptRoot","authoritySha256","invocationId","invocationSha256","options","retainedTools"],
+      "properties": {
+        "schemaVersion":{"const":1},
+        "attemptRoot":{"$ref":"#/$defs/absolutePath"},
+        "authoritySha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "invocationId":{"type":"string","pattern":"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"},
+        "invocationSha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "options":{
+          "type":"object","additionalProperties":false,
+          "required":["client-profile","composition-identity","contract","installed-client-root","installed-server-root","map-package","runtime-profile","server-config","server-profile","state-db","workspace","server-port","websocket-port","evidence"],
+          "properties":{
+            "client-profile":{"$ref":"#/$defs/absolutePath"},"composition-identity":{"$ref":"#/$defs/absolutePath"},
+            "contract":{"$ref":"#/$defs/absolutePath"},"installed-client-root":{"$ref":"#/$defs/absolutePath"},
+            "installed-server-root":{"$ref":"#/$defs/absolutePath"},"map-package":{"$ref":"#/$defs/absolutePath"},
+            "runtime-profile":{"$ref":"#/$defs/absolutePath"},"server-config":{"$ref":"#/$defs/absolutePath"},
+            "server-profile":{"$ref":"#/$defs/absolutePath"},"state-db":{"$ref":"#/$defs/absolutePath"},
+            "workspace":{"$ref":"#/$defs/absolutePath"},"evidence":{"$ref":"#/$defs/absolutePath"},
+            "server-port":{"type":"string","pattern":"^[1-9][0-9]{0,4}$"},
+            "websocket-port":{"type":"string","pattern":"^[1-9][0-9]{0,4}$"}
+          }
+        },
+        "retainedTools":{
+          "type":"array","minItems":2,"maxItems":2,"items":{"$ref":"#/$defs/retainedTool"},
+          "prefixItems":[
+            {"allOf":[{"$ref":"#/$defs/retainedTool"},{"properties":{"relativePath":{"const":"provider-tools/core.jar"}}}]},
+            {"allOf":[{"$ref":"#/$defs/retainedTool"},{"properties":{"relativePath":{"const":"provider-tools/contract.json"},"size":{"maximum":65536},"sha256":{"const":"227abec8c5180b80a504591083c2d4d000152d2047dba5fa27202cdce56659da"}}}]}
+          ]
+        }
+      }
+    },
+    "absolutePath":{"type":"string","minLength":1,"maxLength":4096,"pattern":"^/"},
+    "retainedTool":{
+      "type":"object","additionalProperties":false,"required":["relativePath","size","sha256","mode"],
+      "properties":{
+        "relativePath":{"enum":["provider-tools/core.jar","provider-tools/contract.json"]},
+        "size":{"type":"integer","minimum":1,"maximum":268435456},
+        "sha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},"mode":{"const":"0600"}
+      }
+    },
     "runtimeExecutionRecord": {
       "type":"object","additionalProperties":false,
       "required":["relativePath","size","sha256","mode","verifierContractSha256"],
@@ -36,7 +81,7 @@
         "size":{"type":"integer","minimum":1,"maximum":1048576},
         "sha256":{"$ref":"adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "mode":{"const":"0600"},
-        "verifierContractSha256":{"const":"b13aaa9f247dbcfd8c5cb55ea2535f07f76400ae9d12d1cf654197be1b3afe55"}
+        "verifierContractSha256":{"const":"227abec8c5180b80a504591083c2d4d000152d2047dba5fa27202cdce56659da"}
       }
     },
     "generatedStateOutputs": {

@@ -7,6 +7,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import select
 from pathlib import Path
 import shutil
 import sqlite3
@@ -47,6 +48,11 @@ public final class InstalledVerifierHarness {
           new java.util.function.BooleanSupplier() { public boolean getAsBoolean() { return Files.exists(cancel); } },
           Long.parseLong(args[3]), 5L);
         System.out.print("verified");
+      } else if ("hold-server-lease".equals(args[0])) {
+        try (java.nio.channels.FileChannel channel = java.nio.channels.FileChannel.open(root.resolve("control/server.lock"), StandardOpenOption.WRITE);
+             java.nio.channels.FileLock lease = channel.lock()) {
+          System.out.println("held"); System.out.flush(); System.in.read();
+        }
       } else if ("evidence".equals(args[0])) {
         Map<String,Object> evidence = WorldBuilderJsonDocuments.readObject(root.resolve("evidence.json"));
         Map<String,Object> identity = WorldBuilderJsonDocuments.readObject(root.resolve("identity.json"));
@@ -59,11 +65,33 @@ public final class InstalledVerifierHarness {
         Map<String,Object> inventory = new LinkedHashMap<String,Object>();
         inventory.put("outputs", WorldBuilderCurrentRuntimeGeneratedState.capture(root));
         System.out.print(WorldBuilderJsonDocuments.pretty(inventory));
-      } else if ("verify".equals(args[0]) || "seal".equals(args[0]) || "verify-seal".equals(args[0])) {
+      } else if ("recover".equals(args[0])) {
+        Map<String,Object> record = WorldBuilderJsonDocuments.readObject(root.resolve("prepared.json"));
+        WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[2]), Paths.get(args[3]));
+        List<Object> artifacts = new ArrayList<Object>();
+        for (WorldBuilderProviderCatalog.Artifact artifact : composition.artifacts) {
+          Map<String,Object> row = new LinkedHashMap<String,Object>(artifact.inventory);
+          row.put("bundlePath", artifact.bundlePath); artifacts.add(row);
+        }
+        WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(root, record, artifacts);
+        System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeVerifierAuthority.close(record, artifacts)));
+      } else if ("verify".equals(args[0]) || "seal".equals(args[0]) || "verify-seal".equals(args[0])
+          || "prepare".equals(args[0]) || "prepared-copy-drift".equals(args[0])) {
         Path release = Paths.get(args[2]);
         Map<String,Object> migration = WorldBuilderJsonDocuments.readObject(Paths.get(args[3]));
         WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[4]), Paths.get(args[5]));
         List<Object> generated = (List<Object>)WorldBuilderJsonDocuments.readObject(Paths.get(args[6])).get("outputs");
+        if ("prepare".equals(args[0]) || "prepared-copy-drift".equals(args[0])) {
+          WorldBuilderInstalledRuntimeVerifier.Prepared prepared = WorldBuilderInstalledRuntimeVerifier.prepare(
+            release, composition, migration, generated, root, null);
+          if ("prepare".equals(args[0])) { System.out.print(WorldBuilderJsonDocuments.pretty(prepared.authority)); return; }
+          Path core = root.resolve("provider-tools/core.jar"); byte[] original = Files.readAllBytes(core);
+          try {
+            Files.write(core, new byte[]{32}, StandardOpenOption.APPEND);
+            WorldBuilderInstalledRuntimeVerifier.execute(prepared, null);
+            throw new AssertionError("drifted copied executable accepted");
+          } finally { Files.write(core, original, StandardOpenOption.TRUNCATE_EXISTING); }
+        }
         if ("seal".equals(args[0])) {
           Map<String,Object> sealed = new LinkedHashMap<String,Object>();
           sealed.put("outputs", WorldBuilderCurrentRuntimeExecutionEvidence.run(release, composition, migration, generated, root));
@@ -100,8 +128,10 @@ class VerifierProcessFixture {
 }
 ''', encoding="utf-8")
         sources = sorted((ROOT / "tools/world-builder/src").rglob("*.java"))
-        subprocess.run(["javac", "-source", "8", "-target", "8", "-d", str(cls.classes),
-                        *map(str, sources), str(harness)], check=True, capture_output=True, text=True)
+        compiled = subprocess.run(["javac", "-source", "8", "-target", "8", "-d", str(cls.classes),
+                                   *map(str, sources), str(harness)], capture_output=True, text=True)
+        if compiled.returncode:
+            raise AssertionError(compiled.stdout + compiled.stderr)
         shutil.copytree(ROOT / "tools/world-builder/resources", cls.classes, dirs_exist_ok=True)
 
     @classmethod
@@ -111,9 +141,16 @@ class VerifierProcessFixture {
     def setUp(self) -> None:
         self.temp = tempfile.TemporaryDirectory(prefix="editor-verifier-case-")
         self.case = Path(self.temp.name)
+        self.retain_real_fixture = False
+        self.defer_real_cleanup = False
 
     def tearDown(self) -> None:
-        self.temp.cleanup()
+        if self.defer_real_cleanup:
+            return
+        if self.retain_real_fixture:
+            self.temp._finalizer.detach()
+        else:
+            self.temp.cleanup()
 
     def command(self, operation: str, root: Path, *args: str) -> list[str]:
         return ["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.InstalledVerifierHarness",
@@ -175,6 +212,8 @@ class VerifierProcessFixture {
         return {
             "schemaId": "current-base-installed-execution-evidence-v1", "manifestType": "current-base-installed-execution-evidence",
             "verifierId": "current-base-installed-execution-v1", "verifierContractSha256": contract, "status": "verified",
+            "supervision": {"invocationId": "12345678-1234-4234-9234-123456789abc", "closed": True,
+                            **{key: HASH for key in ("supervisionSha256", "invocationSha256", "intentSha256", "revocationSha256")}},
             "composition": {**identity, "identitySha256": HASH},
             "source": {**{key: HASH for key in ("serverTreeBeforeSha256", "serverTreeAfterSha256", "clientTreeBeforeSha256",
                                                   "clientTreeAfterSha256", "inputSetBeforeSha256", "inputSetAfterSha256")}, "unchanged": True},
@@ -202,6 +241,8 @@ class VerifierProcessFixture {
                    ("execution", "mapPackageFingerprint", "b" * 64), ("execution", "serverPort", 43594),
                    ("execution", "mapUnchanged", False), ("execution", "credentialDeleted", False),
                    ("execution", "workingStateFinalSha256", HASH), ("execution", "extra", "unknown")]
+        changes += [("supervision", "closed", False), ("supervision", "intentSha256", ""),
+                    ("supervision", "invocationId", "not-a-uuid"), ("supervision", "extra", True)]
         for section, key, value in changes:
             with self.subTest(section=section, key=key):
                 changed = copy.deepcopy(evidence)
@@ -239,7 +280,7 @@ class VerifierProcessFixture {
         self.addCleanup(helper_class.tearDownClass)
         helper = helper_class()
         helper.setUp()
-        self.addCleanup(helper.tearDown)
+        self.addCleanup(lambda: helper.case._finalizer.detach() if self.retain_real_fixture else helper.tearDown())
         target, source, report = helper.complete_packed_target_source()
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
@@ -249,6 +290,30 @@ class VerifierProcessFixture {
         workspace = helper.workspace()
         identity = PROVIDER / "output/current-platform/current-base-v1/composition-identity.json"
         catalog = PROVIDER / "current-platform"
+        def recover(root):
+            return subprocess.run(self.command("recover", root, catalog, identity), capture_output=True, text=True, timeout=50)
+        def prove_fixture_cleanup():
+            try:
+                for prepared in self.case.glob("*/prepared.json"):
+                    deadline = time.monotonic() + 40
+                    closed = None
+                    while time.monotonic() < deadline:
+                        try:
+                            closed = recover(prepared.parent)
+                        except subprocess.TimeoutExpired:
+                            break
+                        if closed.returncode == 0:
+                            break
+                        time.sleep(0.2)
+                    if closed is None or closed.returncode:
+                        self.retain_real_fixture = True
+                        raise AssertionError("Retaining uncertain disposable verifier fixtures: " + str(self.case)
+                                             + " and " + str(helper.case_root))
+            finally:
+                self.defer_real_cleanup = False
+                self.tearDown()
+        self.defer_real_cleanup = True
+        self.addCleanup(prove_fixture_cleanup)
         staged = helper.run_harness("launch-inputs-stage", target, workspace, "real-pair",
                                     identity=identity, catalog=catalog,
                                     packed_source=source, packed_report=report)
@@ -270,11 +335,53 @@ class VerifierProcessFixture {
         self.assertEqual(2, evidence["execution"]["launchCount"])
         self.assertTrue(evidence["execution"]["persistenceVerified"])
         self.assertTrue(evidence["execution"]["credentialDeleted"])
+        self.assertTrue(evidence["supervision"]["closed"])
+        self.assertEqual(digest(attempt / "control/authority.json"), evidence["supervision"]["supervisionSha256"])
+        self.assertEqual(digest(attempt / "control/revocation.json"), evidence["supervision"]["revocationSha256"])
         selected = json.loads(identity.read_text())
         for key in ("platformReleaseId", "platformManifestHash", "variantId", "variantManifestHash",
                     "moduleSetHash", "bundleInventoryHash"):
             self.assertEqual(selected[key], evidence["composition"][key])
         self.assertEqual(original_release, module.tree_snapshot(release))
+
+        # A prepared-but-never-spawned invocation is recoverable using its empty
+        # prebound intent. A persisted record alone is not positive execution proof.
+        prestart = self.case / "prestart-interruption"
+        prepared = subprocess.run(self.command("prepare", prestart, release,
+            workspace / "real-pair.migration.json", catalog, identity, inventory),
+            capture_output=True, text=True, timeout=30)
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        self.assertFalse((prestart / "execution").exists())
+        self.assertFalse((prestart / "verifier-output.log").exists())
+        self.assertEqual(b"", (prestart / "control/intent.json").read_bytes())
+        original_authority = (prestart / "control/authority.json").read_bytes()
+        closed = recover(prestart)
+        self.assertEqual(0, closed.returncode, closed.stderr)
+        self.assertEqual("", json.loads(closed.stdout)["intentSha256"])
+        self.assertTrue(json.loads(closed.stdout)["credentialDeleted"])
+        self.assertFalse((prestart / "execution").exists())
+        holder = subprocess.Popen(self.command("hold-server-lease", prestart), stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            self.assertTrue(select.select([holder.stdout], [], [], 10)[0], "fixture lease holder did not start")
+            self.assertEqual("held", holder.stdout.readline().strip())
+            busy = recover(prestart)
+            self.assertNotEqual(0, busy.returncode)
+            self.assertIn("CODE=RECOVERY_REQUIRED", busy.stderr)
+            self.assertEqual(original_authority, (prestart / "control/authority.json").read_bytes())
+        finally:
+            holder.stdin.close(); holder.stdin = None
+            holder.communicate(timeout=10)
+        self.assertEqual(0, recover(prestart).returncode)
+
+        drifted_copy = self.case / "prepared-copy-drift"
+        drifted = subprocess.run(self.command("prepared-copy-drift", drifted_copy, release,
+            workspace / "real-pair.migration.json", catalog, identity, inventory),
+            capture_output=True, text=True, timeout=30)
+        self.assertNotEqual(0, drifted.returncode)
+        self.assertFalse((drifted_copy / "verifier-output.log").exists(), "copy drift must refuse before spawn")
+        self.assertFalse((drifted_copy / "execution").exists())
+        self.assertEqual(0, recover(drifted_copy).returncode)
 
         # A second real execution creates the portable seal; no supplied PASS body
         # is accepted by the writing API. It survives relocation without consulting
@@ -294,6 +401,39 @@ class VerifierProcessFixture {
         self.assertEqual(original_release, without_seal)
         relocated = workspace / "relocated sealed release"
         release.rename(relocated)
+        self.assertFalse(release.exists())
+        for root in (attempt, prestart):
+            closed = recover(root)
+            self.assertEqual(0, closed.returncode, closed.stderr)
+            again = recover(root)
+            self.assertEqual(0, again.returncode, again.stderr)
+            self.assertEqual(json.loads(closed.stdout), json.loads(again.stdout))
+        self.assertEqual(original_authority, (prestart / "control/authority.json").read_bytes(),
+                         "relocation must never rewrite authority inputs")
+
+        # Tool and anchor refusals must precede creating a new recovery attempt.
+        for mutation in ("core-bytes", "contract-bytes", "core-mode", "core-link", "core-hardlink", "authority-bytes"):
+            core = prestart / "provider-tools/core.jar"
+            changed = prestart / ("provider-tools/contract.json" if mutation == "contract-bytes"
+                                  else "control/authority.json" if mutation == "authority-bytes" else "provider-tools/core.jar")
+            saved_bytes = changed.read_bytes()
+            extra = self.case / "invented-foreign-tool"
+            try:
+                if mutation.endswith("bytes"): changed.write_bytes(saved_bytes + b" ")
+                elif mutation == "core-mode": core.chmod(0o644)
+                elif mutation == "core-link": core.rename(extra); core.symlink_to(extra)
+                else: os.link(core, extra)
+                before = set(prestart.iterdir())
+                refused = recover(prestart)
+                with self.subTest(recovery_tamper=mutation):
+                    self.assertNotEqual(0, refused.returncode)
+                    self.assertEqual(before, set(prestart.iterdir()))
+            finally:
+                if mutation.endswith("bytes"): changed.write_bytes(saved_bytes)
+                elif mutation == "core-mode": core.chmod(0o600)
+                elif mutation == "core-link": core.unlink(); extra.rename(core)
+                elif extra.exists(): extra.unlink()
+        self.assertEqual(0, recover(prestart).returncode)
         seal_inventory = workspace / "execution-output-inventory.json"
         def readback(value):
             seal_inventory.write_text(json.dumps(value))
@@ -353,6 +493,41 @@ class VerifierProcessFixture {
                 finally:
                     path.write_bytes(saved)
         self.assertEqual(original_release, module.tree_snapshot(release))
+
+        # Kill only the Editor JVM handle created by this test. The recovery
+        # command must prove provider closure; observing parent exit is insufficient.
+        interrupted_attempt = self.case / "editor-hard-kill"
+        editor = subprocess.Popen(self.command("verify", interrupted_attempt, release,
+            workspace / "real-pair.migration.json", catalog, identity, inventory),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            intent = interrupted_attempt / "control/intent.json"
+            deadline = time.monotonic() + 40
+            while editor.poll() is None and time.monotonic() < deadline:
+                if intent.exists() and intent.stat().st_size > 0:
+                    break
+                time.sleep(0.05)
+            self.assertIsNone(editor.poll(), "Editor exited before the interrupted-start test")
+            self.assertTrue(intent.exists() and intent.stat().st_size > 0)
+            editor.kill()
+            editor.communicate(timeout=10)
+        finally:
+            if editor.poll() is None:
+                editor.kill(); editor.communicate(timeout=10)
+        deadline = time.monotonic() + 40
+        recovered = None
+        while time.monotonic() < deadline:
+            recovered = recover(interrupted_attempt)
+            if recovered.returncode == 0:
+                break
+            time.sleep(0.2)
+        self.assertIsNotNone(recovered)
+        self.assertEqual(0, recovered.returncode, recovered.stderr)
+        self.assertTrue(json.loads(recovered.stdout)["credentialDeleted"])
+        self.assertFalse((interrupted_attempt / "execution/execution/credential.json").exists())
+        self.assertEqual(original_release, module.tree_snapshot(release))
+        self.assertEqual(original_target, module.tree_snapshot(target))
+        self.assertEqual(original_source, module.tree_snapshot(source))
 
 
 if __name__ == "__main__":
