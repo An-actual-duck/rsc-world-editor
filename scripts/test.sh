@@ -138,6 +138,7 @@ add_group() {
 			members=(
 				test-world-builder-adaptive-transactions.py
 				test-world-builder-current-runtime-upgrade-transaction.py
+				test-world-builder-current-runtime-instance.py
 				test-world-builder-installed-runtime-verification.py
 				test-world-builder-installed-instance-lease.py
 				test-world-builder-export.py
