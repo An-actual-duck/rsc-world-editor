@@ -51,6 +51,7 @@ final class WorldBuilderPreservationPersistentInputs {
 		for (Map.Entry<String,String> item : PATHS.entrySet()) {
 			String relative = item.getKey();
 			boolean required = DATABASE.equals(relative) || relative.endsWith(".pem");
+			validatePresent(target, relative);
 			WorldBuilderReadOnlyTarget.FileState state = target.optionalState("preserved-" + item.getValue(), relative);
 			if (required && !state.present) complete = false;
 			if (state.present) validate(target, relative, state.size);
@@ -60,12 +61,7 @@ final class WorldBuilderPreservationPersistentInputs {
 			row.put("requiredForNormalInstance", Boolean.valueOf(required));
 			row.put("copyIntoProject", Boolean.FALSE); records.add(row);
 		}
-		boolean privateKey = target.exists("server/server.pem"), publicKey = target.exists("server/client.pem");
-		if (privateKey != publicKey) throw blocked("Existing server keys are incomplete; replacement keys are never generated at intake.");
-		if (privateKey) {
-			try { WorldBuilderCurrentRuntimeInstance.validateKeyPair(target.requiredFile("server/server.pem"), target.requiredFile("server/client.pem")); }
-			catch (IOException | WorldBuilderContractException unsafe) { throw blocked("Existing server keypair is invalid or does not agree."); }
-		}
+		validateOwnerKeys(target);
 		if (requireComplete && !complete) throw blocked("Normal-instance preview requires the existing closed SQLite database and complete owner keypair.");
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("schemaVersion", Long.valueOf(1)); result.put("manifestType", "world-builder-preservation-private-inputs");
@@ -75,6 +71,62 @@ final class WorldBuilderPreservationPersistentInputs {
 		result.put("activationApproved", Boolean.FALSE);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result, "fingerprintSha256");
 		return result;
+	}
+
+	static void validateOwnerKeys(WorldBuilderReadOnlyTarget target) throws WorldBuilderContractException {
+		boolean privateKey = target.exists("server/server.pem"), publicKey = target.exists("server/client.pem");
+		if (privateKey != publicKey) throw blocked("Existing server keys are incomplete; replacement keys are never generated at intake.");
+		if (privateKey) {
+			validatePresent(target, "server/server.pem"); validatePresent(target, "server/client.pem");
+			try { WorldBuilderCurrentRuntimeInstance.validateKeyPair(target.requiredFile("server/server.pem"), target.requiredFile("server/client.pem")); }
+			catch (IOException | WorldBuilderContractException unsafe) { throw blocked("Existing server keypair is invalid or does not agree."); }
+		}
+	}
+
+	/** Apply the narrow bound before hashing private evidence. */
+	static void validatePresent(WorldBuilderReadOnlyTarget target, String relative)
+		throws WorldBuilderContractException {
+		if (!target.exists(relative)) return;
+		try { validate(target, relative, Files.size(target.requiredFile(relative))); }
+		catch (IOException failure) { throw blocked("Persistent input size cannot be proven."); }
+	}
+
+	/** Closed metadata validation; this is not database-schema or execution authority. */
+	static void validateEvidence(Map<String,Object> value) throws WorldBuilderContractException {
+		String op = "preservation-private-inputs";
+		WorldBuilderBoundedInventory.exactKeys(value, op, "schemaVersion", "manifestType", "policyId",
+			"inputs", "requiredInputsPresent", "schemaValidation", "activationApproved", "fingerprintSha256");
+		if (!Long.valueOf(1).equals(value.get("schemaVersion"))
+			|| !"world-builder-preservation-private-inputs".equals(value.get("manifestType"))
+			|| !ID.equals(value.get("policyId")) || !Boolean.TRUE.equals(value.get("requiredInputsPresent"))
+			|| !"pending-provider-sealed-migration".equals(value.get("schemaValidation"))
+			|| !Boolean.FALSE.equals(value.get("activationApproved"))
+			|| !(value.get("inputs") instanceof List)) throw blocked("Persistent evidence identity or readiness changed.");
+		List<?> inputs = (List<?>)value.get("inputs");
+		if (inputs.size() != PATHS.size()) throw blocked("Persistent evidence does not contain the exact admitted paths.");
+		int index = 0;
+		for (Map.Entry<String,String> item : PATHS.entrySet()) {
+			Object raw = inputs.get(index++);
+			if (!(raw instanceof Map)) throw blocked("Persistent evidence row is not an object.");
+			@SuppressWarnings("unchecked") Map<String,Object> row = (Map<String,Object>)raw;
+			WorldBuilderBoundedInventory.exactKeys(row, op, "role", "relativePath", "present", "size", "sha256",
+				"requiredForNormalInstance", "copyIntoProject");
+			String relative = item.getKey();
+			boolean required = DATABASE.equals(relative) || relative.endsWith(".pem");
+			boolean present = WorldBuilderBoundedInventory.bool(row.get("present"), op, "present");
+			long size = WorldBuilderBoundedInventory.integer(row.get("size"), op, "size");
+			long maximum = DATABASE.equals(relative) ? 4294967296L : relative.endsWith(".pem") ? 65536L : 1048576L;
+			if (!relative.equals(row.get("relativePath")) || !("preserved-" + item.getValue()).equals(row.get("role"))
+				|| !Boolean.valueOf(required).equals(row.get("requiredForNormalInstance"))
+				|| !Boolean.FALSE.equals(row.get("copyIntoProject")) || required && !present
+				|| size < 0 || size > maximum || !(row.get("sha256") instanceof String)
+				|| (present ? !WorldBuilderBoundedInventory.isHash((String)row.get("sha256"))
+					: size != 0 || !"".equals(row.get("sha256")))) throw blocked("Persistent evidence row differs from the admission policy.");
+		}
+		Map<String,Object> expected = new LinkedHashMap<String,Object>(value);
+		WorldBuilderAdaptiveExporter.bindFingerprint(expected, "fingerprintSha256");
+		if (!expected.get("fingerprintSha256").equals(value.get("fingerprintSha256")))
+			throw blocked("Persistent evidence fingerprint changed.");
 	}
 
 	static void validate(WorldBuilderReadOnlyTarget target, String relative, long size)

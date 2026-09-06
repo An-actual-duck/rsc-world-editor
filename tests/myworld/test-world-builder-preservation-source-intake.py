@@ -10,7 +10,13 @@ import sqlite3
 import subprocess
 import tempfile
 import unittest
+import warnings
 import zipfile
+
+try:
+    import jsonschema
+except ImportError:
+    jsonschema = None
 
 ROOT = Path(__file__).resolve().parents[2]
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
@@ -38,6 +44,16 @@ public final class PreservationIntakeHarness {
       } catch (WorldBuilderContractException expected) { result.put("fixturePromotionRefused", true); }
     } else if ("private-inputs".equals(args[0])) {
       result = WorldBuilderPreservationPersistentInputs.inspect(WorldBuilderReadOnlyTarget.open(Paths.get(args[1])), true);
+      WorldBuilderPreservationPersistentInputs.validateEvidence(result);
+    } else if ("validate-private-inputs".equals(args[0])) {
+      result = WorldBuilderJsonDocuments.readObject(Paths.get(args[1]));
+      WorldBuilderPreservationPersistentInputs.validateEvidence(result);
+    } else if ("migration-preview".equals(args[0])) {
+      Map<String,Object> classification = new LinkedHashMap<String,Object>();
+      classification.put("evidence", WorldBuilderCurrentRuntimeContracts.inspectPreservationSource(Paths.get(args[1])));
+      WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[2]), Paths.get(args[3]));
+      result = p.migrationPlan(Paths.get(args[1]), classification, composition, null, null);
+      p.validateMigrationPlan(result);
     } else if ("config".equals(args[0])) {
       result = p.typedConfiguration(Paths.get(args[1]));
     } else if ("reject-zip".equals(args[0])) {
@@ -193,6 +209,45 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         private.rename(alias); private.symlink_to(alias); refused(); private.unlink(); alias.rename(private)
         self.assertTrue(self.invoke("private-inputs", target)["requiredInputsPresent"])
 
+        evidence = self.root / "private-evidence.json"
+        def validate_metadata(document):
+            evidence.write_text(json.dumps(document))
+            return subprocess.run(["java", "-cp", os.pathsep.join((str(self.classes), str(JAR))),
+                                   MAIN, "validate-private-inputs", str(evidence)], capture_output=True, text=True)
+        self.assertEqual(0, validate_metadata(value).returncode)
+        schema_validator = None
+        if jsonschema is not None:
+            schema_path = ROOT / "tools/world-builder/schema/current-runtime-upgrade-plan-v1.schema.json"
+            schema = json.loads(schema_path.read_text())
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                resolver = jsonschema.RefResolver(base_uri=schema_path.as_uri(), referrer=schema)
+            schema_validator = jsonschema.Draft202012Validator({"$ref": "#/$defs/persistentInputs"}, resolver=resolver)
+            schema_validator.validate(value)
+        def bound(document):
+            document["fingerprintSha256"] = "0" * 64
+            document["fingerprintSha256"] = hashlib.sha256(json.dumps(document, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            return document
+        for change in ("extra", "copy", "private-path", "absent-required", "ready", "unknown-schema", "oversized", "missing", "order", "foreign-role"):
+            altered = json.loads(json.dumps(value))
+            rows = altered["inputs"]
+            with self.subTest(metadata=change):
+                if change == "extra": altered["unreviewed"] = True
+                elif change == "copy": rows[0]["copyIntoProject"] = True
+                elif change == "private-path": rows[0]["relativePath"] = "../../private-key"
+                elif change == "absent-required":
+                    row = next(r for r in rows if r["requiredForNormalInstance"])
+                    row.update(present=False, size=0, sha256="")
+                elif change == "ready": altered["activationApproved"] = True
+                elif change == "unknown-schema": altered["schemaValidation"] = "validated"
+                elif change == "oversized": rows[0]["size"] = 4294967297
+                elif change == "missing": rows.pop()
+                elif change == "order": rows.reverse()
+                elif change == "foreign-role": rows[0]["role"] = "executable"
+                self.assertNotEqual(0, validate_metadata(bound(altered)).returncode)
+                if schema_validator is not None:
+                    self.assertTrue(list(schema_validator.iter_errors(altered)))
+
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_exact_historical_source_map_and_configuration_are_recognized(self):
         target = self.target()
@@ -240,6 +295,27 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         self.assertNotIn("server/client.pem", paths)
         self.assertNotIn("server/inc/sqlite/preservation.db", paths)
         self.assertIn("pending-provider-sealed-migration", accepted.stdout)
+        # The real selected provider supplies migration/tool identity. This is a
+        # read-only plan, not a claim that the database schema or project is ready.
+        provider = ROOT / ".runtime-provider"
+        expected_pin = next(line.split("=", 1)[1] for line in (ROOT / "runtime-provider.lock").read_text().splitlines()
+                            if line.startswith("RUNTIME_PROVIDER_COMMIT="))
+        self.assertEqual(expected_pin, subprocess.check_output(["git", "-C", str(provider), "rev-parse", "HEAD"], text=True).strip())
+        def migration_preview():
+            return subprocess.run(["java", "-cp", os.pathsep.join((str(self.classes), str(JAR))), MAIN,
+                                   "migration-preview", str(target), str(provider / "current-platform"),
+                                   str(provider / "output/current-platform/current-base-v1/composition-identity.json")],
+                                  capture_output=True, text=True, timeout=40)
+        previewed = migration_preview()
+        self.assertEqual(0, previewed.returncode, previewed.stderr)
+        plan = json.loads(previewed.stdout)
+        self.assertFalse(plan["persistentInputs"]["activationApproved"])
+        self.assertEqual("pending-provider-sealed-migration", plan["persistentInputs"]["schemaValidation"])
+        self.assertFalse(plan["stagedExecution"]["sqliteSchemaMigrationReady"])
+        self.assertTrue(plan["stagedExecution"]["sqliteSnapshotReady"])
+        self.assertIn("sqlite-schema-validation-pending-provider-sealed-migration", plan["stagedExecution"]["readinessBlockers"])
+        self.assertFalse(plan["mapMigration"]["packageReady"])
+        self.assertFalse((target / ".world-builder").exists())
         original = database.read_bytes()
         with sqlite3.connect(database) as connection:
             connection.execute("INSERT INTO players(username,pass,salt) VALUES ('inventedstate','private-password','')")
@@ -247,6 +323,10 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         self.assertEqual(0, changed.returncode, changed.stdout + changed.stderr)
         self.assertNotEqual(report["discoveryFingerprintSha256"], json.loads(changed.stdout)["discoveryFingerprintSha256"])
         self.assertNotIn("private-password", changed.stdout)
+        changed_plan = migration_preview()
+        self.assertEqual(0, changed_plan.returncode, changed_plan.stderr)
+        self.assertNotEqual(plan["migrationPlanFingerprintSha256"], json.loads(changed_plan.stdout)["migrationPlanFingerprintSha256"])
+        self.assertNotIn("private-password", changed_plan.stdout)
         database.write_bytes(original)
         for relative, payload in (("server/unknown-private.bin", b"private-password"),
                                   ("server/inc/sqlite/preservation.db-wal", b"unclosed"),
@@ -331,7 +411,7 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                 self.assertTrue(any(r["tier"] == "T5" for r in self.evidence(target)))
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
-    def test_unmigrated_side_state_is_not_discardable(self):
+    def test_private_state_is_preserved_or_blocked_never_discarded(self):
         for path in ("server/client.pem", "server/server.pem", "server/badwords.txt",
                      "server/goodwords.txt", "server/alertwords.txt", "Client_Base/clientSettings.conf",
                      "Client_Base/Cache/uid.dat", "server/inc/sqlite/preservation.db"):
@@ -342,8 +422,10 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                 side_state.write_bytes(b"invented non-user side-state sentinel\n")
                 side_state.chmod(0o600)
                 row = next(r for r in self.evidence(target) if r["relativePath"] == path)
-                self.assertEqual("T5", row["tier"], row)
-                self.assertEqual("blocker", row["disposition"])
+                portable = path.endswith(("badwords.txt", "goodwords.txt", "alertwords.txt", "clientSettings.conf"))
+                self.assertEqual("T2B" if portable else "T5", row["tier"], row)
+                self.assertEqual("preserve-state" if portable else "blocker", row["disposition"])
+                self.assertEqual(b"invented non-user side-state sentinel\n", side_state.read_bytes())
 
 
 if __name__ == "__main__":

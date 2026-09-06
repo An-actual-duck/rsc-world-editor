@@ -442,6 +442,7 @@ final class WorldBuilderAdaptiveContracts {
 			if (!selected.present || !capability.resolved
 				|| !("packed".equals(representation) || "layered".equals(representation)
 					|| WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(representation)
+						&& !descriptor.present
 						&& WorldBuilderPreservationLayoutAdapter.ID.equals(capability.adapterId)
 						&& WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(capability.capabilityId))
 				|| blockers || !selectedCandidate || !presentSourceEvidence
