@@ -155,10 +155,10 @@ final class WorldBuilderCurrentRuntimeVerifierAuthority {
     }
 
     /** A fresh provider closure is required even after a failed parent exit; no PID inference. */
-    static Map<String,Object> close(Map<String,Object> record) throws IOException, WorldBuilderContractException {
+    static Map<String,Object> close(Map<String,Object> record, List<?> trustedArtifacts) throws IOException, WorldBuilderContractException {
         try {
-            verifyFiles(record);
             Path attempt = path(string(record, "attemptRoot"));
+            authenticate(attempt, record, trustedArtifacts);
             Path output = attempt.resolve("recovery-" + UUID.randomUUID().toString()); createDirectory(output);
             WorldBuilderAdaptiveDurability.forceDirectory(attempt);
             List<String> command = command(record, RECOVERY);
@@ -315,7 +315,10 @@ final class WorldBuilderCurrentRuntimeVerifierAuthority {
         try { return WorldBuilderJsonDocuments.readObject(path); }
         catch (WorldBuilderDiscoveryException invalid) { throw unsafe("Verifier authority evidence is malformed."); }
     }
-    private static void exact(Map<String,Object> map, String... keys) throws WorldBuilderContractException { WorldBuilderBoundedInventory.exactKeys(map, OP, keys); }
+    private static void exact(Map<String,Object> map, String... keys) throws WorldBuilderContractException {
+        if (!map.keySet().equals(new java.util.HashSet<String>(Arrays.asList(keys))))
+            throw unsafe("Verifier authority object has missing or unexpected fields.");
+    }
     static Map<String,Object> snapshot(Map<String,Object> value) {
         Map<String,Object> copy = new LinkedHashMap<String,Object>();
         for (Map.Entry<String,Object> entry : value.entrySet()) copy.put(entry.getKey(), freeze(entry.getValue()));
@@ -330,8 +333,12 @@ final class WorldBuilderCurrentRuntimeVerifierAuthority {
         if (value instanceof List) return snapshotList((List<Object>)value);
         return value;
     }
-    private static String string(Map<String,Object> map, String key) throws WorldBuilderContractException { return WorldBuilderBoundedInventory.string(map.get(key), OP, key); }
-    private static long number(Object value) throws WorldBuilderContractException { return WorldBuilderBoundedInventory.integer(value, OP, "number"); }
+    private static String string(Map<String,Object> map, String key) throws WorldBuilderContractException {
+        if (!(map.get(key) instanceof String)) throw unsafe("Verifier authority string is malformed."); return (String)map.get(key);
+    }
+    private static long number(Object value) throws WorldBuilderContractException {
+        if (!(value instanceof Long)) throw unsafe("Verifier authority integer is malformed."); return ((Long)value).longValue();
+    }
     private static void hash(Map<String,Object> map, String key) throws WorldBuilderContractException {
         if (!WorldBuilderBoundedInventory.isHash(string(map, key))) throw unsafe("Verifier hash is malformed."); }
     @SuppressWarnings("unchecked") private static Map<String,Object> object(Object value) throws WorldBuilderContractException {

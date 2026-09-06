@@ -37,6 +37,30 @@ public final class AuthorityHarness {
       } else {
         Map<String,Object> record = WorldBuilderJsonDocuments.readObject(root.resolve("record.json"));
         if ("validate".equals(args[0])) WorldBuilderCurrentRuntimeVerifierAuthority.validate(record, false);
+        else if ("snapshot".equals(args[0])) {
+          Map<String,Object> frozen = WorldBuilderCurrentRuntimeVerifierAuthority.snapshot(record);
+          ((Map<String,Object>)record.get("options")).put("state-db", "changed");
+          if ("changed".equals(((Map<?,?>)frozen.get("options")).get("state-db"))) throw new AssertionError("shallow snapshot");
+          try { ((Map<String,Object>)frozen.get("options")).put("state-db", "changed"); throw new AssertionError("mutable map"); }
+          catch (UnsupportedOperationException expected) { }
+          try { ((List<Object>)frozen.get("retainedTools")).clear(); throw new AssertionError("mutable list"); }
+          catch (UnsupportedOperationException expected) { }
+          try { ((Map<String,Object>)((List<?>)frozen.get("retainedTools")).get(0)).put("size", 2L); throw new AssertionError("mutable nested row"); }
+          catch (UnsupportedOperationException expected) { }
+        } else if ("receipt".equals(args[0])) {
+          Map<String,Object> plan = WorldBuilderJsonDocuments.readObject(root.resolve("plan.json"));
+          Map<String,Object> execution = new LinkedHashMap<String,Object>(plan);
+          execution.put("runtimeVerificationAttempt", record);
+          execution.put("generatedStateOutputs", WorldBuilderJsonDocuments.readObject(root.resolve("generated.json")).get("outputs"));
+          System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeUpgradeTransaction.receipt(
+            execution, "pending", false, false, "", args[2]))); return;
+        } else if ("restore".equals(args[0])) {
+          Map<String,Object> plan = WorldBuilderJsonDocuments.readObject(root.resolve("plan.json"));
+          Map<String,Object> receipt = WorldBuilderJsonDocuments.readObject(root.resolve("receipt.json"));
+          Path pending = root.resolve("pending.json");
+          System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeUpgradeTransaction.restoreExecutionPlan(
+            plan, receipt, Files.exists(pending) ? WorldBuilderJsonDocuments.readObject(pending) : null))); return;
+        }
         else if ("closure".equals(args[0])) WorldBuilderCurrentRuntimeVerifierAuthority.validateClosure(record,
           WorldBuilderJsonDocuments.readObject(root.resolve("closure.json")));
         else if ("authenticate".equals(args[0])) WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(
@@ -194,6 +218,49 @@ public final class AuthorityHarness {
                 else: del row[{"missing-mode": "mode", "missing-size": "size", "missing-hash": "sha256"}[mutation]]
                 with self.subTest(index=index, mutation=mutation):
                     self.assertTrue(list(validator.iter_errors(bad)))
+
+    def test_prepared_metadata_is_a_deep_immutable_snapshot(self):
+        self.fixture()
+        result = self.run_case("snapshot")
+        self.assertEqual(0, result.returncode, result.stderr)
+
+    def test_phase_receipts_preserve_authority_without_rewriting_confirmed_plan(self):
+        record = self.fixture()
+        plan = {"transactionId": "invented-journal", "planFingerprintSha256": HASH,
+                "preimageInventoryHash": HASH, "artifactPlanHash": HASH, "verificationEvidenceHash": HASH,
+                "executionProfile": {"syntheticOnly": False},
+                "activationLedger": {"ledgerFingerprintSha256": HASH, "verificationEvidenceHash": HASH}}
+        plan_path = self.root / "plan.json"; plan_path.write_text(json.dumps(plan))
+        generated = [{"relativePath": "migration/output/state/" + name, "size": 1, "sha256": HASH, "mode": "0600"}
+                     for name in ("current-base-migration-evidence.json", "current-base.db")]
+        (self.root / "generated.json").write_text(json.dumps({"outputs": generated}))
+        prepared = self.run_case("receipt", "verification-prepared")
+        self.assertEqual(0, prepared.returncode, prepared.stderr)
+        receipt = json.loads(prepared.stdout)
+        (self.root / "receipt.json").write_text(prepared.stdout)
+        restored = self.run_case("restore")
+        self.assertEqual(0, restored.returncode, restored.stderr)
+        self.assertEqual(record, json.loads(restored.stdout)["runtimeVerificationAttempt"])
+        self.assertEqual(generated, json.loads(restored.stdout)["generatedStateOutputs"])
+        self.assertEqual(plan, json.loads(plan_path.read_text()))
+        self.assertEqual(HASH, json.loads(restored.stdout)["planFingerprintSha256"])
+        # A prior migration seal may acquire the first authority from an interrupted
+        # prepared receipt, but an already-bound phase may not drop or replace it.
+        self.write_record({})
+        migration = self.run_case("receipt", "migration-staged")
+        self.assertEqual(0, migration.returncode, migration.stderr)
+        (self.root / "receipt.json").write_text(migration.stdout)
+        (self.root / "pending.json").write_text(prepared.stdout)
+        restored = self.run_case("restore")
+        self.assertEqual(0, restored.returncode, restored.stderr)
+        self.assertEqual(record, json.loads(restored.stdout)["runtimeVerificationAttempt"])
+        (self.root / "receipt.json").write_text(prepared.stdout)
+        (self.root / "pending.json").write_text(migration.stdout)
+        self.assertNotEqual(0, self.run_case("restore").returncode)
+        (self.root / "pending.json").unlink()
+        unbound = self.run_case("receipt", "verification-prepared")
+        (self.root / "receipt.json").write_text(unbound.stdout)
+        self.assertNotEqual(0, self.run_case("restore").returncode)
 
 
 if __name__ == "__main__":

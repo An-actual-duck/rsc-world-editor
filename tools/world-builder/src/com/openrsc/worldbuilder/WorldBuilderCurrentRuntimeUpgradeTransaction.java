@@ -265,7 +265,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				receipt, release);
 		} catch (Throwable failure) {
 			if (!runtimeAttempt(executionPlan).isEmpty()) {
-				try { WorldBuilderCurrentRuntimeVerifierAuthority.close(runtimeAttempt(executionPlan)); }
+				try { WorldBuilderCurrentRuntimeVerifierAuthority.close(runtimeAttempt(executionPlan), array(executionPlan.get("artifactPlan"))); }
 				catch (Throwable unproven) {
 					WorldBuilderContractException retained = WorldBuilderCurrentRuntimeVerifierAuthority.unsafe(
 						"Transaction failure has no authentic provider closure; retain all verifier evidence.");
@@ -380,7 +380,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			if (!attempt.isEmpty()) {
 				WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(transaction.resolve("runtime-verification"),
 					attempt, array(plan.get("artifactPlan")));
-				WorldBuilderCurrentRuntimeVerifierAuthority.close(attempt);
+				WorldBuilderCurrentRuntimeVerifierAuthority.close(attempt, array(plan.get("artifactPlan")));
 			} else if (Files.exists(transaction.resolve("runtime-verification"), LinkOption.NOFOLLOW_LINKS)) {
 				throw WorldBuilderCurrentRuntimeVerifierAuthority.unsafe(
 					"Unbound historical verifier attempt cannot grant process cleanup authority.");

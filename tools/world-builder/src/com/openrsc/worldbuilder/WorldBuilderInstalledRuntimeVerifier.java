@@ -158,7 +158,7 @@ final class WorldBuilderInstalledRuntimeVerifier {
             runCommand(WorldBuilderCurrentRuntimeVerifierAuthority.launchCommand(prepared.authority), attempt,
                 cancellation, RUN_SECONDS, CLEANUP_SECONDS);
         } catch (IOException | WorldBuilderContractException | RuntimeException failure) {
-            try { WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority); }
+            try { WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority, prepared.trustedArtifacts); }
             catch (IOException | WorldBuilderContractException unproven) { unproven.addSuppressed(failure); throw unproven; }
             if (failure instanceof WorldBuilderContractException
                 && WorldBuilderErrorCodes.RECOVERY_REQUIRED.equals(((WorldBuilderContractException)failure).code())) {
@@ -167,7 +167,7 @@ final class WorldBuilderInstalledRuntimeVerifier {
             }
             throw failure;
         }
-        closure = WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority);
+        closure = WorldBuilderCurrentRuntimeVerifierAuthority.close(prepared.authority, prepared.trustedArtifacts);
         if (cancelled(cancellation)) throw failure("Verification cancelled; evidence is not accepted.");
         validateSources(release, migration, generatedState);
         if (!serverHash.equals(treeHash(server)) || !clientHash.equals(treeHash(client))
