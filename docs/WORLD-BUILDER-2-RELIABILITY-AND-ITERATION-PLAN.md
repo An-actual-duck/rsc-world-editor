@@ -500,10 +500,24 @@ without imposing its gameplay or content on Base users.
   together, or after exact rollback. Leases alone are insufficient: a manager
   crash releases them while a pointer/ledger update may still be incomplete.
   This is pending integration, not an enabled cutover or recovery claim.
+  The next verifier integration must journal generated outputs and the exact
+  prepared recovery authority before spawning the provider. Every post-spawn
+  failure requires provider closure evidence before rollback can be recorded as
+  complete; an exited supervisor alone does not prove that its children stopped.
+  Recovery must authenticate the plan, receipt and retained tool before using
+  that authority. Historical execution reports never grant cleanup authority.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,
   unknown-refusal, Advanced Core, Base/Advanced N-to-N+1, and module lifecycle
   rows twice with composition-bound evidence and no required skips.
+  Current Base acceptance must compare effective behavior, not just definition
+  availability or disabled Advanced flags. The public-content review has found
+  stock model-name/archive inconsistencies and stock equipment still entering
+  owner-specific combat, devotion and ring-effect dispatch. Resolve these with
+  explicit composition-bound public policies and real runtime regressions;
+  neither guessed model aliases nor arbitrary stat conversions establish
+  preservation. Full genuine-map collision, ladder and client void-boundary
+  proofs remain required independently of these content checks.
 
 Ordinary map import becomes a map-only transaction once the target ledger
 proves that its selected current composition is installed. The complete current
