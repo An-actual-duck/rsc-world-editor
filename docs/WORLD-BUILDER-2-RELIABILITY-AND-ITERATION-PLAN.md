@@ -449,8 +449,9 @@ without imposing its gameplay or content on Base users.
   requires retained-workspace recovery, never forced deletion or activation.
   Direct verifier hard-kill is not claimed recoverable. This component and its
   package-private staged-release seam do not enable production apply: execution
-  evidence still needs activation/receipt binding, supported installed launchers,
-  live-instance state handling and complete post-install/recovery integration.
+  the complete public staging-to-activation path still needs end-to-end proof,
+  supported installed launchers, live-instance state handling and complete
+  post-install/recovery integration.
   Actual staged-pair integration exposed and corrected a distinct identity
   boundary: installed profiles must use the provider's newline-framed native
   package inventory hash, not the converter's NUL-framed proof fingerprint.
@@ -466,10 +467,30 @@ without imposing its gameplay or content on Base users.
   accidentally release the original POSIX locks. This is a transaction seam,
   not enabled managed-target activation. Rendered complete configuration now
   explicitly selects SQLite without relying on historical `connections.conf`.
-  Remaining cutover work must preserve the installation UUID across upgrades,
-  separate mutable live state from sealed migration evidence, bind real launch
-  verification into receipts, and journal the active launch selection with the
-  ledger while holding both role leases. Retired descriptors must be refused
+  Managed upgrade plans now retain the installation UUID. A separate initial
+  instance component copies only explicitly bound state and side-state into a
+  fresh private topology, renders stable server/client launch descriptors, and
+  validates closed initial-output evidence after relocation/restart. Its
+  read-only recovery token requires an independently confirmed plan fingerprint;
+  it neither authorizes cleanup nor restores a database changed by gameplay.
+  These are component proofs, not an installed public target acceptance run.
+  Real supervised verification now writes a sealed historical execution report.
+  Preview binds the composition identity byte hash; activation, ledger evidence
+  and phase receipts bind the report inventory. Readback parses its closed body
+  against the expected composition, immutable code, map, launch inputs and
+  migrated snapshot, rather than accepting an arbitrary file with a matching
+  inventory hash. Actual disposable pair tests cover seal creation, relocation,
+  and foreign/malformed evidence refusal. A migration-only staging checkpoint is
+  explicitly not an execution-verified checkpoint; the latter requires the seal.
+  Unproven verifier cleanup retains `recovery-required`, never a completed
+  rollback claim. Restarted production Recovery currently refuses retained
+  verifier attempts until the provider's durable supervisor/child lease and
+  revoked-intent contract is integrated; PID/port checks are not that proof.
+  Verified staging also rejects aliased parents and overlapping source/provider
+  paths before creating any output.
+  Remaining cutover work must separate mutable live state from sealed migration
+  evidence and journal the active launch selection with the ledger while
+  holding both role leases. Retired descriptors must be refused
   by the actual JVM after it acquires its role lease, not only by a wrapper.
 - [ ] Prove sealed Preservation, positive and Advanced-negative Base semantics,
   light customization, maintained module, recognized-unported extension,

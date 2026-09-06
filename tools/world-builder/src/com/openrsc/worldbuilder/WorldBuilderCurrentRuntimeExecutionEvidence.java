@@ -8,6 +8,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +45,8 @@ final class WorldBuilderCurrentRuntimeExecutionEvidence {
 		record.put("mode", "0600");
 		record.put("verifierContractSha256", WorldBuilderInstalledRuntimeVerifier.CONTRACT_HASH);
 		List<Object> result = Collections.<Object>singletonList(Collections.unmodifiableMap(record));
-		verify(release, result);
+		verify(release, result, composition.identity, WorldBuilderHashes.sha256(
+			WorldBuilderJsonDocuments.pretty(composition.identity).getBytes(StandardCharsets.UTF_8)), migration);
 		return result;
 	}
 
@@ -62,7 +65,9 @@ final class WorldBuilderCurrentRuntimeExecutionEvidence {
 			throw invalid("Execution evidence differs from the compiled verifier output contract.");
 	}
 
-	static void verify(Path release, List<Object> records) throws IOException, WorldBuilderContractException {
+	@SuppressWarnings("unchecked")
+	static void verify(Path release, List<Object> records, Map<String,Object> identity, String identityHash,
+		Map<String,Object> migration) throws IOException, WorldBuilderContractException {
 		validate(records, true);
 		if (records.isEmpty()) return;
 		Map<String,Object> row = object(records.get(0));
@@ -71,6 +76,36 @@ final class WorldBuilderCurrentRuntimeExecutionEvidence {
 			|| !WorldBuilderHashes.sha256(file).equals(row.get("sha256"))
 			|| !Files.getPosixFilePermissions(file).equals(PosixFilePermissions.fromString("rw-------")))
 			throw invalid("Execution evidence changed after supervised verification.");
+		Map<String,Object> evidence;
+		try { evidence = WorldBuilderJsonDocuments.readObject(file); }
+		catch (WorldBuilderDiscoveryException malformed) { throw invalid("Sealed execution evidence is not a bounded object."); }
+		if (!WorldBuilderBoundedInventory.isHash(identityHash)) throw invalid("Confirmed composition identity hash is malformed.");
+		List<String> hashes = new ArrayList<String>(); hashes.add(identityHash);
+		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(release);
+		for (String path : Arrays.asList("runtime/profile.json", "migration/output/launch/current-base.conf",
+			"migration/output/launch/installed-server.json", "migration/output/launch/installed-client.json"))
+			hashes.add(WorldBuilderHashes.sha256(target.requiredFile(path)));
+		hashes.add(WorldBuilderInstalledRuntimeVerifier.treeHash(release.resolve("migration/output/map/conversion/package")));
+		hashes.add(WorldBuilderHashes.sha256(target.requiredFile(WorldBuilderPreservationStagedMigrator.SQLITE_OUTPUT)));
+		StringBuilder inputSet = new StringBuilder();
+		for (int i = 0; i < hashes.size(); i++) inputSet.append(i).append('\0').append(hashes.get(i)).append('\0');
+		Map<String,Object> execution = requiredObject(evidence.get("execution"));
+		long serverPort = WorldBuilderBoundedInventory.integer(execution.get("serverPort"), OPERATION, "serverPort");
+		long websocketPort = WorldBuilderBoundedInventory.integer(execution.get("websocketPort"), OPERATION, "websocketPort");
+		if (serverPort < 1 || serverPort > 65535 || websocketPort < 1 || websocketPort > 65535)
+			throw invalid("Historical verification ports are outside their bounds.");
+		Object inventory = requiredObject(migration.get("mapMigration")).get("outputInventory");
+		if (!(inventory instanceof List)) throw invalid("Confirmed map inventory is missing.");
+		WorldBuilderInstalledRuntimeVerifier.validatePortableEvidence(evidence, identity, identityHash,
+			WorldBuilderInstalledRuntimeVerifier.treeHash(release.resolve("installed/server")),
+			WorldBuilderInstalledRuntimeVerifier.treeHash(release.resolve("installed/client")),
+			WorldBuilderHashes.sha256(inputSet.toString().getBytes(StandardCharsets.UTF_8)),
+			WorldBuilderCurrentRuntimeLaunchInputs.runtimePackageFingerprint((List<Object>)inventory),
+			(int)serverPort, (int)websocketPort);
+	}
+	private static Map<String,Object> requiredObject(Object raw) throws WorldBuilderContractException {
+		if (!(raw instanceof Map)) throw invalid("Sealed execution evidence has a malformed object.");
+		return object(raw);
 	}
 
 	@SuppressWarnings("unchecked") private static Map<String,Object> object(Object raw) { return (Map<String,Object>)raw; }

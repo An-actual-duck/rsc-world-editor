@@ -212,6 +212,23 @@ final class WorldBuilderInstalledRuntimeVerifier {
     static void validateEvidence(Map<String,Object> evidence, Map<String,Object> identity, String identityHash,
         String serverHash, String clientHash, String inputsHash, String mapFingerprint,
         int serverPort, int websocketPort, Path workspace) throws IOException, WorldBuilderContractException {
+        validatePortableEvidence(evidence, identity, identityHash, serverHash, clientHash, inputsHash,
+            mapFingerprint, serverPort, websocketPort);
+        if (Files.exists(workspace.resolve("execution/credential.json"), LinkOption.NOFOLLOW_LINKS)) throw failure("Verifier credential was not removed.");
+        equal(object(evidence.get("execution")), "workingStateFinalSha256",
+            WorldBuilderHashes.sha256(regular(workspace, "state/current_base.db")));
+        for (Object raw : array(evidence.get("logs"))) {
+            Map<String,Object> log = object(raw);
+            Path file = regular(workspace, "logs/" + string(log, "role") + "-" + integer(log, "run") + ".log");
+            if (Files.size(file) != integer(log, "size") || !WorldBuilderHashes.sha256(file).equals(string(log, "sha256")))
+                throw failure("Process log bytes differ from the execution evidence.");
+        }
+    }
+
+    /** Closed historical evidence readback; does not grant fresh execution or cleanup authority. */
+    static void validatePortableEvidence(Map<String,Object> evidence, Map<String,Object> identity, String identityHash,
+        String serverHash, String clientHash, String inputsHash, String mapFingerprint,
+        int serverPort, int websocketPort) throws WorldBuilderContractException {
         exact(evidence, "schemaId", "manifestType", "verifierId", "verifierContractSha256", "status", "composition", "source", "execution", "runs", "logs");
         equal(evidence, "schemaId", "current-base-installed-execution-evidence-v1");
         equal(evidence, "manifestType", "current-base-installed-execution-evidence");
@@ -234,14 +251,13 @@ final class WorldBuilderInstalledRuntimeVerifier {
             "workingStateSeededSha256", "workingStateFinalSha256", "disposableStateChanged", "stateOutsideRuntimeRoots", "mapOutsideRuntimeRoots", "mapUnchanged", "persistenceVerified", "credentialDeleted");
         equal(execution, "endpoint", "127.0.0.1"); equal(execution, "mapPackageFingerprint", mapFingerprint);
         if (integer(execution, "serverPort") != serverPort || integer(execution, "websocketPort") != websocketPort
+            || serverPort < 1 || serverPort > 65535 || websocketPort < 1 || websocketPort > 65535 || serverPort == websocketPort
             || integer(execution, "launchCount") != 2L || integer(execution, "disposableAccountId") < 1L)
             throw failure("Execution endpoints, launch count or disposable account evidence changed.");
         for (String key : Arrays.asList("disposableUsernameSha256", "workingStateSeededSha256", "workingStateFinalSha256")) hash(execution, key);
         if (string(execution, "workingStateSeededSha256").equals(string(execution, "workingStateFinalSha256")))
             throw failure("Execution did not change disposable state.");
         for (String key : Arrays.asList("disposableStateChanged", "stateOutsideRuntimeRoots", "mapOutsideRuntimeRoots", "mapUnchanged", "persistenceVerified", "credentialDeleted")) truth(execution, key);
-        if (Files.exists(workspace.resolve("execution/credential.json"), LinkOption.NOFOLLOW_LINKS)) throw failure("Verifier credential was not removed.");
-        equal(execution, "workingStateFinalSha256", WorldBuilderHashes.sha256(regular(workspace, "state/current_base.db")));
         List<Object> runs = array(evidence.get("runs"));
         if (runs.size() != 2) throw failure("Two execution observations are required.");
         Map<String,Object> first = null;
@@ -267,9 +283,7 @@ final class WorldBuilderInstalledRuntimeVerifier {
             if (run < 1 || run > 2 || !Arrays.asList("server", "client").contains(role)
                 || !seen.add(role + run) || size < 0 || size > 1048576 || !(log.get("truncated") instanceof Boolean))
                 throw failure("Process log evidence is duplicated, malformed or unbounded.");
-            Path file = regular(workspace, "logs/" + role + "-" + run + ".log");
-            if (Files.size(file) != size || !WorldBuilderHashes.sha256(file).equals(string(log, "sha256")))
-                throw failure("Process log bytes differ from the execution evidence.");
+            hash(log, "sha256");
         }
     }
 

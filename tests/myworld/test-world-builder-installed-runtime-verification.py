@@ -59,11 +59,23 @@ public final class InstalledVerifierHarness {
         Map<String,Object> inventory = new LinkedHashMap<String,Object>();
         inventory.put("outputs", WorldBuilderCurrentRuntimeGeneratedState.capture(root));
         System.out.print(WorldBuilderJsonDocuments.pretty(inventory));
-      } else if ("verify".equals(args[0])) {
+      } else if ("verify".equals(args[0]) || "seal".equals(args[0]) || "verify-seal".equals(args[0])) {
         Path release = Paths.get(args[2]);
         Map<String,Object> migration = WorldBuilderJsonDocuments.readObject(Paths.get(args[3]));
         WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[4]), Paths.get(args[5]));
         List<Object> generated = (List<Object>)WorldBuilderJsonDocuments.readObject(Paths.get(args[6])).get("outputs");
+        if ("seal".equals(args[0])) {
+          Map<String,Object> sealed = new LinkedHashMap<String,Object>();
+          sealed.put("outputs", WorldBuilderCurrentRuntimeExecutionEvidence.run(release, composition, migration, generated, root));
+          System.out.print(WorldBuilderJsonDocuments.pretty(sealed)); return;
+        }
+        if ("verify-seal".equals(args[0])) {
+          List<Object> records = (List<Object>)WorldBuilderJsonDocuments.readObject(Paths.get(args[7])).get("outputs");
+          String identityHash = WorldBuilderHashes.sha256(WorldBuilderJsonDocuments.pretty(composition.identity)
+            .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+          WorldBuilderCurrentRuntimeExecutionEvidence.verify(release, records, composition.identity, identityHash, migration);
+          System.out.print("verified"); return;
+        }
         Map<String,Object> result = WorldBuilderInstalledRuntimeVerifier.verify(release, composition, migration,
           generated, root, null);
         System.out.print(WorldBuilderJsonDocuments.pretty(result));
@@ -263,6 +275,54 @@ class VerifierProcessFixture {
                     "moduleSetHash", "bundleInventoryHash"):
             self.assertEqual(selected[key], evidence["composition"][key])
         self.assertEqual(original_release, module.tree_snapshot(release))
+
+        # A second real execution creates the portable seal; no supplied PASS body
+        # is accepted by the writing API. It survives relocation without consulting
+        # the original disposable workspace, but remains bound to these exact inputs.
+        sealed = subprocess.run(self.command("seal", self.case / "sealed-execution", release,
+            workspace / "real-pair.migration.json", catalog, identity, inventory),
+            capture_output=True, text=True, timeout=550)
+        self.assertEqual(0, sealed.returncode, sealed.stderr)
+        records = json.loads(sealed.stdout)
+        self.assertEqual(1, len(records["outputs"]))
+        relative = records["outputs"][0]["relativePath"]
+        saved = (release / relative).read_bytes()
+        self.assertEqual("verified", json.loads(saved)["status"])
+        snapshot_with_seal = module.tree_snapshot(release)
+        without_seal = {key: value for key, value in snapshot_with_seal.items()
+                        if key not in (relative, "migration/output/verification")}
+        self.assertEqual(original_release, without_seal)
+        relocated = workspace / "relocated sealed release"
+        release.rename(relocated)
+        seal_inventory = workspace / "execution-output-inventory.json"
+        def readback(value):
+            seal_inventory.write_text(json.dumps(value))
+            return subprocess.run(self.command("verify-seal", self.case, relocated,
+                workspace / "real-pair.migration.json", catalog, identity, inventory, seal_inventory),
+                capture_output=True, text=True, timeout=30)
+        accepted = readback(records)
+        self.assertEqual(0, accepted.returncode, accepted.stderr)
+        for mutation in ("empty-object", "foreign-composition", "foreign-source", "foreign-map", "failed-run", "unknown-field"):
+            with self.subTest(sealed_body=mutation):
+                sealed_body = json.loads(saved)
+                if mutation == "empty-object": sealed_body = {}
+                elif mutation == "foreign-composition": sealed_body["composition"]["identitySha256"] = HASH
+                elif mutation == "foreign-source": sealed_body["source"]["inputSetBeforeSha256"] = HASH
+                elif mutation == "foreign-map": sealed_body["execution"]["mapPackageFingerprint"] = HASH
+                elif mutation == "failed-run": sealed_body["runs"][1]["logoutPersisted"] = False
+                else: sealed_body["unreviewed"] = True
+                body = json.dumps(sealed_body).encode()
+                (relocated / relative).write_bytes(body)
+                matching_inventory = copy.deepcopy(records)
+                matching_inventory["outputs"][0].update(size=len(body), sha256=hashlib.sha256(body).hexdigest())
+                before_readback = module.tree_snapshot(relocated)
+                refused = readback(matching_inventory)
+                self.assertNotEqual(0, refused.returncode, mutation)
+                self.assertEqual(before_readback, module.tree_snapshot(relocated))
+        (relocated / relative).write_bytes(saved)
+        self.assertEqual(0, readback(records).returncode)
+        self.assertEqual(snapshot_with_seal, module.tree_snapshot(relocated))
+        release, original_release = relocated, snapshot_with_seal
         self.assertEqual(original_target, module.tree_snapshot(target))
         self.assertEqual(original_source, module.tree_snapshot(source))
         retry = subprocess.run(self.command("verify", attempt, release,
