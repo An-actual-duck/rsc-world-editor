@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 SOURCE_GIT = os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT")
+LAUNCH = os.environ.get("WORLD_BUILDER_BASE_PROJECT_LAUNCH") == "1"
 MAIN = "com.openrsc.worldbuilder.BaseLifecycleHarness"
 HARNESS = """
 package com.openrsc.worldbuilder;
@@ -32,6 +33,13 @@ public final class BaseLifecycleHarness {
       WorldBuilderPreservationProjectEvidence.open(project, Paths.get(args[2]),
         WorldBuilderProviderCatalog.resolve(Paths.get(args[3]), Paths.get(args[4])));
       System.out.print(WorldBuilderJsonDocuments.pretty(result));
+    } else if ("launch".equals(args[0])) {
+      List<String> server = WorldBuilderProcessSupervisor.defaultAdaptiveServerCommand(project);
+      List<String> client = new ArrayList<String>(WorldBuilderProcessSupervisor.defaultAdaptiveClientCommand(project));
+      client.add(client.indexOf("-jar"), "-Dopenrsc.worldBuilderAutomatedExitOnReady=true");
+      int exit = new WorldBuilderProcessSupervisor().superviseAdaptiveWithCommands(project, server, client, 180000L);
+      if (exit != 0) throw new AssertionError("native Base authoring session exited " + exit);
+      System.out.println("base-native-authoring-authenticated-ready-clean-exit");
     } else if ("desktop-create".equals(args[0])) {
       WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[4]), Paths.get(args[5]));
       WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(project, Paths.get(args[2]), Paths.get(args[3]),
@@ -152,6 +160,25 @@ class BaseProjectLifecycleTest(unittest.TestCase):
         for role in ("server", "client"):
             self.assertIn("-Dopenrsc.currentCompositionIdentityFile=" + str(project / "source/provider/composition-identity.json"), commands[role])
         self.assertEqual("current-base-v1", commands["identity"]["variantId"])
+        if LAUNCH:
+            self.assertTrue(os.environ.get("DISPLAY"), "coordinate the GUI acceptance lane and provide DISPLAY")
+            source_before = snapshot(project / "source")
+            for session in range(2):
+                launched = self.invoke("launch", project, harness=True, timeout=240)
+                logs = "\n".join(path.read_text(errors="replace") for path in (project / "logs").glob("*.log"))
+                self.assertEqual(0, launched.returncode, launched.stdout + launched.stderr + logs[-12000:])
+                self.assertIn("base-native-authoring-authenticated-ready-clean-exit", launched.stdout)
+                self.assertIn("ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true initialRegion=true binding=true", logs)
+                receipt = json.loads((project / "run/last-run.json").read_text())
+                self.assertEqual(0, receipt["serverExit"])
+                self.assertEqual(0, receipt["clientExit"])
+                self.assertFalse((project / "run/server.pid").exists())
+                self.assertFalse((project / "run/client.pid").exists())
+                self.assertEqual(source_before, snapshot(project / "source"))
+                self.assertEqual(before, snapshot(target))
+            with sqlite3.connect(state) as connection:
+                self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM players").fetchone()[0])
+                self.assertEqual("Builder", connection.execute("SELECT username FROM players").fetchone()[0])
         reopened = self.invoke("open-project", "--installation-root", installation, "--validate-only")
         self.assertEqual(0, reopened.returncode, reopened.stderr)
         exported = self.invoke("export-adaptive", "--project", project)
