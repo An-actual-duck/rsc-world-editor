@@ -353,6 +353,8 @@ public final class WorldBuilderCli {
 		Path target = null;
 		Path report = null;
 		Path itemVisualMappings = null;
+		Path providerCatalog = null;
+		Path compositionIdentity = null;
 		boolean developmentTerrainSeed = false;
 		String displayName = null;
 		String confirmation = null;
@@ -371,6 +373,10 @@ public final class WorldBuilderCli {
 			} else if ("--item-visual-mappings".equals(argument)
 				&& index + 1 < args.length) {
 				itemVisualMappings = Paths.get(args[++index]);
+			} else if ("--provider-catalog-root".equals(argument) && providerCatalog == null && index + 1 < args.length) {
+				providerCatalog = Paths.get(args[++index]);
+			} else if ("--composition-identity".equals(argument) && compositionIdentity == null && index + 1 < args.length) {
+				compositionIdentity = Paths.get(args[++index]);
 			} else if ("--development-terrain-seed".equals(argument)
 				&& !developmentTerrainSeed) {
 				developmentTerrainSeed = true;
@@ -389,7 +395,7 @@ public final class WorldBuilderCli {
 			}
 		}
 		if (installation == null || runtime == null || report == null
-			|| displayName == null || port == 0 || confirmation == null) {
+			|| displayName == null || port == 0 || confirmation == null || (providerCatalog == null) != (compositionIdentity == null)) {
 			System.err.println("ERROR: create-project requires --installation-root, "
 				+ "--runtime-root, --discovery-report, --display-name, --port, "
 				+ "and --confirm CREATE. --target-root is required for a target-backed report.");
@@ -397,8 +403,9 @@ public final class WorldBuilderCli {
 			return 2;
 		}
 		try {
+			WorldBuilderProviderCatalog.Composition base = providerCatalog == null ? null : WorldBuilderProviderCatalog.resolve(providerCatalog, compositionIdentity);
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
-				new WorldBuilderAdaptiveProjectLifecycle().create(
+				new WorldBuilderAdaptiveProjectLifecycle(null, base).create(
 					installation, runtime, target, report, displayName, port, confirmation,
 					itemVisualMappings, developmentTerrainSeed);
 			System.out.print(created.toJson());

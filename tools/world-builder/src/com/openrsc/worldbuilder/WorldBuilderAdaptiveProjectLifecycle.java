@@ -67,13 +67,19 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	};
 
 	private final Observer observer;
+	private final WorldBuilderProviderCatalog.Composition baseComposition;
 
 	WorldBuilderAdaptiveProjectLifecycle() {
 		this(NO_OP_OBSERVER);
 	}
 
 	WorldBuilderAdaptiveProjectLifecycle(Observer observer) {
+		this(observer, null);
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle(Observer observer, WorldBuilderProviderCatalog.Composition baseComposition) {
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
+		this.baseComposition = baseComposition;
 	}
 
 	ProjectResult create(Path requestedInstallRoot, Path requestedRuntimeRoot,
@@ -183,16 +189,20 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		Path install = realDirectory(requestedInstallRoot, "World Builder install root");
 		Path runtime = realDirectory(requestedRuntimeRoot, "World Builder runtime root");
-		Path runtimeJar = safeRegularFile(runtime, RUNTIME_JAR, "application runtime");
-		// Keep the launcher check explicit, then bind the project to the complete
-		// immutable server/client runtime that will actually execute inside it.
-		WorldBuilderHashes.sha256(runtimeJar);
-		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime =
-			WorldBuilderAdaptiveRuntimePreparer.inspect(runtime);
-		String runtimeSha256 = sourceRuntime.fingerprintSha256;
+		WorldBuilderHashes.sha256(safeRegularFile(runtime, RUNTIME_JAR, "application runtime"));
 		Map<String,Object> report = readContractMap(
 			discoveryReportPath, WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT);
 		requireDiscoveryFingerprint(report);
+		boolean preservation = WorldBuilderPreservationLayoutAdapter.report(report);
+		if (preservation != (baseComposition != null) || preservation && (migration != null || packedMigration != null
+			|| itemVisualMappings != null || requestedLayeredBasePackage != null))
+			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, DISCOVERY_FILE,
+				"Historical Preservation requires one selected native Base composition and no custom overlay/migration choice.",
+				"Select the reviewed Base provider explicitly and create the immutable historical baseline project.");
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime = preservation
+			? WorldBuilderAdaptiveRuntimePreparer.inspectBase(runtime, WorldBuilderCurrentBaseProjectContent.inspect(baseComposition))
+			: WorldBuilderAdaptiveRuntimePreparer.inspect(runtime);
+		String runtimeSha256 = sourceRuntime.fingerprintSha256;
 		String status = string(report, "status");
 		if (!("compatible".equals(status) || "standalone".equals(status))) {
 			throw problem(WorldBuilderErrorCodes.CAPABILITY_MISMATCH, DISCOVERY_FILE,
@@ -201,7 +211,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		String representation = string(report, "representation");
 		String origin = "standalone".equals(status) ? "standalone-empty"
-			: "packed".equals(representation) ? "target-packed"
+			: "packed".equals(representation) || preservation ? "target-packed"
 				: "layered".equals(representation) ? "target-layered" : "";
 		if (migration != null && packedMigration != null) {
 			throw problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
@@ -506,6 +516,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 				item.size, item.sha256);
 		}
 		requireExactOriginalTree(original, evidence);
+		if (WorldBuilderPreservationLayoutAdapter.report(report))
+			return preparePreservationOrigin(stage, report, evidence, sourceRuntime);
 
 		WorldBuilderReadOnlyTarget copied = WorldBuilderReadOnlyTarget.open(original);
 		WorldBuilderTargetCapability capability;
@@ -607,6 +619,43 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 		return PreparedOrigin.target(stage, evidence, capability, configuration,
 			baselineFingerprint, conversionFingerprint);
+	}
+
+	private PreparedOrigin preparePreservationOrigin(Path stage, Map<String,Object> report, List<Evidence> evidence,
+		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime) throws IOException, WorldBuilderContractException {
+		WorldBuilderCurrentBaseProjectContent.capture(stage, runtime.basePlan);
+		WorldBuilderAdaptiveRuntimePreparer.captureBaseSupport(stage, runtime);
+		ensureRealDirectory(stage.resolve("source/migration"));
+		WorldBuilderPreservationJagDecoder.Result decoded = WorldBuilderPreservationJagDecoder.decode(
+			stage.resolve("source/original"), runtime.basePlan.composition, stage.resolve("source/migration/decoder"), null);
+		WorldBuilderPreservationMapEvidence.Prepared prepared = WorldBuilderPreservationMapEvidence.prepare(stage, decoded);
+		Path output = stage.resolve(".conversion-output");
+		WorldBuilderPackedConverter.Result converted = new WorldBuilderPackedConverter().convertPreservation(prepared, output);
+		ensureRealDirectory(stage.resolve("source/conversion"));
+		moveAtomicNew(output.resolve("conversion-plan.json"), stage.resolve("source/conversion/plan.json"));
+		moveAtomicNew(output.resolve("conversion-report.json"), stage.resolve("source/conversion/report.json"));
+		moveAtomicNew(output.resolve(WorldBuilderDiscoveryReconciliation.FILE_NAME), stage.resolve(WorldBuilderDiscoveryReconciliation.PROJECT_RELATIVE_PATH));
+		ensureRealDirectory(stage.resolve("source/layered-baseline"));
+		moveAtomicNew(output.resolve("package"), stage.resolve(BASELINE_DIRECTORY));
+		Files.delete(output);
+		byte[] catalog = Files.readAllBytes(stage.resolve(WorldBuilderCurrentBaseProjectContent.CATALOG));
+		writeNew(stage.resolve(SOURCE_SERVER_AUTHORING_DEFINITIONS), catalog);
+		writeNew(stage.resolve(SOURCE_CLIENT_AUTHORING_DEFINITIONS), catalog);
+		List<InventoryRecord> originals = new ArrayList<InventoryRecord>();
+		for (Evidence item : evidence) originals.add(item.present ? recordFor(stage, item.role, item.relativePath) : item);
+		for (String tree : Arrays.asList(WorldBuilderCurrentBaseProjectContent.ROOT,
+			WorldBuilderAdaptiveRuntimePreparer.NATIVE_SUPPORT_ROOT, "source/migration"))
+			for (String relative : scanRegularFiles(stage.resolve(tree), stage)) originals.add(recordFor(stage, "preservation-public-provenance", relative));
+		List<InventoryRecord> definitions = new ArrayList<InventoryRecord>();
+		definitions.add(recordFor(stage, "server-definition-catalog", SOURCE_SERVER_AUTHORING_DEFINITIONS));
+		definitions.add(recordFor(stage, "client-definition-catalog", SOURCE_CLIENT_AUTHORING_DEFINITIONS));
+		Collections.sort(originals); Collections.sort(definitions);
+		Map<String,Object> selected = object(report.get("selectedConfiguration"), "selectedConfiguration");
+		String config = string(selected, "relativePath");
+		return new PreparedOrigin(originals, definitions, WorldBuilderPreservationLayoutAdapter.ID,
+			WorldBuilderPreservationLayoutAdapter.CAPABILITY, string(selected, "role"), config, "source/original/" + config,
+			string(selected, "sha256"), "source/original/" + config, WorldBuilderHashes.sha256(catalog),
+			converted.outputFingerprintSha256, converted.outputFingerprintSha256, "no-import-v1", false, "");
 	}
 
 	private PreparedOrigin composePrimaryPackedMigration(Path stage,
@@ -2061,7 +2110,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		if ("standalone".equals(string(report, "status"))) return result;
 		Set<String> paths = new HashSet<String>();
 		Map<String,Object> descriptor = object(report.get("descriptor"), "descriptor");
-		boolean fallback = isPackedFallbackReport(report);
+		boolean fallback = isPackedFallbackReport(report) || WorldBuilderPreservationLayoutAdapter.report(report);
 		if (!Boolean.TRUE.equals(descriptor.get("present")) && !fallback) {
 			throw problem(WorldBuilderErrorCodes.CONVERSION_BLOCKED, DISCOVERY_FILE,
 				"Target-backed projects require descriptor-backed complete evidence.",

@@ -25,9 +25,15 @@ final class WorldBuilderLauncherModel {
 	private final Path defaultTarget;
 	private final int port;
 	private final String configurationRole;
+	private final WorldBuilderProviderCatalog.Composition baseComposition;
 
 	WorldBuilderLauncherModel(Path installation, Path runtime, Path defaultTarget,
 		int port, String configurationRole) throws IOException {
+		this(installation, runtime, defaultTarget, port, configurationRole, null);
+	}
+
+	WorldBuilderLauncherModel(Path installation, Path runtime, Path defaultTarget,
+		int port, String configurationRole, WorldBuilderProviderCatalog.Composition baseComposition) throws IOException {
 		this.installation = requireDirectory(installation, "World Builder installation");
 		this.runtime = requireDirectory(runtime, "World Builder runtime");
 		this.defaultTarget = defaultTarget == null ? null
@@ -37,6 +43,7 @@ final class WorldBuilderLauncherModel {
 		}
 		this.port = port;
 		this.configurationRole = emptyToNull(configurationRole);
+		this.baseComposition = baseComposition;
 	}
 
 	static int selectAvailablePortPair(int preferredPort) throws IOException {
@@ -422,13 +429,19 @@ final class WorldBuilderLauncherModel {
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition selected = null;
+		if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)) {
+			selected = baseComposition == null ? WorldBuilderProviderCatalog.resolve(
+				installation.resolve("current-platform"),
+				installation.resolve("current-platform/composition-identity.json")) : baseComposition;
+		}
 		Path reportPath = Files.createTempFile(
 			installation, ".desktop-discovery-", ".json");
 		try {
 			Files.write(reportPath, preview.report.toJson().getBytes(StandardCharsets.UTF_8),
 				StandardOpenOption.TRUNCATE_EXISTING);
 			Path target = "standalone".equals(preview.status) ? null : preview.source;
-			return new WorldBuilderAdaptiveProjectLifecycle().create(
+			return new WorldBuilderAdaptiveProjectLifecycle(null, selected).create(
 				installation, runtime, target, reportPath, displayName, creationPort(), "CREATE",
 				itemVisualMappings);
 		} finally {

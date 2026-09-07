@@ -64,7 +64,7 @@ final class WorldBuilderCurrentBaseProjectContent {
 		binding.put("compositionIdentitySha256", WorldBuilderHashes.sha256(identity));
 		binding.put("artifacts", inventory); binding.put("layout", layout);
 		WorldBuilderAdaptiveExporter.bindFingerprint(binding, "fingerprintSha256");
-		return new Plan(selected, identity, bytes(binding), profile, layout);
+		return new Plan(composition, selected, identity, bytes(binding), profile, layout);
 	}
 
 	static Map<String,Object> authoringPolicy() {
@@ -222,14 +222,20 @@ final class WorldBuilderCurrentBaseProjectContent {
 		"Select the reviewed Current Base provider; do not substitute Advanced assets or target executables."); }
 
 	static final class Plan {
+		final WorldBuilderProviderCatalog.Composition composition;
 		private final Map<String,Bound> selected;
 		private final byte[] identity, binding;
 		private final Map<String,Object> profile, layout;
-		private Plan(Map<String,Bound> selected, byte[] identity, byte[] binding, Map<String,Object> profile, Map<String,Object> layout) {
+		private Plan(WorldBuilderProviderCatalog.Composition composition, Map<String,Bound> selected, byte[] identity, byte[] binding, Map<String,Object> profile, Map<String,Object> layout) {
+			this.composition = composition;
 			this.selected = Collections.unmodifiableMap(new TreeMap<String,Bound>(selected));
 			this.identity = identity.clone(); this.binding = binding.clone(); this.profile = profile; this.layout = layout;
 		}
 		String fingerprint() { return WorldBuilderHashes.sha256(binding); }
+		Map<String,Object> layout() throws WorldBuilderContractException {
+			try { return WorldBuilderJsonDocuments.readObject(bytes(layout), "native-layout"); }
+			catch (WorldBuilderDiscoveryException impossible) { throw refusal("Native layout snapshot cannot be decoded."); }
+		}
 	}
 	private static final class Bound {
 		final Path source, providerRoot;
