@@ -44,6 +44,9 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		"runtime-asset-allowlist-v1.txt";
 	private static final String DEFINITION_PREFIX =
 		"server/conf/server/defs/";
+	private static final List<String> NATIVE_SUPPORT = Arrays.asList(
+		"server/inc/sqlite/world_builder_seed.db", "server/conf/world-builder/adaptive-runtime-capability-v2.json");
+	static final String NATIVE_SUPPORT_ROOT = "source/authoring-support";
 	private static final List<String> BASE_REQUIRED_RUNTIME_PATHS =
 			Collections.unmodifiableList(Arrays.asList(
 				"server/core.jar",
@@ -91,6 +94,71 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private WorldBuilderAdaptiveRuntimePreparer() {
 	}
 
+	/** Select only native Base bytes plus the application's isolated Builder seed/control contract. */
+	static SourceRuntime inspectBase(Path application, WorldBuilderCurrentBaseProjectContent.Plan base)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderCurrentBaseProjectContent.requireAuthoring(base);
+		Path runtime = realDirectory(application, "application runtime");
+		Map<String,Entry> entries = nativeEntries(base.layout());
+		for (String relative : NATIVE_SUPPORT) {
+			Path path = requireFile(runtime.resolve(relative), relative);
+			long size = Files.size(path);
+			if (size < 1 || size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES) throw malformedInventory();
+			entries.put(relative, new Entry(size, WorldBuilderHashes.sha256(path)));
+		}
+		validateCapability(runtime.resolve(NATIVE_SUPPORT.get(1)));
+		byte[] inventory = inventoryBytes(entries);
+		return new SourceRuntime(runtime, entries, inventory, nativeFingerprint(base.fingerprint(), inventory), base);
+	}
+
+	static void captureBaseSupport(Path stage, SourceRuntime source) throws IOException, WorldBuilderContractException {
+		if (source.basePlan == null) throw malformedInventory();
+		for (String relative : NATIVE_SUPPORT)
+			copyVerified(source.verifiedSourcePath(relative), stage.resolve(NATIVE_SUPPORT_ROOT).resolve(relative), source.entries.get(relative));
+	}
+
+	private static String nativeFingerprint(String binding, byte[] inventory) {
+		return WorldBuilderHashes.sha256(("current-base-project-runtime-v1\n" + binding + "\n"
+			+ WorldBuilderHashes.sha256(inventory) + "\n").getBytes(StandardCharsets.UTF_8));
+	}
+	private static Map<String,Entry> nativeEntries(Map<String,Object> layout) throws WorldBuilderContractException {
+		Map<String,Entry> entries = new TreeMap<String,Entry>();
+		if (!(layout.get("outputs") instanceof List)) throw malformedInventory();
+		for (Object raw : (List<?>)layout.get("outputs")) {
+			if (!(raw instanceof Map)) throw malformedInventory();
+			Map<?,?> row = (Map<?,?>)raw;
+			String path = WorldBuilderBoundedInventory.string(row.get("relativePath"), OPERATION, "relativePath");
+			if (!path.startsWith("installed/")) throw malformedInventory();
+			path = path.substring("installed/".length());
+			if (GENERATED_SOURCE_PATHS.contains(path)) continue;
+			if (NATIVE_SUPPORT.contains(path) || entries.put(path, new Entry(
+				WorldBuilderBoundedInventory.integer(row.get("size"), OPERATION, "size"),
+				WorldBuilderBoundedInventory.string(row.get("sha256"), OPERATION, "sha256"))) != null) throw malformedInventory();
+		}
+		return entries;
+	}
+
+	private static LinkedHashMap<String,String> nativeOverrides(Path project, int port) throws IOException, WorldBuilderContractException {
+		LinkedHashMap<String,String> values = new LinkedHashMap<String,String>();
+		Path configuration = WorldBuilderReadOnlyTarget.open(project).requiredFile(
+			WorldBuilderCurrentBaseProjectContent.NATIVE + "/server/current-base.conf");
+		for (String raw : Files.readAllLines(configuration, StandardCharsets.UTF_8)) {
+			String line = raw.trim();
+			if (line.isEmpty() || line.startsWith("#") || line.endsWith(":")) continue;
+			int colon = line.indexOf(':');
+			if (colon < 1 || values.put(line.substring(0, colon).trim(), line.substring(colon + 1).trim()) != null) throw malformedInventory();
+		}
+		LinkedHashMap<String,String> isolation = overrides(port);
+		for (String nativeKey : Arrays.asList("want_myworld", "custom_landscape", "want_custom_ui")) isolation.remove(nativeKey);
+		values.putAll(isolation);
+		values.put("db_type", "sqlite");
+		WorldBuilderCompatibilityEvidence.DefinitionCatalog catalog = WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(
+			WorldBuilderReadOnlyTarget.open(project), WorldBuilderCurrentBaseProjectContent.CATALOG);
+		values.put("restrict_item_id", Integer.toString(Collections.max(catalog.groundItems)));
+		values.put("restrict_scenery_id", Integer.toString(Collections.max(catalog.scenery)));
+		return values;
+	}
+
 	static SourceRuntime inspect(Path requestedRuntime)
 		throws IOException, WorldBuilderContractException {
 		Path runtime = realDirectory(requestedRuntime, "application runtime");
@@ -135,22 +203,31 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		}
 		Files.createDirectories(runtime);
 		for (Map.Entry<String,Entry> item : source.entries.entrySet()) {
-			Path input = source.sourcePath(item.getKey());
+			Path input = source.basePlan == null ? source.sourcePath(item.getKey())
+				: projectStage.resolve(NATIVE_SUPPORT.contains(item.getKey()) ? NATIVE_SUPPORT_ROOT
+					: WorldBuilderCurrentBaseProjectContent.NATIVE).resolve(item.getKey());
 			Path output = runtime.resolve(item.getKey()).normalize();
 			copyVerified(input, output, item.getValue());
 		}
 
-		requireFile(source.root.resolve("server/world-builder.conf"),
-			"server/world-builder.conf");
+		if (source.basePlan == null) requireFile(source.root.resolve("server/world-builder.conf"), "server/world-builder.conf");
 		Path config = runtime.resolve("server/world-builder.conf");
 		Files.createDirectories(config.getParent());
-		writeConfig(config, overrides(port));
+		writeConfig(config, source.basePlan == null ? overrides(port) : nativeOverrides(projectStage, port));
 		Files.write(runtime.resolve("server/connections.conf"),
 			"db_type: sqlite\n".getBytes(StandardCharsets.UTF_8));
+		Path database = runtime.resolve("server/inc/sqlite/world_builder.db");
+		if (source.basePlan != null) {
+			Path state = projectStage.resolve(WorldBuilderCurrentBaseProjectContent.STATE_ROOT);
+			Files.createDirectory(state, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+				java.nio.file.attribute.PosixFilePermissions.fromString("rwx------")));
+			database = state.resolve("world_builder.db");
+		}
 		copyVerified(
 			runtime.resolve("server/inc/sqlite/world_builder_seed.db"),
-			runtime.resolve("server/inc/sqlite/world_builder.db"),
+			database,
 			source.entries.get("server/inc/sqlite/world_builder_seed.db"));
+		if (source.basePlan != null) Files.setPosixFilePermissions(database, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
 
 		copyDefinitionEvidence(projectStage, snapshot, origin,
 			runtime.resolve("server/evidence/adaptive-definitions.json"), true);
@@ -173,13 +250,33 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		Path inventoryPath = requireFile(project.resolve(INVENTORY_FILE), INVENTORY_FILE);
 		byte[] inventoryBytes = readBounded(inventoryPath,
 			WorldBuilderContractLimits.MAX_JSON_BYTES, INVENTORY_FILE);
-		byte[] allowlist = readEmbeddedAllowlist();
-		if (!expectedFingerprint.equals(runtimeFingerprint(inventoryBytes, allowlist))) {
+		boolean nativeBase = WorldBuilderPreservationLayoutAdapter.ID.equals(snapshot.get("adapterId"))
+			&& WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId")) && "target-packed".equals(origin);
+		byte[] allowlist = nativeBase ? new byte[0] : readEmbeddedAllowlist();
+		Map<String,Object> nativeBinding = nativeBase ? WorldBuilderCurrentBaseProjectContent.verify(project) : null;
+		if (!nativeBase && Files.exists(project.resolve(WorldBuilderCurrentBaseProjectContent.ROOT), LinkOption.NOFOLLOW_LINKS))
+			throw malformedInventory();
+		String actualFingerprint = nativeBase ? nativeFingerprint(WorldBuilderHashes.sha256(project.resolve(WorldBuilderCurrentBaseProjectContent.BINDING)), inventoryBytes)
+			: runtimeFingerprint(inventoryBytes, allowlist);
+		if (!expectedFingerprint.equals(actualFingerprint)) {
 			throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, INVENTORY_FILE,
 				"Project runtime inventory does not match its bound fingerprint.",
 				"Restore the complete project-local runtime from its trusted project backup.");
 		}
-		Map<String,Entry> entries = parseInventory(inventoryBytes);
+		Map<String,Entry> entries = parseInventory(inventoryBytes, nativeBase);
+		if (nativeBase) {
+			Map<String,Object> profile;
+			try { profile = WorldBuilderJsonDocuments.readObject(project.resolve(WorldBuilderCurrentBaseProjectContent.ROOT + "/runtime/profile.json")); }
+			catch (WorldBuilderDiscoveryException invalid) { throw malformedInventory(); }
+			if (!WorldBuilderCurrentBaseProjectContent.authoringPolicy().equals(profile.get("authoringPolicy"))) throw malformedInventory();
+			@SuppressWarnings("unchecked") Map<String,Object> layout = (Map<String,Object>)nativeBinding.get("layout");
+			Map<String,Entry> nativeExpected = nativeEntries(layout);
+			for (String support : NATIVE_SUPPORT) {
+				Path file = requireFile(project.resolve(NATIVE_SUPPORT_ROOT).resolve(support), support);
+				nativeExpected.put(support, new Entry(Files.size(file), WorldBuilderHashes.sha256(file)));
+			}
+			if (!Arrays.equals(inventoryBytes(nativeExpected), inventoryBytes)) throw malformedInventory();
+		}
 		for (Map.Entry<String,Entry> item : entries.entrySet()) {
 			Path file = requireFile(runtime.resolve(item.getKey()),
 				"working/runtime/" + item.getKey());
@@ -192,7 +289,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime before launching.");
 			}
 		}
-		Set<String> requiredPaths = requiredRuntimePaths(allowlist);
+		Set<String> requiredPaths = nativeBase ? new HashSet<String>(NATIVE_SUPPORT) : requiredRuntimePaths(allowlist);
 		for (String required : requiredPaths) {
 			if (!entries.containsKey(required)) {
 				throw problem(WorldBuilderErrorCodes.LOADER_INCOMPATIBLE,
@@ -201,11 +298,14 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 					"Restore the complete project-local runtime.");
 			}
 		}
-		validateDefinitionClosure(entries.keySet(), requiredPaths, true);
+		if (!nativeBase) validateDefinitionClosure(entries.keySet(), requiredPaths, true);
 		validateRuntimeClosure(runtime, entries);
 		validateCapability(runtime.resolve(
 			"server/conf/world-builder/adaptive-runtime-capability-v2.json"));
-		validateConfig(runtime.resolve("server/world-builder.conf"), port);
+		if (nativeBase) {
+			byte[] expectedConfig = configBytes(nativeOverrides(project, port));
+			if (!Arrays.equals(expectedConfig, Files.readAllBytes(requireFile(runtime.resolve("server/world-builder.conf"), "world-builder.conf")))) throw malformedInventory();
+		} else validateConfig(runtime.resolve("server/world-builder.conf"), port);
 		Path connections = requireFile(runtime.resolve("server/connections.conf"),
 			"working/runtime/server/connections.conf");
 		if (!"db_type: sqlite\n".equals(new String(
@@ -215,8 +315,13 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 				"Adaptive runtime database selection is not isolated SQLite.",
 				"Restore the generated project runtime configuration.");
 		}
-		requireFile(runtime.resolve("server/inc/sqlite/world_builder.db"),
-			"working/runtime/server/inc/sqlite/world_builder.db");
+		if (nativeBase) {
+			Path state = realDirectory(project.resolve(WorldBuilderCurrentBaseProjectContent.STATE_ROOT), "Base authoring state");
+			Path db = WorldBuilderReadOnlyTarget.open(state).requiredFile("world_builder.db");
+			if (!Files.getPosixFilePermissions(state).equals(java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"))
+				|| !Files.getPosixFilePermissions(db).equals(java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"))
+				|| Files.exists(runtime.resolve("server/inc/sqlite/world_builder.db"), LinkOption.NOFOLLOW_LINKS)) throw malformedInventory();
+		} else requireFile(runtime.resolve("server/inc/sqlite/world_builder.db"), "working/runtime/server/inc/sqlite/world_builder.db");
 
 		String definitionPath = definitionSourcePath(snapshot, origin, true);
 		String clientDefinitionPath = definitionSourcePath(snapshot, origin, false);
@@ -321,14 +426,16 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 
 	private static void writeConfig(Path destination,
 		LinkedHashMap<String,String> values) throws IOException {
+		Files.write(destination, configBytes(values));
+	}
+	private static byte[] configBytes(LinkedHashMap<String,String> values) {
 		StringBuilder rendered = new StringBuilder(
 			"# Generated adaptive World Builder project isolation settings\n");
 		for (Map.Entry<String,String> item : values.entrySet()) {
 			rendered.append(item.getKey()).append(": ")
 				.append(item.getValue()).append('\n');
 		}
-		Files.write(destination,
-			rendered.toString().getBytes(StandardCharsets.UTF_8));
+		return rendered.toString().getBytes(StandardCharsets.UTF_8);
 	}
 
 	private static void collect(final Path root, final String prefix,
@@ -523,6 +630,10 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 
 	private static Map<String,Entry> parseInventory(byte[] bytes)
 		throws WorldBuilderContractException {
+		return parseInventory(bytes, false);
+	}
+	private static Map<String,Entry> parseInventory(byte[] bytes, boolean nativeBase)
+		throws WorldBuilderContractException {
 		String value = new String(bytes, StandardCharsets.UTF_8);
 		if (value.indexOf('\r') >= 0 || !value.endsWith("\n")) {
 			throw malformedInventory();
@@ -545,7 +656,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 				throw malformedInventory();
 			}
 			if (size < 0L
-				|| (size == 0L && !EMPTY_RUNTIME_ASSET_PATHS.contains(columns[2]))
+				|| (size == 0L && !nativeBase && !EMPTY_RUNTIME_ASSET_PATHS.contains(columns[2]))
 				|| size > WorldBuilderContractLimits.MAX_INVENTORY_FILE_BYTES
 				|| previous.compareTo(columns[2]) >= 0
 				|| entries.size() >= WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) {
@@ -601,7 +712,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static byte[] assetEvidence(Map<String,Object> snapshot, String origin,
 		Map<String,Entry> runtimeEntries) throws WorldBuilderContractException {
 		StringBuilder value = new StringBuilder(ASSET_HEADER).append('\n');
-		if ("standalone-empty".equals(origin)) {
+		if ("standalone-empty".equals(origin) || WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId"))) {
 			for (Map.Entry<String,Entry> item : runtimeEntries.entrySet()) {
 				if (!item.getKey().startsWith("client/")) continue;
 				value.append(item.getKey().substring("client/".length()))
@@ -1009,6 +1120,7 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	}
 
 	static final class SourceRuntime {
+		final WorldBuilderCurrentBaseProjectContent.Plan basePlan;
 		final Path root;
 		final Map<String,Entry> entries;
 		final byte[] inventoryBytes;
@@ -1016,6 +1128,11 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 
 		SourceRuntime(Path root, Map<String,Entry> entries, byte[] inventoryBytes,
 			String fingerprintSha256) {
+			this(root, entries, inventoryBytes, fingerprintSha256, null);
+		}
+		SourceRuntime(Path root, Map<String,Entry> entries, byte[] inventoryBytes,
+			String fingerprintSha256, WorldBuilderCurrentBaseProjectContent.Plan basePlan) {
+			this.basePlan = basePlan;
 			this.root = root;
 			this.entries = Collections.unmodifiableMap(
 				new TreeMap<String,Entry>(entries));

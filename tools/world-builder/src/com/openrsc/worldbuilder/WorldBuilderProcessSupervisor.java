@@ -773,6 +773,7 @@ public final class WorldBuilderProcessSupervisor {
 		final String displayName;
 		final String sourceFingerprint;
 		final String sourceCapability;
+		final boolean nativeBase;
 		final String origin;
 		final String definitionId;
 		final String definitionSha256;
@@ -814,6 +815,8 @@ public final class WorldBuilderProcessSupervisor {
 			this.displayName = displayName.length() <= 64 ? displayName : verified.projectId;
 			this.sourceFingerprint = sourceFingerprint;
 			this.sourceCapability = sourceCapability;
+			this.nativeBase = WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(sourceCapability)
+				&& WorldBuilderPreservationLayoutAdapter.ID.equals(verified.snapshot.get("adapterId"));
 			this.origin = verified.origin;
 			this.definitionId = verified.definitions.catalogId;
 			this.definitionSha256 = evidence.definitionSha256;
@@ -893,9 +896,10 @@ public final class WorldBuilderProcessSupervisor {
 		}
 
 		List<String> serverCommand() {
-			String classpath = String.join(System.getProperty("path.separator"),
-				"lib/*", "core.jar", "plugins.jar");
-			return Arrays.asList(
+			String classpath = nativeBase ? String.join(System.getProperty("path.separator"),
+				server.resolve("core.jar").toString(), server.resolve("plugins.jar").toString())
+				: String.join(System.getProperty("path.separator"), "lib/*", "core.jar", "plugins.jar");
+			List<String> command = new ArrayList<String>(Arrays.asList(
 				javaExecutable(),
 				"-Xms256m", "-Xmx1536m",
 				property("openrsc.worldBuilderCredentialFile", credential),
@@ -935,11 +939,16 @@ public final class WorldBuilderProcessSupervisor {
 					workingInventorySha256),
 				property("openrsc.layeredNativeWorldRuntimeProfile",
 					"adaptive-world-builder"),
-				"-cp", classpath, "com.openrsc.server.Server", "world-builder.conf");
+				"-cp", classpath, "com.openrsc.server.Server", "world-builder.conf"));
+			if (nativeBase) {
+				command.add(1, property("openrsc.currentCompositionIdentityFile", project.resolve(WorldBuilderCurrentBaseProjectContent.IDENTITY)));
+				command.add(1, property(WorldBuilderCurrentBaseProjectContent.STATE_PROPERTY, project.resolve(WorldBuilderCurrentBaseProjectContent.STATE_ROOT)));
+			}
+			return command;
 		}
 
 		List<String> clientCommand() {
-			return Arrays.asList(
+			List<String> command = new ArrayList<String>(Arrays.asList(
 				javaExecutable(),
 				"-Xms512m", "-Xmx2g",
 				"-Dsun.java2d.opengl=false",
@@ -976,7 +985,13 @@ public final class WorldBuilderProcessSupervisor {
 				property("openrsc.worldBuilderContentItemVisualSha256",
 					contentItemVisualSha256),
 				property(CLIENT_READY_PROPERTY, project.resolve("run/client.ready")),
-				"-jar", "Open_RSC_Client.jar");
+				"-jar", nativeBase ? client.resolve("Open_RSC_Client.jar").toString() : "Open_RSC_Client.jar"));
+			if (nativeBase) {
+				command.add(1, property("openrsc.currentCompositionIdentityFile", project.resolve(WorldBuilderCurrentBaseProjectContent.IDENTITY)));
+				for (String property : Arrays.asList("openglPresenter", "openglInput", "openglPrimaryWindow", "directFramebuffer", "skipLegacyWorldRaster", "openglWorldSpritesVisible"))
+					command.add(1, property("spoiledmilk." + property, "false"));
+			}
+			return command;
 		}
 
 		private static String property(String name, Path value) {

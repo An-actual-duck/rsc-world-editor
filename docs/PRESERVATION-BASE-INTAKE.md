@@ -32,11 +32,27 @@ migration and verify its output before activation can be considered. Text and
 preference files are bound for preservation, not declared behavior-equivalent
 merely because their paths and hashes are known.
 
-This intake checkpoint does not complete usable project creation or authorize
-server upgrade/map-import mutation. Genuine JAG decoding and canonical
-conversion already have internal inventory-bound entrypoints; the production
-project path still needs the complete selected Base visual/runtime projection.
-The map-ID catalog alone is not render authority. In the currently pinned
-provider, Base requires `db_name: current_base` while adaptive World Builder
-requires `db_name: world_builder`; an explicit provider-owned Base authoring
-state policy is needed before an actual project launch can satisfy both.
+The production project path now selects the complete native Base composition,
+retains its artifacts and derived full authoring catalog, invokes only the
+selected provider's decoder, and seals the original public inputs and canonical
+baseline. It does not create an Advanced content overlay or copy the target's
+player database or keys. The isolated authoring database belongs at
+`working/authoring-state/world_builder.db`, separately from runtime artifacts.
+The server and client commands bind the retained composition identity.
+
+CLI creation selects `--provider-catalog-root` and `--composition-identity`
+together. Desktop creation supports an explicitly injected selection; packaged
+discovery defaults to `current-platform/` and its `composition-identity.json`
+under the installation. Both paths use the existing verified provider catalog
+resolver, with no fallback to historical or Advanced executables. Packaging
+still needs to ship that selected catalog.
+
+This wiring checkpoint is not native launch acceptance and does not authorize
+server upgrade/map-import mutation. The selected provider must explicitly
+advertise `current-base-isolated-authoring-v1`; the older pinned normal-only
+Base is refused before project publication. After the runtime manager publishes
+and the Editor adopts that policy, run the genuine Base lifecycle check and the
+actual supervised editor launch. These are the remaining positive checks, not
+grounds to repeat already-passing source admission/decoder or inherited
+lifecycle checks. Target activation, separate map import, and candidate
+acceptance remain manager integration work.
