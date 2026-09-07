@@ -44,8 +44,10 @@ final class WorldBuilderCurrentRuntimeMapImport {
         try (WorldBuilderCurrentRuntimeOfflineLease lease = WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(target.resolve(INSTANCE + "/installation"), ports)) {
             lease.verifyInstalledHeld();
             if (!spec.equals(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target))) throw unsafe("Installed generation changed during preview.");
+            if (!ledger.equals(WorldBuilderCurrentRuntimeContracts.read(WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER, target.resolve(LEDGER)).root))
+                throw unsafe("Installed ledger changed during preview.");
+            return plan(project, export, target, workspace, transactionId, identity, ledger, spec, ports);
         }
-        return plan(project, export, target, workspace, transactionId, identity, ledger, spec, ports);
     }
 
     private static Plan plan(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, WorldBuilderAdaptiveExporter.VerifiedExport export,
