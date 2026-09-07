@@ -436,7 +436,7 @@
         "activationManifestType": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "syntheticOnly": {"type": "boolean"},
         "executionReady": {"type": "boolean"},
-        "executionReadinessStatus": {"enum": ["synthetic-regression-ready", "migration-and-verification-not-implemented"]},
+        "executionReadinessStatus": {"enum": ["synthetic-regression-ready", "migration-and-verification-not-implemented", "guarded-current-base-sqlite-execution"]},
         "executionReadinessReason": {"type": "string", "minLength": 1, "maxLength": 1024},
         "executionReadinessConditions": {
           "type": "array", "minItems": 1, "maxItems": 32,

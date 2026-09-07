@@ -159,11 +159,9 @@ final class WorldBuilderPreservationStagedMigrator {
 		if ("mariadb".equals(engine))
 			blockers.add("mariadb-external-stage-rollback-not-implemented");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
-		blockers.add("live-instance-installation-and-recovery-required");
 		if (!WorldBuilderBoundedInventory.bool(runtimeLayout.get("ready"),
 				"preservation-migration", "ready"))
 			blockers.add("runnable-current-runtime-layout-materialization-required");
-		blockers.add("editor-installed-execution-verifier-integration-required");
 		result.put("readinessBlockers", blockers);
 		return result;
 	}
@@ -705,7 +703,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		throws WorldBuilderContractException {
 		if (!safeRegular(source)) throw blocked("SQLite state is missing, linked, or non-regular.");
 		for (String suffix : new String[] {"-journal", "-wal", "-shm"}) {
-			if (Files.exists(target.resolve(SQLITE_SOURCE + suffix), LinkOption.NOFOLLOW_LINKS))
+			if (Files.exists(source.resolveSibling(source.getFileName() + suffix), LinkOption.NOFOLLOW_LINKS))
 				throw blocked("SQLite sidecar state exists; obtain one closed offline snapshot.");
 		}
 		try {

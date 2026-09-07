@@ -1026,7 +1026,7 @@ public final class RuntimeConfigHarness {
         )
         self.assertNotEqual(0, refused.returncode)
         self.assertIn("CODE=RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-        self.assertIn("live-instance installation/recovery",
+        self.assertIn("never authorizes production activation",
                       refused.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))

@@ -128,6 +128,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderCurrentRuntimeContracts.Document project =
 			WorldBuilderCurrentRuntimeContracts.read(
 				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+		if (preservationProject != null) {
+			Map<String,Object> manifest = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(preservationProject, false).manifest;
+			if (!string(project.root, "projectId").equals(string(manifest, "projectId")))
+				throw activationMismatch("projectCapability");
+		}
 		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath"))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
 				"targetLedgerRelativePath", false,
@@ -462,7 +467,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				return new Result(transactionId, "rolled-back",
 					transaction.resolve("receipt.json"), null);
 			}
-			if (!installed.isEmpty()) rollbackInitialInstanceHeld(target, transaction, plan, offline.installedLease());
+			if (!installed.isEmpty() && Files.exists(target.resolve(WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE), LinkOption.NOFOLLOW_LINKS))
+				rollbackInitialInstanceHeld(target, transaction, plan, offline.installedLease());
 			rollback(target, plan, backup, true, true, Collections.<Path>emptyList());
 			verifyPreimage(target, plan);
 			if (pendingReceiptTemporary != null) {
