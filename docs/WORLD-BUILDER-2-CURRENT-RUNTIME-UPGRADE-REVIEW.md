@@ -123,6 +123,33 @@ effective-runtime checks and unchanged non-Base controls. Neither assignment
 includes broader audits, new runtime generations or production release. The
 merged map-semantics slot has returned to idle.
 
+### Base completion implementation checkpoint — 2026-09-07
+
+The manager topic now contains durable selection/ledger cutover, startup guards
+before initial construction, exact installed generation/composition/map binding,
+and a required installed project identity. Detached initial recovery evidence
+distinguishes guarded construction from the exact rolled-back inventory; neither
+is authority to rewind later gameplay. Focused instance (13), contract (17), and
+cutover (11) tests pass, including actual process interruption and foreign
+metadata drift refusal. These topic changes are not yet published on `main`.
+
+Separate current map-import preview/apply/recovery code and CLI entrypoints are
+implemented on the same topic. They retain existing code, configuration and
+player/side-state paths, stage immutable map/launch generations, and use the
+guarded metadata cutover. Five focused recovery tests pass: precommit restoration
+and owned-output cleanup, postcommit gameplay preservation, changed-output
+retention, unconfirmed/busy-role refusal, and ambiguous-commit retention. These
+use synthetic metadata and do **not** establish genuine project-to-server import
+or packaged acceptance. Native project validation and the full connected workflow
+must pass before this becomes candidate-ready.
+
+The intake and production upgrade workers continue their existing bounded
+assignments. Runtime public combat review found a concrete blocked-melee recoil
+bug; its narrow correction is awaiting focused verification. Runtime authoring
+isolation and current SQLite byte-copy migration are collected for the same
+integration batch. The Editor pin remains unchanged until that batch passes.
+No live target, production release, or accepted candidate is implied.
+
 ### Ordered remaining work
 
 1. **Close runtime correctness and integrate collected work.** Review the exact

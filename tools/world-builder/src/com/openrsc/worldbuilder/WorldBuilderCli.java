@@ -31,6 +31,8 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("preview-current-map-import".equals(args[0]) || "apply-current-map-import".equals(args[0])
+			|| "recover-current-map-import".equals(args[0])) return currentMapImport(args);
 		if ("validate-current-runtime-contract".equals(args[0])) {
 			return validateCurrentRuntimeContract(args);
 		}
@@ -1558,6 +1560,41 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int currentMapImport(String[] args) {
+		boolean recovery = "recover-current-map-import".equals(args[0]);
+		boolean apply = "apply-current-map-import".equals(args[0]);
+		java.util.Set<String> required = new java.util.HashSet<String>(java.util.Arrays.asList(
+			"--target-root", "--transaction-root", "--transaction-id"));
+		if (recovery) required.add("--confirmed-plan-sha256");
+		else { required.add("--project"); required.add("--export"); }
+		if (apply) required.add("--confirmation-identity");
+		Map<String,String> options = new LinkedHashMap<String,String>();
+		for (int index = 1; index < args.length; index += 2) {
+			if (index + 1 >= args.length || !required.contains(args[index]) || options.containsKey(args[index])) {
+				System.err.println("ERROR: Unknown, repeated, or incomplete map-import option."); return 2;
+			}
+			options.put(args[index], args[index+1]);
+		}
+		if (!options.keySet().equals(required)) {
+			System.err.println("ERROR: Required map-import options: " + required); return 2;
+		}
+		try {
+			WorldBuilderCurrentRuntimeMapImport transaction = new WorldBuilderCurrentRuntimeMapImport();
+			Path target = Paths.get(options.get("--target-root")), workspace = Paths.get(options.get("--transaction-root"));
+			String id = options.get("--transaction-id"), status;
+			if (recovery) status = transaction.recover(target, workspace, id, options.get("--confirmed-plan-sha256"));
+			else {
+				WorldBuilderCurrentRuntimeMapImport.Plan plan = transaction.preview(Paths.get(options.get("--project")),
+					Paths.get(options.get("--export")), target, workspace, id);
+				if (!apply) { System.out.print(plan.toJson()); return 0; }
+				status = transaction.apply(plan, options.get("--confirmation-identity"));
+			}
+			Map<String,Object> result = new LinkedHashMap<String,Object>(); result.put("status", status); result.put("transactionId", id);
+			System.out.print(WorldBuilderJsonDocuments.pretty(result)); return 0;
+		} catch (WorldBuilderContractException refusal) { return adaptiveRefusal(refusal); }
+		catch (Exception failure) { System.err.println("ERROR: Current map import failed: " + failure.getMessage()); return 4; }
+	}
+
 	private static int currentRuntimeUpgrade(String[] args) {
 		String command = args[0];
 		Map<String,String> options = new LinkedHashMap<String,String>();
@@ -2126,6 +2163,11 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli recover-current-runtime-upgrade --target-root <offline-server>"
 			+ " --transaction-root <external-sibling> --transaction-id <id>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
+			+ "\n  WorldBuilderCli preview-current-map-import --project <project-root> --export <export-root>"
+			+ " --target-root <offline-server> --transaction-root <external-sibling> --transaction-id <id>"
+			+ "\n  WorldBuilderCli apply-current-map-import <same preview arguments> --confirmation-identity <exact-preview-identity>"
+			+ "\n  WorldBuilderCli recover-current-map-import --target-root <offline-server>"
+			+ " --transaction-root <external-sibling> --transaction-id <id> --confirmed-plan-sha256 <reviewed-plan-hash>"
 			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"
 			+ " --source-root <server-or-provider-parent>"

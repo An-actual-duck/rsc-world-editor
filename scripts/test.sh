@@ -147,6 +147,7 @@ add_group() {
 				test-world-builder-verifier-authority.py
 				test-world-builder-installed-instance-lease.py
 				test-world-builder-installed-cutover.py
+				test-world-builder-current-map-import.py
 				test-world-builder-export.py
 				test-world-builder-import.py
 				test-world-builder-map-migration-choice.py
