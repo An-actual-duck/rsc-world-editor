@@ -1585,7 +1585,8 @@ public final class WorldBuilderCli {
 			if ("--confirmation-identity".equals(option)
 				&& "apply-current-runtime-upgrade".equals(command)) known = true;
 			if (("--packed-source-root".equals(option)
-				|| "--packed-discovery-report".equals(option)) && !recovery) known = true;
+				|| "--packed-discovery-report".equals(option)
+				|| "--preservation-project".equals(option)) && !recovery) known = true;
 			if (!known) {
 				System.err.println("ERROR: Unsupported option for " + command + ": " + option);
 				return 2;
@@ -1606,6 +1607,10 @@ public final class WorldBuilderCli {
 			System.err.println("ERROR: --packed-source-root and --packed-discovery-report must be supplied together.");
 			return 2;
 		}
+		if (options.containsKey("--preservation-project") && options.containsKey("--packed-source-root")) {
+			System.err.println("ERROR: --preservation-project cannot be combined with descriptor-backed packed inputs.");
+			return 2;
+		}
 		try {
 			WorldBuilderCurrentRuntimeUpgradeTransaction transaction =
 				new WorldBuilderCurrentRuntimeUpgradeTransaction();
@@ -1624,7 +1629,9 @@ public final class WorldBuilderCli {
 					options.containsKey("--packed-source-root")
 						? Paths.get(options.get("--packed-source-root")) : null,
 					options.containsKey("--packed-discovery-report")
-						? Paths.get(options.get("--packed-discovery-report")) : null);
+						? Paths.get(options.get("--packed-discovery-report")) : null,
+					options.containsKey("--preservation-project")
+						? Paths.get(options.get("--preservation-project")) : null);
 			if ("preview-current-runtime-upgrade".equals(command)) {
 				System.out.print(preview.toJson());
 				return 0;
