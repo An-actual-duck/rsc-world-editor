@@ -1581,7 +1581,7 @@ public final class WorldBuilderCli {
 		String[] required = recovery
 			? new String[] {"--target-root", "--transaction-root", "--transaction-id"}
 			: new String[] {"--target-root", "--transaction-root", "--provider-catalog-root",
-				"--composition-identity", "--project-capability", "--transaction-id", "--adapter"};
+				"--composition-identity", "--transaction-id", "--adapter"};
 		for (String option : required) if (!options.containsKey(option)) {
 			System.err.println("ERROR: " + command + " requires " + option + ".");
 			return 2;
@@ -1593,7 +1593,7 @@ public final class WorldBuilderCli {
 				&& "apply-current-runtime-upgrade".equals(command)) known = true;
 			if (("--packed-source-root".equals(option)
 				|| "--packed-discovery-report".equals(option)
-				|| "--preservation-project".equals(option)) && !recovery) known = true;
+				|| "--preservation-project".equals(option) || "--project-capability".equals(option)) && !recovery) known = true;
 			if (!known) {
 				System.err.println("ERROR: Unsupported option for " + command + ": " + option);
 				return 2;
@@ -1603,6 +1603,9 @@ public final class WorldBuilderCli {
 			.equals(options.get("--adapter"))) {
 			System.err.println("ERROR: Only the reviewed built-in preservation-family-v1 adapter is supported; adapter paths and target-supplied code are rejected.");
 			return 2;
+		}
+		if (!recovery && !options.containsKey("--project-capability") && !options.containsKey("--preservation-project")) {
+			System.err.println("ERROR: A genuine --preservation-project or explicit --project-capability is required."); return 2;
 		}
 		if ("apply-current-runtime-upgrade".equals(command)
 			&& !options.containsKey("--confirmation-identity")) {
@@ -1632,7 +1635,7 @@ public final class WorldBuilderCli {
 				transaction.previewPreservation(target, transactionRoot,
 					Paths.get(options.get("--provider-catalog-root")),
 					Paths.get(options.get("--composition-identity")),
-					Paths.get(options.get("--project-capability")), transactionId,
+					options.containsKey("--project-capability") ? Paths.get(options.get("--project-capability")) : null, transactionId,
 					options.containsKey("--packed-source-root")
 						? Paths.get(options.get("--packed-source-root")) : null,
 					options.containsKey("--packed-discovery-report")

@@ -126,8 +126,9 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentity);
 		WorldBuilderCurrentRuntimeContracts.Document adapter = profile.adapter;
 		WorldBuilderCurrentRuntimeContracts.Document project =
-			WorldBuilderCurrentRuntimeContracts.read(
-				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+			projectCapability == null ? nativeProjectCapability(preservationProject)
+				: WorldBuilderCurrentRuntimeContracts.read(
+					WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
 		if (preservationProject != null) {
 			Map<String,Object> manifest = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(preservationProject, false).manifest;
 			if (!string(project.root, "projectId").equals(string(manifest, "projectId")))
@@ -167,6 +168,26 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
 			inputAdapter, projectCapability, profile, packedSourceRoot,
 			packedDiscoveryReport, preservationProject, plan);
+	}
+
+	/** Derived in memory from an already verified native project; preview writes no capability file. */
+	private static WorldBuilderCurrentRuntimeContracts.Document nativeProjectCapability(Path path)
+		throws IOException, WorldBuilderContractException {
+		if (path == null) throw activationMismatch("projectCapability");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(path, false);
+		WorldBuilderCurrentBaseProjectContent.verifiedIdentity(path);
+		if (!"target-packed".equals(project.origin) || !WorldBuilderPreservationLayoutAdapter.ID.equals(project.snapshot.get("adapterId")))
+			throw activationMismatch("native-project");
+		Map<String,Object> capability = new LinkedHashMap<String,Object>();
+		capability.put("schemaVersion", Long.valueOf(1)); capability.put("manifestType", "world-builder-current-project-capability");
+		capability.put("projectId", project.projectId); capability.put("projectSchemaId", "world-builder-project-v2");
+		// Exact project-manifest-v2 schema implemented by the compiled lifecycle validator.
+		capability.put("projectSchemaHash", "68f538f0ed211b2993f0d23f188808e836d9f1a91dd95886a73d9cf3280d0653");
+		capability.put("authoredDataFingerprintSha256", project.working.fingerprintSha256);
+		capability.put("allowedVariantIds", Collections.<Object>singletonList("current-base-v1"));
+		capability.put("requiredCapabilityIds", Collections.<Object>singletonList("canonical-signed-layered-map-v1"));
+		capability.put("requiredModuleIds", new ArrayList<Object>());
+		return WorldBuilderCurrentRuntimeContracts.builtIn(WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, capability);
 	}
 
 	Result apply(Preview reviewed, String confirmation)
