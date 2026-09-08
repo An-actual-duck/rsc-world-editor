@@ -72,7 +72,7 @@
   },
   "allOf": [
     {
-      "if": {"properties": {"executionProfile": {"properties": {"profileId": {"const": "preservation-family-upgrade-v1"}}}}},
+      "if": {"properties": {"classificationTier": {"not": {"const": "MANAGED_N"}}, "executionProfile": {"properties": {"profileId": {"const": "preservation-family-upgrade-v1"}}}}},
       "then": {"properties": {"migrationPlan": {"required": ["persistentInputs"], "properties": {
         "stagedExecution": {"required": ["sqliteSchemaMigrationReady", "sqliteSnapshotReady", "readinessBlockers"], "properties": {"sqliteSchemaMigrationReady": {"const": false}, "sqliteSnapshotReady": {"const": true},
           "readinessBlockers": {"contains": {"const": "sqlite-schema-validation-pending-provider-sealed-migration"}}}}
@@ -500,7 +500,7 @@
         "migrationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
         "sourceRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
         "destinationRole": {"const": "canonical-signed-layered-map"},
-        "executionBoundary": {"enum": ["synthetic-plan-only", "descriptor-backed-world-builder-packed-converter", "historical-jag-conversion-pending", "reviewed-preservation-project-baseline-v1"]},
+        "executionBoundary": {"enum": ["synthetic-plan-only", "descriptor-backed-world-builder-packed-converter", "historical-jag-conversion-pending", "reviewed-preservation-project-baseline-v1", "current-base-retained-map-v1"]},
         "preparedSourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "discoveryReportSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
         "conversionPlanFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/optionalSha256"},
