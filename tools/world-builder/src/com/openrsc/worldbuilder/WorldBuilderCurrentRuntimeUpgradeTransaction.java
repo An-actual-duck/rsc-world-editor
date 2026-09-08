@@ -627,6 +627,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.pretty(composition.identity).getBytes(StandardCharsets.UTF_8)));
 
 		List<Object> preimage = preimageInventory(target, classification, adapter.root);
+		if (!profile.syntheticOnly && "MANAGED_N".equals(classification.get("tier"))) {
+			for (Object raw : array(object(plan.get("migrationPlan")).get("durableState"))) {
+				Map<String,Object> state = object(raw); String relative = string(state, "relativePath");
+				Path source = safeExistingFile(target, relative);
+				Map<String,Object> record = new LinkedHashMap<String,Object>(); record.put("relativePath", relative);
+				record.put("present", Boolean.TRUE); record.put("size", Long.valueOf(Files.size(source)));
+				record.put("sha256", string(state, "sourceSha256")); record.put("backupRelativePath", "files/" + relative);
+				requireFileMatches(source, record, relative); preimage.add(record);
+			}
+			preimage.sort((left, right) -> ((String)((Map<?,?>)left).get("relativePath")).compareTo((String)((Map<?,?>)right).get("relativePath")));
+		}
 		plan.put("preimageInventory", preimage);
 		plan.put("preimageInventoryHash", canonicalHash(preimage));
 		List<Object> semantic = semanticActions(classification);
