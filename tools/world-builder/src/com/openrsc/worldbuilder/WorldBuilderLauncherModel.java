@@ -547,6 +547,16 @@ final class WorldBuilderLauncherModel {
 	PreparedImport prepareServerImport(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before importing.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			Path nativeTarget = WorldBuilderCurrentRuntimeUserActions.target(project);
+			Path exported = new WorldBuilderAdaptiveExporter().export(project.projectRoot).exportDirectory;
+			return new PreparedImport(new WorldBuilderCurrentRuntimeMapImport().preview(
+				project.projectRoot, exported, nativeTarget,
+				WorldBuilderCurrentRuntimeUserActions.workspace(nativeTarget),
+				java.util.UUID.randomUUID().toString()), nativeTarget);
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveExporter.ExportResult exported =
 			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
@@ -578,6 +588,10 @@ final class WorldBuilderLauncherModel {
 	String applyServerImport(PreparedImport prepared)
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException("Import preview was not supplied.");
+		if (prepared.mapPlan != null) {
+			return "Map changes were imported successfully. Player and side state were retained.\n\n"
+				+ new WorldBuilderCurrentRuntimeMapImport().apply(prepared.mapPlan, prepared.mapPlan.confirmation());
+		}
 		WorldBuilderAdaptiveImporter.ImportResult result =
 			prepared.importer.apply(prepared.preview, "IMPORT");
 		return "Map changes were imported successfully.\n\nTransaction: "
@@ -731,16 +745,26 @@ final class WorldBuilderLauncherModel {
 	static final class PreparedImport {
 		final WorldBuilderAdaptiveImporter importer;
 		final WorldBuilderAdaptiveImporter.Preview preview;
+		final WorldBuilderCurrentRuntimeMapImport.Plan mapPlan;
 		final Path target;
 
 		PreparedImport(WorldBuilderAdaptiveImporter importer,
 			WorldBuilderAdaptiveImporter.Preview preview, Path target) {
 			this.importer = importer;
 			this.preview = preview;
+			this.mapPlan = null;
+			this.target = target;
+		}
+
+		PreparedImport(WorldBuilderCurrentRuntimeMapImport.Plan mapPlan, Path target) {
+			this.importer = null;
+			this.preview = null;
+			this.mapPlan = mapPlan;
 			this.target = target;
 		}
 
 		String summary() {
+			if (mapPlan != null) return mapPlan.humanSummary();
 			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}

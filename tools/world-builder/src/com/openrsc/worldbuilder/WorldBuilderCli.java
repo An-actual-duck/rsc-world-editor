@@ -31,6 +31,8 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("preview-current-map-import".equals(args[0]) || "apply-current-map-import".equals(args[0])
+			|| "recover-current-map-import".equals(args[0])) return currentMapImport(args);
 		if ("validate-current-runtime-contract".equals(args[0])) {
 			return validateCurrentRuntimeContract(args);
 		}
@@ -107,6 +109,9 @@ public final class WorldBuilderCli {
 		}
 		if ("export-adaptive".equals(args[0])) {
 			return exportAdaptive(args);
+		}
+		if ("export-current-base-catalog".equals(args[0])) {
+			return exportCurrentBaseCatalog(args);
 		}
 		if ("export-active-adaptive".equals(args[0])) {
 			return exportActiveAdaptive(args);
@@ -784,6 +789,33 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int exportCurrentBaseCatalog(String[] args) {
+		Path catalog = null, identity = null, destination = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if (index + 1 >= args.length) return argumentError(argument);
+			Path value = Paths.get(args[++index]);
+			if ("--provider-catalog-root".equals(argument) && catalog == null) catalog = value;
+			else if ("--composition-identity".equals(argument) && identity == null) identity = value;
+			else if ("--destination".equals(argument) && destination == null) destination = value;
+			else return argumentError(argument);
+		}
+		if (catalog == null || identity == null || destination == null) {
+			System.err.println("ERROR: export-current-base-catalog requires --provider-catalog-root, --composition-identity and --destination <new-absolute-directory>.");
+			return 2;
+		}
+		try {
+			System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentBaseCatalogExport.export(catalog, identity, destination)));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current Base catalog export failed: " + failure.getMessage()
+				+ ". An incomplete new destination is not an accepted candidate.");
+			return 4;
+		}
+	}
+
 	private static int exportAdaptive(String[] args) {
 		Path project = singlePathOption(args, "--project", "export-adaptive");
 		if (project == null) return 2;
@@ -979,6 +1011,21 @@ public final class WorldBuilderCli {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+				Path target = WorldBuilderCurrentRuntimeUserActions.target(project);
+				Path exported = new WorldBuilderAdaptiveExporter().export(project.projectRoot).exportDirectory;
+				WorldBuilderCurrentRuntimeMapImport importer = new WorldBuilderCurrentRuntimeMapImport();
+				WorldBuilderCurrentRuntimeMapImport.Plan preview = importer.preview(project.projectRoot,
+					exported, target, WorldBuilderCurrentRuntimeUserActions.workspace(target),
+					java.util.UUID.randomUUID().toString());
+				System.err.print(preview.humanSummary());
+				if (!confirmAdaptive(preview.confirmation(), "Type the exact IMPORT-MAP confirmation above, or press Enter to cancel: ")) {
+					System.err.println("Import cancelled; no target file was changed.");
+					return 0;
+				}
+				System.out.print(importer.apply(preview, preview.confirmation()));
+				return 0;
+			}
 			if ("standalone-empty".equals(project.origin)) {
 				// The importer performs the stable NO_TARGET refusal without resolving parent.
 				new WorldBuilderAdaptiveImporter().preview(project.projectRoot, null, null);
@@ -1565,6 +1612,41 @@ public final class WorldBuilderCli {
 		}
 	}
 
+	private static int currentMapImport(String[] args) {
+		boolean recovery = "recover-current-map-import".equals(args[0]);
+		boolean apply = "apply-current-map-import".equals(args[0]);
+		java.util.Set<String> required = new java.util.HashSet<String>(java.util.Arrays.asList(
+			"--target-root", "--transaction-root", "--transaction-id"));
+		if (recovery) required.add("--confirmed-plan-sha256");
+		else { required.add("--project"); required.add("--export"); }
+		if (apply) required.add("--confirmation-identity");
+		Map<String,String> options = new LinkedHashMap<String,String>();
+		for (int index = 1; index < args.length; index += 2) {
+			if (index + 1 >= args.length || !required.contains(args[index]) || options.containsKey(args[index])) {
+				System.err.println("ERROR: Unknown, repeated, or incomplete map-import option."); return 2;
+			}
+			options.put(args[index], args[index+1]);
+		}
+		if (!options.keySet().equals(required)) {
+			System.err.println("ERROR: Required map-import options: " + required); return 2;
+		}
+		try {
+			WorldBuilderCurrentRuntimeMapImport transaction = new WorldBuilderCurrentRuntimeMapImport();
+			Path target = Paths.get(options.get("--target-root")), workspace = Paths.get(options.get("--transaction-root"));
+			String id = options.get("--transaction-id"), status;
+			if (recovery) status = transaction.recover(target, workspace, id, options.get("--confirmed-plan-sha256"));
+			else {
+				WorldBuilderCurrentRuntimeMapImport.Plan plan = transaction.preview(Paths.get(options.get("--project")),
+					Paths.get(options.get("--export")), target, workspace, id);
+				if (!apply) { System.out.print(plan.toJson()); return 0; }
+				status = transaction.apply(plan, options.get("--confirmation-identity"));
+			}
+			Map<String,Object> result = new LinkedHashMap<String,Object>(); result.put("status", status); result.put("transactionId", id);
+			System.out.print(WorldBuilderJsonDocuments.pretty(result)); return 0;
+		} catch (WorldBuilderContractException refusal) { return adaptiveRefusal(refusal); }
+		catch (Exception failure) { System.err.println("ERROR: Current map import failed: " + failure.getMessage()); return 4; }
+	}
+
 	private static int currentRuntimeUpgrade(String[] args) {
 		String command = args[0];
 		Map<String,String> options = new LinkedHashMap<String,String>();
@@ -2144,6 +2226,11 @@ public final class WorldBuilderCli {
 			+ " --transaction-root <external-sibling> --transaction-id <id>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli preview-current-map-import --project <project-root> --export <export-root>"
+			+ " --target-root <offline-server> --transaction-root <external-sibling> --transaction-id <id>"
+			+ "\n  WorldBuilderCli apply-current-map-import <same preview arguments> --confirmation-identity <exact-preview-identity>"
+			+ "\n  WorldBuilderCli recover-current-map-import --target-root <offline-server>"
+			+ " --transaction-root <external-sibling> --transaction-id <id> --confirmed-plan-sha256 <reviewed-plan-hash>"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"
 			+ " --source-root <server-or-provider-parent>"
 			+ "\n  WorldBuilderCli import-item-provider --installation-root <World Builder 2>"
