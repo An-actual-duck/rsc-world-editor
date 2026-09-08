@@ -58,8 +58,18 @@ the helper never executes them or includes the full source checkout. Existing,
 linked, or overlapping destinations are refused. A failed partial new tree
 is not a candidate and must not be reused as a completed export.
 
-This wiring checkpoint is not native launch acceptance and does not authorize
-server upgrade/map-import mutation. The selected provider must explicitly
+Native lifecycle acceptance now passes against published runtime
+`4d589cb4bb43c8db3954a3d412eceaa5d743d7b2`: genuine project creation from the
+sealed public source, two authenticated native editor sessions with clean
+server/client exit and restart, reopen/export, content tamper refusal, and
+unchanged historical target/source evidence. The test uses invented private
+state and confirms that only the isolated authoring database gains the Builder
+account. Two tests passed in 118.923 seconds with the real-launch option enabled.
+The connected run found and fixed a missing diagnostics-directory creation
+before moving the conversion reconciliation report.
+
+This is not server-upgrade/map-import or packaged acceptance and does not
+authorize live-target mutation. The selected provider must explicitly
 advertise `current-base-isolated-authoring-v1`; the older pinned normal-only
 Base is refused before project publication. After the runtime manager publishes
 and the Editor adopts that policy, run the genuine Base lifecycle check and the

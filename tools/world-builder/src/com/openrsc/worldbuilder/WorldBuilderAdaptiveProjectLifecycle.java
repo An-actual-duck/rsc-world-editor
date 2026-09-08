@@ -632,6 +632,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		Path output = stage.resolve(".conversion-output");
 		WorldBuilderPackedConverter.Result converted = new WorldBuilderPackedConverter().convertPreservation(prepared, output);
 		ensureRealDirectory(stage.resolve("source/conversion"));
+		ensureRealDirectory(stage.resolve("diagnostics"));
 		moveAtomicNew(output.resolve("conversion-plan.json"), stage.resolve("source/conversion/plan.json"));
 		moveAtomicNew(output.resolve("conversion-report.json"), stage.resolve("source/conversion/report.json"));
 		moveAtomicNew(output.resolve(WorldBuilderDiscoveryReconciliation.FILE_NAME), stage.resolve(WorldBuilderDiscoveryReconciliation.PROJECT_RELATIVE_PATH));
