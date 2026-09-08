@@ -110,6 +110,9 @@ public final class WorldBuilderCli {
 		if ("export-adaptive".equals(args[0])) {
 			return exportAdaptive(args);
 		}
+		if ("export-current-base-catalog".equals(args[0])) {
+			return exportCurrentBaseCatalog(args);
+		}
 		if ("export-active-adaptive".equals(args[0])) {
 			return exportActiveAdaptive(args);
 		}
@@ -355,6 +358,8 @@ public final class WorldBuilderCli {
 		Path target = null;
 		Path report = null;
 		Path itemVisualMappings = null;
+		Path providerCatalog = null;
+		Path compositionIdentity = null;
 		boolean developmentTerrainSeed = false;
 		String displayName = null;
 		String confirmation = null;
@@ -373,6 +378,10 @@ public final class WorldBuilderCli {
 			} else if ("--item-visual-mappings".equals(argument)
 				&& index + 1 < args.length) {
 				itemVisualMappings = Paths.get(args[++index]);
+			} else if ("--provider-catalog-root".equals(argument) && providerCatalog == null && index + 1 < args.length) {
+				providerCatalog = Paths.get(args[++index]);
+			} else if ("--composition-identity".equals(argument) && compositionIdentity == null && index + 1 < args.length) {
+				compositionIdentity = Paths.get(args[++index]);
 			} else if ("--development-terrain-seed".equals(argument)
 				&& !developmentTerrainSeed) {
 				developmentTerrainSeed = true;
@@ -391,7 +400,7 @@ public final class WorldBuilderCli {
 			}
 		}
 		if (installation == null || runtime == null || report == null
-			|| displayName == null || port == 0 || confirmation == null) {
+			|| displayName == null || port == 0 || confirmation == null || (providerCatalog == null) != (compositionIdentity == null)) {
 			System.err.println("ERROR: create-project requires --installation-root, "
 				+ "--runtime-root, --discovery-report, --display-name, --port, "
 				+ "and --confirm CREATE. --target-root is required for a target-backed report.");
@@ -399,8 +408,9 @@ public final class WorldBuilderCli {
 			return 2;
 		}
 		try {
+			WorldBuilderProviderCatalog.Composition base = providerCatalog == null ? null : WorldBuilderProviderCatalog.resolve(providerCatalog, compositionIdentity);
 			WorldBuilderAdaptiveProjectLifecycle.ProjectResult created =
-				new WorldBuilderAdaptiveProjectLifecycle().create(
+				new WorldBuilderAdaptiveProjectLifecycle(null, base).create(
 					installation, runtime, target, report, displayName, port, confirmation,
 					itemVisualMappings, developmentTerrainSeed);
 			System.out.print(created.toJson());
@@ -775,6 +785,33 @@ public final class WorldBuilderCli {
 		} catch (Exception failure) {
 			System.err.println("ERROR: Adaptive World Builder launch failed: "
 				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int exportCurrentBaseCatalog(String[] args) {
+		Path catalog = null, identity = null, destination = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if (index + 1 >= args.length) return argumentError(argument);
+			Path value = Paths.get(args[++index]);
+			if ("--provider-catalog-root".equals(argument) && catalog == null) catalog = value;
+			else if ("--composition-identity".equals(argument) && identity == null) identity = value;
+			else if ("--destination".equals(argument) && destination == null) destination = value;
+			else return argumentError(argument);
+		}
+		if (catalog == null || identity == null || destination == null) {
+			System.err.println("ERROR: export-current-base-catalog requires --provider-catalog-root, --composition-identity and --destination <new-absolute-directory>.");
+			return 2;
+		}
+		try {
+			System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentBaseCatalogExport.export(catalog, identity, destination)));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current Base catalog export failed: " + failure.getMessage()
+				+ ". An incomplete new destination is not an accepted candidate.");
 			return 4;
 		}
 	}

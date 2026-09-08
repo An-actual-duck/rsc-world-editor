@@ -478,8 +478,11 @@ final class WorldBuilderCurrentRuntimeContracts {
 		Map<String,Object> adapter) throws WorldBuilderContractException {
 		String op = "classify-historical-target";
 		boolean sourceIntake = WorldBuilderPreservationSourceIntake.matchesAdapter(adapter);
+		boolean ownerKeysValid = true;
 		Map<String,Object> sourceConfiguration = null;
 		if (sourceIntake) {
+			try { WorldBuilderPreservationPersistentInputs.validateOwnerKeys(target); }
+			catch (WorldBuilderContractException invalid) { ownerKeysValid = false; }
 			try {
 				target.requiredFile("server/preservation.conf");
 				target.requiredFile("server/connections.conf");
@@ -499,6 +502,8 @@ final class WorldBuilderCurrentRuntimeContracts {
 			rules.put(WorldBuilderPortablePath.collisionKey(path, op), rule);
 			WorldBuilderReadOnlyTarget.FileState state;
 			try {
+				if (sourceIntake && WorldBuilderPreservationPersistentInputs.admits(path))
+					WorldBuilderPreservationPersistentInputs.validatePresent(target, path);
 				state = target.optionalState(string(rule, "role", op), path);
 			} catch (WorldBuilderContractException unsafe) {
 				result.add(new Evidence(string(rule, "role", op), path, "T5", "blocker", "",
@@ -508,6 +513,22 @@ final class WorldBuilderCurrentRuntimeContracts {
 			String baselineHash = string(rule, "baselineSha256", op);
 			long baselineSize = integer(rule, "baselineSize", op);
 			if (sourceIntake && state.present) {
+				if (WorldBuilderPreservationPersistentInputs.admits(path)) {
+					if (path.endsWith(".pem") && !ownerKeysValid) {
+						result.add(new Evidence(state.role, path, "T5", "blocker", "",
+							"Existing owner keypair is incomplete, invalid or mismatched; replacement keys are not generated.", state.size, state.sha256));
+						continue;
+					}
+					try {
+						WorldBuilderPreservationPersistentInputs.validate(target, path, state.size);
+						result.add(new Evidence(state.role, path, "T2B", "preserve-state", "",
+							"Bounded persistent input retained externally; database schema validation remains pending provider sealed migration.", state.size, state.sha256));
+					} catch (WorldBuilderContractException unsafe) {
+						result.add(new Evidence(state.role, path, "T5", "blocker", "",
+							"Persistent input is unsafe or differs from the compiled admission policy.", state.size, state.sha256));
+					}
+					continue;
+				}
 				if (!WorldBuilderPreservationSourceIntake.modeMatches(target.requiredFile(path), path)) {
 					result.add(new Evidence(state.role, path, "T5", "blocker", "",
 						"Historical source input mode differs from the reviewed source-layout policy.",

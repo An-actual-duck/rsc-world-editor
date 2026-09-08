@@ -119,6 +119,9 @@ add_group() {
 				test-world-builder-preservation-source-intake.py
 				test-world-builder-preservation-map-reconciliation.py
 				test-world-builder-preservation-map-conversion.py
+				test-world-builder-base-project-content.py
+				test-world-builder-base-project-lifecycle.py
+				test-world-builder-base-catalog-export.py
 				test-world-builder-discovery.py
 				test-world-builder-map-migration-choice.py
 				test-world-builder-packed-conversion.py

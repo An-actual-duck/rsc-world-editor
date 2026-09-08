@@ -48,6 +48,7 @@ final class WorldBuilderPreservationSourceIntake {
 			rule.put("evidenceKind", "configuration");
 			rule.put("recognizedDeltas", new ArrayList<Object>()); rules.add(rule);
 		}
+		rules.addAll(WorldBuilderPreservationPersistentInputs.evidenceRules());
 		Collections.sort(rules, new Comparator<Object>() {
 			@Override public int compare(Object first, Object second) {
 				return ((String)object(first).get("relativePath"))
