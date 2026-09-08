@@ -9,7 +9,7 @@
 | Last reconciled | 2026-09-08, runtime publication and Base workflow integration checkpoint |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
-| Checkpoint scope | Base-first implementation resumed; production activation remains disabled and live-target mutation unauthorized |
+| Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
 | Published Editor implementation | `b001b0def66374d69fdae4ed6238ec6a7bf22a35`; Base workflow topics not yet published on `main` |
 | Published runtime | `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2` |
 | Editor's adopted runtime | Integration topic pins `4d589cb4` in `060ecfb`; published Editor `main` still pins `d2102175` |
@@ -191,7 +191,12 @@ verified native provider identity rather than only reading its identity file.
 
 Both workers subsequently hit their usage limit; their checkpoints are retained,
 and no retry loop was started. The manager finished the bounded intake correction
-and acceptance locally. Upgrade checkpoint `b4f6621` remains ACTIVE, not accepted:
+and acceptance locally. A subsequent genuine project-derived upgrade preview
+passed against the retained invented-state target. It exposed a missing
+capability fingerprint before closed contract validation, fixed in upgrade
+checkpoint `dd1eed1`. Preview remains distinct from sealed database migration
+and activation acceptance; no upgrade was applied in that check.
+The upgrade branch remains ACTIVE, not accepted:
 initial and managed-successor connected execution, desktop recovery, repeated
 map import, packaging integration and fresh packaged acceptance remain. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
