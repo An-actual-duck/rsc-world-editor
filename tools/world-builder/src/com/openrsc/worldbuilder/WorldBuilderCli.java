@@ -108,6 +108,9 @@ public final class WorldBuilderCli {
 		if ("export-adaptive".equals(args[0])) {
 			return exportAdaptive(args);
 		}
+		if ("export-current-base-catalog".equals(args[0])) {
+			return exportCurrentBaseCatalog(args);
+		}
 		if ("export-active-adaptive".equals(args[0])) {
 			return exportActiveAdaptive(args);
 		}
@@ -780,6 +783,33 @@ public final class WorldBuilderCli {
 		} catch (Exception failure) {
 			System.err.println("ERROR: Adaptive World Builder launch failed: "
 				+ failure.getMessage());
+			return 4;
+		}
+	}
+
+	private static int exportCurrentBaseCatalog(String[] args) {
+		Path catalog = null, identity = null, destination = null;
+		for (int index = 1; index < args.length; index++) {
+			String argument = args[index];
+			if (index + 1 >= args.length) return argumentError(argument);
+			Path value = Paths.get(args[++index]);
+			if ("--provider-catalog-root".equals(argument) && catalog == null) catalog = value;
+			else if ("--composition-identity".equals(argument) && identity == null) identity = value;
+			else if ("--destination".equals(argument) && destination == null) destination = value;
+			else return argumentError(argument);
+		}
+		if (catalog == null || identity == null || destination == null) {
+			System.err.println("ERROR: export-current-base-catalog requires --provider-catalog-root, --composition-identity and --destination <new-absolute-directory>.");
+			return 2;
+		}
+		try {
+			System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentBaseCatalogExport.export(catalog, identity, destination)));
+			return 0;
+		} catch (WorldBuilderContractException refusal) {
+			return adaptiveRefusal(refusal);
+		} catch (Exception failure) {
+			System.err.println("ERROR: Current Base catalog export failed: " + failure.getMessage()
+				+ ". An incomplete new destination is not an accepted candidate.");
 			return 4;
 		}
 	}

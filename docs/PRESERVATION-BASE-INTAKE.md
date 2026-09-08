@@ -47,6 +47,17 @@ under the installation. Both paths use the existing verified provider catalog
 resolver, with no fallback to historical or Advanced executables. Packaging
 still needs to ship that selected catalog.
 
+The packaging helper `export-current-base-catalog` accepts
+`--provider-catalog-root`, `--composition-identity`, and
+`--destination <new-absolute-installation-root>`. It copies only selected
+artifact `sourcePath` entries, the platform's schema-contract closure, and the
+exact identity at `current-platform/composition-identity.json`. It preserves
+source bytes/modes and proves that the compiled Java resolver accepts the
+relocated catalog. Provider build scripts may be inventory-bound payloads;
+the helper never executes them or includes the full source checkout. Existing,
+linked, or overlapping destinations are refused. A failed partial new tree
+is not a candidate and must not be reused as a completed export.
+
 This wiring checkpoint is not native launch acceptance and does not authorize
 server upgrade/map-import mutation. The selected provider must explicitly
 advertise `current-base-isolated-authoring-v1`; the older pinned normal-only
