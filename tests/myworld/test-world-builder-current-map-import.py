@@ -18,6 +18,16 @@ class CurrentMapImportRecoveryTest(unittest.TestCase):
     def setUpClass(cls):
         fixture.InstalledCutoverTest.setUpClass()
         cls.classes = fixture.InstalledCutoverTest.classes
+        harness = cls.classes / "CurrentActionsProbe.java"
+        harness.write_text('''package com.openrsc.worldbuilder;
+import java.nio.file.Paths;
+public final class CurrentActionsProbe {
+    public static void main(String[] args) throws Exception {
+        System.out.println(WorldBuilderCurrentRuntimeUserActions.workspace(Paths.get(args[0])));
+    }
+}
+''')
+        subprocess.run(["javac", "-cp", str(cls.classes), "-d", str(cls.classes), str(harness)], check=True)
 
     @classmethod
     def tearDownClass(cls):
@@ -63,6 +73,28 @@ class CurrentMapImportRecoveryTest(unittest.TestCase):
                                "recover-current-map-import", "--target-root", str(self.f.target),
                                "--transaction-root", str(self.workspace), "--transaction-id", "one",
                                "--confirmed-plan-sha256", fingerprint or self.fingerprint], capture_output=True, text=True, timeout=20)
+
+    def test_user_workspace_is_private_external_and_reusable(self):
+        nested_installation = self.f.target / "World Builder 2"
+        nested_installation.mkdir()
+        def run(target):
+            return subprocess.run(["java", "-cp", str(self.classes),
+                                   "com.openrsc.worldbuilder.CurrentActionsProbe", str(target)],
+                                  capture_output=True, text=True, timeout=20)
+        result = run(self.f.target)
+        self.assertEqual(0, result.returncode, result.stderr)
+        workspace = Path(result.stdout.strip())
+        self.assertEqual(self.f.target.parent, workspace.parent)
+        self.assertEqual(0o700, workspace.stat().st_mode & 0o777)
+        self.assertEqual(result.stdout, run(self.f.target).stdout)
+        self.assertEqual([], list(nested_installation.iterdir()))
+        workspace.chmod(0o755)
+        self.assertNotEqual(0, run(self.f.target).returncode)
+        self.assertEqual(0o755, workspace.stat().st_mode & 0o777)
+        workspace.rmdir()  # Empty test-owned fixture only.
+        workspace.symlink_to(self.workspace, target_is_directory=True)
+        self.assertNotEqual(0, run(self.f.target).returncode)
+        self.assertTrue(workspace.is_symlink())
 
     def test_precommit_recovers_exact_metadata_and_removes_only_owned_maps(self):
         self.assertEqual(73, self.f.run_cutover("apply", "selection-published").returncode)

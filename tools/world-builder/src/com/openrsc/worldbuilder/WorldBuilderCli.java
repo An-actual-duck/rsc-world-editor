@@ -974,6 +974,21 @@ public final class WorldBuilderCli {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+				Path target = WorldBuilderCurrentRuntimeUserActions.target(project);
+				Path exported = new WorldBuilderAdaptiveExporter().export(project.projectRoot).exportDirectory;
+				WorldBuilderCurrentRuntimeMapImport importer = new WorldBuilderCurrentRuntimeMapImport();
+				WorldBuilderCurrentRuntimeMapImport.Plan preview = importer.preview(project.projectRoot,
+					exported, target, WorldBuilderCurrentRuntimeUserActions.workspace(target),
+					java.util.UUID.randomUUID().toString());
+				System.err.print(preview.humanSummary());
+				if (!confirmAdaptive(preview.confirmation(), "Type the exact IMPORT-MAP confirmation above, or press Enter to cancel: ")) {
+					System.err.println("Import cancelled; no target file was changed.");
+					return 0;
+				}
+				System.out.print(importer.apply(preview, preview.confirmation()));
+				return 0;
+			}
 			if ("standalone-empty".equals(project.origin)) {
 				// The importer performs the stable NO_TARGET refusal without resolving parent.
 				new WorldBuilderAdaptiveImporter().preview(project.projectRoot, null, null);
@@ -2163,12 +2178,12 @@ public final class WorldBuilderCli {
 			+ "\n  WorldBuilderCli recover-current-runtime-upgrade --target-root <offline-server>"
 			+ " --transaction-root <external-sibling> --transaction-id <id>"
 			+ "\n  WorldBuilderCli discover-legacy-landscape --target-root <path>"
+			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli preview-current-map-import --project <project-root> --export <export-root>"
 			+ " --target-root <offline-server> --transaction-root <external-sibling> --transaction-id <id>"
 			+ "\n  WorldBuilderCli apply-current-map-import <same preview arguments> --confirmation-identity <exact-preview-identity>"
 			+ "\n  WorldBuilderCli recover-current-map-import --target-root <offline-server>"
 			+ " --transaction-root <external-sibling> --transaction-id <id> --confirmed-plan-sha256 <reviewed-plan-hash>"
-			+ " [--configuration-role <role>]"
 			+ "\n  WorldBuilderCli discover-item-provider --installation-root <World Builder 2>"
 			+ " --source-root <server-or-provider-parent>"
 			+ "\n  WorldBuilderCli import-item-provider --installation-root <World Builder 2>"

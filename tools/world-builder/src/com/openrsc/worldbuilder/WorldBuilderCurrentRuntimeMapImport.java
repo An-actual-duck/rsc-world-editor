@@ -24,6 +24,8 @@ final class WorldBuilderCurrentRuntimeMapImport {
             || !Files.getFileStore(target).equals(Files.getFileStore(workspace))) throw unsafe("Invalid external same-filesystem map transaction location.");
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(projectPath, true);
+        if (workspace.startsWith(project.projectRoot) || project.projectRoot.startsWith(workspace))
+            throw unsafe("Map transaction workspace must be separate from the project.");
         Map<String,Object> projectTarget = object(project.manifest.get("target"));
         if (!"target-packed".equals(project.origin) || !"preservation-source-jag-v1".equals(projectTarget.get("adapterId"))
             || !"preservation-c0102e-data-conversion-v1".equals(projectTarget.get("capabilityId")))
@@ -37,6 +39,10 @@ final class WorldBuilderCurrentRuntimeMapImport {
             throw unsafe("The installed target belongs to a different project.");
         for (String field : COMPOSITION) if (!Objects.equals(identity.get(field), ledger.get(field)))
             throw unsafe("Upgrade Target Runtime to the project's current composition before importing maps.");
+        for (String role : Arrays.asList("server", "client"))
+            if (!WorldBuilderCurrentRuntimeInstance.treeFingerprint(project.projectRoot.resolve("source/provider/installed/" + role), false)
+                .equals(spec.get(role + "CodeTreeSha256")))
+                throw unsafe("Installed code differs from the project's exact selected Base payload.");
         WorldBuilderAdaptiveExporter.VerifiedExport export = WorldBuilderAdaptiveExporter.validate(exportPath, project);
         for (Integer encoding : export.packageValue.requiredEncodingVersions)
             if (encoding.intValue() < 1 || encoding.intValue() > 5) throw unsafe("Map encoding is outside the accepted Base runtime contract.");
@@ -318,6 +324,14 @@ final class WorldBuilderCurrentRuntimeMapImport {
             if (bytes.length > 1048576) throw unsafe("Map transaction plan exceeds its recovery bound.");
         }
         String confirmation() { return "IMPORT-MAP "+fingerprint; }
+        String humanSummary() {
+            return "Import Map Changes — Current Base\nServer target: " + target
+                + "\nProject: " + value.get("projectRoot") + "\nExport: " + value.get("exportRoot")
+                + "\nRetains the installed code, configuration, player database, and side state."
+                + "\nBoth server and client must remain offline."
+                + "\nRecovery workspace: " + workspace + "\nTransaction: " + value.get("transactionId")
+                + "\nKeep this confirmation for interrupted recovery: " + confirmation() + "\n";
+        }
         String toJson() { Map<String,Object> result=new LinkedHashMap<String,Object>(value);result.put("planFingerprintSha256",fingerprint);result.put("confirmationIdentity",confirmation());return WorldBuilderJsonDocuments.pretty(result); }
     }
 }
