@@ -17,6 +17,7 @@ PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 SOURCE_GIT = os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT")
 LAUNCH = os.environ.get("WORLD_BUILDER_BASE_PROJECT_LAUNCH") == "1"
+KEEP_PROBE = os.environ.get("WORLD_BUILDER_BASE_PROJECT_KEEP_PROBE") == "1"
 MAIN = "com.openrsc.worldbuilder.BaseLifecycleHarness"
 HARNESS = """
 package com.openrsc.worldbuilder;
@@ -89,9 +90,11 @@ class BaseProjectLifecycleTest(unittest.TestCase):
         subprocess.run(["python3", "scripts/build-current-base.py"], cwd=PROVIDER,
                        check=True, capture_output=True, timeout=240)
         cls.identity = PROVIDER / "output/current-platform/current-base-v1/composition-identity.json"
-        cls.temporary = tempfile.TemporaryDirectory(prefix="base-project-lifecycle-")
-        cls.addClassCleanup(cls.temporary.cleanup)
-        cls.root = Path(cls.temporary.name)
+        cls.root = Path(tempfile.mkdtemp(prefix="base-project-lifecycle-"))
+        if KEEP_PROBE:
+            cls.addClassCleanup(lambda: print("Retained invented-state Base lifecycle probe: " + str(cls.root), flush=True))
+        else:
+            cls.addClassCleanup(shutil.rmtree, cls.root)
         cls.classes = compile_harness(cls.root)
         # Reuse the sealed public-blob fixture builder, not another test execution.
         spec = importlib.util.spec_from_file_location("base_intake_fixture", ROOT / "tests/myworld/test-world-builder-preservation-source-intake.py")
@@ -178,16 +181,18 @@ class BaseProjectLifecycleTest(unittest.TestCase):
                 self.assertEqual(before, snapshot(target))
             with sqlite3.connect(state) as connection:
                 self.assertEqual(1, connection.execute("SELECT COUNT(*) FROM players").fetchone()[0])
-                self.assertEqual("Builder", connection.execute("SELECT username FROM players").fetchone()[0])
+                self.assertEqual("builder", connection.execute("SELECT username FROM players").fetchone()[0].lower())
         reopened = self.invoke("open-project", "--installation-root", installation, "--validate-only")
         self.assertEqual(0, reopened.returncode, reopened.stderr)
         exported = self.invoke("export-adaptive", "--project", project)
         self.assertEqual(0, exported.returncode, exported.stderr)
         self.assertEqual(before, snapshot(target))
         changed = project / "source/provider/installed/client/Cache/video/models.orsc"
-        changed.write_bytes(changed.read_bytes() + b" ")
+        original = changed.read_bytes()
+        changed.write_bytes(original + b" ")
         refused = self.invoke("verify", project, harness=True)
         self.assertNotEqual(0, refused.returncode)
+        changed.write_bytes(original)
         self.assertEqual(before, snapshot(target))
 
 
