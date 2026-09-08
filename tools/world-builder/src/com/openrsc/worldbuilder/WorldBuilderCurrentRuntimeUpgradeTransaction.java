@@ -187,6 +187,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		capability.put("allowedVariantIds", Collections.<Object>singletonList("current-base-v1"));
 		capability.put("requiredCapabilityIds", Collections.<Object>singletonList("canonical-signed-layered-map-v1"));
 		capability.put("requiredModuleIds", new ArrayList<Object>());
+		WorldBuilderAdaptiveExporter.bindFingerprint(capability, "capabilityFingerprintSha256");
 		return WorldBuilderCurrentRuntimeContracts.builtIn(WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, capability);
 	}
 
