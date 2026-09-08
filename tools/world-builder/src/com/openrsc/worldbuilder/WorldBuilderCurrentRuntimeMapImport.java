@@ -30,7 +30,7 @@ final class WorldBuilderCurrentRuntimeMapImport {
         if (!"target-packed".equals(project.origin) || !"preservation-source-jag-v1".equals(projectTarget.get("adapterId"))
             || !"preservation-c0102e-data-conversion-v1".equals(projectTarget.get("capabilityId")))
             throw unsafe("Map import requires the verified native Preservation Base project.");
-        Map<String,Object> identity = read(project.projectRoot.resolve("source/provider/composition-identity.json"));
+        Map<String,Object> identity = WorldBuilderCurrentBaseProjectContent.verifiedIdentity(project.projectRoot);
         if (!Boolean.TRUE.equals(identity.get("installable")) || !"current-base-v1".equals(identity.get("variantId")))
             throw unsafe("Project does not select installable Current Base.");
         Map<String,Object> spec = WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target);

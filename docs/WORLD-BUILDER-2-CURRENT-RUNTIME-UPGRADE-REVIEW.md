@@ -181,11 +181,21 @@ integration remains to be completed.
 
 Intake now has a focused, relocated selected-Base catalog export for packaging;
 it preserves the exact selected artifact/schema paths without shipping a whole
-provider checkout. Native two-session project execution and genuine initial and
-managed-successor upgrades are the next connected evidence, followed by repeated
-map import and fresh packaged acceptance. Advanced and unrelated polish remain
-outside this Base closure pass. No accepted candidate or live-target mutation is
-implied.
+provider checkout. Intake handoff `478f2af` is integrated on the manager topic.
+Genuine native creation, two authenticated sessions with clean restart, reopen,
+export and tamper refusal passed (2 tests, 118.923 seconds), with the historical
+target unchanged and the Builder account confined to isolated authoring state.
+The connected test found and fixed a missing diagnostics-directory creation
+before moving conversion evidence. Map preview now consumes the complete
+verified native provider identity rather than only reading its identity file.
+
+Both workers subsequently hit their usage limit; their checkpoints are retained,
+and no retry loop was started. The manager finished the bounded intake correction
+and acceptance locally. Upgrade checkpoint `b4f6621` remains ACTIVE, not accepted:
+initial and managed-successor connected execution, desktop recovery, repeated
+map import, packaging integration and fresh packaged acceptance remain. Advanced
+and unrelated polish remain outside this Base closure pass. No accepted candidate
+or live-target mutation is implied.
 
 ### Ordered remaining work
 
