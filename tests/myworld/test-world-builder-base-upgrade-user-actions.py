@@ -54,6 +54,12 @@ public final class BaseUpgradeActionsProbe {
     if (!prepared.summary().contains(prepared.upgradePlan.confirmationIdentity())
         || !prepared.summary().contains(prepared.upgradePlan.fingerprint()))
       throw new AssertionError("Display the exact reviewed plan and confirmation");
+    try {
+      model.prepareServerRecovery(model.projects().get(0));
+      throw new AssertionError("An empty current workspace cannot offer recovery");
+    } catch (java.io.IOException expected) {
+      if (!expected.getMessage().contains("No interrupted current transaction")) throw expected;
+    }
     System.out.print(prepared.upgradePlan.toJson());
   }
 }
@@ -73,6 +79,10 @@ public final class BaseUpgradeActionsProbe {
         self.assertIn("Runtime upgrade cancelled; no target file was changed.", cancelled.stderr)
         self.assertEqual(before, self.native.snapshot(target))
         self.assertFalse((target / ".world-builder/runtime-ledger-v1.json").exists())
+        recovery = fixture.invoke("recover-active-adaptive", "--installation-root", installation)
+        self.assertNotEqual(0, recovery.returncode)
+        self.assertIn("No interrupted current transaction", recovery.stderr)
+        self.assertEqual(before, self.native.snapshot(target))
 
 
 if __name__ == "__main__":

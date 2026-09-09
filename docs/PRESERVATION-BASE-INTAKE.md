@@ -88,11 +88,11 @@ Focused transaction (33), instance (13), successor topology (4), and empty-filte
 database, isolated disposable ports, normal owned-window login, saved map edits,
 and repeated map-only imports/restarts. The normal login helper's synthetic
 all-green-map assumption is replaced with imported-world detail, non-void, and
-visible-player checks. Acceptance was exercised in two phases on the same
-retained disposable installation: real initial upgrade, then normal login and
-two saved-map imports/restarts after fixing the connected failures below. The
-fresh all-in-one regression remains part of consolidated acceptance; this is not
-an uninterrupted full-suite or packaged-candidate pass.
+visible-player checks. After the two-phase diagnostic proof, the complete fresh
+all-in-one regression passed in 319.801 seconds: genuine creation, real initial
+upgrade, normal login, and two saved-map imports/restarts with state-safe recovery.
+This closes the connected-cycle gap, but is not a full-suite or packaged-candidate
+pass.
 
 The established desktop **Upgrade Target Runtime** action and active-project
 terminal command now route native Base projects to this guarded transaction,
@@ -127,6 +127,35 @@ remained unchanged. A completed-upgrade recovery request was correctly refused
 without changing gameplay state; it is not a completed-upgrade Undo operation.
 The six focused map recovery/workspace checks also pass after the profile fix.
 
+## Interrupted recovery controls
+
+Native Base projects now use **Advanced / Recovery → Recover Interrupted Server
+Transaction** for both upgrades and map imports. The existing recovery shortcut
+uses the same current-transaction path. It looks only in the private external
+workspace shown by the normal upgrade/import preview, binds the selected project,
+and requires exactly one interrupted transaction. Preview does not create a
+missing recovery directory or change the target. Completed transactions are not
+offered as Undo actions; ambiguous histories are left untouched for explicit
+transaction review.
+
+Review the operation, server target, journal location, and exact recovery
+confirmation. Keep both roles offline. Apply rechecks the evidence before invoking
+the existing recovery executor. Upgrade confirmation binds the validated plan,
+receipt, and any pending receipt; map confirmation binds the exact map plan.
+Pre-commit recovery restores the verified prior state. A committed activation is
+finalized without restoring an older player database. If the transaction was
+started with an explicitly chosen CLI workspace, use its original exact recovery
+command rather than relocating its evidence into the desktop workspace.
+
+The focused upgrade suite passes 34 tests. The map suite passes 9 tests including
+desktop preview without writes, wrong/stale confirmations, occupied role leases,
+pre-commit rollback, and post-commit finalization with later gameplay retained.
+This is shared model/transaction coverage, not a claim of packaged GUI acceptance.
+A genuine native-project control test also passes (108.681 seconds), confirming
+desktop upgrade preview, terminal cancellation, and native desktop/terminal
+recovery routing without offering an operation for an empty transaction history
+or changing the target. The fresh connected-cycle pass is recorded above.
+
 No live-target mutation or candidate is authorized by these test results. Managed
-successor end-to-end acceptance, desktop current-transaction recovery,
-packaging integration, and consolidated candidate acceptance remain work to close.
+successor end-to-end acceptance, packaging integration, and consolidated candidate
+acceptance remain work to close.

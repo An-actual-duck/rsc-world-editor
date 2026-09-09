@@ -363,7 +363,7 @@ final class WorldBuilderDesktopLauncher {
 				@Override public void run() { refreshProjects(null); }
 			}));
 			recovery.add(new JSeparator());
-			recovery.add(menu("Recover Interrupted Server Map Import…", new Runnable() {
+			recovery.add(menu("Recover Interrupted Server Transaction…", new Runnable() {
 				@Override public void run() { recoverSelectedProjectImport(); }
 			}));
 			recovery.add(new JSeparator());
@@ -771,7 +771,7 @@ final class WorldBuilderDesktopLauncher {
 
 		private void recoverSelectedProjectImport() {
 			final WorldBuilderLauncherModel.ProjectEntry entry =
-				selectedForServerAction("recover an interrupted server import");
+				selectedForServerAction("recover an interrupted server transaction");
 			if (entry == null) return;
 			runTask("Inspecting durable transaction evidence…",
 				new Task<WorldBuilderLauncherModel.PreparedRecovery>() {
@@ -780,8 +780,8 @@ final class WorldBuilderDesktopLauncher {
 				}, new Success<WorldBuilderLauncherModel.PreparedRecovery>() {
 					@Override public void accept(
 						final WorldBuilderLauncherModel.PreparedRecovery prepared) {
-						if (!confirmTransaction("Recover Interrupted Server Map Import",
-							"Recover Import", prepared.summary())) return;
+						if (!confirmTransaction("Recover Interrupted Server Transaction",
+							"Recover", prepared.summary())) return;
 						runTask("Restoring the exact verified transaction state…",
 							new Task<String>() {
 								@Override public String run() throws Exception {

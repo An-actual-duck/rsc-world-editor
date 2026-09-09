@@ -624,6 +624,13 @@ final class WorldBuilderLauncherModel {
 	PreparedRecovery prepareServerRecovery(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before recovery.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			Path target = WorldBuilderCurrentRuntimeUserActions.target(project);
+			return new PreparedRecovery(WorldBuilderCurrentRuntimeRecoveryActions.preview(target, project.projectId,
+				WorldBuilderCurrentRuntimeUserActions.workspace(target, false)));
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
 		return new PreparedRecovery(recovery,
@@ -633,6 +640,8 @@ final class WorldBuilderLauncherModel {
 	String applyServerRecovery(PreparedRecovery prepared)
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException("Recovery preview was not supplied.");
+		if (prepared.current != null) return "Interrupted transaction recovery completed.\n\n"
+			+ WorldBuilderCurrentRuntimeRecoveryActions.apply(prepared.current, prepared.current.confirmation());
 		WorldBuilderAdaptiveRecovery.RecoveryResult result =
 			prepared.recovery.apply(prepared.preview, "RECOVER");
 		return "Interrupted map import recovery completed successfully.\n\nTransaction: "
@@ -794,18 +803,26 @@ final class WorldBuilderLauncherModel {
 	}
 
 	static final class PreparedRecovery {
+		final WorldBuilderCurrentRuntimeRecoveryActions.Preview current;
 		final WorldBuilderAdaptiveRecovery recovery;
 		final WorldBuilderAdaptiveRecovery.Preview preview;
 		final Path target;
 
 		PreparedRecovery(WorldBuilderAdaptiveRecovery recovery,
 			WorldBuilderAdaptiveRecovery.Preview preview, Path target) {
+			this.current = null;
 			this.recovery = recovery;
 			this.preview = preview;
 			this.target = target;
 		}
 
+		PreparedRecovery(WorldBuilderCurrentRuntimeRecoveryActions.Preview current) {
+			this.current = current; this.target = current.target;
+			this.recovery = null; this.preview = null;
+		}
+
 		String summary() {
+			if (current != null) return current.summary();
 			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}

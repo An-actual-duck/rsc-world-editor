@@ -158,6 +158,28 @@ final class WorldBuilderCurrentRuntimeMapImport {
     }
 
     String recover(Path target, Path workspace, String id, String confirmedPlanHash) throws IOException, WorldBuilderContractException {
+        Map<String,Object> plan = readRecoveryPlan(target, workspace, id, confirmedPlanHash);
+        Path transaction = workspace.resolve("map-" + id);
+        WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.read(transaction.resolve("activation"), target, string(plan, "cutoverPlanSha256"));
+        try (WorldBuilderCurrentRuntimeOfflineLease offline = WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(
+            target.resolve(INSTANCE + "/installation"), object(plan.get("ports")))) {
+            return recoverLocked(plan, target, transaction, cutover, offline.installedLease());
+        }
+    }
+
+    Map<String,Object> previewRecovery(Path target, Path workspace, String id, String confirmedPlanHash)
+        throws IOException, WorldBuilderContractException {
+        Map<String,Object> plan = readRecoveryPlan(target, workspace, id, confirmedPlanHash);
+        WorldBuilderCurrentRuntimeCutover.read(workspace.resolve("map-" + id + "/activation"), target, string(plan, "cutoverPlanSha256"));
+        try (WorldBuilderCurrentRuntimeOfflineLease offline = WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(
+            target.resolve(INSTANCE + "/installation"), object(plan.get("ports")))) {
+            offline.verifyInstalledHeld();
+            return plan;
+        }
+    }
+
+    private static Map<String,Object> readRecoveryPlan(Path target, Path workspace, String id, String confirmedPlanHash)
+        throws IOException, WorldBuilderContractException {
         directory(target); directory(workspace);
         if (target.startsWith(workspace) || workspace.startsWith(target)
             || !Files.getFileStore(target).equals(Files.getFileStore(workspace))) throw unsafe("Invalid external recovery workspace.");
@@ -165,13 +187,11 @@ final class WorldBuilderCurrentRuntimeMapImport {
         Path transaction = workspace.resolve("map-" + id);
         byte[] bytes = bytes(transaction.resolve("map-plan.json"));
         if (!hash(bytes).equals(confirmedPlanHash)) throw unsafe("Recovery requires the exact confirmed map plan fingerprint.");
-        Map<String,Object> plan = read(transaction.resolve("map-plan.json"));
+        Map<String,Object> plan;
+        try { plan = WorldBuilderJsonDocuments.readObject(bytes, "map-recovery"); }
+        catch (WorldBuilderDiscoveryException bad) { throw unsafe("Malformed map recovery plan."); }
         validateRecovery(plan, target, id);
-        WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.read(transaction.resolve("activation"), target, string(plan, "cutoverPlanSha256"));
-        try (WorldBuilderCurrentRuntimeOfflineLease offline = WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(
-            target.resolve(INSTANCE + "/installation"), object(plan.get("ports")))) {
-            return recoverLocked(plan, target, transaction, cutover, offline.installedLease());
-        }
+        return plan;
     }
 
     private static String recoverLocked(Map<String,Object> plan, Path target, Path transaction,

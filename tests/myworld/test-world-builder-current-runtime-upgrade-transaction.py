@@ -544,6 +544,19 @@ public final class CurrentUpgradeHarness {
             System.out.print(transaction.apply(preview, confirmation).toJson());
         } else if ("recover".equals(operation)) {
             System.out.print(transaction.recover(target, transactions, transactionId).toJson());
+        } else if (operation.startsWith("desktop-recover")) {
+            WorldBuilderCurrentRuntimeRecoveryActions.Preview recovery = WorldBuilderCurrentRuntimeRecoveryActions.preview(
+                target, (String)WorldBuilderCurrentRuntimeContracts.read(WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, project).root.get("projectId"), transactions);
+            if ("desktop-recover-preview".equals(operation)) System.out.print(recovery.summary());
+            else if ("desktop-recover-stale".equals(operation)) {
+                Path receipt = transactions.resolve(transactionId).resolve("receipt.json");
+                Map<String,Object> value = WorldBuilderJsonDocuments.readObject(receipt);
+                value.put("failureType", "changed-after-preview");
+                WorldBuilderAdaptiveExporter.bindFingerprint(value, "receiptFingerprintSha256");
+                Files.write(receipt, WorldBuilderJsonDocuments.pretty(value).getBytes(StandardCharsets.UTF_8));
+                System.out.print(WorldBuilderCurrentRuntimeRecoveryActions.apply(recovery, recovery.confirmation()));
+            } else System.out.print(WorldBuilderCurrentRuntimeRecoveryActions.apply(recovery,
+                "desktop-recover-wrong".equals(operation) ? "RECOVER:wrong" : recovery.confirmation()));
         } else if ("map-gate".equals(operation)) {
             System.out.print(transaction.mapImportAvailable(target, catalog,
                 identity, adapter, project) ? "true" : "false");
@@ -2044,6 +2057,15 @@ public final class RuntimeConfigHarness {
         self.assertTrue(receipt["recoveryRequired"])
         self.assertTrue((workspace / txid / "upgrade-plan.json").is_file())
         self.assertNotEqual(before, tree_snapshot(target))
+        pending_target = tree_snapshot(target)
+        pending_workspace = tree_snapshot(workspace)
+        preview = self.run_harness("desktop-recover-preview", target, workspace, txid)
+        self.assertEqual(0, preview.returncode, preview.stderr)
+        self.assertIn("Recover Interrupted Runtime Upgrade", preview.stdout)
+        self.assertIn("RECOVER:", preview.stdout)
+        self.assertNotEqual(0, self.run_harness("desktop-recover-wrong", target, workspace, txid).returncode)
+        self.assertEqual(pending_target, tree_snapshot(target))
+        self.assertEqual(pending_workspace, tree_snapshot(workspace))
         recovered = subprocess.run(
             ["java", "-cp", str(self.classes),
              "com.openrsc.worldbuilder.WorldBuilderCli",
@@ -2056,6 +2078,27 @@ public final class RuntimeConfigHarness {
         self.assertEqual(before, tree_snapshot(target))
         receipt = json.loads(receipt_path.read_text())
         self.assert_receipt_schema(receipt)
+
+        self.assertEqual("rolled-back", receipt["status"])
+        self.assertTrue(receipt["rollbackComplete"])
+
+    def test_desktop_upgrade_recovery_rechecks_confirmed_evidence(self) -> None:
+        target = self.target("managed-n")
+        workspace = self.workspace()
+        before = tree_snapshot(target)
+        txid = "desktop-recovery"
+        interrupted = self.run_harness("apply", target, workspace, txid, "halt-after-release-published")
+        self.assertEqual(91, interrupted.returncode, interrupted.stderr)
+        pending = tree_snapshot(target)
+        stale = self.run_harness("desktop-recover-stale", target, workspace, txid)
+        self.assertNotEqual(0, stale.returncode)
+        self.assertIn("Recovery evidence changed after preview", stale.stderr)
+        self.assertEqual(pending, tree_snapshot(target))
+        recovered = self.run_harness("desktop-recover-apply", target, workspace, txid)
+        self.assertEqual(0, recovered.returncode, recovered.stderr)
+        self.assertEqual(before, tree_snapshot(target))
+        self.assertNotEqual(0, self.run_harness("desktop-recover-preview", target, workspace, txid).returncode)
+        receipt = json.loads((workspace / txid / "receipt.json").read_text())
         self.assertEqual("rolled-back", receipt["status"])
         self.assertTrue(receipt["rollbackComplete"])
 

@@ -1184,6 +1184,19 @@ public final class WorldBuilderCli {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+				Path target = WorldBuilderCurrentRuntimeUserActions.target(project);
+				WorldBuilderCurrentRuntimeRecoveryActions.Preview preview =
+					WorldBuilderCurrentRuntimeRecoveryActions.preview(target, project.projectId,
+						WorldBuilderCurrentRuntimeUserActions.workspace(target, false));
+				System.err.print(preview.summary());
+				if (!confirmAdaptive(preview.confirmation(), "\nType the exact RECOVER confirmation above, or press Enter to leave recovery pending: ")) {
+					System.err.println("Recovery left pending; keep the target offline.");
+					return 0;
+				}
+				System.out.print(WorldBuilderCurrentRuntimeRecoveryActions.apply(preview, preview.confirmation()));
+				return 0;
+			}
 			if ("standalone-empty".equals(project.origin)) {
 				new WorldBuilderAdaptiveRecovery().preview(project.projectRoot, null);
 			}

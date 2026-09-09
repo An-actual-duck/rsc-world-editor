@@ -209,12 +209,21 @@ negative live-listener regression checks. See
 
 The same retained installation has now passed two saved map imports, normal
 player restarts, and post-commit recovery with gameplay state retained. This
-connected proof was completed in phases after correcting a generated map-profile
-path that the existing runtime correctly refused; it is not a fresh uninterrupted
-full-suite or packaged-candidate pass.
+connected proof was first completed in phases after correcting a generated
+map-profile path that the existing runtime correctly refused. The subsequent
+fresh all-in-one regression passed in 319.801 seconds, including initial upgrade
+and both map imports/restarts. This is still not full-suite or packaged-candidate
+acceptance.
 
-The upgrade branch remains ACTIVE, not accepted. Managed-successor connected execution, desktop
-recovery, packaging integration and fresh packaged acceptance remain. Advanced
+Desktop recovery and the active-project recovery shortcut now select the exact
+interrupted native Base upgrade/map journal and use the existing guarded
+executors. Preview, project binding, stale-confirmation refusal, occupied roles,
+pre-commit rollback, post-commit state retention, and exclusion of completed Undo
+actions are covered by the 34 upgrade and 9 map tests. Custom CLI workspaces still
+use their explicit recovery commands; ambiguous histories are not guessed.
+
+The upgrade branch remains ACTIVE, not accepted. Managed-successor connected
+execution, packaging integration and fresh packaged acceptance remain. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
 or live-target mutation is implied.
 

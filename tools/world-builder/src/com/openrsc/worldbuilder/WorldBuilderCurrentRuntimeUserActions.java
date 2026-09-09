@@ -29,12 +29,16 @@ final class WorldBuilderCurrentRuntimeUserActions {
     }
 
     static Path workspace(Path target) throws IOException {
+        return workspace(target, true);
+    }
+
+    static Path workspace(Path target, boolean create) throws IOException {
         target = directory(target);
         Path parent = target.getParent();
         if (parent == null) throw new IOException("A filesystem root cannot be a managed server target.");
         Path workspace = parent.resolve(".world-builder-transactions-"
             + WorldBuilderHashes.sha256(target.toString().getBytes(StandardCharsets.UTF_8)).substring(0, 16));
-        if (!Files.exists(workspace, LinkOption.NOFOLLOW_LINKS)) {
+        if (create && !Files.exists(workspace, LinkOption.NOFOLLOW_LINKS)) {
             Files.createDirectory(workspace, PosixFilePermissions.asFileAttribute(
                 PosixFilePermissions.fromString("rwx------")));
             WorldBuilderAdaptiveDurability.forceDirectory(parent);

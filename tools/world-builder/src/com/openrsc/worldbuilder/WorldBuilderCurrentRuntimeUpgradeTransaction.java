@@ -408,6 +408,19 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 	Result recover(Path targetRoot, Path transactionRoot, String transactionId)
 		throws IOException, WorldBuilderContractException {
+		return recover(targetRoot, transactionRoot, transactionId, null);
+	}
+
+	RecoveryPreview previewRecovery(Path targetRoot, Path transactionRoot, String transactionId)
+		throws IOException, WorldBuilderContractException {
+		RecoveryPreview preview = readRecovery(targetRoot, transactionRoot, transactionId);
+		try (WorldBuilderCurrentRuntimeOfflineLease ignored = recoveryLease(preview.target, preview.plan)) {
+			return preview;
+		}
+	}
+
+	private RecoveryPreview readRecovery(Path targetRoot, Path transactionRoot, String transactionId)
+		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
 		Path workspace = realDirectory(transactionRoot, "transaction-root");
@@ -433,7 +446,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "transactionId", true,
 			"Recovery transaction identity does not match its directory.",
 			"Restore the exact transaction evidence.");
-		Path backup = transaction.resolve("backup");
 		Map<String,Object> priorReceipt;
 		try {
 			priorReceipt = WorldBuilderJsonDocuments.readObject(
@@ -454,6 +466,22 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			transaction, plan);
 		plan = restoreExecutionPlan(plan, priorReceipt,
 			pendingReceiptTemporary == null ? null : pendingReceiptTemporary.document);
+		return new RecoveryPreview(target, workspace, transactionId, plan, pendingReceiptTemporary,
+			canonicalHash(Arrays.asList(target.toString(), workspace.toString(), transactionId, plan,
+				priorReceipt, pendingReceiptTemporary == null ? null : pendingReceiptTemporary.document)));
+	}
+
+	Result recover(Path targetRoot, Path transactionRoot, String transactionId, String confirmedEvidenceHash)
+		throws IOException, WorldBuilderContractException {
+		RecoveryPreview reviewed = readRecovery(targetRoot, transactionRoot, transactionId);
+		if (confirmedEvidenceHash != null && !reviewed.fingerprint.equals(confirmedEvidenceHash))
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "recovery-preview", false,
+				"Recovery evidence changed after preview.", "Review the exact interrupted transaction again.");
+		Path target = reviewed.target;
+		Path transaction = reviewed.workspace.resolve(transactionId);
+		Path backup = transaction.resolve("backup");
+		Map<String,Object> plan = reviewed.plan;
+		PendingReceiptTemporary pendingReceiptTemporary = reviewed.pending;
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
 			recoveryLease(target, plan)) {
 			Map<String,Object> installed = installedActivation(plan);
@@ -530,6 +558,18 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			return WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(installation, typed);
 		return WorldBuilderCurrentRuntimeOfflineLease.acquire(target, typed,
 			bool(object(plan.get("executionProfile")), "syntheticOnly"));
+	}
+
+	static final class RecoveryPreview {
+		final Path target, workspace;
+		final String transactionId, fingerprint;
+		final Map<String,Object> plan;
+		private final PendingReceiptTemporary pending;
+		RecoveryPreview(Path target, Path workspace, String transactionId, Map<String,Object> plan,
+			PendingReceiptTemporary pending, String fingerprint) {
+			this.target = target; this.workspace = workspace; this.transactionId = transactionId;
+			this.plan = plan; this.pending = pending; this.fingerprint = fingerprint;
+		}
 	}
 
 	private static WorldBuilderCurrentRuntimeOfflineLease previewLease(Path target, Map<String,Object> plan, boolean synthetic)
