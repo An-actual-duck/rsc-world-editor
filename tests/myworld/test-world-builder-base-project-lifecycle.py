@@ -111,11 +111,26 @@ class BaseProjectLifecycleTest(unittest.TestCase):
     def test_real_create_reopen_export_and_native_launch_commands_keep_target_private(self):
         target = self.root / "historical-input"
         shutil.copytree(self.source_fixture.baseline, target)
+        # Independent disposable server endpoints; never compete with another
+        # regression fixture's historical default ports.
+        with socket.socket() as game, socket.socket() as websocket:
+            game.bind(("127.0.0.1", 0)); websocket.bind(("127.0.0.1", 0))
+            (target / "server/connections.conf").write_text(
+                "bind_address: 127.0.0.1\nserver_port: " + str(game.getsockname()[1])
+                + "\nws_server_port: " + str(websocket.getsockname()[1]) + "\ndb_type: sqlite\n")
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
         with sqlite3.connect(database) as connection:
             connection.executescript((PROVIDER / "server/database/sqlite/retro.sqlite").read_text())
-            connection.execute("INSERT INTO players(username,pass,salt) VALUES ('inventedplayer','private-test-password','')")
+            connection.execute("INSERT INTO players(id,username,pass,salt,x,y,quest_points,login_date) "
+                               "VALUES(901,'launchtest','launchpass','',120,648,0,100)")
+            for table in ("curstats", "maxstats", "experience", "capped_experience"):
+                connection.execute("INSERT INTO " + table + "(playerID,praygood,prayevil,goodmagic,evilmagic,woodcutting) "
+                                   "VALUES(901,11,7,16,9,21)")
+            connection.execute("INSERT INTO itemstatuses(itemID,catalogID,amount,noted,wielded,durability) VALUES(901,10,321,0,0,0)")
+            connection.execute("INSERT INTO invitems(playerID,itemID,slot) VALUES(901,901,0)")
+            connection.execute("INSERT INTO quests(playerID,id,stage) VALUES(901,1,3)")
+            connection.execute("INSERT INTO ironman(playerID,iron_man,iron_man_restriction,hc_ironman_death) VALUES(901,0,1,0)")
         database.chmod(0o600)
         private, public = target / "server/server.pem", target / "server/client.pem"
         subprocess.run(["openssl", "genpkey", "-algorithm", "RSA", "-pkeyopt", "rsa_keygen_bits:512", "-out", str(private)], check=True, capture_output=True)

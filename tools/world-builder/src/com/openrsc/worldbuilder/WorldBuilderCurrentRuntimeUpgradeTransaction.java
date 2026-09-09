@@ -300,6 +300,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 					verifyOwnedReleaseTree(reviewed.targetRoot, executionPlan);
 					if (successor) WorldBuilderCurrentRuntimeSuccessor.verify(prepared.successor, reviewed.targetRoot, true);
 					else WorldBuilderCurrentRuntimeInstance.verifyGuardedInitialOutputs(initialOutputPlan(transaction, executionPlan), instance, prepared.cutover);
+					if (!successor) WorldBuilderPreservationPersistentInputs.reverify(reviewed.targetRoot,
+						object(object(reviewed.plan.get("migrationPlan")).get("persistentInputs")));
 					new WorldBuilderCurrentRuntimeCutover(milestone -> observeCutover(milestone, transaction)).apply(prepared.cutover, transaction.resolve("cutover"), roles);
 					WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(reviewed.targetRoot);
 					writeReceipt(receipt, receipt(executionPlan, "successful", true, true,
@@ -1014,6 +1016,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Map<String,Path> clientSources) throws IOException, WorldBuilderContractException {
 		if (preview.profile.syntheticOnly || runtimeExecutionOutputs(executionPlan).isEmpty())
 			throw activationMismatch("installedActivation");
+		serverSources = initialServerSideSources(serverSources, transaction);
 		WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
 			preview.providerCatalogRoot, preview.compositionIdentity);
 		Map<String,Object> migration = object(executionPlan.get("migrationPlan"));
@@ -1115,6 +1118,33 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				if (Files.exists(absent, LinkOption.NOFOLLOW_LINKS)) throw activationMismatch("unreviewed-client-side-state");
 				result.put(name, absent);
 			}
+		}
+		return result;
+	}
+
+	/** Missing historical filters mean empty filter lists, not the provider's defaults. */
+	static Map<String,Path> initialServerSideSources(Map<String,Path> reviewed, Path transaction)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Path> result = new LinkedHashMap<String,Path>(reviewed);
+		Path defaults = transaction.resolve("initial-empty-filters");
+		boolean created = false;
+		for (String name : Arrays.asList("badwords.txt", "goodwords.txt", "alertwords.txt")) {
+			Path source = reviewed.get(name);
+			if (source == null) throw activationMismatch("unbound-filter-source");
+			if (Files.exists(source, LinkOption.NOFOLLOW_LINKS)) continue;
+			if (!created) {
+				Files.createDirectory(defaults, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+					java.nio.file.attribute.PosixFilePermissions.fromString("rwx------")));
+				created = true;
+			}
+			Path empty = defaults.resolve(name);
+			Files.createFile(empty, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+				java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+			result.put(name, empty);
+		}
+		if (created) {
+			WorldBuilderAdaptiveDurability.forceTree(defaults);
+			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
 		}
 		return result;
 	}

@@ -78,7 +78,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"world-builder-current-runtime-activation", false, !fixture,
 			fixture ? "migration-and-verification-not-implemented" : "guarded-current-base-sqlite-execution",
 			fixture ? "Isolated staging fixture; never authorizes production activation."
-				: "Genuine Base SQLite upgrades execute sealed provider migration and runtime verification before guarded installed activation; preview is not database schema acceptance.");
+				: "Genuine Base SQLite upgrades execute sealed provider migration and runtime verification before guarded installed activation; preview is not database schema acceptance. Missing optional chat-filter files become private empty lists; existing filters and owner keys are preserved.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(

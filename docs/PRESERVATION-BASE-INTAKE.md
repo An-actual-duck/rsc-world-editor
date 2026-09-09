@@ -68,12 +68,29 @@ account. Two tests passed in 118.923 seconds with the real-launch option enabled
 The connected run found and fixed a missing diagnostics-directory creation
 before moving the conversion reconciliation report.
 
-This is not server-upgrade/map-import or packaged acceptance and does not
-authorize live-target mutation. The selected provider must explicitly
-advertise `current-base-isolated-authoring-v1`; the older pinned normal-only
-Base is refused before project publication. After the runtime manager publishes
-and the Editor adopts that policy, run the genuine Base lifecycle check and the
-actual supervised editor launch. These are the remaining positive checks, not
-grounds to repeat already-passing source admission/decoder or inherited
-lifecycle checks. Target activation, separate map import, and candidate
-acceptance remain manager integration work.
+The selected provider must explicitly advertise
+`current-base-isolated-authoring-v1`; the older normal-only Base is refused
+before project publication. The current pin satisfies that requirement.
+
+## Connected upgrade checkpoint — 2026-09-09
+
+A real CLI upgrade on a retained invented-state Preservation target completed
+sealed SQLite migration, executable server/client verification, initial instance
+construction, and guarded activation successfully. Its first attempt had rolled
+back because the constructor required optional absent chat-filter files. Initial
+activation now supplies private empty lists for exactly those absent files,
+preserving the historical no-list behavior instead of importing provider default
+filters. Existing filter bytes and the owner keypair remain unchanged; original
+persistent inputs are rechecked before cutover.
+
+Focused transaction (33), instance (13), successor topology (4), and empty-filter
+(2) tests pass. The connected server-cycle test uses a fresh populated historical
+database, isolated disposable ports, normal owned-window login, saved map edits,
+and repeated map-only imports/restarts. The normal login helper's synthetic
+all-green-map assumption is replaced with imported-world detail, non-void, and
+visible-player checks. This complete cycle is still under validation; successful
+initial activation and component checks are not a completed-cycle claim.
+
+No live-target mutation or candidate is authorized by these test results. Managed
+successor end-to-end acceptance, user-facing upgrade/recovery integration,
+packaging integration, and consolidated candidate acceptance remain work to close.
