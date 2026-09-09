@@ -72,7 +72,10 @@ final class WorldBuilderCurrentRuntimeMapImport {
             profile.put("packageId", export.packageValue.packageId); profile.put("packageVersion", export.packageValue.packageVersion);
             profile.put("manifestSha256", export.packageValue.manifestSha256);
             profile.put("packageFingerprintSha256", export.packageValue.nativeInventorySha256);
-            profile.put("packageRelativePath", "package");
+            // The external map root changes its physical location, not the
+            // provider-owned profile's canonical logical package identity.
+            profile.put("packageRelativePath", "world-builder/packages/"
+                + export.packageValue.nativeInventorySha256 + "/package");
             byte[] bytes = json(profile); String name = "installed-" + role + ".json";
             mapDocuments.put(name, bytes);
             spec.put(role + "MapProfilePath", target.resolve(mapRelative + "/" + name).toString());

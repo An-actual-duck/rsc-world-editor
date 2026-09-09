@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Active planning decision and evidence review |
 | Captured | 2026-09-04 |
-| Last reconciled | 2026-09-08, runtime publication and Base workflow integration checkpoint |
+| Last reconciled | 2026-09-09, genuine initial Base upgrade and repeated map-import/restart proof |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
 | Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
@@ -207,8 +207,13 @@ selected catalog without mutating the historical target. An observed Linux
 negative live-listener regression checks. See
 [`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md) for the current checkpoint.
 
-The upgrade branch remains ACTIVE, not accepted: the fresh complete repeated-map
-cycle is under validation. Managed-successor connected execution, desktop
+The same retained installation has now passed two saved map imports, normal
+player restarts, and post-commit recovery with gameplay state retained. This
+connected proof was completed in phases after correcting a generated map-profile
+path that the existing runtime correctly refused; it is not a fresh uninterrupted
+full-suite or packaged-candidate pass.
+
+The upgrade branch remains ACTIVE, not accepted. Managed-successor connected execution, desktop
 recovery, packaging integration and fresh packaged acceptance remain. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
 or live-target mutation is implied.

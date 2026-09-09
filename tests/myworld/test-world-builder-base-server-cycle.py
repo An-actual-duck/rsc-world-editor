@@ -122,6 +122,10 @@ public final class BaseCycleProbe {
             self.assertEqual("successful", result["status"])
             self.assertEqual(before_state, self.native.snapshot(Path(spec["serverStateRoot"])))
             updated = json.loads(self.probe("inspect", self.target).stdout)
+            for role in ("server", "client"):
+                profile = json.loads(Path(updated[role + "MapProfilePath"]).read_text())
+                self.assertEqual("world-builder/packages/" + updated["mapPackageFingerprintSha256"] + "/package",
+                                 profile["packageRelativePath"])
             for key in ("serverCodeRoot", "clientCodeRoot", "serverStateRoot", "clientStateRoot", "serverSideStateRoot", "clientSideStateRoot"):
                 self.assertEqual(spec[key], updated[key], key)
             self.assertNotEqual(previous_map, updated["mapPackageFingerprintSha256"])

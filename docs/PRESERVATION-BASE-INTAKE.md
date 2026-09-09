@@ -88,8 +88,11 @@ Focused transaction (33), instance (13), successor topology (4), and empty-filte
 database, isolated disposable ports, normal owned-window login, saved map edits,
 and repeated map-only imports/restarts. The normal login helper's synthetic
 all-green-map assumption is replaced with imported-world detail, non-void, and
-visible-player checks. This complete cycle is still under validation; successful
-initial activation and component checks are not a completed-cycle claim.
+visible-player checks. Acceptance was exercised in two phases on the same
+retained disposable installation: real initial upgrade, then normal login and
+two saved-map imports/restarts after fixing the connected failures below. The
+fresh all-in-one regression remains part of consolidated acceptance; this is not
+an uninterrupted full-suite or packaged-candidate pass.
 
 The established desktop **Upgrade Target Runtime** action and active-project
 terminal command now route native Base projects to this guarded transaction,
@@ -106,6 +109,23 @@ sharing; tests prove a closed connection is accepted and active loopback/wildcar
 listeners are still refused. Other operating systems retain exclusive defaults.
 The 33 transaction, 6 map-import, 13 instance, 4 successor-topology, and 2
 empty-filter tests pass after this fix, as do both new port tests.
+
+The connected test reached a committed map import with unchanged player state,
+then caught a real restart refusal: the generated map profile used `package`
+instead of the runtime's canonical
+`world-builder/packages/<package-fingerprint>/package` identity. Map import now
+emits the provider-required logical path while keeping the physical external map
+root in the bound launch descriptor. Both server and client profiles are checked
+in the connected regression. No runtime rewrite or relaxed loader check is needed.
+
+The retained installation then passed both real map imports, three normal player
+logins with clean owned-session shutdown, and post-commit map recovery without
+rewinding later state. Inventory (321 coins), quest stage, skill levels, and
+offline account status survived. Imports retained the runtime code and all
+player/side-state roots, and the original historical files and project source
+remained unchanged. A completed-upgrade recovery request was correctly refused
+without changing gameplay state; it is not a completed-upgrade Undo operation.
+The six focused map recovery/workspace checks also pass after the profile fix.
 
 No live-target mutation or candidate is authorized by these test results. Managed
 successor end-to-end acceptance, desktop current-transaction recovery,
