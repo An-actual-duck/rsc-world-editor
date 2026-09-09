@@ -71,6 +71,7 @@ public final class BaseCycleProbe {
 
     def test_real_initial_upgrade_normal_restart_and_two_map_imports(self):
         self.fixture.test_real_create_reopen_export_and_native_launch_commands_keep_target_private()
+        print("Base cycle: genuine native project created", flush=True)
         self.target = self.root / "historical-input"
         self.project = next((self.root / "installation/projects").glob("*/project.json")).parent
         before = self.native.snapshot(self.target)
@@ -85,22 +86,28 @@ public final class BaseCycleProbe {
         self.assertTrue(preview["activationAuthorized"])
         applied = self.cli("apply-current-runtime-upgrade", *common, "--confirmation-identity", preview["confirmationIdentity"])
         self.assertEqual("successful", applied["status"])
+        print("Base cycle: initial runtime upgrade committed", flush=True)
         self.assert_original(before, source_before)
+        self.exercise_installed_cycle(workspace, before, source_before)
+
+    def exercise_installed_cycle(self, workspace, before, source_before):
         self.pair = load("cycle_normal", ROOT / "tests/myworld/test-world-builder-initial-instance-integration.py").InitialInstanceIntegrationTest()
-        self.pair.root = self.root / "normal-session-logs"
-        self.pair.root.mkdir(mode=0o700)
+        import tempfile
+        self.pair.root = Path(tempfile.mkdtemp(prefix="normal-session-logs-", dir=self.root))
         self.pair.processes, self.pair.previous_nonces = [], set()
         self.pair.provider_ui = load("cycle_ui", PROVIDER / "tests/myworld/test-current-base-installed-launch.py")
         self.pair.invoke = self.probe
         self.addCleanup(self.close_pair)
         spec = self.normal_login()
+        print("Base cycle: normal player login and clean shutdown passed", flush=True)
         for name in ("badwords.txt", "goodwords.txt", "alertwords.txt"):
             self.assertEqual(b"", (Path(spec["serverSideStateRoot"]) / name).read_bytes())
         live_database = Path(spec["serverStateRoot"]) / "current_base.db"
         saved_gameplay = live_database.read_bytes()
         recovered = self.cli("recover-current-runtime-upgrade", "--target-root", self.target,
-            "--transaction-root", workspace, "--transaction-id", "base-initial")
-        self.assertEqual("successful", recovered["status"])
+            "--transaction-root", workspace, "--transaction-id", "base-initial", success=False)
+        # Recovery is for interrupted upgrades, not a completed-upgrade Undo.
+        self.assertIn("Recovery receipt does not authorize this exact interrupted plan", recovered.stderr)
         self.assertEqual(saved_gameplay, live_database.read_bytes())
         previous_map = spec["mapPackageFingerprintSha256"]
         for number in (1, 2):
@@ -128,6 +135,7 @@ public final class BaseCycleProbe {
             self.assertEqual("successful", recovered["status"])
             self.assertEqual(gameplay, database.read_bytes())
             self.assert_original(before, source_before)
+            print("Base cycle: saved map import, normal restart, and state-safe recovery passed: " + str(number), flush=True)
 
     def assert_original(self, before, source_before):
         current = self.native.snapshot(self.target)
@@ -202,6 +210,7 @@ public final class BaseCycleProbe {
             self.assertEqual(str(client.pid), xdo("getwindowfocus", "getwindowpid").strip())
             xdo("click", "1")
         before = capture()
+        before.save(pair.root / (str(client.pid) + "-login.png"))
         width, height = before.size
         pixels = before.load()
         blue = [(x, y) for y in range(height // 3, height * 9 // 10) for x in range(width // 2, width * 4 // 5)
@@ -218,7 +227,8 @@ public final class BaseCycleProbe {
         deadline = time.monotonic() + 30
         while "Player Loaded: launchtest" not in pair.log(server) and time.monotonic() < deadline:
             time.sleep(0.1)
-        self.assertIn("Player Loaded: launchtest", pair.log(server))
+        capture().save(pair.root / (str(client.pid) + "-submitted.png"))
+        self.assertIn("Player Loaded: launchtest", pair.log(server)[-5000:])
         time.sleep(3)
         click(width // 8, height // 2)
         time.sleep(3)

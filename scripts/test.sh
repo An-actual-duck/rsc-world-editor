@@ -154,6 +154,8 @@ add_group() {
 				test-world-builder-current-map-import.py
 				test-world-builder-initial-side-state.py
 				test-world-builder-base-server-cycle.py
+				test-world-builder-base-upgrade-user-actions.py
+				test-world-builder-offline-port-reuse.py
 				test-world-builder-export.py
 				test-world-builder-import.py
 				test-world-builder-map-migration-choice.py

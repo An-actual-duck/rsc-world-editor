@@ -570,6 +570,11 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException(
 			"Select one project before upgrading its target runtime.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			return new PreparedImport(WorldBuilderCurrentRuntimeUserActions.previewUpgrade(installation, project));
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveExporter.ExportResult exported =
 			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
@@ -602,6 +607,13 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException(
 			"Runtime upgrade preview was not supplied.");
+		if (prepared.upgradePlan != null) {
+			WorldBuilderCurrentRuntimeUpgradeTransaction.Result result =
+				new WorldBuilderCurrentRuntimeUpgradeTransaction().apply(
+					prepared.upgradePlan, prepared.upgradePlan.confirmationIdentity());
+			return "Target runtime was upgraded successfully. The canonical map is installed; "
+				+ "use Import Map Changes for subsequent saved edits.\n\n" + result.toJson();
+		}
 		WorldBuilderAdaptiveImporter.ImportResult result =
 			prepared.importer.applyRuntimeUpgrade(prepared.preview, "UPGRADE");
 		return "Target runtime was upgraded successfully.\n\nTransaction: "
@@ -746,6 +758,7 @@ final class WorldBuilderLauncherModel {
 		final WorldBuilderAdaptiveImporter importer;
 		final WorldBuilderAdaptiveImporter.Preview preview;
 		final WorldBuilderCurrentRuntimeMapImport.Plan mapPlan;
+		final WorldBuilderCurrentRuntimeUpgradeTransaction.Preview upgradePlan;
 		final Path target;
 
 		PreparedImport(WorldBuilderAdaptiveImporter importer,
@@ -753,6 +766,7 @@ final class WorldBuilderLauncherModel {
 			this.importer = importer;
 			this.preview = preview;
 			this.mapPlan = null;
+			this.upgradePlan = null;
 			this.target = target;
 		}
 
@@ -760,11 +774,21 @@ final class WorldBuilderLauncherModel {
 			this.importer = null;
 			this.preview = null;
 			this.mapPlan = mapPlan;
+			this.upgradePlan = null;
 			this.target = target;
+		}
+
+		PreparedImport(WorldBuilderCurrentRuntimeUpgradeTransaction.Preview upgradePlan) {
+			this.importer = null;
+			this.preview = null;
+			this.mapPlan = null;
+			this.upgradePlan = upgradePlan;
+			this.target = upgradePlan.targetRoot;
 		}
 
 		String summary() {
 			if (mapPlan != null) return mapPlan.humanSummary();
+			if (upgradePlan != null) return WorldBuilderCurrentRuntimeUserActions.upgradeSummary(upgradePlan);
 			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}

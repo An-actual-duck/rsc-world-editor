@@ -196,9 +196,20 @@ passed against the retained invented-state target. It exposed a missing
 capability fingerprint before closed contract validation, fixed in upgrade
 checkpoint `dd1eed1`. Preview remains distinct from sealed database migration
 and activation acceptance; no upgrade was applied in that check.
-The upgrade branch remains ACTIVE, not accepted:
-initial and managed-successor connected execution, desktop recovery, repeated
-map import, packaging integration and fresh packaged acceptance remain. Advanced
+Initial genuine CLI activation has since passed sealed SQLite migration,
+executable verification, instance construction, and guarded cutover. Absent
+optional chat filters become private empty lists; present filters and owner keys
+are retained. Normal player login has passed on a populated disposable target.
+The existing desktop and active-terminal upgrade controls now use the guarded
+Base transaction; genuine preview/cancellation passes against a relocated
+selected catalog without mutating the historical target. An observed Linux
+`TIME_WAIT` false busy-port refusal is fixed, with positive closed-connection and
+negative live-listener regression checks. See
+[`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md) for the current checkpoint.
+
+The upgrade branch remains ACTIVE, not accepted: the fresh complete repeated-map
+cycle is under validation. Managed-successor connected execution, desktop
+recovery, packaging integration and fresh packaged acceptance remain. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
 or live-target mutation is implied.
 

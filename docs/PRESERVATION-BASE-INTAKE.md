@@ -91,6 +91,22 @@ all-green-map assumption is replaced with imported-world detail, non-void, and
 visible-player checks. This complete cycle is still under validation; successful
 initial activation and component checks are not a completed-cycle claim.
 
+The established desktop **Upgrade Target Runtime** action and active-project
+terminal command now route native Base projects to this guarded transaction,
+using the installation's relocated selected catalog and the project's recorded
+target (not the installation's parent). Their preview displays the destination,
+state-preservation policy, evidence location, plan fingerprint, and exact
+confirmation. A genuine fixture test passes desktop preview and terminal
+cancellation with the historical target unchanged. Catalog export is tested;
+the release packager still needs to include that projection.
+
+Connected testing also exposed a Linux `TIME_WAIT` false busy-port refusal after
+clean shutdown. Linux leases now allow address reuse without enabling port
+sharing; tests prove a closed connection is accepted and active loopback/wildcard
+listeners are still refused. Other operating systems retain exclusive defaults.
+The 33 transaction, 6 map-import, 13 instance, 4 successor-topology, and 2
+empty-filter tests pass after this fix, as do both new port tests.
+
 No live-target mutation or candidate is authorized by these test results. Managed
-successor end-to-end acceptance, user-facing upgrade/recovery integration,
+successor end-to-end acceptance, desktop current-transaction recovery,
 packaging integration, and consolidated candidate acceptance remain work to close.

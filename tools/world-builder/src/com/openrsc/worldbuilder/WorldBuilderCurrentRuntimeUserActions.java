@@ -48,6 +48,31 @@ final class WorldBuilderCurrentRuntimeUserActions {
         return workspace;
     }
 
+    static WorldBuilderCurrentRuntimeUpgradeTransaction.Preview previewUpgrade(
+        Path installation, WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+        throws IOException, WorldBuilderContractException {
+        Path target = target(project);
+        return new WorldBuilderCurrentRuntimeUpgradeTransaction().previewPreservation(
+            target, workspace(target), installation.resolve("current-platform"),
+            installation.resolve("current-platform/composition-identity.json"), null,
+            java.util.UUID.randomUUID().toString(), null, null, project.projectRoot);
+    }
+
+    static String upgradeSummary(WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview) {
+        Map<?,?> destination = (Map<?,?>)preview.plan.get("destination");
+        Map<?,?> profile = (Map<?,?>)preview.plan.get("executionProfile");
+        return "Upgrade Target Runtime — Current Base\n\nServer target: " + preview.targetRoot
+            + "\nDestination: " + destination.get("platformReleaseId") + " / " + destination.get("variantId")
+            + "\nActivation authorized: " + preview.plan.get("activationAuthorized")
+            + "\n\nInstalls the reviewed server/client composition and canonical map together."
+            + "\nMigrates a backed-up copy of player state; retains existing owner keys and filters."
+            + "\nThe server and client must remain offline through verification and activation."
+            + "\n\n" + profile.get("executionReadinessReason")
+            + "\n\nTransaction evidence: " + preview.transactionRoot.resolve((String)preview.plan.get("transactionId"))
+            + "\nPlan SHA-256: " + preview.plan.get("planFingerprintSha256")
+            + "\nExact confirmation: " + preview.plan.get("confirmationIdentity") + "\n";
+    }
+
     private static Path directory(Path path) throws IOException {
         if (!path.isAbsolute() || !path.normalize().equals(path)
             || !Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) || !path.equals(path.toRealPath()))

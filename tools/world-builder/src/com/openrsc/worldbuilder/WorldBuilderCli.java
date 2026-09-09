@@ -1063,6 +1063,19 @@ public final class WorldBuilderCli {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
 				WorldBuilderAdaptiveProjectLifecycle.verifyActiveProject(installation);
+			if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+				WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
+					WorldBuilderCurrentRuntimeUserActions.previewUpgrade(installation, project);
+				System.err.print(WorldBuilderCurrentRuntimeUserActions.upgradeSummary(preview));
+				if (!confirmAdaptive(preview.confirmationIdentity(),
+					"Type the exact UPGRADE confirmation above, or press Enter to cancel: ")) {
+					System.err.println("Runtime upgrade cancelled; no target file was changed.");
+					return 0;
+				}
+				System.out.print(new WorldBuilderCurrentRuntimeUpgradeTransaction().apply(
+					preview, preview.confirmationIdentity()).toJson());
+				return 0;
+			}
 			if ("standalone-empty".equals(project.origin)) {
 				new WorldBuilderAdaptiveImporter().previewRuntimeUpgrade(
 					project.projectRoot, null, null);
