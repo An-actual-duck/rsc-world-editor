@@ -1,5 +1,47 @@
 # Preservation source intake boundary
 
+## Actual checkout checkpoint — 2026-09-10
+
+The owner designated `/home/justin/RSC-Preservation` as the read-only source for
+a separate test environment. Its public revision is the exact c0102e revision
+used below, but **a full checkout is not yet accepted**. Read-only discovery
+refuses `Client_Base/.gitignore`: the bounded source fixtures omit this and
+other stock ancillary files that the full-checkout probe encounters. Therefore
+the existing fixture lifecycle passes do not establish drop-in acceptance.
+Do not remove stock files from the test environment merely to satisfy the
+current classifier, or label the existing fixture subset a full server copy.
+
+Ordinary mode 0664 (a Git checkout under umask 0002) is now admitted wherever
+the public source policy expects 0644. Exact byte checks remain; executable,
+special-bit and world-writable public inputs remain refused. Database/key
+permissions still use the separate private-input policy. This correction alone
+does not resolve the full-checkout admission gap.
+
+The tools build and all 10 focused source-intake tests passed using the
+designated repository's exact public Git blobs (33.212 seconds, no skips).
+These include safe group-write acceptance and executable/special/world-write
+refusals; they are not a full integration or full-checkout acceptance gate.
+
+The next candidate work is, in order:
+
+1. Account for the complete public stock checkout, distinguishing unchanged
+   ancillary inputs, active selected data/configuration, and private state.
+   Unknown or changed behavior must still receive an explicit disposition.
+   Add a full-checkout regression, not another selected-file-only fixture.
+2. Prepare a new, non-overwriting disposable copy from the designated public
+   source, with clearly identified fresh test-local state rather than copied
+   credentials, accounts, logs or databases. Leave the original untouched.
+3. Integrate the pending runtime fix and Editor work, run the final integration
+   gate, build and independently inspect a fresh restricted candidate, and put
+   its folder inside the disposable server root. Smoke-check launch/default
+   detection without consuming the user's fresh project-creation walkthrough.
+
+Existing-project adoption of a later authoring runtime remains product work,
+but is **not a prerequisite for this fresh first-install test candidate**.
+There is no packaged candidate or prepared test environment at this checkpoint.
+
+## Implemented selected-layout contract
+
 The compiled `preservation-source-jag-v1` discovery adapter admits the reviewed
 public c0102e source layout, its JAG/MEM map inputs, and supported effective
 configuration. A target-supplied descriptor does not grant this authority.

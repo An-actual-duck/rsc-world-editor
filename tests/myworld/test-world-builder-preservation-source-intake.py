@@ -400,14 +400,31 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                 self.assertEqual(expected, row["tier"], row)
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
+    def test_ordinary_group_writable_checkout_retains_source_identity(self):
+        target = self.target()
+        paths = ("Client_Base/build.xml", "server/src/com/openrsc/server/Server.java",
+                 "server/preservation.conf")
+        before = {r["relativePath"]: r for r in self.evidence(target)}
+        for path in paths:
+            (target / path).chmod(0o664)
+        after = {r["relativePath"]: r for r in self.evidence(target)}
+        for path in paths:
+            self.assertEqual(before[path], after[path])
+            self.assertEqual(0o664, (target / path).stat().st_mode & 0o7777)
+
+    @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_missing_linked_or_permission_changed_sources_are_blocked(self):
         path = "server/src/com/openrsc/server/Server.java"
-        for change in ("missing", "symlink", "hardlink", "mode", "parent-alias"):
+        for change in ("missing", "symlink", "hardlink", "mode", "executable", "special", "parent-alias"):
             with self.subTest(change=change):
                 target = self.target()
                 source = target / path
                 if change == "mode":
                     source.chmod(0o666)
+                elif change == "executable":
+                    source.chmod(0o775)
+                elif change == "special":
+                    source.chmod(0o2644)
                 elif change == "parent-alias":
                     parent = source.parent
                     moved = target / "server/src-renamed"

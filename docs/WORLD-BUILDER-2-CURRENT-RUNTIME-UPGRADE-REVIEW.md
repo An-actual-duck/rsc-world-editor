@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Active planning decision and evidence review |
 | Captured | 2026-09-04 |
-| Last reconciled | 2026-09-09, genuine initial Base upgrade and repeated map-import/restart proof |
+| Last reconciled | 2026-09-10, actual owner-designated Preservation checkout exposes full-checkout intake gap |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
 | Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
@@ -24,6 +24,14 @@ build, activation, or upgrade authority changed.
 The active reliability plan remains the historical incident and work log. This
 document is the smaller current source for the replacement architecture,
 fixture matrix, staged implementation order, and release gates.
+
+The immediate requested deliverable is a **fresh disposable Preservation copy
+with the candidate folder inside its server root**. Actual read-only discovery
+of the owner-designated source currently rejects stock files omitted by our
+selected-input fixtures. This is required first-install work, not optional
+polish. See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for
+evidence and the ordered path to that deliverable. Later-runtime adoption by
+existing authored projects must not hold up this fresh-install candidate.
 
 ## Candidate scope and closure checkpoint — 2026-09-06
 
