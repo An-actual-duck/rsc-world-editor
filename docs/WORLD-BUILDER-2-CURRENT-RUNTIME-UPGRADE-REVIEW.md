@@ -222,8 +222,24 @@ pre-commit rollback, post-commit state retention, and exclusion of completed Und
 actions are covered by the 34 upgrade and 9 map tests. Custom CLI workspaces still
 use their explicit recovery commands; ambiguous histories are not guessed.
 
+The existing packager now includes the exact 36-file selected Base catalog, and
+the independent archive inspector verifies its composition, bytes, modes, and
+closed file list against the pinned provider. Both updater allowlists include
+only those exact paths. Packaging (16), inspection (23), and real catalog
+relocation (2) focused checks pass; the updater suite passes 18 tests with 5
+PowerShell execution skips. See the delivery checkpoint in
+[`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md). This does not establish
+fresh packaged desktop or Windows upgrade acceptance.
+
+Consolidated Editor coverage now spans all 48 entrypoints in three segments:
+527 tests passed, 13 were explicitly skipped, and the direct independence check
+passed. A missing-display failure was rerun in the GUI lane; an obsolete verifier
+fixture was moved onto genuine production staging without relaxing validation.
+The delivery checkpoint records the skip limits and remaining acceptance work.
+
 The upgrade branch remains ACTIVE, not accepted. Managed-successor connected
-execution, packaging integration and fresh packaged acceptance remain. Advanced
+execution (including another import from the existing project), Editor integration/
+publication and fresh packaged acceptance remain. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
 or live-target mutation is implied.
 

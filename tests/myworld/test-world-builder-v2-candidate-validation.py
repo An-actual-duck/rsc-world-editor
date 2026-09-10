@@ -15,6 +15,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from base_catalog_packaging_fixture import prepare_base_catalog
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -301,6 +302,7 @@ class CandidateFixture:
             path = self.core / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(data)
+        self.catalog_files = prepare_base_catalog(self.core)
         self.runtime_provider_commit = initialize_repository(self.core, "Create runtime fixture")
 
         native_records = ""
@@ -455,6 +457,7 @@ class CandidateFixture:
 
     def package_files(self, platform: str) -> dict[str, tuple[bytes, int]]:
         files = {relative: (b"fixture\n", 0o644) for relative in TOP_FILES}
+        files.update(self.catalog_files)
         for launcher in (
             "Import Map Changes.sh",
             "Recover Map Transaction.sh",
@@ -636,6 +639,40 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             self.assertRegex(artifact["reviewedJreInventorySha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(artifact["reviewedJreFileCount"], 3)
         self.assertIn("owner-software-and-opengl-visual-review", evidence["pendingEvidence"])
+
+    def test_selected_base_requires_exact_payload_identity_modes_and_closure(self) -> None:
+        fixture = self.fixture
+        files = fixture.files["linux"]
+        original = dict(files)
+        payload = "output/current-platform/current-base-v1/server/core.jar"
+        identity = "current-platform/composition-identity.json"
+        for mutation in ("missing", "payload", "identity", "mode", "extra"):
+            with self.subTest(mutation=mutation):
+                files.clear()
+                files.update(original)
+                if mutation == "missing":
+                    del files[payload]
+                elif mutation == "payload":
+                    files[payload] = (b"different runtime bytes", files[payload][1])
+                elif mutation == "identity":
+                    value = json.loads(files[identity][0])
+                    value["bundleInventoryHash"] = "0" * 64
+                    files[identity] = (json.dumps(value).encode(), files[identity][1])
+                elif mutation == "mode":
+                    files[payload] = (files[payload][0], files[payload][1] ^ 0o100)
+                else:
+                    files["current-platform/variants/unselected.json"] = (b"{}\n", 0o644)
+                fixture.write_archive("linux")
+                fixture.write_checksums()
+                result = fixture.run()
+                self.assertNotEqual(0, result.returncode, result.stdout + result.stderr)
+                self.assertRegex(result.stderr, "selected Base|required files|exact application allowlist")
+        files.clear()
+        files.update(original)
+        fixture.write_archive("linux")
+        fixture.write_checksums()
+        result = fixture.run()
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
 
     def test_inspector_requires_complete_native_server_runtime_contract(self) -> None:
         with tempfile.TemporaryDirectory(prefix="candidate-native-contract-") as temp:

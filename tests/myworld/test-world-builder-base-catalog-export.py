@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """Selected Base catalog is relocatable without its source checkout or build commands."""
 import hashlib
+import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
+sys.path.insert(0, str(ROOT / "scripts"))
+from world_builder_base_catalog import selected_base_files
 HARNESS = """
 package com.openrsc.worldbuilder;
 import java.nio.file.*;
@@ -66,6 +71,25 @@ class BaseCatalogExportTest(unittest.TestCase):
         self.assertEqual(json.loads(self.identity.read_text()), report["composition"])
         records = {row["relativePath"]: (int(row["mode"], 8), row["sha256"]) for row in report["files"]}
         self.assertEqual(records, inventory(destination))
+        independently_selected = selected_base_files(PROVIDER)
+        self.assertEqual(records, {relative: (mode, hashlib.sha256(data).hexdigest())
+                                  for relative, (data, mode) in independently_selected.items()})
+        spec = importlib.util.spec_from_file_location("candidate_inspector", ROOT / "scripts/inspect-world-builder-v2-candidate.py")
+        inspector = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(inspector)
+        forbidden = inspector.forbidden_core_hashes(PROVIDER)
+        for relative, (data, _) in independently_selected.items():
+            if relative.endswith((".jar", ".zip")):
+                inspector.validate_nested_archive(data, relative, forbidden, True)
+        for updater in ("Update World Builder.sh", "Update World Builder.ps1"):
+            source = (ROOT / "release/updater-v2" / updater).read_text()
+            selected_block = source.split("# Exact selected Base projection.", 1)[1]
+            # The first shell loop is the projection; the next loop lists Editor schemas.
+            if updater.endswith(".sh"):
+                selected_block = selected_block.split('\n\tdone', 1)[0]
+            else:
+                selected_block = selected_block.split('\n    foreach ($Schema in @(', 1)[0]
+            self.assertEqual(set(records), set(re.findall(r'"([^"\n]+/[^"\n]+)"', selected_block)), updater)
         for relative, (mode, digest) in records.items():
             source = self.identity if relative == "current-platform/composition-identity.json" else PROVIDER / relative
             self.assertEqual(mode, source.stat().st_mode & 0o777, relative)

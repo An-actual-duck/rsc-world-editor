@@ -264,6 +264,11 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
                 "Undo Last Map Import.sh": "#!/usr/bin/env bash\nexit 0\n",
                 "Undo Last Map Import.cmd": "@exit /b 0\r\n",
             })
+        base_spec = json.loads((ROOT / ".runtime-provider/current-platform/bundle-specs/current-base-v1.json").read_text())
+        base_paths = {row["sourcePath"] for row in base_spec["artifacts"]}
+        base_paths.add("current-platform/composition-identity.json")
+        required_payloads.update({relative: application + " selected Base fixture: " + relative + "\n"
+                                  for relative in base_paths})
         for relative, contents in required_payloads.items():
             path = package / relative
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -497,6 +502,10 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         self.assertTrue((self.install / NEW_MANAGED_PATH).is_file())
         self.assertFalse((self.install / "Undo Last Map Import.sh").exists())
         self.assertFalse((self.install / "Undo Last Map Import.cmd").exists())
+        base_spec = json.loads((ROOT / ".runtime-provider/current-platform/bundle-specs/current-base-v1.json").read_text())
+        for relative in {row["sourcePath"] for row in base_spec["artifacts"]} | {"current-platform/composition-identity.json"}:
+            self.assertEqual("new application\n selected Base fixture: " + relative + "\n",
+                             (self.install / relative).read_text(), relative)
         shell_updater = UPDATER.read_text(encoding="utf-8")
         windows_updater = WINDOWS_UPDATER.read_text(encoding="utf-8")
         for schema in sorted(SCHEMA_ROOT.glob("*.schema.json")):

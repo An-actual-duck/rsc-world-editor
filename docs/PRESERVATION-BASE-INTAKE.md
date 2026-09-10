@@ -156,6 +156,63 @@ desktop upgrade preview, terminal cancellation, and native desktop/terminal
 recovery routing without offering an operation for an empty transaction history
 or changing the target. The fresh connected-cycle pass is recorded above.
 
-No live-target mutation or candidate is authorized by these test results. Managed
-successor end-to-end acceptance, packaging integration, and consolidated candidate
-acceptance remain work to close.
+No live-target mutation or candidate is authorized by these test results.
+
+## Selected Base delivery checkpoint
+
+The existing v2 packager now builds Current Base and invokes the existing Java
+catalog exporter before staging the application. Both archives contain the exact
+36-file selected projection, including its composition identity, schema contracts,
+runtime artifacts, and public migration baselines. It does not copy the provider
+checkout, unselected Advanced catalog, projects, or target state.
+
+Staging and the independent final-archive inspector re-resolve the selected
+composition from the pinned provider and require exact file bytes and modes.
+Regenerating outer checksums or the archive manifest cannot authorize a changed
+runtime, identity, missing payload, or extra catalog file. The Linux and PowerShell
+updaters admit these exact paths rather than entire catalog/output directories.
+Updater fixtures include the new payload in application replacement and recovery
+checks; actual Windows execution still requires its separate validation environment.
+
+Focused evidence: 16 packaging and 23 independent archive-inspection tests pass.
+The two real-provider catalog export/relocation tests pass, including independent
+Python/Java selection parity and updater path-list parity. The updater suite passes
+18 tests with 5 explicit PowerShell skips on this host. These are component/delivery
+checks, not fresh packaged GUI or live-server acceptance.
+
+Managed-successor end-to-end proof, Editor integration/publication,
+and fresh packaged candidate acceptance remain the required next steps. Do not
+reopen completed map-conversion or gameplay work without a concrete failing case.
+
+The successor proof has a genuine predecessor available: published runtime
+ancestor `e9cf05c78a6aadde44ecc1a8449dbba2cecdc159` builds and verifies separately
+from selected `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2`. Both have the current
+SQLite copy contract; the selected revision includes real client/server gameplay
+changes. No provider source or Editor lock was modified to prepare this input.
+This is build evidence only, not a completed two-version server upgrade.
+
+Concrete follow-on work found during review: native map import currently compares
+the target against the project's original composition and code trees. A genuine
+managed upgrade must also prove that the same existing project can import another
+saved edit afterward. Bind that operation to the verified selected current
+composition without rewriting the immutable project source, recreating the
+project, dropping the map-compatibility checks, or trusting an arbitrary target
+ledger as runtime authority. This is functional closure work, not optional polish.
+
+Consolidated Editor verification now covers all 48 suite entrypoints on the active
+branch: 527 tests passed, 13 were explicitly skipped, and the direct repository
+independence check passed. Coverage was completed in three segments, not one
+uninterrupted green command. The initial headless run reached a mandatory GUI
+login test; enabling the coordinated display resolved that environment failure.
+The next segment exposed an old verifier fixture using the retired thin migration
+plan. That test now stages a genuine native Base project through the existing
+production staging seam, with invented private state; no production validator was
+relaxed. All four verifier tests then passed, including real execution, source
+drift, pre-start and interrupted-process recovery, and closed evidence readback.
+The unchanged passing prefix was reused, and every remaining module passed.
+
+The 13 skips were the headless Base cycle (1; the separate prior genuine cycle
+pass remains recorded above), external discovery input (1), packaged native
+runtime input (1), external reconciliation matrix inputs (5), and unavailable
+PowerShell execution (5). These are explicit limits, not fresh packaged or
+cross-platform acceptance. The exact locked runtime parity check also passed.

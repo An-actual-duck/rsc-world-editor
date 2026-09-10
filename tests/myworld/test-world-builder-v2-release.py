@@ -16,6 +16,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from base_catalog_packaging_fixture import prepare_base_catalog, tools_jar
 
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
@@ -202,29 +203,6 @@ def make_fixture(
         ),
     )
     make_jar(core / "server/plugins.jar", ("fixture/Plugin.class",))
-    make_jar(
-        standalone / "output/world-builder-tools/world-builder-tools.jar",
-        (
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveExporter.class",
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveImporter.class",
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveProjectLifecycle.class",
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveRuntimePreparer.class",
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveRecovery.class",
-            "com/openrsc/worldbuilder/WorldBuilderAdaptiveUndo.class",
-            "com/openrsc/worldbuilder/WorldBuilderCli.class",
-            "com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.class",
-            "com/openrsc/worldbuilder/WorldBuilderLauncherModel.class",
-            "com/openrsc/worldbuilder/WorldBuilderLayeredPackage.class",
-            "com/openrsc/worldbuilder/WorldBuilderProcessSupervisor.class",
-            "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt",
-        ),
-        {
-            "com/openrsc/worldbuilder/runtime-asset-allowlist-v1.txt": (
-                standalone
-                / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt"
-            ).read_bytes()
-        },
-    )
     write(core / "Client_Base/Cache/audio/audio.dat", "audio")
     write(core / "Client_Base/Cache/video/library.orsc", "library")
     write(core / "Client_Base/Cache/video/Custom_Landscape.orsc", "terrain")
@@ -361,6 +339,11 @@ def make_fixture(
         ):
             executable.chmod(0o755)
 
+    prepare_base_catalog(core)
+    (standalone / "output/world-builder-tools").mkdir(parents=True, exist_ok=True)
+    (standalone / "output/world-builder-tools/world-builder-tools.jar").write_bytes(
+        tools_jar((standalone / "release/world-builder-v2/RUNTIME-ASSET-ALLOWLIST.txt").read_bytes())
+    )
     runtime_provider_commit = initialize_repository(core, "Create pinned Core fixture")
     write(
         standalone / "runtime-provider.lock",
@@ -782,6 +765,12 @@ class WorldBuilderV2ReleaseTest(unittest.TestCase):
                     / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip"
                 ).is_file()
             )
+            with zipfile.ZipFile(candidate_output / f"{PRODUCT_ID}-{VERSION_NUMBER}-linux-x64.zip") as archive:
+                identity = json.loads(archive.read(PACKAGE_ROOT + "/current-platform/composition-identity.json"))
+                self.assertEqual("current-base-v1", identity["variantId"])
+                self.assertEqual([], identity["moduleSet"])
+                self.assertIn(PACKAGE_ROOT + "/output/current-platform/current-base-v1/server/core.jar", archive.namelist())
+                self.assertNotIn(PACKAGE_ROOT + "/current-platform/variants/current-advanced-v1.json", archive.namelist())
             self.assertFalse(
                 (standalone / "output/releases/world-builder-v2" / VERSION).exists()
             )
