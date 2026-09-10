@@ -312,7 +312,8 @@ final class WorldBuilderCurrentRuntimeContracts {
 			|| "MANAGED_N".equals(tier)
 				&& !("UPGRADE_READY".equals(status) || "NOT_INSTALLABLE".equals(status))
 			|| "T5".equals(tier) != "BLOCKED_UNSAFE".equals(status)
-			|| portRequired != "PORT_REQUIRED".equals(status)
+			// Unsafe evidence takes precedence even when another input needs a port.
+			|| !"T5".equals(tier) && portRequired != "PORT_REQUIRED".equals(status)
 			|| "NOT_INSTALLABLE".equals(status) && "T5".equals(tier)) invalid(op,
 			"Classification tier and outcome disagree.");
 		hash(root, "classificationFingerprintSha256", op, false);

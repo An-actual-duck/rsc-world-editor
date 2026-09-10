@@ -850,6 +850,21 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
                 self.assertEqual("port-required", evidence["disposition"])
                 self.assertTrue(any("register" in action for action in report["actions"]))
 
+    def test_unsafe_evidence_takes_precedence_over_unported_customization(self) -> None:
+        target = Path(self.temp_directory.name) / "mixed-unsafe-and-unported"
+        shutil.copytree(TARGETS / "unported-extension-t3", target)
+        (target / "server/plugins/opaque-plugin.bin").write_bytes(b"invented opaque executable")
+        before = target_snapshot(target)
+        result = self.classify(target)
+        self.assertEqual(3, result.returncode, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual("BLOCKED_UNSAFE", report["status"])
+        self.assertEqual("T5", report["tier"])
+        self.assertFalse(report["mutationOccurred"])
+        self.assertTrue(any(row["disposition"] == "port-required" for row in report["evidence"]))
+        self.assertTrue(any(row["disposition"] == "blocker" for row in report["evidence"]))
+        self.assertEqual(before, target_snapshot(target))
+
     def test_managed_n_and_exact_current_ledgers_preserve_project_identity(self) -> None:
         managed = TARGETS / "managed-n"
         before = target_snapshot(managed)
