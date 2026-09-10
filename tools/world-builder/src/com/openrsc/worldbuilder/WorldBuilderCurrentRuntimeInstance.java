@@ -210,6 +210,18 @@ final class WorldBuilderCurrentRuntimeInstance {
 
     /** Writes only a wholly absent root. Partial failure is retained for journaled recovery, never force-cleaned. */
     static void materializeNew(Plan plan, Path newRoot) throws IOException, WorldBuilderContractException {
+        materializeNew(plan, newRoot, null);
+    }
+
+    /** Initial production construction publishes the durable startup guard before launch metadata. */
+    static void materializeGuarded(Plan plan, Path newRoot, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        if (!newRoot.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))
+            || !newRoot.equals(plan.finalRoot)) throw failure("Initial guard belongs to another projected instance.");
+        materializeNew(plan, newRoot, cutover.guard);
+    }
+
+    private static void materializeNew(Plan plan, Path newRoot, byte[] guard) throws IOException, WorldBuilderContractException {
         Path root = projected(newRoot); absent(root); directory(root.getParent());
         disjoint(root, plan.stage);
         disjoint(root, plan.finalRelease);
@@ -226,6 +238,13 @@ final class WorldBuilderCurrentRuntimeInstance {
                 Files.createDirectory(root.resolve(relative), PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rwx------")));
             }
         }
+        if (guard != null) {
+            Path guardPath = root.resolve("installation/pending-cutover.json");
+            requireWriteParent(root, rootKey, guardPath);
+            writeNew(guardPath, guard);
+            WorldBuilderAdaptiveDurability.forceFile(guardPath);
+            WorldBuilderAdaptiveDurability.forceDirectory(guardPath.getParent());
+        }
         for (Copy copy : plan.copies) {
             requireRecord(copy.source, copy.record);
             Path target = root.resolve(copy.destination);
@@ -238,13 +257,25 @@ final class WorldBuilderCurrentRuntimeInstance {
             writeNew(root.resolve(document.getKey()), document.getValue());
         }
         WorldBuilderAdaptiveDurability.forceTree(root);
-        verifyNew(plan, root);
+        verifyConstructed(plan, root, guard);
         WorldBuilderAdaptiveDurability.forceDirectory(root.getParent());
     }
 
     /** Initial construction verification only: intentionally not a perpetual live-state validator. */
     static void verifyNew(Plan plan, Path root) throws IOException, WorldBuilderContractException {
-        if (!inventory(directory(root), true).equals(plan.outputInventory)) throw failure("New instance readback differs from its complete construction inventory.");
+        verifyConstructed(plan, root, null);
+    }
+
+    static void verifyGuardedNew(Plan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        if (!root.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))) throw failure("Guard verification selects another instance.");
+        verifyConstructed(plan, root, cutover.guard);
+    }
+
+    private static void verifyConstructed(Plan plan, Path root, byte[] guard) throws IOException, WorldBuilderContractException {
+        List<Object> expected = new ArrayList<Object>(plan.outputInventory);
+        if (guard != null) { expected.add(treeRow("installation/pending-cutover.json", bytesRecord(guard))); sortInventory(expected); }
+        if (!inventory(directory(root), true).equals(expected)) throw failure("New instance readback differs from its complete construction inventory.");
         plan.verifySources();
     }
 
@@ -346,7 +377,7 @@ final class WorldBuilderCurrentRuntimeInstance {
         for (String path : expectedFiles.keySet()) addParents(path, directories);
         for (String path : directories) if (expected.put(path, directoryRecord("0700")) != null) throw failure("Output file collides with a directory.");
         if (!expected.equals(output)) throw failure("Serialized output inventory differs from the exact initial topology and bytes.");
-        return new InitialOutputPlan(array(document.get("outputInventory")), stage, release);
+        return new InitialOutputPlan(array(document.get("outputInventory")), stage, release, instance);
     }
 
     /** Read-only; any gameplay/extra session output makes the initial seal fail. Never cleans up. */
@@ -355,10 +386,38 @@ final class WorldBuilderCurrentRuntimeInstance {
         if (!inventory(actual, true).equals(plan.outputInventory)) throw failure("Initial instance output has drifted; this evidence cannot authorize live-state restoration or cleanup.");
     }
 
+    /** Detached initial evidence only, behind the exact journaled guard. Never authorizes cleanup itself. */
+    static void verifyGuardedInitialOutputs(InitialOutputPlan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        verifyInitialCutoverOutputs(plan, root, cutover, true);
+    }
+
+    /** Exact initial inventory after metadata rollback; any gameplay or partial construction refuses. */
+    static void verifyRolledBackInitialOutputs(InitialOutputPlan plan, Path root, WorldBuilderCurrentRuntimeCutover.Plan cutover)
+        throws IOException, WorldBuilderContractException {
+        verifyInitialCutoverOutputs(plan, root, cutover, false);
+    }
+
+    private static void verifyInitialCutoverOutputs(InitialOutputPlan plan, Path root,
+        WorldBuilderCurrentRuntimeCutover.Plan cutover, boolean guarded) throws IOException, WorldBuilderContractException {
+        Path actual = directory(root); disjoint(actual, plan.stage); disjoint(actual, plan.release);
+        if (!actual.equals(plan.instance) || !actual.equals(cutover.target.resolve(".world-builder/current-runtime/instance"))
+            || cutover.beforeSelection != null || cutover.beforeLedger != null)
+            throw failure("Initial recovery evidence does not select this absent predecessor installation.");
+        List<Object> expected = new ArrayList<Object>(plan.outputInventory);
+        Object selection = treeRow("installation/active-launch.json", bytesRecord(cutover.afterSelection));
+        if (!expected.contains(selection)) throw failure("Initial recovery selection differs from its construction evidence.");
+        if (guarded) expected.add(treeRow("installation/pending-cutover.json", bytesRecord(cutover.guard)));
+        else expected.remove(selection);
+        sortInventory(expected);
+        if (!inventory(actual, true).equals(expected))
+            throw failure("Initial recovery output differs from its exact phase inventory; retain it for recovery.");
+    }
+
     static final class InitialOutputPlan {
         private final List<Object> outputInventory;
-        private final Path stage, release;
-        private InitialOutputPlan(List<Object> outputInventory, Path stage, Path release) { this.outputInventory = outputInventory; this.stage = stage; this.release = release; }
+        private final Path stage, release, instance;
+        private InitialOutputPlan(List<Object> outputInventory, Path stage, Path release, Path instance) { this.outputInventory = outputInventory; this.stage = stage; this.release = release; this.instance = instance; }
     }
 
     private static void requireInitialProjection(Map<String,Object> spec, Path release, Path instance) throws WorldBuilderContractException {
@@ -484,7 +543,7 @@ final class WorldBuilderCurrentRuntimeInstance {
         Absent(Path source, String destination) { this.source = source; this.destination = destination; }
     }
 
-    private static void validateKeyPair(Path privatePath, Path publicPath) throws IOException, WorldBuilderContractException {
+    static void validateKeyPair(Path privatePath, Path publicPath) throws IOException, WorldBuilderContractException {
         try {
             java.security.PrivateKey privateKey = KeyFactory.getInstance("RSA").generatePrivate(new PKCS8EncodedKeySpec(pem(privatePath, "PRIVATE KEY")));
             java.security.PublicKey publicKey = KeyFactory.getInstance("RSA").generatePublic(new X509EncodedKeySpec(pem(publicPath, "PUBLIC KEY")));

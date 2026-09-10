@@ -37,7 +37,21 @@
     "activeMapPackageId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
     "verificationEvidenceHash": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
     "transactionReceiptIds": {"$ref": "#/$defs/identifiers"},
-    "ledgerFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+    "ledgerFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+    "installedInstance": {
+      "type": "object", "additionalProperties": false,
+      "required": ["projectId", "instanceRelativePath", "generationId", "serverDescriptorRelativePath", "serverDescriptorSha256", "clientDescriptorRelativePath", "clientDescriptorSha256", "activeSelectionSha256"],
+      "properties": {
+        "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "instanceRelativePath": {"const": ".world-builder/current-runtime/instance"},
+        "generationId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/identifier"},
+        "serverDescriptorRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "serverDescriptorSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "clientDescriptorRelativePath": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"},
+        "clientDescriptorSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+        "activeSelectionSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+      }
+    }
   },
   "$defs": {
     "identifiers": {

@@ -343,6 +343,31 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
 
+    def test_installed_ledger_binding_is_closed_and_generation_scoped(self) -> None:
+        ledger = json.loads(EDITOR_CONTRACTS["target-ledger"].read_text())
+        instance = ".world-builder/current-runtime/instance"
+        binding = {"projectId": "base-project", "instanceRelativePath": instance, "generationId": "generation-1",
+                   "activeSelectionSha256": "a" * 64}
+        for role in ("server", "client"):
+            binding[role + "DescriptorRelativePath"] = f"{instance}/generations/generation-1/{role}-launch.json"
+            binding[role + "DescriptorSha256"] = "b" * 64
+        ledger["installedInstance"] = binding
+        path = Path(self.temp_directory.name) / "installed-ledger.json"
+        variants = [(dict(binding), True)]
+        for field in binding:
+            omitted = dict(binding)
+            del omitted[field]
+            variants.append((omitted, False))
+        variants.extend([({**binding, "unknown": True}, False),
+                         ({**binding, "generationId": "another-generation"}, False),
+                         ({**binding, "instanceRelativePath": "another-instance"}, False)])
+        for value, valid in variants:
+            with self.subTest(binding=value):
+                ledger["installedInstance"] = value
+                path.write_text(json.dumps(bind_fingerprint(ledger, "ledgerFingerprintSha256")))
+                result = self.run_cli("validate-current-runtime-contract", "--kind", "target-ledger", "--document", str(path))
+                self.assertEqual(valid, result.returncode == 0, result.stderr)
+
     @unittest.skipUnless(jsonschema is not None, "optional jsonschema unavailable")
     def test_editor_and_provider_schemas_accept_exact_authority_documents(self) -> None:
         common = json.loads(
@@ -354,7 +379,8 @@ class CurrentRuntimeFoundationTest(unittest.TestCase):
                 schema = json.loads((SCHEMAS / schema_name).read_text())
                 jsonschema.Draft202012Validator.check_schema(schema)
                 self.assertFalse(schema["additionalProperties"])
-                self.assertEqual(set(schema["required"]), set(schema["properties"]))
+                optional = {"installedInstance"} if schema_name == "current-target-runtime-ledger-v1.schema.json" else set()
+                self.assertEqual(set(schema["required"]) | optional, set(schema["properties"]))
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", DeprecationWarning)
                     resolver = jsonschema.RefResolver.from_schema(schema, store=store)

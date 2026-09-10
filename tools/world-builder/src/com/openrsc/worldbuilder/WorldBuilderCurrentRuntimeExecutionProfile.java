@@ -75,10 +75,10 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			"current-canonical-map-v1", "preservation-typed-configuration-v1",
 			"preservation-state-to-current-base-v1",
 			WorldBuilderPackedTerrainCodec.CONVERSION_PROFILE_ID,
-			"world-builder-current-runtime-activation", false, false,
-			"migration-and-verification-not-implemented",
-			(fixture ? "Isolated staging fixture; " : "Historical JAG map migration/parity, exact Current Base definition equivalence, and ladder-removal/client-void semantics remain unverified; ")
-			+ "production activation remains disabled pending live-instance installation/recovery and Editor integration of the provider-owned staged/installed launch, handshake, login, map, state, restart and gameplay verifier.");
+			"world-builder-current-runtime-activation", false, !fixture,
+			fixture ? "migration-and-verification-not-implemented" : "guarded-current-base-sqlite-execution",
+			fixture ? "Isolated staging fixture; never authorizes production activation."
+				: "Genuine Base SQLite upgrades execute sealed provider migration and runtime verification before guarded installed activation; preview is not database schema acceptance. Missing optional chat-filter files become private empty lists; existing filters and owner keys are preserved.");
 	}
 
 	static WorldBuilderCurrentRuntimeExecutionProfile synthetic(
@@ -116,11 +116,11 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.put("executionReady", Boolean.valueOf(executionReady));
 		result.put("executionReadinessStatus", executionReadinessStatus);
 		result.put("executionReadinessReason", executionReadinessReason);
-		result.put("executionReadinessConditions", executionReadinessConditions(syntheticOnly));
+		result.put("executionReadinessConditions", executionReadinessConditions(syntheticOnly, executionReady));
 		return result;
 	}
 
-	private static List<Object> executionReadinessConditions(boolean synthetic) {
+	private static List<Object> executionReadinessConditions(boolean synthetic, boolean installed) {
 		List<Object> result = new ArrayList<Object>();
 		if (synthetic) {
 			result.add(readiness("sealed-synthetic-transaction-executor", true));
@@ -132,11 +132,11 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		result.add(readiness("closed-sqlite-current-schema-migration", true));
 		result.add(readiness("complete-canonical-map-package", true));
 		result.add(readiness("activation-bound-sqlite-migration-inventory", true));
-		result.add(readiness("live-instance-installation-and-recovery", false));
-		result.add(readiness("runnable-current-runtime-layout", false));
-		result.add(readiness("editor-installed-execution-verifier-integration", false));
-		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", false));
-		result.add(readiness("installed-runtime-launch-handshake-login-gameplay", false));
+		result.add(readiness("live-instance-installation-and-recovery", installed));
+		result.add(readiness("runnable-current-runtime-layout", installed));
+		result.add(readiness("editor-installed-execution-verifier-integration", installed));
+		result.add(readiness("staged-runtime-launch-handshake-login-gameplay", installed));
+		result.add(readiness("installed-runtime-launch-handshake-login-gameplay", installed));
 		return result;
 	}
 
@@ -145,15 +145,20 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		if (!executionReady) return false;
 		if (syntheticOnly) return true;
 		Map<String,Object> staged = object(migrationPlan.get("stagedExecution"));
-		if (!array(staged.get("readinessBlockers")).isEmpty()
+		List<Object> blockers = new ArrayList<Object>(array(staged.get("readinessBlockers")));
+		// This is a required apply-time validator, not a promise that preview opened SQLite schemas.
+		blockers.remove("sqlite-schema-validation-pending-provider-sealed-migration");
+		if (!blockers.isEmpty()
 			|| !WorldBuilderBoundedInventory.bool(staged.get("typedConfigurationReady"),
 				"current-runtime-migration", "typedConfigurationReady")
 			|| !WorldBuilderBoundedInventory.bool(staged.get("canonicalMapPackageReady"),
 				"current-runtime-migration", "canonicalMapPackageReady")) return false;
 		String engine = string(object(staged.get("providerStateMigration")), "engine");
 		return "sqlite".equals(engine)
-			? WorldBuilderBoundedInventory.bool(staged.get("sqliteSchemaMigrationReady"),
-				"current-runtime-migration", "sqliteSchemaMigrationReady")
+			? WorldBuilderBoundedInventory.bool(staged.get("sqliteSnapshotReady"),
+				"current-runtime-migration", "sqliteSnapshotReady")
+				&& Arrays.asList(WorldBuilderPreservationProjectEvidence.BOUNDARY, WorldBuilderCurrentBaseManagedInputs.BOUNDARY)
+					.contains(object(migrationPlan.get("mapMigration")).get("executionBoundary"))
 			: "mariadb".equals(engine)
 				&& WorldBuilderBoundedInventory.bool(staged.get("mariaDbMigrationReady"),
 					"current-runtime-migration", "mariaDbMigrationReady");
@@ -192,7 +197,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			expected.put("executionReady", Boolean.TRUE);
 			expected.put("executionReadinessStatus", "synthetic-regression-ready");
 			expected.put("executionReadinessReason", "Only the sealed synthetic transaction harness implements and verifies this profile.");
-			expected.put("executionReadinessConditions", executionReadinessConditions(true));
+			expected.put("executionReadinessConditions", executionReadinessConditions(true, true));
 			if (canonical(expected).equals(canonical(identity))) return new WorldBuilderCurrentRuntimeExecutionProfile(
 				"synthetic-current-upgrade-v1", null, "synthetic-preservation-migrator-v1",
 				"synthetic-current-server-r1", "synthetic-current-client-r1",
@@ -213,6 +218,18 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		WorldBuilderProviderCatalog.Composition composition, Path packedSourceRoot,
 		Path packedDiscoveryReport)
 		throws WorldBuilderContractException {
+		return migrationPlan(target, classification, composition, packedSourceRoot, packedDiscoveryReport, null);
+	}
+
+	Map<String,Object> migrationPlan(Path target, Map<String,Object> classification,
+		WorldBuilderProviderCatalog.Composition composition, Path packedSourceRoot,
+		Path packedDiscoveryReport, Path preservationProject)
+		throws WorldBuilderContractException {
+		if (!syntheticOnly && "MANAGED_N".equals(classification.get("tier"))) {
+			if (packedSourceRoot != null || packedDiscoveryReport != null) throw refusal("Managed successors retain the current map, not historical packed inputs.");
+			try { return WorldBuilderCurrentBaseManagedInputs.inspect(target, composition, this); }
+			catch (java.io.IOException failure) { throw refusal("Current installed inputs cannot be read safely: " + failure.getMessage()); }
+		}
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("schemaVersion", Long.valueOf(1));
 		result.put("manifestType", "world-builder-current-runtime-migration-plan");
@@ -249,6 +266,14 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			: "descriptor-backed-world-builder-packed-converter");
 		if (sourceIntake && (packedSourceRoot != null || packedDiscoveryReport != null))
 			throw refusal("Historical Preservation selects JAG/MEM server maps; descriptor-backed ZIP evidence cannot replace the pending reviewed JAG migration/parity path.");
+		if (preservationProject != null && (!sourceIntake || syntheticOnly || packedSourceRoot != null || packedDiscoveryReport != null))
+			throw refusal("A Preservation project is exclusive to the genuine historical source intake and cannot be combined with packed evidence.");
+		if (sourceIntake) {
+			if (!"sqlite".equals(object(typed.get("databaseMigration")).get("engine")))
+				throw refusal("This production Preservation intake admits only a closed SQLite input.");
+			result.put("persistentInputs", WorldBuilderPreservationPersistentInputs.inspect(
+				WorldBuilderReadOnlyTarget.open(target), true));
+		}
 		String sourceFingerprint = "";
 		String reportHash = "";
 		String conversionPlanFingerprint = "";
@@ -261,7 +286,29 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		long placementCount = 0L;
 		boolean mapReady = false;
 		WorldBuilderPackedConverter.Inspection mapInspection = null;
-		if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
+		if (preservationProject != null) {
+			try {
+				WorldBuilderPreservationProjectEvidence.Verified genuine = WorldBuilderPreservationProjectEvidence.open(
+					preservationProject, target, composition);
+				mapInspection = genuine.inspectConversion();
+				sourceFingerprint = mapInspection.sourceFingerprintSha256;
+				conversionPlanFingerprint = mapInspection.planFingerprintSha256;
+				conversionPlanSha256 = mapInspection.planSha256;
+				conversionReportSha256 = mapInspection.reportSha256;
+				discoveryReconciliationSha256 = mapInspection.reconciliationSha256;
+				outputPackageFingerprint = mapInspection.outputFingerprintSha256;
+				outputInventory.addAll(mapInspection.outputInventory);
+				terrainCount = mapInspection.terrainCount;
+				placementCount = mapInspection.placementCount;
+				reportHash = genuine.discoveryReportSha256();
+				mapReady = true;
+				map.put("executionBoundary", WorldBuilderPreservationProjectEvidence.BOUNDARY);
+			} catch (java.io.IOException failure) {
+				throw new WorldBuilderContractException(WorldBuilderErrorCodes.DISCOVERY_DRIFT,
+					"current-runtime-migration", "preservation-project", false,
+					"Genuine project evidence cannot be reopened safely.", "Retain the project and review exact source evidence.", failure);
+			}
+		} else if (!syntheticOnly && packedSourceRoot != null && packedDiscoveryReport != null) {
 			try {
 				WorldBuilderPackedConversionSource prepared =
 					WorldBuilderPackedConversionSource.open(
@@ -319,10 +366,15 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			: WorldBuilderPreservationStagedMigrator.plan(target, typed,
 				composition, mapReady, mapInspection));
 		if (sourceIntake) {
-			List<Object> blockers = array(object(result.get("stagedExecution")).get("readinessBlockers"));
-			blockers.add("historical-jag-migration-and-parity-required");
-			blockers.add("historical-current-base-definition-equivalence-required");
-			blockers.add("historical-ladder-removal-and-client-void-proof-required");
+			Map<String,Object> staged = object(result.get("stagedExecution"));
+			staged.put("sqliteSchemaMigrationReady", Boolean.FALSE);
+			List<Object> blockers = array(staged.get("readinessBlockers"));
+			blockers.add("sqlite-schema-validation-pending-provider-sealed-migration");
+			if (!mapReady) {
+				blockers.add("historical-jag-migration-and-parity-required");
+				blockers.add("historical-current-base-definition-equivalence-required");
+				blockers.add("historical-ladder-removal-and-client-void-proof-required");
+			}
 		}
 		result.put("migrationPlanFingerprintSha256", ZERO_HASH);
 		WorldBuilderAdaptiveExporter.bindFingerprint(result,
@@ -332,10 +384,17 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 
 	void validateMigrationPlan(Map<String,Object> plan)
 		throws WorldBuilderContractException {
-		WorldBuilderBoundedInventory.exactKeys(plan, "current-runtime-migration",
+		boolean managed = WorldBuilderCurrentBaseManagedInputs.BOUNDARY.equals(object(plan.get("mapMigration")).get("executionBoundary"));
+		boolean sourceIntake = adapter != null && WorldBuilderPreservationSourceIntake.HISTORICAL_ID.equals(
+			adapter.root.get("historicalRuntimeId")) && !managed;
+		if (managed && (syntheticOnly || !"preservation-family-upgrade-v1".equals(profileId))) throw refusal("Managed state requires the compiled production Base profile.");
+		List<String> fields = new ArrayList<String>(Arrays.asList(
 			"schemaVersion", "manifestType", "migratorId", "configurationMigrationId",
 			"typedConfiguration", "durableStateMigrationId", "durableState",
-			"mapMigration", "stagedExecution", "migrationPlanFingerprintSha256");
+			"mapMigration", "stagedExecution", "migrationPlanFingerprintSha256"));
+		if (sourceIntake) fields.add("persistentInputs");
+		WorldBuilderBoundedInventory.exactKeys(plan, "current-runtime-migration", fields.toArray(new String[0]));
+		if (sourceIntake) WorldBuilderPreservationPersistentInputs.validateEvidence(object(plan.get("persistentInputs")));
 		if (WorldBuilderBoundedInventory.integer(plan.get("schemaVersion"),
 				"current-runtime-migration", "schemaVersion") != 1L
 			|| !"world-builder-current-runtime-migration-plan".equals(
@@ -410,17 +469,20 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		}
 		boolean packageReady = WorldBuilderBoundedInventory.bool(map.get("packageReady"),
 			"current-runtime-migration", "packageReady");
+		if (sourceIntake && !(packageReady ? WorldBuilderPreservationProjectEvidence.BOUNDARY
+			: "historical-jag-conversion-pending").equals(map.get("executionBoundary")))
+			throw refusal("Historical map readiness does not match the compiled genuine execution boundary.");
 		for (String field : Arrays.asList("preparedSourceFingerprintSha256",
 			"discoveryReportSha256", "conversionPlanFingerprintSha256",
 			"conversionPlanSha256", "conversionReportSha256",
 			"discoveryReconciliationSha256", "outputPackageFingerprintSha256")) {
 			String value = string(map, field);
-			if (packageReady ? !WorldBuilderBoundedInventory.isHash(value) : !value.isEmpty())
+			if (packageReady && (!managed || "outputPackageFingerprintSha256".equals(field)) ? !WorldBuilderBoundedInventory.isHash(value) : !value.isEmpty())
 				throw refusal("Canonical map readiness and " + field + " disagree.");
 		}
 		if (!packageReady && !mapPaths.isEmpty()) throw refusal(
 			"Unavailable canonical map migration cannot carry an output inventory.");
-		if (packageReady && (mapPaths.isEmpty()
+		if (packageReady && !managed && (mapPaths.isEmpty()
 			|| !mapPaths.contains("migration/output/map/conversion/conversion-plan.json")
 			|| !mapPaths.contains("migration/output/map/conversion/conversion-report.json")
 			|| !mapPaths.contains("migration/output/map/conversion/"
@@ -428,16 +490,46 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			|| !mapPaths.contains("migration/output/map/conversion/package/manifest.json")))
 			throw refusal("Canonical map inventory omits required conversion evidence.");
 		Map<String,Object> staged = object(plan.get("stagedExecution"));
+		if (managed && (!packageReady || !mapPaths.contains("migration/output/map/conversion/package/manifest.json")
+			|| !Collections.<Object>singletonList(WorldBuilderPreservationStagedMigrator.CURRENT_SQLITE_ROW).equals(object(staged.get("providerStateMigration")).get("migrationRowIds"))))
+			throw refusal("Managed successor does not bind the exact current-state copy row and retained map.");
+		if (sourceIntake && (!Boolean.FALSE.equals(staged.get("sqliteSchemaMigrationReady"))
+			|| !Boolean.TRUE.equals(staged.get("sqliteSnapshotReady"))
+			|| !array(staged.get("readinessBlockers")).contains("sqlite-schema-validation-pending-provider-sealed-migration")))
+			throw refusal("Production intake must retain pending provider database schema validation.");
 		if (syntheticOnly) {
 			WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
 				"implementationId", "stagedOutputs", "readinessBlockers");
 			if (!"synthetic-plan-only".equals(string(staged, "implementationId")))
 				throw refusal("Synthetic staged execution identity changed.");
-		} else validateProductionStagedExecution(staged);
+		} else validateProductionStagedExecution(staged, managed);
 		for (Object raw : array(plan.get("durableState"))) {
 			Map<String,Object> record = object(raw);
 			WorldBuilderBoundedInventory.exactKeys(record, "current-runtime-migration",
 				"role", "relativePath", "sourceSha256", "policy");
+		}
+		if (sourceIntake) {
+			Map<String,Object> state = object(staged.get("providerStateMigration"));
+			if (!"sqlite".equals(state.get("engine"))) throw refusal("Production source preview requires SQLite.");
+			for (Object raw : array(object(plan.get("persistentInputs")).get("inputs"))) {
+				Map<String,Object> input = object(raw);
+				String relative = string(input, "relativePath");
+				int matching = 0;
+				for (Object durableRaw : array(plan.get("durableState"))) {
+					Map<String,Object> record = object(durableRaw);
+					if (!relative.equals(record.get("relativePath"))) continue;
+					if (!input.get("role").equals(record.get("role"))
+						|| !input.get("sha256").equals(record.get("sourceSha256"))
+						|| !"copy-to-staged-durable-state-and-verify-before-cutover".equals(record.get("policy")))
+						throw refusal("Persistent evidence disagrees with classified durable state.");
+					matching++;
+				}
+				if (matching != (Boolean.TRUE.equals(input.get("present")) ? 1 : 0))
+					throw refusal("Persistent evidence presence disagrees with classified durable state.");
+				if (WorldBuilderPreservationStagedMigrator.SQLITE_SOURCE.equals(relative)
+					&& (!relative.equals(state.get("sourceRelativePath")) || !input.get("sha256").equals(state.get("sourceSha256"))))
+					throw refusal("Persistent database evidence disagrees with the provider migration input.");
+			}
 		}
 		String supplied = string(plan, "migrationPlanFingerprintSha256");
 		Map<String,Object> copy = new LinkedHashMap<String,Object>(plan);
@@ -456,7 +548,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return result;
 	}
 
-	private static void validateProductionStagedExecution(Map<String,Object> staged)
+	private static void validateProductionStagedExecution(Map<String,Object> staged, boolean managed)
 		throws WorldBuilderContractException {
 		WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
 			"implementationId", "requiredStateMigrationContractId",
@@ -470,8 +562,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			string(staged, "implementationId"))
 			|| !"current-base-state-migration-v1".equals(
 				string(staged, "requiredStateMigrationContractId"))
-			|| !WorldBuilderPreservationStagedMigrator.migrationRows(
-				string(object(staged.get("providerStateMigration")), "engine")).equals(
+			|| !(managed ? Collections.<Object>singletonList(WorldBuilderPreservationStagedMigrator.CURRENT_SQLITE_ROW)
+				: WorldBuilderPreservationStagedMigrator.migrationRows(
+					string(object(staged.get("providerStateMigration")), "engine"))).equals(
 					array(staged.get("requiredStateMigrationRowIds")))) throw refusal(
 			"Production staged migrator identity changed.");
 		if (!array(staged.get("requiredProviderArtifactRoles")).equals(
@@ -780,7 +873,8 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		root.put("installable", Boolean.FALSE);
 		root.put("recommendedVariantId", "current-base-v1");
 		root.put("supportedManagedPredecessorReleaseIds",
-			Collections.<Object>singletonList("rsc-current-platform-r0"));
+			fixture ? Collections.<Object>singletonList("rsc-current-platform-r0")
+				: Arrays.<Object>asList("rsc-current-platform-r0", "rsc-current-platform-r1"));
 		root.put("targetLedgerRelativePath", ".world-builder/runtime-ledger-v1.json");
 		root.put("probeRoots", fixture ? Arrays.<Object>asList("client", "server")
 			: Arrays.<Object>asList("Client_Base", "PC_Client", "server"));

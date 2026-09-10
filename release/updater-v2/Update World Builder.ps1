@@ -362,6 +362,47 @@ function Assert-ApplicationAllowlist(
         [void]$Allowed.Add("Undo Last Map Import.cmd")
         [void]$Allowed.Add("Undo Last Map Import.sh")
     }
+    # Exact selected Base projection. Never admit a whole provider/output tree.
+    foreach ($Relative in @(
+        "current-platform/bundle-specs/current-base-v1.json",
+        "current-platform/composition-identity.json",
+        "current-platform/input-adapters/preservation-r64-sqlite-v1.json",
+        "current-platform/platform/current-platform-r1.json",
+        "current-platform/runtime/current-base-v1/client-content.json",
+        "current-platform/runtime/current-base-v1/installed-execution-verifier.json",
+        "current-platform/runtime/current-base-v1/profile.json",
+        "current-platform/runtime/current-base-v1/server-content.json",
+        "current-platform/runtime/current-base-v1/state-migration.json",
+        "current-platform/schema/current-base-client-content-v1.schema.json",
+        "current-platform/schema/current-base-installed-execution-evidence-v1.schema.json",
+        "current-platform/schema/current-base-installed-execution-v1.schema.json",
+        "current-platform/schema/current-base-runtime-profile-v1.schema.json",
+        "current-platform/schema/current-base-server-content-v1.schema.json",
+        "current-platform/schema/current-base-state-migration-v1.schema.json",
+        "current-platform/schema/current-bundle-spec-v1.schema.json",
+        "current-platform/schema/current-composition-identity-v1.schema.json",
+        "current-platform/schema/current-module-v1.schema.json",
+        "current-platform/schema/current-platform-release-v1.schema.json",
+        "current-platform/schema/current-preservation-r64-input-adapter-v1.schema.json",
+        "current-platform/schema/current-variant-v1.schema.json",
+        "current-platform/variants/current-base-v1.json",
+        "legacy/docs/inherited-openrsc/server-configs/preservation.conf",
+        "legacy/docs/inherited-openrsc/sqlite-seeds/preservation.db",
+        "output/current-platform/current-base-v1/client/Open_RSC_Client.jar",
+        "output/current-platform/current-base-v1/client/content.zip",
+        "output/current-platform/current-base-v1/runtime/build-provenance.json",
+        "output/current-platform/current-base-v1/runtime/pairing.properties",
+        "output/current-platform/current-base-v1/server/content.zip",
+        "output/current-platform/current-base-v1/server/core.jar",
+        "output/current-platform/current-base-v1/server/plugins.jar",
+        "output/current-platform/current-base-v1/tools/layered-maps.jar",
+        "scripts/build-current-base.py",
+        "scripts/current-platform-composition.py",
+        "scripts/verify-current-base.py",
+        "tools/layered-maps/baselines/rsc-remastered-preservation-r64-v1.json"
+    )) {
+        [void]$Allowed.Add($Relative)
+    }
     foreach ($Schema in @(
         "active-project-v1.schema.json", "adaptive-contract-definitions-v1.schema.json",
         "current-input-adapter-v1.schema.json",

@@ -1,0 +1,1602 @@
+{
+  "records": [
+    {
+      "mode": "100644",
+      "path": "Client_Base/.gitignore",
+      "sha256": "9bed6f1d57c96f364d177edc6aec21283f3da87d3c8f8bb2bb99f69f2a3866f5",
+      "size": 30
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/.name",
+      "sha256": "1f320d5835a953a827b38f4de16fc0275f4d457ad9e4fba285c399f00b088da7",
+      "size": 17
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/ant.xml",
+      "sha256": "a7a80e168fc031dcfc652ca8f6be304043af120003659e2294619b6dd6a85da4",
+      "size": 179
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/client.iml",
+      "sha256": "72cc0cef392674bac5a8e53d69c6417b6af58ef826ad3862458031edfa0d7e83",
+      "size": 446
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/misc.xml",
+      "sha256": "5ea805f63513015c09a888e775afe85f8b4cd2a4e799880630341137efa9bbaf",
+      "size": 213
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/modules.xml",
+      "sha256": "11e66d8b9d40bec027bd118c2ee9b4d3e8e4d5e142e4fba909d59684acac9e5c",
+      "size": 387
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/modules/Client.iml",
+      "sha256": "3d6e223a95d0f5e2cec8e835e01d738d3039a07ac82f097865837a19b56192d5",
+      "size": 720
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/.idea/vcs.xml",
+      "sha256": "269064f5ba7307dcd31a03b5c690698b3442c0f0024c1358361542f49f5509ae",
+      "size": 183
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/MD5.SUM",
+      "sha256": "816fc8fce725bb36623e6f78b9a31516fd292fd99572070154ee2d78cb71417a",
+      "size": 2284
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/advance.wav",
+      "sha256": "e058fb4f95f84f089bc7f280824aa69996416dfacb6afdd512ecda8158e787c1",
+      "size": 12116
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/anvil.wav",
+      "sha256": "231b06c6632529be6c15a4bc5aca3cee2477603945ad1d1bea7918867b2b84fa",
+      "size": 21040
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/chisel.wav",
+      "sha256": "4a8f754cd3fe32d5d214851377835892faa6f8e1cb3ac8d10a38d6401f1ea29f",
+      "size": 1314
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/click.wav",
+      "sha256": "3853ad8ecb9ab96be8a249bf8ccce545e84b370e2bdbd48700da5cae6a498df1",
+      "size": 728
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/closedoor.wav",
+      "sha256": "3acd4402966558d589e88a881d3a4acb304f0d160aefd92e5bec251c8be1a5c4",
+      "size": 7056
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/coins.wav",
+      "sha256": "2f9268e325f195fc4237a15588645d43d07b15456c0b6dafc77966d298af1209",
+      "size": 12366
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat1a.wav",
+      "sha256": "7582cee1dc18872f26edb67a94a939740d8e8fc74f0b7d818cec3aa34f081d99",
+      "size": 3082
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat1b.wav",
+      "sha256": "d168afde5a52b5f700837e46580777fd93c488f148ae4fd62da97495ee6ba847",
+      "size": 2614
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat2a.wav",
+      "sha256": "99de1d14ba2a47e9ee0253c69da23a01ee4822166718cff47233230e1f438779",
+      "size": 5604
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat2b.wav",
+      "sha256": "1b45c36333c3569ab016a0df25c10f45a6cae9ad18a72e99ba9c82f9e87ea542",
+      "size": 8474
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat3a.wav",
+      "sha256": "ed904d93c7f6cd0bb38953abe76338ce1e22936ee043d0eaac1f7ff45a1c015b",
+      "size": 9252
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/combat3b.wav",
+      "sha256": "8c39ed3379d894a618df03cd6f0b0c7ae84d233959104769844b8d90e127825f",
+      "size": 9194
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/cooking.wav",
+      "sha256": "c45a9dc14084c1b8ab768e06500195b408f8e4b860412a02a2dcdc0f17108359",
+      "size": 24370
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/death.wav",
+      "sha256": "611e085b95a72e1c82ab10263f68956d7df7c3ff634863d5ec39656ca633cb41",
+      "size": 15988
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/dropobject.wav",
+      "sha256": "6e3c8214d6300dab9f5df352085dea0744fcd9fe913c4ce5ea681130d3911f40",
+      "size": 7264
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/eat.wav",
+      "sha256": "e5c03fd02ee03e0a7a113b0bf244e3e3867b6f6ad076a72f039c6fd0f2d257f8",
+      "size": 19852
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/filljug.wav",
+      "sha256": "8cc7d13ff437e6fbe7fc1acd3bc924ffe9588fbf0f0e105686be03b344852160",
+      "size": 13482
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/fish.wav",
+      "sha256": "2b5da2162047c29a8d1966d2b9ff401eb3e41dd239f2f0df582d6a47221e8ee9",
+      "size": 5816
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/foundgem.wav",
+      "sha256": "1100d325b00b6ca77aca82af6b38ada51db2c3ffd8bd6cb0b5fab1a1984e4057",
+      "size": 16044
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/mechanical.wav",
+      "sha256": "199da562879d63591e9d8f9cd2bf09d0d2421f93d55893a1b0ff67637a78ad4a",
+      "size": 12898
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/mine.wav",
+      "sha256": "843b74ad1776beadf9bcf4c41736149460b0b77254b245a9fdde917b5f0e100f",
+      "size": 3640
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/mix.wav",
+      "sha256": "5ad8e97ea4a3102d0d34271f7b30a71191ccd0697751edb61a7f0d56a61b8ad7",
+      "size": 9108
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/opendoor.wav",
+      "sha256": "225d43e283968c9a991829d0168850c2098d4dac05253ec0fa818732e27e0045",
+      "size": 13054
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/outofammo.wav",
+      "sha256": "ba832f6804b4bce447eb111ce104b7a2bea2ae5f57a37d3be5a49e2b4d06ce33",
+      "size": 13874
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/potato.wav",
+      "sha256": "73e447e5ad2df9a2ab89d2fb0959c8c4a11d3f7d01a48de53f1e083882c27152",
+      "size": 1788
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/prayeroff.wav",
+      "sha256": "55fb6f5e6cc50f69afd65d393699821cf755063ae8d2c86b35def3e3321111bb",
+      "size": 2444
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/prayeron.wav",
+      "sha256": "0b0c53fd9a4913f4b6e5bf85d1b0b2c701f8342dd7c43e0f8f75981f6638dc98",
+      "size": 2444
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/prospect.wav",
+      "sha256": "7f7707f4633802bcfb1196d55dff6d4b3ec321b373eac96455036db232dfd606",
+      "size": 7248
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/recharge.wav",
+      "sha256": "5a6106376fe5a98c86b185024b4b6c65a2341e91d9d94065c5eaf90540026a43",
+      "size": 8044
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/retreat.wav",
+      "sha256": "534364dc2019b100f49512a4b121b84cee69b5d2143ea66d381fbe2511e8fe18",
+      "size": 8044
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/secretdoor.wav",
+      "sha256": "4e35e5c4417bf090ed8e454ad90f04b2df3856f023af3c77d53866d18ff4576e",
+      "size": 15100
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/shoot.wav",
+      "sha256": "2271fd5f0cb8080904ce6f6f5a1d6941e9e9dea20c2d0354d6710d4c060059fb",
+      "size": 3682
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/sounds.mem",
+      "sha256": "07cdfb29c78348b2f0d9a69e4e16a7f2503a6bc83264d276bdffc634a651c1af",
+      "size": 114375
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/spellfail.wav",
+      "sha256": "24fe04413e56e73aeed51721a8a130dcdd73b9b06f7e205208fbadea40514f7a",
+      "size": 10658
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/spellok.wav",
+      "sha256": "ff03350aebe7db93644cb7cfc5eee4407db8e669bdd3f10bdbd62449b8f9e159",
+      "size": 11042
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/takeobject.wav",
+      "sha256": "0cda20b99c86e02baa75697f9e9a9c0fc8a643b256050fb401c341b0887261db",
+      "size": 1324
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/underattack.wav",
+      "sha256": "5d60ee4e969f7498ef58050cf04764ccb86f0cdb5d8f9732b2ac2ee05843b0d1",
+      "size": 6444
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/audio/victory.wav",
+      "sha256": "9ae703b3f62e084db4850588e98d8dd3e82c9eab16a7f1a58b21e35a45d63156",
+      "size": 8270
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/config.txt",
+      "sha256": "e767bbbe1550dd93ccac4ee50e47f642cfab7092ebba92e03f44d0996a6e2778",
+      "size": 8
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/ip.txt",
+      "sha256": "d906aecb61d076a967d9ffe8821c7b04b063f72df9d9e35b33ef36b1c0d98f16",
+      "size": 10
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/port.txt",
+      "sha256": "d5993aaff939248f0a7556d5faebb4e056bee3bc991036a977aa3b0d02fd60b2",
+      "size": 6
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/uid.dat",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/Authentic_Sprites.orsc",
+      "sha256": "cf861efa7307556b5e5ba4c20b838f17753faba8b530f85dca38e8c2839d5e69",
+      "size": 1332653
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/Custom_Landscape.orsc",
+      "sha256": "aa1ab62821c513c980c0ead852730b34866635a878e93af8046aed8e003ed784",
+      "size": 972992
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/Custom_Sprites.osar",
+      "sha256": "ca5874de69a03382bfdc113f69a369260cf9da9525004dcdd840662c29bb9abf",
+      "size": 923865
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/library.orsc",
+      "sha256": "4fec67f1a23bd43c13e8579af05592623e29685f94f62d016b3af0aea859e17e",
+      "size": 15162
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/models.orsc",
+      "sha256": "0041565749f14b211d6eabc5750b01d7ee168de148dae85d463356620d08c010",
+      "size": 1127184
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Cache/video/spritepacks/Menus.osar",
+      "sha256": "d74f281331be202af13972433d14209247ce89a2d7572c2b140f4afcde68bcac",
+      "size": 3126
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/Client.iml",
+      "sha256": "3c36d24f6ab731e2d712d420bde3012765fc96a31ca500bd6a4c16fc4121e94b",
+      "size": 501
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/PC Client.iml",
+      "sha256": "34aaaf1c698ee97f0ec0de4a2933cb4ce80d7d832dde6a7921754658215d0c39",
+      "size": 815
+    },
+    {
+      "mode": "100644",
+      "path": "Client_Base/compile_client.cmd",
+      "sha256": "7dc5cc6abf4b13d0b80260717bda3ddcdebdc113bf3a1189ca372f2831c9638a",
+      "size": 33
+    },
+    {
+      "mode": "100644",
+      "path": "server/.gitignore",
+      "sha256": "3dfde78001de4ef91e9632521dce0b80d1848531f01cd962f6f064d4b8f65381",
+      "size": 26
+    },
+    {
+      "mode": "100644",
+      "path": "server/.run/Clean & Build.run.xml",
+      "sha256": "e429da58fd907aeda33bc5869de799265053dea12240dee4ef35f2661cd93534",
+      "size": 1169
+    },
+    {
+      "mode": "100644",
+      "path": "server/.run/Run Server.run.xml",
+      "sha256": "8b4d0bc3a50585048f27380bfef2a426dd51d259793182f773994897d86959c7",
+      "size": 1125
+    },
+    {
+      "mode": "100644",
+      "path": "server/2001scape.conf",
+      "sha256": "58d3975e7e6401a265a33a902524f2c260a5268ffdcffbf2fb464379c43bc321",
+      "size": 21723
+    },
+    {
+      "mode": "100644",
+      "path": "server/Game Server.iml",
+      "sha256": "0e05aa3011387c72141e36a93050de890c63f233e602c15ce9e6a8000fced481",
+      "size": 582
+    },
+    {
+      "mode": "100644",
+      "path": "server/SERVER.md",
+      "sha256": "5f8b284d71351aa74e4d1e9475c6d4c6aa6140bf432731db3db5791eb14324e5",
+      "size": 2741
+    },
+    {
+      "mode": "100644",
+      "path": "server/avatars/.gitsave",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "server/compile_core.cmd",
+      "sha256": "c05d6c76d04c05f2595d34831c317881c517dae610653ceb2c3f0bb381a6e026",
+      "size": 28
+    },
+    {
+      "mode": "100644",
+      "path": "server/compile_plugins.cmd",
+      "sha256": "8c7df3788bef515d634fd81e680ca3c0e79b3099dfb6321049a21e81fa43d9ea",
+      "size": 31
+    },
+    {
+      "mode": "100755",
+      "path": "server/compile_server.sh",
+      "sha256": "d689d49336c2130bb263d9bffaf73cb6396264a62b4127f582b6473c3af0a4c7",
+      "size": 161
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/aliases.xml",
+      "sha256": "64585719f86044bb46efefc6cdb0920698b0e57e632ea329651f6625f2891028",
+      "size": 3196
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/badwordsJag.txt",
+      "sha256": "63e77b117dab98b129a21a5113c240e264da2a3ca01d1a8f55c470c006627b24",
+      "size": 1312
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/Authentic_Sprites.orsc",
+      "sha256": "6783ba87959a6a143bf25d761879146dee2b2e476bdafde2eec44e98f6626484",
+      "size": 1333097
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/Custom_Landscape.orsc",
+      "sha256": "aa1ab62821c513c980c0ead852730b34866635a878e93af8046aed8e003ed784",
+      "size": 972992
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/Custom_Sprites.osar",
+      "sha256": "ca5874de69a03382bfdc113f69a369260cf9da9525004dcdd840662c29bb9abf",
+      "size": 923865
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/F2PLandscape.orsc",
+      "sha256": "33c3648e43d79ac71a9840ae692fc913ae06aa0900afbfa6bb206adc9229c0a2",
+      "size": 323814
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/content4_ffffffffaaca2b0d",
+      "sha256": "7e85a47c95ba690187ad10d8218f9b4e327b54c27e6f3da18229b061de35a2d1",
+      "size": 37613
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/content5_6a1d6b00",
+      "sha256": "6a43ffc81a5d95fe392a27fed347eea1c27ac87d11c5670b9e3f0dfe4a8fc7f7",
+      "size": 60002
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/content6_ffffffffe997514b",
+      "sha256": "6f0720a29d40f5dfcd477049d014b41422742d2e3a9900144287f835cc99813b",
+      "size": 142219
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/content7_3fc5d9e3",
+      "sha256": "c38cfcb1e8dddb17afd3ec9d0e8f0cdb076df2caf40a648bf6dd8ea400a55df0",
+      "size": 155110
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land28.jag",
+      "sha256": "4177384be677069d6b6ba188f5c764d3b34b9a1f47e7dfaa1f87f36e6554cf46",
+      "size": 113797
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land30.jag",
+      "sha256": "e0af0b1a9a7e3b071ca072e7b9dbb133570136fa37063e532f28788e4a74006b",
+      "size": 119740
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land30.mem",
+      "sha256": "cb560c176b7f39bddb2febd3bdf25f5fa455949b8eacabd5075eab89ea35c8aa",
+      "size": 11508
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land31.jag",
+      "sha256": "3c7f5dcfb5e0931448b80f502f7d5622a47058f8bcaffddc77652508effc731f",
+      "size": 118718
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land31.mem",
+      "sha256": "b886f73e5357c6a08528f6b423f82644ff6fc26804b2625ec5bef4bf802dfa5e",
+      "size": 13755
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land34.jag",
+      "sha256": "2c2de35ab45381260e102f457fe8ebd4e094fa87114323ba757a3a0e886da18c",
+      "size": 118573
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land34.mem",
+      "sha256": "b088a6c11b6bd6081aaf653ee4770693202b5c17ffd2770be460608b21a24743",
+      "size": 20689
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land63.jag",
+      "sha256": "7235e9e68ff1f2ef0944dabcabd9060e9cda087bb7e56b64b00d94e7a614ef7d",
+      "size": 142383
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/land63.mem",
+      "sha256": "b5b7065cce711ea6686a5f5437f4ca5d305ef71bb855703b27e2db2a2df3cbb6",
+      "size": 154683
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps14.jag",
+      "sha256": "0ae6ace8443b3e6cd4d8ed8162b379f842de6885361a0617efecc88f80fb0c29",
+      "size": 120733
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps27.jag",
+      "sha256": "3061da9b367ce0f6a21c94e7c74a016df49eed2ed274bae2a732d47a9655009b",
+      "size": 250743
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps28.jag",
+      "sha256": "24c3765c68699cad6c95a46118415fd13c64d21b3572c7efbd5d46f2a01608f1",
+      "size": 29340
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps30.jag",
+      "sha256": "fa73b7095b0cbfb8eec9590cca6f1259cbcb6598e824723078782f1d949aef5f",
+      "size": 34856
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps30.mem",
+      "sha256": "5e2a6ddf1b8974c68193ee572dd8e938214dd71915444b71a5a97541d3eca2ab",
+      "size": 7685
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps31.jag",
+      "sha256": "c5f56e998ddee67cba7d92bf278664d6ad86f3e5b0bd769ec3aed1d0a0be8fc7",
+      "size": 34334
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps31.mem",
+      "sha256": "551114834970b15e0385b9d6476a9b7212b0b2b937e43727b9008968041cd9af",
+      "size": 8889
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps34.jag",
+      "sha256": "2e074b7a0fb54921adb20c37bc525dcbcda8a9b1fc69905871305eadddba1295",
+      "size": 34310
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps34.mem",
+      "sha256": "dd6b6a08520eaa04633850e7ab720e50a2e135b225f5602c3a6923b7fe7629d3",
+      "size": 11559
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps63.jag",
+      "sha256": "e482615a8137e5358dcdbdbb232c1de39ce6ec26a64ee80434c63842a6e4c7e2",
+      "size": 37629
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/data/maps/maps63.mem",
+      "sha256": "25d86fbae6d3ae5b7aef73e38d743f32ad716f6e8cc3a87fc496e03c83d54075",
+      "size": 59481
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/ItemDefsPatch18.json",
+      "sha256": "7321c846bc7a8f16af4755e31d49f86872484ece051d6cb0149e248b493114a8",
+      "size": 49693
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/NpcDefsPatch18.json",
+      "sha256": "506881fb29e66d1c06d00c66dd4bc54dc878397e45dd811c03516f677a5e9d69",
+      "size": 39647
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/PrayerDef.xml",
+      "sha256": "2af99d6cc5c57a74758a4392293c32ad68594bff5bff9fb1ad8132d708a785a7",
+      "size": 2755
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/SpellDef.xml",
+      "sha256": "49d6a5af948690849bf35b66cb854f92c2d04e5c347027399068544a2d9d160c",
+      "size": 25903
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/SpellDefRetro.xml",
+      "sha256": "2b8a7e3de0f118cdfd58c7d1f4a96795fcc8d19be2d4682da0db31fb9f7c68d1",
+      "size": 5068
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/CombatOdyssey.json",
+      "sha256": "1bea3004ada5cc9b71eb3e649c27a47b51b5a8e444724e8fe9a6ef53fac4116f",
+      "size": 56490
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/FiremakingDef.xml",
+      "sha256": "2ecd63c56021d025fe063923eb66260a51631bf6146bb0ea088ade26f157af1a",
+      "size": 875
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemAffectedTypes.xml",
+      "sha256": "5af9581cbe663ddca50fd24d052d0140564f4ea51ca3f870409512a1f0d11ca9",
+      "size": 2414
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemArrowHeadDef.xml",
+      "sha256": "48faa22e60fa5abb6c507fbcf9512019edb012c3acab6d5623b56fec688b4603",
+      "size": 990
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemBowStringDef.xml",
+      "sha256": "41cd5a660c00ae8f6912c00a380a5a6a93e942b4d55aa176ee5eef42d2fc6d75",
+      "size": 1931
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemCookingDef.xml",
+      "sha256": "8d07ce7d8b12b8cd98b3ec2a4e00961f4127d43d6fa220d7bb3e650915584d04",
+      "size": 8744
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemCraftingDef.xml",
+      "sha256": "a12fbd41d7db35a2cac2a80c35de7f334b94a4701aad055fdce3963fbb70d0fe",
+      "size": 5750
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemDartTipDef.xml",
+      "sha256": "09a5585dea53121ac6748118e458caf29133b78820699a42da604d25ac1d8ed9",
+      "size": 962
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemEdibleHeals.xml",
+      "sha256": "9b01623bf74300528a6cd61387171dbc61eee0da78196541df0a73c08dd076c4",
+      "size": 6624
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemGemDef.xml",
+      "sha256": "826946ccd304a90cae1ce4396e4a48d11ed0ffa06f65a55ce2089003dc67ec5f",
+      "size": 1262
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemHerbDef.xml",
+      "sha256": "3ddb22c7a37c0f2d304b81735a97860f1d498b86add4a61aaf5977ec7a3ce25e",
+      "size": 1520
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemHerbSecond.xml",
+      "sha256": "3edffb4c7ba7d507e7b6b0ff617c8adb48c13315528b3067004474f5a987cb25",
+      "size": 2778
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemLogCutDef.xml",
+      "sha256": "a2c9ce4e50f0f1f1435c067ae794df89b4fdb549447d04409d156bcbe10f8ce7",
+      "size": 2037
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemPerfectCookingDef.xml",
+      "sha256": "e2b097a60825d2b994dc5af8c71f98839cc89ea3b4b9bb8787648334a258b421",
+      "size": 2744
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemSmeltingDef.xml",
+      "sha256": "00f954c05c67801df8669a46c14c36eb9b685ff661222e98d3bb6bd447fc5ec6",
+      "size": 2606
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemSmithingDef.xml",
+      "sha256": "1f30726f58e2e779acd245dbfa1fb023d26e9b674f5e4359f05fb0dc9c7293e4",
+      "size": 20373
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ItemUnIdentHerbDef.xml",
+      "sha256": "8b925e676ac3e154bd9637244ab75a968f4a89256e76e8a8d00d7a250b2e5881",
+      "size": 2611
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/NpcCerters.xml",
+      "sha256": "2e9116426c25153310f2db1d341f323e137cf43e201e245073a66f2b35cc1390",
+      "size": 13069
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectFishing.xml",
+      "sha256": "3d4311008506e328fc16a961065ef8678440699517929834b19e5e896157c9ef",
+      "size": 12927
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectHarvesting.xml",
+      "sha256": "e610d1c7bcbfbe5bc60a2d6ea9b478a0363381a8486f6ef6fd46a3180162ee63",
+      "size": 5954
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectMining.xml",
+      "sha256": "bd87694344a2f492d696a36bd3209ab360205c8f7845ba1a90bb398ca2c3ad33",
+      "size": 5432
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectRunecraft.xml",
+      "sha256": "3709891369f425765074773f0133f149378e89c1c83ceab4811a38cf7ff452d5",
+      "size": 2365
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectTelePoints.xml",
+      "sha256": "8d41847521d4226e492d00f963ed50a4d9052e9a154b1b82b1ace93e5c11893f",
+      "size": 2904
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/ObjectWoodcutting.xml",
+      "sha256": "87dbc925404822318ec36b7b03dd28a1c6ebf934a9662f93c46a745ecbbcd6a3",
+      "size": 6011
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/retro/ItemCraftingDef.xml",
+      "sha256": "3ee8b14400a3d43a0e861db80274a962782919d40bb77c2efb56fa82fd851f48",
+      "size": 5752
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/retro/ItemGemDef.xml",
+      "sha256": "24cfb9a68ae40cc826af1c057353b3e8e95c6e883167d4b0a4cdf7f68a35b30d",
+      "size": 1254
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/extras/retro/ObjectMining.xml",
+      "sha256": "4d68eff9621b4b821f716271900998625a49b4a898567703e18b19183581ab12",
+      "size": 5431
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/BoundaryLocs14.json",
+      "sha256": "d2dbfb7c5e998fc2f638cf322a65eba363a43d11d9e3ff62b2e59415e9a2ef6e",
+      "size": 32574
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/BoundaryLocs27.json",
+      "sha256": "405c275c45ae7c19121c4e50afa66932c7bd3e3eebb7ac1d011028bdd62a92e3",
+      "size": 24159
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/BoundaryLocsCustomQuest.json",
+      "sha256": "02b37cc677ddded2c00eb2c1c003599812b7cc1c16551806e406e21f7d17f7b9",
+      "size": 473
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/Custom_Landscape.orsc",
+      "sha256": "d74151f65929afa6da290c22757c90c5e62d4d31454edef3870f76237a662e37",
+      "size": 972921
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/GroundItems14.json",
+      "sha256": "b4f2947a14e2f36d075569278c5a96b0751172a185f375c97d971706ae9580c0",
+      "size": 22268
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/GroundItems27.json",
+      "sha256": "a18980f52ec50ebf4493731231bb69f0abe19be1b7bf8a289e07f2f38bcd39b5",
+      "size": 36113
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/GroundItemsCustomQuest.json",
+      "sha256": "09cbfca68d56520f760af9ee6c641dec8344b08161a13ec2185705d4552f5ec1",
+      "size": 616
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/GroundItemsHarvesting.json",
+      "sha256": "c1dab3bfbfcef0163d3acfd3b9699c7b392f46c9b93b63a863b070476dd2b75d",
+      "size": 122
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/GroundItemsMiceToMeetYou.json",
+      "sha256": "e47c1d1b9400adf7a64c16423b19701bfc404546e1c333517fe1471c36d2736c",
+      "size": 1068
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocs14.json",
+      "sha256": "fb07367d18893a62e03ad67968e78275ed5ed7d32bb1be271cb9f1f6a312b028",
+      "size": 86747
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocs27.json",
+      "sha256": "9cc0f86ddf211c6652cd5fef176e6f26af1ebd7458d8bcbc749862bd626e1c1c",
+      "size": 132377
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsAuction.json",
+      "sha256": "81bd77e2f35f35dffb2f0b7ebf44a79351e73e6ac4b510f5b69ee235a31b7cd6",
+      "size": 3321
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsCustomQuest.json",
+      "sha256": "5e363fcb12af3e0bee7a02f75676a1743b144ccea7622d96eb4cdef0f9bb7966",
+      "size": 8337
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsHarvesting.json",
+      "sha256": "20842eb09735079475d1103a07652d3cd1974ca3b6c9dfc5d5133f52bb151b39",
+      "size": 1588
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsIronman.json",
+      "sha256": "15dd4f47258b3e9ffbf78e09f831e1abf8b30adfc92fa9d4297a32bf86ddfc81",
+      "size": 646
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsModRoom.json",
+      "sha256": "d7985fb19db31aa8ddd90d890d5d9a1582637443cea683c2aad749134100fdc7",
+      "size": 1559
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsOpenPk.json",
+      "sha256": "71087f76c053e37144f3e7e8095c4cc1349e113152697bd3054159007d68c332",
+      "size": 1068
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsOther.json",
+      "sha256": "69975fe49bdc01c895d14753f458aeea359e54d1e91f8aece2509d55619b105b",
+      "size": 1434
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsPkBots.json",
+      "sha256": "4e9b4259dc4af5e2adb21731e0f631e623c26a698aec97c966ceb0bf828e790e",
+      "size": 449
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/NpcLocsRunecraft.json",
+      "sha256": "8e5300fe1668841174b66a6b7f4f3699bdcc8c380fc3f4594dad51e04e3b6a8e",
+      "size": 163
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocs14.json",
+      "sha256": "5b302a7a46aae5b41848a3ccc77a3c32dec025e9f6125896a8358ed67d24f74b",
+      "size": 322591
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocs27.json",
+      "sha256": "c02b835b1c43a3bf6d576250d42335bf5b152e4508180d5c57ca70267bf112ff",
+      "size": 678007
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsCustomQuest.json",
+      "sha256": "4e161f233c9a79ddd230dbf400a6ea93b9b3f559c7ede919f5ce5ea2e7e70b07",
+      "size": 5082
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsExpansion.json",
+      "sha256": "5c360d1d5e8659062a96844f00212ecd0828e9e02171df73a9fc5e00485e73f7",
+      "size": 13134
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsHarvesting.json",
+      "sha256": "a32947a84784cdbc6cb45f8ecb993c7a67e28d39cc5871d9016ad6983ef88469",
+      "size": 14386
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsMiceToMeetYou.json",
+      "sha256": "8bf87e49fd78a1f607d864f963bcabb6326e6bb4ae65b5a07fdd0101ffed7f79",
+      "size": 185
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsModRoom.json",
+      "sha256": "b47922d9cfd6bccfb2bdfb04d4eaa81865d107f1e60ee5b9d7eb3843cc1cf74e",
+      "size": 1516
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsOpenPk.json",
+      "sha256": "17d87457c6f670ba4c6a6230bc2492bd0a46460c10701b426aac63a8d31d156e",
+      "size": 1933
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsOther.json",
+      "sha256": "fe70d4dc3d9f06ef6bfce197501bd0797da122354c3b20d69de0b81e5c26d875",
+      "size": 8026
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsRunecraft.json",
+      "sha256": "b7b74c60668fb4152c6fd3df5dcfe23dd5ceee14bd4ee7c7be0355772bfdbe47",
+      "size": 14590
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/defs/locs/SceneryLocsWoodcuttingGuild.json",
+      "sha256": "a315f7d23e690f3924f230bb3dff677f843b907b7b71cf99263205d7f56e9252",
+      "size": 557
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/fonts/runescape_uf.ttf",
+      "sha256": "4fd8115952dac02eb3b32a340e7c47c6388b1017669442ed80f9c4aae2dbf25c",
+      "size": 14248
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/AuthenticMessages_en_UK.properties",
+      "sha256": "d132344aca3cd1c6dceb4deb791f800a0a74dd0a4ea902663c1187f8b2da811e",
+      "size": 1221
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/AuthenticMessages_en_UK_female.properties",
+      "sha256": "da9c0f036dc11a0e817d75beeb045d39921c3da4af9b5a41f7b18c86e210b5cb",
+      "size": 2059
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/AuthenticMessages_en_UK_female_no_misgender.properties",
+      "sha256": "b5c9a92208c9046e60b3eec47b9b35f2f63328c4ababa2dbb735a418e0ea22e8",
+      "size": 2063
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/AuthenticMessages_en_UK_gender_neutral.properties",
+      "sha256": "dbd8a57ef2ab40c7a24a39774d18904174e85c5186b378a7a62d09db3702178d",
+      "size": 2080
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/AuthenticMessages_en_UK_male.properties",
+      "sha256": "a12d431262ff7b6ff7cebfa448da0988cf4a280c671dacbb8fea13516ffa6d18",
+      "size": 2013
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/CustomMessages_en_UK.properties",
+      "sha256": "5f7748c0acb409e78aa1227bd5286e8720e7b2191d26c949c572ff64d4a35248",
+      "size": 258
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/CustomMessages_en_UK_female.properties",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/CustomMessages_en_UK_gender_neutral.properties",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/languages/CustomMessages_en_UK_male.properties",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/log4j2.xml",
+      "sha256": "97350a7e41eddb5d8d113126b9b708342d7a34881fde7c86219abf954a8bd11a",
+      "size": 2968
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/log4j2b.xml",
+      "sha256": "f85aab595f41004ea48f56932b4e09e365a2305d589455616914cd76dde792aa",
+      "size": 2988
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/words.list",
+      "sha256": "82a0e575fcfcf67b602c6b3852b272b9a199fc5eb9ab0ca2e32e3c85054c990e",
+      "size": 53039
+    },
+    {
+      "mode": "100644",
+      "path": "server/conf/server/wordsJag.txt",
+      "sha256": "8cfde4109025211380ca735dd33a186317121b1f489f2e6a8e65baf94f2f04b8",
+      "size": 29221
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_auctionhouse.sql",
+      "sha256": "846f05daf54eacde9bd30ed712040d26d5fefcaa44ebcab37337e7d2c7346fb5",
+      "size": 1490
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_bank_presets.sql",
+      "sha256": "efd7e23133768c687f4be0b9ba1880a750cd38cc876eb3aae2a06fb53ae741fe",
+      "size": 495
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_clans.sql",
+      "sha256": "720e45e26bd8473e9e54d1bd13d599c9ed0008e7917421a3bfc3ab9923bf78dd",
+      "size": 1299
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_equipment_tab.sql",
+      "sha256": "9bf75806807dc3999032452b39fa9db1ba95ad649bececc4cffe29971831b173",
+      "size": 199
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_harvesting.sql",
+      "sha256": "370209c667fbfa6132cfbcf56e2397ce9135e6b3e8aa7294aebfee3cad74f21c",
+      "size": 312
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_npc_kill_counting.sql",
+      "sha256": "c5125e5479acf890e779f2a76d8daae310213469921151d59471495166fa13a5",
+      "size": 301
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/add_runecraft.sql",
+      "sha256": "1592a2d1c40906006ab2fabb6897251e8ea381450f9f4bbf63901a246d54094f",
+      "size": 307
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_auctionhouse.sql",
+      "sha256": "91002ce7282c0865b640831a685b25b7d093f596175fc5aeb968b23b73681a7b",
+      "size": 74
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_bank_presets.sql",
+      "sha256": "a9c29362288ad454e91be90c0837de240a32abb11d40f30b52b2df99c8184b74",
+      "size": 35
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_clans.sql",
+      "sha256": "3f1f61807504c372766334a6bac44263a9ac1aac20b81a92feebb9a60777a349",
+      "size": 66
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_equipment_tab.sql",
+      "sha256": "44976e117dcafae01d9489b4ba2d3f683601704c99b2977d0f442af68f36e80b",
+      "size": 32
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_harvesting.sql",
+      "sha256": "2bd43e96ae98b9c02ebc99cd10495d0e1a599e267a94ed420b56b7a7f3bb8a3c",
+      "size": 94
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_npc_kill_counting.sql",
+      "sha256": "35b22e4867a3896596856c30fa11efa21d84b086c6ec0e69cdc0ffabe73485e7",
+      "size": 32
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_quicktrade.sql",
+      "sha256": "ed7af0569f8950135ccdcb9129300929bf364326e0af1fe92e3f8007326108e4",
+      "size": 574
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/addons/remove_runecraft.sql",
+      "sha256": "165736f9d265ea2f38c30cdcc0b8d50c7a4aa433099a42476275eaf8dc2e9e98",
+      "size": 92
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/core.sql",
+      "sha256": "e0957c87b7938acf8fb788d1101f1577664afade1c609977c1ba8e10ba742a75",
+      "size": 22095
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/depreciated/add_custom_items.sql",
+      "sha256": "8298b6849e09d4ec2217674364b83a7ba354226edbe1878b07df9135a646a98b",
+      "size": 111
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/depreciated/add_custom_npcs.sql",
+      "sha256": "864ad4f64a7d6d2d6fef9733ad1f20d494c934f07c68934592ce1a70a4531bbc",
+      "size": 2326
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/depreciated/add_custom_objects.sql",
+      "sha256": "b551a31f4458b249ddd2baec3444ee313899dedf8918995f9a2fff2055d44e10",
+      "size": 12793
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/depreciated/remove_custom_npcs.sql",
+      "sha256": "68e33c7e61212f78ab62894117b4777f02cf92e13176251848e1793ae3006912",
+      "size": 162
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/depreciated/remove_custom_objects.sql",
+      "sha256": "a3e9de10eba6662e9ca3d5c4491a5167db3fe5f12eb8877f649589746bb32c6b",
+      "size": 53
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2020_09_23_rsc235.sql",
+      "sha256": "f3dddd75ed1e6eb1a43a34cafe92cb8dbf6d9aa69ea0428ba0486f8ba25add9b",
+      "size": 244
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2020_10_28_player_transfers.sql",
+      "sha256": "6fc90344a5ef94517471ef1dc4ee2decb3103cb0d50f24eadb33b0d95c342257",
+      "size": 244
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2021_03_14_xp_rollover.sql",
+      "sha256": "c79ffd14cf0e7245cd66f2e3f5342290820fc7a00f5f95dee859dfa4c09d09b4",
+      "size": 4131
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2021_03_24_message_logging_length.sql",
+      "sha256": "e3f192623d4af1a346f3127327ce82cf0b9f3b77768ca1c2c73406b997a3d016",
+      "size": 162
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2021_05_11_add_db_patches.sql",
+      "sha256": "6dcaa0a1f9fdce51034efc183d0ac95500ab5f8352be3ad1dc85b17085218a28",
+      "size": 99
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2021_05_27_move_ironman_to_separate_table.sql",
+      "sha256": "3a3b4f0a11c3db88acd3264d8c8d2bd385b44e1ffc7b3ee5edb4924c6d7e6c5c",
+      "size": 843
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2021_05_28_delete_bank_size_from_players.sql",
+      "sha256": "7352a7fe78da683c353322aa730e41235e7faede0ff406442e8f6c5e60f2da8e",
+      "size": 81
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2023_02_01_former_names.sql",
+      "sha256": "36c8bb146bdf55c59f69c713c09f9b255c647b5472cf2fe3b593cf512d31af83",
+      "size": 945
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/patches/2023_12_23_change_itemid_to_bigint.sql",
+      "sha256": "ea2e13c149ffbd1262b2367f6899c74eb4800c1cd1e7de182d5d6801fc8d9443",
+      "size": 194
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/queries/patches.xml",
+      "sha256": "f06017a87be243a9f64cb52af3b40392e9417a18d4d18133d33b5b843f442a25",
+      "size": 403
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/queries/player.xml",
+      "sha256": "e28566911d532ce222855082a8f8f8a0dd2141f511ba199aa0ecf8f2557cafc6",
+      "size": 394
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/retro.sql",
+      "sha256": "161cca70acf0ab6d68ec15805664f3e87a89ec27651b203499616714661e72af",
+      "size": 23424
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/1_remove_redundant_prefix_5.0.0.sql",
+      "sha256": "60376d33f40928d82a22d7204c962570f81c1c2088052c348e8e944f68d78910",
+      "size": 1691
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/2_alter_redundant_columns_5.0.0.sql",
+      "sha256": "db0e6bde9fab10aa2a0c9dc6eb6873d37d2a68412a0995e5e2070cab079dd1ec",
+      "size": 4067
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/3_alter_custom_content_5.0.0.sql",
+      "sha256": "8f9cc95c3afacdf617eb38357e14d727bad339954d593e12227774b16a250aad",
+      "size": 785
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/4_remove_itemstatus_autoincrement.sql",
+      "sha256": "7d48c944c2b95656d2a245a977f67ff6f87372dcd14b9fb6058bb8db0f8083fd",
+      "size": 79
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/convert_core_4.3.0.sql",
+      "sha256": "fe8f9c2c2b946dd56748cdff0a5643abbf50f4e52deee10c87f9e13f61c3d2c3",
+      "size": 228066
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/convert_custom_4.3.0.sql",
+      "sha256": "4a417ae7b9fa6f5bcc55506a75877ca92cb1ee7abe4e99fd9f2db24188c164bb",
+      "size": 61844
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/correct_cameraauto_default.sql",
+      "sha256": "fdee30960bf9cc9a06805d221b5ad253a30ef465740b8bfb964668ff3f701242",
+      "size": 56
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/delete_grounditems_locs.sql",
+      "sha256": "43b7a60bf552104d831a0cc5172275337a28bcdd728dde3e5827608e5bf720e7",
+      "size": 27
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/delete_npc_locs.sql",
+      "sha256": "871d28127f2484f905ed26c11b8969bcfdc53ef38769b3ca0bc243543b5a204a",
+      "size": 23
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/delete_objects_locs.sql",
+      "sha256": "4c4a500f97af09fec783e1e6499fd22cc562af054f8374b55ab6f4625aedcda0",
+      "size": 23
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/mysql/upgrades/handle_negative_xp.sql",
+      "sha256": "a74ee874fd79596c64038a49abf1fe8bb633fd2d4268e2c395980edf9dfde72c",
+      "size": 1426
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sql_queries.xsd",
+      "sha256": "38720cea4dde47674b1e1d90c6799d18743f4c83a870440630875df42b0ac9c1",
+      "size": 744
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/add_auctionhouse.sqlite",
+      "sha256": "c7002f223a3ca78018babc31407e628bc524154cbb03790fdb2d0c4ed5472f0a",
+      "size": 1365
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/add_bank_presets.sqlite",
+      "sha256": "947c3a46ed0cee0880faaf8ffa81d7a82e7521d0a5c1bedf01c9ec58eb3f0873",
+      "size": 278
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/add_clans.sqlite",
+      "sha256": "6ebb2e9732ea579878f1a99e65b8d713d1d3b6b862432372696032196166f5a5",
+      "size": 1038
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/add_equipment_tab.sqlite",
+      "sha256": "3e205483a679d2999b9caabe0321aab60096d845f24e6f62b3e9c01a1dcd38e2",
+      "size": 140
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/add_npc_kill_counting.sqlite",
+      "sha256": "ba3718298409f2f44e210c745205570e99bbc51b1fa4825fc5973a068c24cda1",
+      "size": 245
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/remove_auctionhouse.sqlite",
+      "sha256": "91002ce7282c0865b640831a685b25b7d093f596175fc5aeb968b23b73681a7b",
+      "size": 74
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/remove_bank_presets.sqlite",
+      "sha256": "a9c29362288ad454e91be90c0837de240a32abb11d40f30b52b2df99c8184b74",
+      "size": 35
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/remove_clans.sqlite",
+      "sha256": "3f1f61807504c372766334a6bac44263a9ac1aac20b81a92feebb9a60777a349",
+      "size": 66
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/remove_equipment_tab.sqlite",
+      "sha256": "44976e117dcafae01d9489b4ba2d3f683601704c99b2977d0f442af68f36e80b",
+      "size": 32
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/addons/remove_npc_kill_counting.sqlite",
+      "sha256": "35b22e4867a3896596856c30fa11efa21d84b086c6ec0e69cdc0ffabe73485e7",
+      "size": 32
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/core.sqlite",
+      "sha256": "df330833f576024ccf9f6994a5932caae875f7e83bd6f2a4bde4ddbf1921649b",
+      "size": 19128
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/patches/.gitsave",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "size": 0
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/patches/2021_05_11_add_db_patches.sql",
+      "sha256": "25ffcc7c8fd66ff8c48f83783d5a858cb7f9fd05e9fd55dcc376614df68a43f3",
+      "size": 117
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/patches/2023_02_01_former_names.sql",
+      "sha256": "6a85ab9d0842ea60866225a822a4c2832de856231eb49cee0f44c8e1a73fa56a",
+      "size": 801
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/queries/bank_presets.xml",
+      "sha256": "670dfae11b81d8e062a5c873d0f544d9022f0d278bc662031f2247e75321d06f",
+      "size": 620
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/queries/item.xml",
+      "sha256": "676e27900ea5c6caee9dd331a9583a18e7d0013ca1aa25f2c960ea46381dd3a1",
+      "size": 642
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/queries/patches.xml",
+      "sha256": "f06017a87be243a9f64cb52af3b40392e9417a18d4d18133d33b5b843f442a25",
+      "size": 403
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/queries/player.xml",
+      "sha256": "b68f1fd052b65bed93c2698830a5e3f238e5a377c35555062ed8d12e96adb59b",
+      "size": 1526
+    },
+    {
+      "mode": "100644",
+      "path": "server/database/sqlite/retro.sqlite",
+      "sha256": "493c63af44f90c3204963a870d129cf2b79f28cb4dbbd3ff95aaf3fdd49ede06",
+      "size": 19020
+    },
+    {
+      "mode": "100644",
+      "path": "server/globalrules.txt",
+      "sha256": "61a3b4af0fdd68cea4ffbeeece01997cd1dc91605bc483e5bb1677a9fe4c0a98",
+      "size": 857
+    },
+    {
+      "mode": "100644",
+      "path": "server/gradle/wrapper/gradle-wrapper.jar",
+      "sha256": "e996d452d2645e70c01c11143ca2d3742734a28da2bf61f25c82bdc288c9e637",
+      "size": 59203
+    },
+    {
+      "mode": "100644",
+      "path": "server/gradle/wrapper/gradle-wrapper.properties",
+      "sha256": "8cd60777ee6db7c4401d67ccc66cf3067836b04d7c901eeed876fadf31072711",
+      "size": 200
+    },
+    {
+      "mode": "100755",
+      "path": "server/gradlew",
+      "sha256": "63135287117a1e6d12c84580f1f49c61d1ba02218ecd28660605e97f976e7d65",
+      "size": 5766
+    },
+    {
+      "mode": "100644",
+      "path": "server/gradlew.bat",
+      "sha256": "af835f98787e9269af5a046edcb821a592fed372139df7b947b471a63cfc236b",
+      "size": 2763
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/Dockerfile",
+      "sha256": "ab910f060e15ac0b8016708012f6988becd461401289c844f134776ec178107d",
+      "size": 390
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/ant",
+      "sha256": "d2b2c7aa687c17d5c6f09a62d1d9297b33e5c91384fd4cb038fa290199479ac0",
+      "size": 11557
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/ant.bat",
+      "sha256": "ed69834447ed6ce07113592380b9f3d75979eb5dbc0ccadf7c5517dcfd5cd35d",
+      "size": 7252
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/ant.cmd",
+      "sha256": "2a59befe395e6617a0a035e7bc7a734e84284589c7b597f0f948457c5b70aa52",
+      "size": 2762
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/antRun",
+      "sha256": "e223763bf3089020d1c406fc189937d5db841395633f5774055fd0b28620ed50",
+      "size": 861
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/antRun.bat",
+      "sha256": "c9bb8b205d4836549d810dcd78135ff074ea34730d3a681b1acadd1227c348db",
+      "size": 1483
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/antRun.pl",
+      "sha256": "d4942ff2f2d09c3a64777243a94f303077d63187add0c028a84576867f58b5ff",
+      "size": 2117
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/antenv.cmd",
+      "sha256": "9febcd0cd241c7c29f2b4263e49bdd7de44def3a692d637a62ac3dcb2b738774",
+      "size": 3311
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/complete-ant-cmd.pl",
+      "sha256": "45fa8bf1ce1320551abb8042c44b8fe049f8259bd944a7d4513771753d49d985",
+      "size": 3458
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/envset.cmd",
+      "sha256": "8397470574cbaae0afc8cea756b3c9e7a67ffae17c4a2e9cb1335740122306f4",
+      "size": 4184
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/lcp.bat",
+      "sha256": "fb38b9ab53f280ddb9959fa6dfe04ea63b08d24732f3efb6fc656b2e89aa8a1e",
+      "size": 1082
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/runant.pl",
+      "sha256": "495f91934f6b2075671433d9ae2d079a35cf66d8bf02076e471e5edec9f584b4",
+      "size": 4166
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/runant.py",
+      "sha256": "8c47e6ae577f940e1620fa251376d0b2dffccd4cc1407575c6162ef30b226aa6",
+      "size": 3385
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/ant/bin/runrc.cmd",
+      "sha256": "cebe29771b32bf5154c393ef179dcfc25f37fae57389ed6decdbf946c732b3d1",
+      "size": 1754
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/innodb.cnf",
+      "sha256": "e327861d4b67c2c4db858caa5e7ecce9524580d04ed668d743743a8f29a9c043",
+      "size": 196
+    },
+    {
+      "mode": "100644",
+      "path": "server/inc/my.cnf",
+      "sha256": "b6825a433d51366b0881ffc39e2081f1b89f96efe99372d96d2eb01a2dd63595",
+      "size": 1218
+    },
+    {
+      "mode": "100644",
+      "path": "server/openpk.conf",
+      "sha256": "ad6a53031479e9b375421466ed23e05b19ff4f95bdf6c7a33cbd9da50ee6ed43",
+      "size": 23117
+    },
+    {
+      "mode": "100644",
+      "path": "server/rsccabbage.conf",
+      "sha256": "3f0d02e06f201a378dcf746967b7cb5d0daea691b81c1208f61e75cc60cad8a6",
+      "size": 20104
+    },
+    {
+      "mode": "100644",
+      "path": "server/rsccoleslaw.conf",
+      "sha256": "07d5e98fcda6475d8d11aab67dd593bafc620d2b658fa1ffd35a16dafb0d8e33",
+      "size": 19485
+    },
+    {
+      "mode": "100644",
+      "path": "server/uranium.conf",
+      "sha256": "a35fb69f86abca7905dc99efebffd2e4bde888e1ab0f3e31e4ee2adc834c6649",
+      "size": 21156
+    }
+  ],
+  "sourceCommit": "c0102e60774ab9c9076aabae49f6f97fb6fc4b00",
+  "sourceTree": "6db5536d795abf34f303bb03b20c43b8cfb9e3fe"
+}

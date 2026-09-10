@@ -73,6 +73,11 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		instance.verifyHeld();
 	}
 
+	WorldBuilderCurrentRuntimeInstanceLease installedLease() throws IOException, WorldBuilderContractException {
+		verifyInstalledHeld();
+		return instance;
+	}
+
 	static void inspect(Path target, Map<String,Object> typed,
 		boolean syntheticFixture)
 		throws IOException, WorldBuilderContractException {
@@ -196,7 +201,10 @@ final class WorldBuilderCurrentRuntimeOfflineLease implements Closeable {
 		ServerSocket socket = null;
 		try {
 			socket = new ServerSocket();
-			socket.setReuseAddress(false);
+			// Linux can rebind a closed server's TIME_WAIT connections without
+			// sharing a listening endpoint (SO_REUSEPORT is never enabled).
+			// Keep exclusive defaults elsewhere: Windows reuse has different semantics.
+			socket.setReuseAddress("Linux".equals(System.getProperty("os.name")));
 			socket.bind(new InetSocketAddress("0.0.0.0", port));
 			return socket;
 		} catch (IOException unavailable) {

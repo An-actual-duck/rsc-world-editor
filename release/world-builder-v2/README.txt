@@ -2,8 +2,10 @@ WORLD BUILDER 2 @VERSION@
 =========================
 
 World Builder 2 is a server-agnostic drop-in world editor. Its archive contains
-the application runtime and default definition/rendering catalogs, but no map,
-terrain, static placements, layered world package, or sample project.
+the application runtime, default definition/rendering catalogs, and the exact
+selected Current Base upgrade catalog. It contains no user map, layered world
+package, sample project, account database, or credentials. Provider-owned public
+migration baselines are packaged as bound upgrade inputs, not editable projects.
 
 It is separate from the frozen packed-map World Editor v1 line, whose final tag
 is v1.1.0. This product and update channel is rsc-world-editor-v2, its install
@@ -27,13 +29,14 @@ client presentation options, and remembered Builder position after the initial
 120,648 spawn. Exact archive, packaged-runtime, transaction, and owner-run
 native validation are required for every accepted release candidate.
 
-The later development-only package-driven v3 pinned-core target upgrade is
-rejected and must not be used to open a new release gate. The replacement
-direction is one current platform generation with a conservative Current Base
-for Preservation-like/lightly customized public servers, Current Advanced for
-the owner's reviewed game, explicit current modules, and bounded historical
-input adapters. This README must be reconciled again with the implemented
-composition manifests before a new package is released.
+Current development implements the conservative Current Base upgrade for
+explicitly admitted Preservation SQLite inputs, followed by separate map-only
+imports and interrupted-transaction recovery. Linux is the initial validated
+workflow; packaging Windows files does not establish Windows server-upgrade
+acceptance. Current Advanced, optional modules, and unknown custom behavior are
+not silently mapped to Base. Managed-version upgrade proof, consolidated
+verification, and fresh packaged acceptance remain candidate gates. The rejected
+old package-driven v3 pinned-core upgrade is not an alternative migration path.
 
 INSTALLATION
 ------------
@@ -59,8 +62,8 @@ no terminal interaction is required.
 
 Development main presents Detect Server Map, Continue Working on Selected
 Project, Upgrade Target Runtime, Import Map Changes, and Restore Project Backup.
-The checked-in upgrade action is the rejected candidate described below and is
-not a supported public migration. With no recognized adjacent server, Detect
+For an admitted native Base project, the upgrade action uses the selected
+Current Base catalog and the project's recorded target. With no recognized adjacent server, Detect
 Server Map offers a labelled New Empty World. Select Another Supported Source
 and project-folder browsing remain under Advanced / Recovery. Closing or
 cancelling a screen changes nothing. The advanced launch-adaptive command
@@ -113,7 +116,7 @@ second "Open now?" prompt.
 When matching server/client Custom_Landscape.orsc files are the selected packed
 map or coexist with a compatible layered target, the launcher asks whether to
 incorporate them. Yes converts exact verified packed terrain and records guarded
-conversion/retirement evidence for the planned Upgrade Target Runtime action;
+conversion/retirement evidence for the separate Upgrade Target Runtime action;
 project creation does not change the server. No creates from the selected
 authority without retirement intent.
 
@@ -163,36 +166,37 @@ verification steps. Nothing is changed until you confirm that complete plan.
 The packaged Import Map Changes scripts provide the equivalent command-line
 path and require typing IMPORT exactly.
 
-If Import reports RUNTIME_UPGRADE_REQUIRED, stop and preserve the offline target.
-Do not invoke the checked-in development runtime-upgrade command: that candidate
-copied a generic core/client over divergent source and guarded the old build,
-and its v3 receipt/marker evidence is insufficient.
+If Import reports RUNTIME_UPGRADE_REQUIRED, keep the target offline and review
+Upgrade Target Runtime. For an admitted native Base project, this is a separate
+transaction with its own exact preview and confirmation. Unknown or unported
+custom behavior remains a pre-mutation blocker; there is no force override.
 
-PLANNED TARGET-RUNTIME REPLACEMENT (NOT IMPLEMENTED IN THIS RELEASE)
--------------------------------------------------------------------
+CURRENT BASE TARGET-RUNTIME UPGRADE
+----------------------------------
 
-Under the replacement contract, Import will proceed only as a map-only action
+For native Base projects, Import proceeds only as a map-only action
 when the target ledger proves that its selected current runtime composition is
 installed.
 
-The replacement "Upgrade Target Runtime" will first identify a historical input
-adapter and customization tier, then recommend a current destination:
+Upgrade Target Runtime identifies an admitted historical input and validates
+the selected Base destination. The broader product policy remains:
 
 - Preservation-like targets with no map upgrade default to Current Base;
 - supported local/configuration/data changes are translated and retained;
-- maintained portable behavior resolves to explicit current modules;
-- recognized plugin source without a registered port returns PORT_REQUIRED with
-  zero writes;
-- the owner's reviewed lineage resolves to Current Advanced; and
+- maintained portable behavior needs a reviewed current module (not shipped in
+  this Base-only catalog);
+- plugin behavior without a registered port blocks before mutation;
+- the owner's reviewed lineage needs Current Advanced, not forced Base adoption; and
 - unknown executable/client/core/build changes block before mutation until a
   current provider port exists.
 
-Its reviewed preview will name retained, retired, mapped, and blocking behavior
+Its reviewed preview names retained, retired, mapped, and blocking behavior
 as well as matching-client, canonical map-conversion, configuration, database,
 and target-ledger changes. A variant/module-set change requires explicit
 consent. The complete current composition and migrated state will be verified
-side-by-side before an atomic launcher switch; old runtime files will remain
-only in the exact rollback backup.
+side-by-side before guarded activation. Exact predecessor evidence and backups
+are retained for failure rollback and interrupted recovery. Historical source
+is not built or run as the installed server.
 
 EXISTING MAP TRANSACTION SAFETY
 -------------------------------
@@ -205,9 +209,9 @@ authority, activation content, and every verified backup, then forces their
 directory entries before publishing and forcing the pending receipt. A
 filesystem/Java provider that cannot provide that ordering is refused before
 transaction artifacts or target mutation. Import publishes verified server-side
-and client-side map package content first. Once the replacement is implemented,
-Import will additionally require the separate runtime upgrade to have
-established the exact current-composition target ledger. It verifies every
+and client-side map package content first. Native Base Import additionally
+requires the separate runtime upgrade to have established the exact
+current-composition target ledger. It verifies every
 changed map and activation byte and both map-package selections. Before
 restarting, distribute the exact reported client/map identity to every player.
 Later Detect Server Map runs recognize that exact packed-profile installation
@@ -222,14 +226,17 @@ bytes are never rolled back by a server import.
 
 A partial failure automatically rolls back and verifies the safe state. If the
 tool reports RECOVERY_REQUIRED, do not start the server or run another
-transaction. Keep the complete project/backups/receipts and run "Recover Map
-Transaction"; review its exact plan and type RECOVER. Recovery accepts only
+transaction. Keep the complete project/backups/receipts and the external
+target-owned transaction workspace. Choose "Recover Interrupted Server
+Transaction…" (or use the packaged recovery script); review its exact plan and
+confirmation. Native Base recovery handles an interrupted upgrade or map import,
+not reversal of a completed import. Recovery accepts only
 paths that still match the compiled transaction's exact before or after state.
 
-There is no force option. The replacement keeps runtime upgrade and map
+There is no force option. The current workflow keeps runtime upgrade and map
 activation under separate exact preview, backup, rollback/recovery, receipt, and
-verification authority. Historical source/plugins will be evidence to classify,
-not executable inputs to the installed runtime. Successful migration will leave
+verification authority. Historical source/plugins are evidence to classify,
+not executable inputs to the installed runtime. Successful migration leaves
 one active current server/client composition; adding another historical source
 layout will add an input adapter rather than another active runtime.
 Standalone projects can save and export, but Import and Recovery return NO_TARGET

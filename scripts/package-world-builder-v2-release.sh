@@ -323,6 +323,7 @@ if [[ "$SKIP_BUILD" != true ]]; then
 	require_lwjgl_release_inputs
 	"$RUNTIME_PROVIDER_ROOT/scripts/build-server.sh"
 	SPOILED_MILK_RELEASE_BUILD=1 "$RUNTIME_PROVIDER_ROOT/scripts/build-client.sh"
+	python3 "$RUNTIME_PROVIDER_ROOT/scripts/build-current-base.py"
 	"$ROOT_DIR/scripts/build-tools.sh"
 fi
 require_release_git_state "$SOURCE_COMMIT"
@@ -610,7 +611,7 @@ require_unlinked_output_path() {
 
 require_unlinked_output_path
 rm -rf -- "$OUTPUT_DIR"
-mkdir -p "$LINUX_STAGE" "$WINDOWS_STAGE" "$OUTPUT_DIR"
+mkdir -p "${LINUX_STAGE%/*}" "${WINDOWS_STAGE%/*}" "$OUTPUT_DIR"
 require_unlinked_output_path
 [[ "$(cd "$OUTPUT_DIR" && pwd -P)" == "$OUTPUT_DIR" ]] \
 	|| fail "Candidate/release output resolved outside its repository path"
@@ -645,6 +646,10 @@ stage_builder() {
 	local runtime="$destination/builder-runtime"
 	local source relative role source_path destination_path
 
+	java -jar "$TOOLS_JAR" export-current-base-catalog \
+		--provider-catalog-root "$RUNTIME_PROVIDER_ROOT/current-platform" \
+		--composition-identity "$RUNTIME_PROVIDER_ROOT/output/current-platform/current-base-v1/composition-identity.json" \
+		--destination "$destination" > "${destination%/*}/selected-base-export.json"
 	mkdir -p "$runtime/Client_Base" "$runtime/server" "$runtime/launcher/schema"
 	cp "$CLIENT_JAR" "$runtime/Client_Base/Open_RSC_Client.jar"
 	cp "$SERVER_JAR" "$runtime/server/core.jar"
@@ -711,7 +716,7 @@ validate_stage() {
 		fail "Staged World Builder package contains a symbolic link"
 	fi
 	python3 - "$stage" "$RUNTIME_PROVIDER_ROOT" "$RUNTIME_ALLOWLIST" \
-		"$ROOT_DIR/tools/world-builder/schema" <<'PY'
+		"$ROOT_DIR/tools/world-builder/schema" "$SCRIPT_ROOT/scripts" <<'PY'
 import hashlib
 import json
 import pathlib
@@ -723,6 +728,14 @@ root = pathlib.Path(sys.argv[1]).resolve()
 core = pathlib.Path(sys.argv[2]).resolve()
 allowlist_path = pathlib.Path(sys.argv[3])
 schema_root = pathlib.Path(sys.argv[4]).resolve()
+sys.path.insert(0, sys.argv[5])
+from world_builder_base_catalog import selected_base_files
+catalog_files = selected_base_files(core)
+for relative, expected in catalog_files.items():
+    path = root / relative
+    if (not path.is_file() or path.is_symlink() or path.read_bytes() != expected[0]
+            or path.stat().st_mode & 0o7777 != expected[1]):
+        raise SystemExit("Staged selected Base bytes or mode differ: " + relative)
 seen = {}
 reserved = {
     "CON", "PRN", "AUX", "NUL",
@@ -824,6 +837,7 @@ for path in root.rglob("*"):
     if not (
         relative in top_files
         or relative in runtime_files
+        or relative in catalog_files
         or relative.startswith("runtime/")
     ):
         raise SystemExit("Staged file is outside the application allowlist: " + relative)

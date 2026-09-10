@@ -25,9 +25,15 @@ final class WorldBuilderLauncherModel {
 	private final Path defaultTarget;
 	private final int port;
 	private final String configurationRole;
+	private final WorldBuilderProviderCatalog.Composition baseComposition;
 
 	WorldBuilderLauncherModel(Path installation, Path runtime, Path defaultTarget,
 		int port, String configurationRole) throws IOException {
+		this(installation, runtime, defaultTarget, port, configurationRole, null);
+	}
+
+	WorldBuilderLauncherModel(Path installation, Path runtime, Path defaultTarget,
+		int port, String configurationRole, WorldBuilderProviderCatalog.Composition baseComposition) throws IOException {
 		this.installation = requireDirectory(installation, "World Builder installation");
 		this.runtime = requireDirectory(runtime, "World Builder runtime");
 		this.defaultTarget = defaultTarget == null ? null
@@ -37,6 +43,7 @@ final class WorldBuilderLauncherModel {
 		}
 		this.port = port;
 		this.configurationRole = emptyToNull(configurationRole);
+		this.baseComposition = baseComposition;
 	}
 
 	static int selectAvailablePortPair(int preferredPort) throws IOException {
@@ -422,13 +429,19 @@ final class WorldBuilderLauncherModel {
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult create(
 		DiscoveryPreview preview, String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition selected = null;
+		if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)) {
+			selected = baseComposition == null ? WorldBuilderProviderCatalog.resolve(
+				installation.resolve("current-platform"),
+				installation.resolve("current-platform/composition-identity.json")) : baseComposition;
+		}
 		Path reportPath = Files.createTempFile(
 			installation, ".desktop-discovery-", ".json");
 		try {
 			Files.write(reportPath, preview.report.toJson().getBytes(StandardCharsets.UTF_8),
 				StandardOpenOption.TRUNCATE_EXISTING);
 			Path target = "standalone".equals(preview.status) ? null : preview.source;
-			return new WorldBuilderAdaptiveProjectLifecycle().create(
+			return new WorldBuilderAdaptiveProjectLifecycle(null, selected).create(
 				installation, runtime, target, reportPath, displayName, creationPort(), "CREATE",
 				itemVisualMappings);
 		} finally {
@@ -534,6 +547,16 @@ final class WorldBuilderLauncherModel {
 	PreparedImport prepareServerImport(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before importing.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			Path nativeTarget = WorldBuilderCurrentRuntimeUserActions.target(project);
+			Path exported = new WorldBuilderAdaptiveExporter().export(project.projectRoot).exportDirectory;
+			return new PreparedImport(new WorldBuilderCurrentRuntimeMapImport().preview(
+				project.projectRoot, exported, nativeTarget,
+				WorldBuilderCurrentRuntimeUserActions.workspace(nativeTarget),
+				java.util.UUID.randomUUID().toString()), nativeTarget);
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveExporter.ExportResult exported =
 			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
@@ -547,6 +570,11 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException(
 			"Select one project before upgrading its target runtime.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			return new PreparedImport(WorldBuilderCurrentRuntimeUserActions.previewUpgrade(installation, project));
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveExporter.ExportResult exported =
 			new WorldBuilderAdaptiveExporter().export(entry.projectRoot);
@@ -565,6 +593,10 @@ final class WorldBuilderLauncherModel {
 	String applyServerImport(PreparedImport prepared)
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException("Import preview was not supplied.");
+		if (prepared.mapPlan != null) {
+			return "Map changes were imported successfully. Player and side state were retained.\n\n"
+				+ new WorldBuilderCurrentRuntimeMapImport().apply(prepared.mapPlan, prepared.mapPlan.confirmation());
+		}
 		WorldBuilderAdaptiveImporter.ImportResult result =
 			prepared.importer.apply(prepared.preview, "IMPORT");
 		return "Map changes were imported successfully.\n\nTransaction: "
@@ -575,6 +607,13 @@ final class WorldBuilderLauncherModel {
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException(
 			"Runtime upgrade preview was not supplied.");
+		if (prepared.upgradePlan != null) {
+			WorldBuilderCurrentRuntimeUpgradeTransaction.Result result =
+				new WorldBuilderCurrentRuntimeUpgradeTransaction().apply(
+					prepared.upgradePlan, prepared.upgradePlan.confirmationIdentity());
+			return "Target runtime was upgraded successfully. The canonical map is installed; "
+				+ "use Import Map Changes for subsequent saved edits.\n\n" + result.toJson();
+		}
 		WorldBuilderAdaptiveImporter.ImportResult result =
 			prepared.importer.applyRuntimeUpgrade(prepared.preview, "UPGRADE");
 		return "Target runtime was upgraded successfully.\n\nTransaction: "
@@ -585,6 +624,13 @@ final class WorldBuilderLauncherModel {
 	PreparedRecovery prepareServerRecovery(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before recovery.");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project =
+			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+		if (WorldBuilderCurrentRuntimeUserActions.isNativeBase(project)) {
+			Path target = WorldBuilderCurrentRuntimeUserActions.target(project);
+			return new PreparedRecovery(WorldBuilderCurrentRuntimeRecoveryActions.preview(target, project.projectId,
+				WorldBuilderCurrentRuntimeUserActions.workspace(target, false)));
+		}
 		Path target = targetFor(entry);
 		WorldBuilderAdaptiveRecovery recovery = new WorldBuilderAdaptiveRecovery();
 		return new PreparedRecovery(recovery,
@@ -594,6 +640,8 @@ final class WorldBuilderLauncherModel {
 	String applyServerRecovery(PreparedRecovery prepared)
 		throws IOException, WorldBuilderContractException {
 		if (prepared == null) throw new IOException("Recovery preview was not supplied.");
+		if (prepared.current != null) return "Interrupted transaction recovery completed.\n\n"
+			+ WorldBuilderCurrentRuntimeRecoveryActions.apply(prepared.current, prepared.current.confirmation());
 		WorldBuilderAdaptiveRecovery.RecoveryResult result =
 			prepared.recovery.apply(prepared.preview, "RECOVER");
 		return "Interrupted map import recovery completed successfully.\n\nTransaction: "
@@ -718,33 +766,63 @@ final class WorldBuilderLauncherModel {
 	static final class PreparedImport {
 		final WorldBuilderAdaptiveImporter importer;
 		final WorldBuilderAdaptiveImporter.Preview preview;
+		final WorldBuilderCurrentRuntimeMapImport.Plan mapPlan;
+		final WorldBuilderCurrentRuntimeUpgradeTransaction.Preview upgradePlan;
 		final Path target;
 
 		PreparedImport(WorldBuilderAdaptiveImporter importer,
 			WorldBuilderAdaptiveImporter.Preview preview, Path target) {
 			this.importer = importer;
 			this.preview = preview;
+			this.mapPlan = null;
+			this.upgradePlan = null;
 			this.target = target;
 		}
 
+		PreparedImport(WorldBuilderCurrentRuntimeMapImport.Plan mapPlan, Path target) {
+			this.importer = null;
+			this.preview = null;
+			this.mapPlan = mapPlan;
+			this.upgradePlan = null;
+			this.target = target;
+		}
+
+		PreparedImport(WorldBuilderCurrentRuntimeUpgradeTransaction.Preview upgradePlan) {
+			this.importer = null;
+			this.preview = null;
+			this.mapPlan = null;
+			this.upgradePlan = upgradePlan;
+			this.target = upgradePlan.targetRoot;
+		}
+
 		String summary() {
+			if (mapPlan != null) return mapPlan.humanSummary();
+			if (upgradePlan != null) return WorldBuilderCurrentRuntimeUserActions.upgradeSummary(upgradePlan);
 			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}
 
 	static final class PreparedRecovery {
+		final WorldBuilderCurrentRuntimeRecoveryActions.Preview current;
 		final WorldBuilderAdaptiveRecovery recovery;
 		final WorldBuilderAdaptiveRecovery.Preview preview;
 		final Path target;
 
 		PreparedRecovery(WorldBuilderAdaptiveRecovery recovery,
 			WorldBuilderAdaptiveRecovery.Preview preview, Path target) {
+			this.current = null;
 			this.recovery = recovery;
 			this.preview = preview;
 			this.target = target;
 		}
 
+		PreparedRecovery(WorldBuilderCurrentRuntimeRecoveryActions.Preview current) {
+			this.current = current; this.target = current.target;
+			this.recovery = null; this.preview = null;
+		}
+
 		String summary() {
+			if (current != null) return current.summary();
 			return preview.humanSummary() + "\nServer target: " + target;
 		}
 	}

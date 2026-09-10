@@ -119,6 +119,9 @@ add_group() {
 				test-world-builder-preservation-source-intake.py
 				test-world-builder-preservation-map-reconciliation.py
 				test-world-builder-preservation-map-conversion.py
+				test-world-builder-base-project-content.py
+				test-world-builder-base-project-lifecycle.py
+				test-world-builder-base-catalog-export.py
 				test-world-builder-discovery.py
 				test-world-builder-map-migration-choice.py
 				test-world-builder-packed-conversion.py
@@ -130,6 +133,7 @@ add_group() {
 		projects)
 			members=(
 				test-world-builder-adaptive-project-lifecycle.py
+				test-world-builder-base-authoring-generation.py
 				test-world-builder-runtime-preparation.py
 				test-world-builder-supervision.py
 				test-world-builder-project-revisions.py
@@ -141,11 +145,18 @@ add_group() {
 			members=(
 				test-world-builder-adaptive-transactions.py
 				test-world-builder-current-runtime-upgrade-transaction.py
-				test-world-builder-current-runtime-instance.py
+    test-world-builder-current-runtime-instance.py
+    test-world-builder-current-runtime-successor.py
 				test-world-builder-initial-instance-integration.py
 				test-world-builder-installed-runtime-verification.py
 				test-world-builder-verifier-authority.py
 				test-world-builder-installed-instance-lease.py
+				test-world-builder-installed-cutover.py
+				test-world-builder-current-map-import.py
+				test-world-builder-initial-side-state.py
+				test-world-builder-base-server-cycle.py
+				test-world-builder-base-upgrade-user-actions.py
+				test-world-builder-offline-port-reuse.py
 				test-world-builder-export.py
 				test-world-builder-import.py
 				test-world-builder-map-migration-choice.py

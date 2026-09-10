@@ -47,6 +47,9 @@ import java.util.*;
 public final class InstanceHarness {
   @SuppressWarnings("unchecked") public static void main(String[] args) throws Exception {
     Path root = Paths.get(args[1]);
+    if ("verify-installed".equals(args[0])) {
+      System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(root.resolve("target")))); return;
+    }
     if ("verify-serialized".equals(args[0]) || "validate-serialized".equals(args[0])) {
       Map<String,Object> serialized = WorldBuilderJsonDocuments.readObject(root.resolve("plan.json"));
       WorldBuilderCurrentRuntimeInstance.InitialOutputPlan plan =
@@ -85,6 +88,37 @@ public final class InstanceHarness {
     if (input.containsKey("drift")) Files.write(Paths.get((String)input.get("drift")), new byte[]{99}, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
     if (input.containsKey("symlink")) Files.createSymbolicLink(Paths.get((String)input.get("symlink")), stage);
     Path output = Paths.get((String)input.get("output"));
+    if ("construct-guarded".equals(args[0]) || "construct-rollback".equals(args[0])) {
+      Path target=Paths.get((String)input.get("target"));
+      Map<String,Object> ledger=WorldBuilderJsonDocuments.readObject(root.resolve("ledger-template.json"));
+      ledger.put("targetInstallationId",input.get("installationId"));
+      ledger=WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger,target,(Map<String,Object>)document.get("specification"),
+        WorldBuilderJsonDocuments.readObject(root.resolve("identity.json")),WorldBuilderJsonDocuments.readObject(stage.resolve("migration/output/map/conversion/package/manifest.json")), "base-project");
+      Map<String,Object> generation=(Map<String,Object>)document.get("generation");
+      WorldBuilderCurrentRuntimeCutover.Plan cutover=WorldBuilderCurrentRuntimeCutover.inspect(target,"initial","","",
+        WorldBuilderJsonDocuments.pretty(generation.get("activeSelection")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+        WorldBuilderJsonDocuments.pretty(ledger).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+      WorldBuilderCurrentRuntimeCutover.journal(cutover,root.resolve("cutover-journal"));
+      WorldBuilderCurrentRuntimeInstance.materializeGuarded(plan,output,cutover);
+      WorldBuilderCurrentRuntimeInstance.verifyGuardedNew(plan,output,cutover);
+      WorldBuilderCurrentRuntimeInstance.InitialOutputPlan token = WorldBuilderCurrentRuntimeInstance.validateInitialOutputPlan(document, (String)document.get("planFingerprintSha256"));
+      WorldBuilderCurrentRuntimeInstance.verifyGuardedInitialOutputs(token,output,cutover);
+      if(!Files.exists(output.resolve("installation/pending-cutover.json"))) throw new AssertionError("startup guard absent");
+      try(WorldBuilderCurrentRuntimeInstanceLease lease=WorldBuilderCurrentRuntimeInstanceLease.acquire(output.resolve("installation"))) {
+        if ("construct-rollback".equals(args[0])) {
+          new WorldBuilderCurrentRuntimeCutover().recover(cutover,root.resolve("cutover-journal"),lease);
+          WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(token,output,cutover);
+          Files.write(output.resolve("state/server/current_base.db"),new byte[]{1},StandardOpenOption.APPEND);
+          try { WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(token,output,cutover); throw new AssertionError("drift accepted"); }
+          catch (WorldBuilderContractException expected) { }
+          System.out.print(WorldBuilderJsonDocuments.pretty(document)); return;
+        }
+        new WorldBuilderCurrentRuntimeCutover().apply(cutover,root.resolve("cutover-journal"),lease);
+      }
+      WorldBuilderCurrentRuntimeInstance.verifyNew(plan,output);
+      if(!document.get("specification").equals(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target))) throw new AssertionError("installed generation differs");
+      System.out.print(WorldBuilderJsonDocuments.pretty(document)); return;
+    }
     WorldBuilderCurrentRuntimeInstance.materializeNew(plan, output);
     WorldBuilderCurrentRuntimeInstance.verifyNew(plan, output);
     if ("tamper".equals(args[0])) {
@@ -111,6 +145,7 @@ public final class InstanceHarness {
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory(prefix="editor-instance-fixture-")
         self.root = Path(self.temporary.name)
+        write(self.root / "ledger-template.json", json.loads((ROOT / "tests/fixtures/current-runtime-upgrade-v1/targets/managed-n/.world-builder/runtime-ledger-v1.json").read_text()))
         self.stage = self.root / "release"
         self.instance = self.root / "instance"
         for path, data in {"installed/server/core.jar": b"fixture-server", "installed/server/plugins.jar": b"fixture-plugins",
@@ -153,6 +188,15 @@ public final class InstanceHarness {
                  "client-runtime": "installed/client/Open_RSC_Client.jar", "runtime-profile": "runtime/profile.json"}
         write(self.root / "identity.json", {"installable": True, "variantId": "current-base-v1",
               "bundleInventory": [{"role": role, "sha256": sha(self.stage / path)} for role, path in roles.items()]})
+        ledger = json.loads((self.root / "ledger-template.json").read_text())
+        identity = json.loads((self.root / "identity.json").read_text())
+        for field in ("platformReleaseId", "platformManifestHash", "schemaSetHash", "variantManifestHash", "moduleSetHash",
+                      "bundleInventoryHash", "bundleSpecId", "bundleSpecHash", "inputAdapterContractId"):
+            identity[field] = ledger[field]
+        ledger["variantId"] = "current-base-v1"
+        ledger["activeMapPackageId"] = "fixture-map"
+        write(self.root / "ledger-template.json", ledger)
+        write(self.root / "identity.json", identity)
         outputs = [{"relativePath": str(path.relative_to(self.stage)), "kind": "fixture", "source": "fixture", "size": path.stat().st_size,
                     "sha256": sha(path), "mode": "0600"} for path in sorted((self.stage / "installed").rglob("*")) if path.is_file()]
         write(self.root / "layout.json", {"layoutId": "current-base-runnable-layout-v1", "serverRootRelativePath": "installed/server",
@@ -211,6 +255,50 @@ public final class InstanceHarness {
             connection.execute("insert into preserved values ('normal-gameplay')")
         self.assertEqual(before_stage, snapshot(self.stage))
         self.assertEqual(pointer, json.loads((self.instance / "installation/active-launch.json").read_text()))
+
+    def test_initial_guarded_construction_and_metadata_commit(self):
+        target = self.root / "target"
+        parent = target / ".world-builder/current-runtime"
+        parent.mkdir(parents=True)
+        self.instance = parent / "instance"
+        self.request.update(target=str(target), instance=str(self.instance), output=str(self.instance))
+        before_stage = snapshot(self.stage)
+        before_side = snapshot(self.root / "side")
+        self.invoke("construct-guarded")
+        self.assertFalse((self.instance / "installation/pending-cutover.json").exists())
+        self.assertTrue((self.root / "cutover-journal/commit.json").exists())
+        self.assertEqual(UUID, json.loads((target / ".world-builder/runtime-ledger-v1.json").read_text())["targetInstallationId"])
+        self.assertEqual(before_stage, snapshot(self.stage))
+        self.assertEqual(before_side, snapshot(self.root / "side"))
+        with sqlite3.connect(self.instance / "state/server/current_base.db") as connection:
+            connection.execute("insert into preserved values ('postcommit-gameplay')")
+        (self.stage / "migration/output/state/current-base.db").write_bytes(b"retired historical snapshot")
+        specification = self.invoke("verify-installed")
+        self.assertEqual(str(self.instance / "state/server"), specification["serverStateRoot"])
+        ledger_path = target / ".world-builder/runtime-ledger-v1.json"
+        original = json.loads(ledger_path.read_text())
+        for field in ("platformReleaseId", "bundleInventoryHash", "activeMapPackageId"):
+            changed = dict(original)
+            changed[field] = "a" * 64 if field.endswith("Hash") else "wrong-generation"
+            changed["ledgerFingerprintSha256"] = "0" * 64
+            changed["ledgerFingerprintSha256"] = hashlib.sha256(canonical(changed)).hexdigest()
+            write(ledger_path, changed)
+            self.invoke("verify-installed", success=False)
+        write(ledger_path, original)
+        descriptor = self.instance / "generations/first-generation/client-launch.json"
+        descriptor.write_bytes(descriptor.read_bytes() + b" ")
+        self.invoke("verify-installed", success=False)
+
+    def test_detached_initial_recovery_inventory(self):
+        target = self.root / "target"
+        parent = target / ".world-builder/current-runtime"
+        parent.mkdir(parents=True)
+        self.instance = parent / "instance"
+        self.request.update(target=str(target), instance=str(self.instance), output=str(self.instance))
+        self.invoke("construct-rollback")
+        self.assertFalse((self.instance / "installation/active-launch.json").exists())
+        self.assertFalse((self.instance / "installation/pending-cutover.json").exists())
+        self.assertFalse((target / ".world-builder/runtime-ledger-v1.json").exists())
 
     def test_final_projection_can_precede_release_and_instance_publication(self):
         self.request["release"] = str(self.root / "future" / "release")

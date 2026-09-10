@@ -6,13 +6,13 @@
 | --- | --- |
 | Status | Active planning decision and evidence review |
 | Captured | 2026-09-04 |
-| Last reconciled | 2026-09-06, collected handoffs and bounded candidate closure plan |
+| Last reconciled | 2026-09-10, public-stock intake fixed and fresh disposable source copy detects successfully; candidate packaging pending |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
-| Checkpoint scope | Base-first implementation resumed; production activation remains disabled and live-target mutation unauthorized |
-| Published Editor implementation | `df87491e5c8df74fa558925de5c249be745104fc` (includes normal-instance acceptance) |
-| Published runtime | `04ddc2fbed81fdff8aac095a4e029316603af558`; adoption pending coherent Editor integration |
-| Editor's adopted runtime | `d21021756e59b82844dc16152af60721be1418b5` |
+| Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
+| Published Editor implementation | `b001b0def66374d69fdae4ed6238ec6a7bf22a35`; Base workflow topics not yet published on `main` |
+| Published runtime | `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2` |
+| Editor's adopted runtime | Integration topic pins `4d589cb4` in `060ecfb`; published Editor `main` still pins `d2102175` |
 | Preservation fixture | `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree `6db5536d795abf34f303bb03b20c43b8cfb9e3fe` |
 | Core-copy evidence | `fec94c8731b5521410963575ef0f2fa5c05ef0b3`, tree `22051f8cff480975f3f1d2d1c7e2af836d9d7ff0`, tag `v0.2.87` |
 
@@ -24,6 +24,14 @@ build, activation, or upgrade authority changed.
 The active reliability plan remains the historical incident and work log. This
 document is the smaller current source for the replacement architecture,
 fixture matrix, staged implementation order, and release gates.
+
+The immediate requested deliverable is a **fresh disposable Preservation copy
+with the candidate folder inside its server root**. Public stock-file recognition
+now passes against a new full public-source copy with fresh private test state;
+runtime integration, complete final verification and candidate packaging remain.
+See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for evidence and
+the ordered path to that deliverable. Later-runtime adoption by
+existing authored projects must not hold up this fresh-install candidate.
 
 ## Candidate scope and closure checkpoint — 2026-09-06
 
@@ -123,6 +131,141 @@ effective-runtime checks and unchanged non-Base controls. Neither assignment
 includes broader audits, new runtime generations or production release. The
 merged map-semantics slot has returned to idle.
 
+### Base completion implementation checkpoint — 2026-09-07
+
+The manager topic now contains durable selection/ledger cutover, startup guards
+before initial construction, exact installed generation/composition/map binding,
+and a required installed project identity. Detached initial recovery evidence
+distinguishes guarded construction from the exact rolled-back inventory; neither
+is authority to rewind later gameplay. Focused instance (13), contract (17), and
+cutover (11) tests pass, including actual process interruption and foreign
+metadata drift refusal. These topic changes are not yet published on `main`.
+
+Separate current map-import preview/apply/recovery code and CLI entrypoints are
+implemented on the same topic. They retain existing code, configuration and
+player/side-state paths, stage immutable map/launch generations, and use the
+guarded metadata cutover. Five focused recovery tests pass: precommit restoration
+and owned-output cleanup, postcommit gameplay preservation, changed-output
+retention, unconfirmed/busy-role refusal, and ambiguous-commit retention. These
+use synthetic metadata and do **not** establish genuine project-to-server import
+or packaged acceptance. Native project validation and the full connected workflow
+must pass before this becomes candidate-ready.
+
+The intake and production upgrade workers continue their existing bounded
+assignments. Runtime public combat review found a concrete blocked-melee recoil
+bug; its narrow correction is awaiting focused verification. Runtime authoring
+isolation and current SQLite byte-copy migration are collected for the same
+integration batch. The Editor pin remains unchanged until that batch passes.
+No live target, production release, or accepted candidate is implied.
+
+### Runtime publication and user-action checkpoint — 2026-09-08
+
+Published runtime `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2` integrates
+public Base combat (including the blocked-melee recoil correction), isolated
+authoring state, and current SQLite migration. Runtime suite coverage completed
+in segments: the first run stopped at the inherited universal no-random-spell-
+failure assertion; its test alone was narrowed to retain that rule for non-Base
+and admit the exact reviewed Base failure branch. The resumed passing section
+reached `test-entrypoints.py` before the session ended; the remaining section,
+from `test-bot-suspicion-report.py` through EOF, then exited successfully.
+Passing prefixes were reused because production code and inputs did not change.
+This is full entrypoint coverage, not an uninterrupted full-command success.
+The explicit genuine-map input was supplied; no suite skips were recorded.
+
+The Editor integration topic now pins that published revision and passes provider
+parity. This is an explicit worker prerequisite, not final Editor integration:
+the consolidated full Editor suite remains mandatory before publishing `main`.
+
+Current map import is connected to the desktop Import Map Changes action and
+active-project terminal action for native Base projects. Both use the project's
+recorded target, not the installation's parent. A private same-filesystem sibling
+workspace accommodates installations inside the target; previews show the exact
+transaction and recovery confirmation. Six focused recovery/workspace checks
+pass, including refusal of an existing public or linked workspace without
+changing its permissions. Genuine project validation and connected import
+acceptance still remain; these focused checks are not candidate acceptance.
+Explicit confirmed-hash CLI recovery exists; desktop current-transaction recovery
+integration remains to be completed.
+
+Intake now has a focused, relocated selected-Base catalog export for packaging;
+it preserves the exact selected artifact/schema paths without shipping a whole
+provider checkout. Intake handoff `478f2af` is integrated on the manager topic.
+Genuine native creation, two authenticated sessions with clean restart, reopen,
+export and tamper refusal passed (2 tests, 118.923 seconds), with the historical
+target unchanged and the Builder account confined to isolated authoring state.
+The connected test found and fixed a missing diagnostics-directory creation
+before moving conversion evidence. Map preview now consumes the complete
+verified native provider identity rather than only reading its identity file.
+
+Both workers subsequently hit their usage limit; their checkpoints are retained,
+and no retry loop was started. The manager finished the bounded intake correction
+and acceptance locally. A subsequent genuine project-derived upgrade preview
+passed against the retained invented-state target. It exposed a missing
+capability fingerprint before closed contract validation, fixed in upgrade
+checkpoint `dd1eed1`. Preview remains distinct from sealed database migration
+and activation acceptance; no upgrade was applied in that check.
+Initial genuine CLI activation has since passed sealed SQLite migration,
+executable verification, instance construction, and guarded cutover. Absent
+optional chat filters become private empty lists; present filters and owner keys
+are retained. Normal player login has passed on a populated disposable target.
+The existing desktop and active-terminal upgrade controls now use the guarded
+Base transaction; genuine preview/cancellation passes against a relocated
+selected catalog without mutating the historical target. An observed Linux
+`TIME_WAIT` false busy-port refusal is fixed, with positive closed-connection and
+negative live-listener regression checks. See
+[`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md) for the current checkpoint.
+
+The same retained installation has now passed two saved map imports, normal
+player restarts, and post-commit recovery with gameplay state retained. This
+connected proof was first completed in phases after correcting a generated
+map-profile path that the existing runtime correctly refused. The subsequent
+fresh all-in-one regression passed in 319.801 seconds, including initial upgrade
+and both map imports/restarts. This is still not full-suite or packaged-candidate
+acceptance.
+
+Desktop recovery and the active-project recovery shortcut now select the exact
+interrupted native Base upgrade/map journal and use the existing guarded
+executors. Preview, project binding, stale-confirmation refusal, occupied roles,
+pre-commit rollback, post-commit state retention, and exclusion of completed Undo
+actions are covered by the 34 upgrade and 9 map tests. Custom CLI workspaces still
+use their explicit recovery commands; ambiguous histories are not guessed.
+
+The existing packager now includes the exact 36-file selected Base catalog, and
+the independent archive inspector verifies its composition, bytes, modes, and
+closed file list against the pinned provider. Both updater allowlists include
+only those exact paths. Packaging (16), inspection (23), and real catalog
+relocation (2) focused checks pass; the updater suite passes 18 tests with 5
+PowerShell execution skips. See the delivery checkpoint in
+[`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md). This does not establish
+fresh packaged desktop or Windows upgrade acceptance.
+
+At checkpoint `42377cd`, consolidated Editor coverage spanned all 48 entrypoints in three segments:
+527 tests passed, 13 were explicitly skipped, and the direct independence check
+passed. A missing-display failure was rerun in the GUI lane; an obsolete verifier
+fixture was moved onto genuine production staging without relaxing validation.
+The delivery checkpoint records the skip limits and remaining acceptance work.
+
+Genuine managed-successor execution now has fresh combined proof (410.074 seconds): the separately built
+published `e9cf05c7` predecessor upgraded to selected `4d589cb4`, retained its edited
+map and player state, and passed normal login/shutdown after two map imports.
+The same project still reopens/saves/exports; post-successor import remains safely
+blocked pending current-authoring adoption. This exposed and corrected
+the legacy ban-file permission intake and historical-only migration-row validator.
+The runtime's private new-ban-file correction is separately READY at `bf0fcac5` and
+awaits integration/adoption. See the delivery checkpoint for evidence and limits.
+
+The upgrade branch remains ACTIVE, not accepted. Existing-project **current
+authoring adoption and another saved import after upgrade**, runtime correction
+integration, Editor integration/publication and fresh packaged acceptance remain.
+Current-authoring generation preparation is implemented using the existing runtime
+preparer and native content capture. It is append-only and explicitly cannot
+activate; durable selection/recovery and launcher/import routing are still pending.
+The immutable project runtime cannot be changed piecemeal or bypassed by trusting
+the target ledger. This is the remaining functional continuity work, not a reason
+to reopen completed map conversion or gameplay features. Advanced
+and unrelated polish remain outside this Base closure pass. No accepted candidate
+or live-target mutation is implied.
+
 ### Ordered remaining work
 
 1. **Close runtime correctness and integrate collected work.** Review the exact
@@ -133,6 +276,9 @@ merged map-semantics slot has returned to idle.
    If the chosen candidate is Advanced, include its required composition and
    behavior/module work. Publish the tested runtime and adopt its exact revision
    at a coherent integration boundary.
+   Runtime publication is complete as of September 8; final Editor adoption and
+   consolidated verification remain. Do not reopen the completed combat/map
+   audit without a concrete failure in the supported workflow.
 2. **Connect supported intake to project creation and preview.** Consume the
    proven genuine JAG/map derivation through the actual production route.
    Bind recognized databases, keys, settings and other persistent side-state;

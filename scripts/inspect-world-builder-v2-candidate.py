@@ -25,6 +25,7 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
+from world_builder_base_catalog import selected_base_files
 
 
 PACKAGE_ROOT = "World Builder 2"
@@ -1250,7 +1251,9 @@ def validate_archive(
     forbidden_hashes: dict[str, tuple[str, str]],
     copied_files: dict[str, bytes],
     jre_inventory: dict[str, Any],
+    catalog_files: dict[str, tuple[bytes, int]],
 ) -> dict[str, Any]:
+    allowed_runtime = allowed_runtime | set(catalog_files)
     try:
         archive = zipfile.ZipFile(io.BytesIO(archive_data))
     except zipfile.BadZipFile as error:
@@ -1325,6 +1328,9 @@ def validate_archive(
     missing = sorted(required - files.keys())
     if missing:
         fail(f"Candidate is missing required files ({path.name}): {', '.join(missing)}")
+    for relative, (expected_bytes, expected_mode) in catalog_files.items():
+        if files[relative] != expected_bytes or stat.S_IMODE(modes[relative]) != expected_mode:
+            fail(f"Candidate selected Base bytes or mode differ ({path.name}): {relative}")
     if files["RUNTIME-ASSET-ALLOWLIST.txt"] != allowlist_bytes:
         fail(f"Candidate runtime allowlist differs from source: {path.name}")
     actual_jre_files = {relative for relative in files if relative.startswith("runtime/")}
@@ -1556,6 +1562,7 @@ def main(arguments: Iterable[str]) -> int:
         schemas,
     ) = parse_runtime_allowlist(source_root, runtime_provider_root)
     forbidden_hashes = forbidden_core_hashes(runtime_provider_root)
+    catalog_files = selected_base_files(runtime_provider_root)
     copied_files = copied_file_expectations(
         source_root,
         runtime_provider_root,
@@ -1578,6 +1585,7 @@ def main(arguments: Iterable[str]) -> int:
             forbidden_hashes,
             copied_files,
             linux_jre_inventory,
+            catalog_files,
         ),
         validate_archive(
             windows,
@@ -1591,6 +1599,7 @@ def main(arguments: Iterable[str]) -> int:
             forbidden_hashes,
             copied_files,
             windows_jre_inventory,
+            catalog_files,
         ),
     ]
     if inventory_runtime_tree(linux_jre, "Linux") != linux_jre_inventory:
@@ -1598,6 +1607,8 @@ def main(arguments: Iterable[str]) -> int:
     if inventory_runtime_tree(windows_jre, "Windows") != windows_jre_inventory:
         fail("Reviewed Windows JRE input changed during candidate inspection")
     reloaded_allowlist = parse_runtime_allowlist(source_root, runtime_provider_root)
+    if selected_base_files(runtime_provider_root) != catalog_files:
+        fail("Selected Base catalog changed during candidate inspection")
     if reloaded_allowlist[:3] != (
         allowlist_bytes,
         allowed_runtime,
@@ -1629,12 +1640,15 @@ def main(arguments: Iterable[str]) -> int:
         "sourceCommit": source_commit,
         "runtimeProviderCommit": runtime_provider_commit,
         "checksumsFile": checksums.name,
+        "selectedBaseIdentitySha256": digest(catalog_files["current-platform/composition-identity.json"][0]),
+        "selectedBaseFileCount": len(catalog_files),
         "checksumsSha256": digest(checksum_data),
         "inspectorSha256": digest(Path(__file__).resolve().read_bytes()),
         "artifacts": artifacts,
         "assertions": [
             "clean-published-source",
             "clean-exact-locked-runtime",
+            "exact-selected-base-catalog-bytes-modes-and-closure",
             "external-artifact-location",
             "outer-checksums",
             "single-safe-root",
@@ -1693,6 +1707,6 @@ if __name__ == "__main__":
     except CandidateError as error:
         print(f"FAIL: {error}", file=sys.stderr)
         raise SystemExit(1)
-    except (OSError, UnicodeError, zipfile.BadZipFile) as error:
+    except (OSError, UnicodeError, ValueError, zipfile.BadZipFile) as error:
         print(f"FAIL: Candidate inspection could not complete safely: {error}", file=sys.stderr)
         raise SystemExit(1)

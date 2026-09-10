@@ -865,6 +865,7 @@ public final class AdaptiveDiscoveryDriftHarness {
             self.assertEqual(
                 {
                     "format-profile-probe:openrsc-packed-source-tree-v1",
+                    "format-profile-probe:preservation-source-jag-v1",
                     "format-profile-probe:signed-layered-config-root-v1",
                 },
                 set(probe_checks),
@@ -1564,9 +1565,9 @@ public final class AdaptiveDiscoveryDriftHarness {
                 check["checkId"]: check for check in report["checks"]
                 if check["checkId"].startswith("format-profile-probe:")
             }
-            self.assertEqual(2, len(profile_checks))
+            self.assertEqual(3, len(profile_checks))
             self.assertEqual(
-                {"failed", "passed"},
+                {"failed", "passed", "not-applicable"},
                 {check["status"] for check in profile_checks.values()},
             )
             self.assertEqual(

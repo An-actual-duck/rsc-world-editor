@@ -39,6 +39,16 @@ final class WorldBuilderPreservationStagedMigrator {
 		"com.openrsc.server.database.CurrentBaseStateMigration";
 	private static final String STATE_CONTRACT_SHA256 =
 		"fed89bd2add4fdc064d37b28b9332d30de34ec6875f9ec5618844d167bd0974b";
+	// Exact reviewed successor contract; invocation still requires the selected
+	// inventory-bound provider artifact, never an arbitrary executable or manifest.
+	private static final String SUCCESSOR_CONTRACT_SHA256 =
+		"f1a055b77fc54aa4157414991972be83a43a5c48da0518da5ac6c91101b5e94a";
+	static final String CURRENT_SQLITE_ROW = "current-base-sqlite-to-current-base-v1";
+	private static final List<Object> CURRENT_SQLITE_ROWS = java.util.Collections.<Object>singletonList(CURRENT_SQLITE_ROW);
+	private static final List<Object> CURRENT_SCHEMA_FINGERPRINTS = java.util.Collections.unmodifiableList(Arrays.<Object>asList(
+		"355fa60476c8ed2acee13e895f7ed39dc877df82a267af7e3434552d1fb6934b",
+		"4f17364a3d9428efaeb3a349da96b02e75a0cfec41844756d7fd4396ee9e80d7",
+		"0a132ad29a0632715296b78e249ef5f51b5cc89bb157ad26bc2bd9d035918cb3"));
 	static final List<Object> SQLITE_ROWS = java.util.Collections.unmodifiableList(
 		Arrays.<Object>asList("preservation-retro-sqlite-to-current-base-v1",
 			"preservation-core-sqlite-to-current-base-v1",
@@ -57,6 +67,28 @@ final class WorldBuilderPreservationStagedMigrator {
 		WorldBuilderProviderCatalog.Composition composition, boolean mapReady,
 		WorldBuilderPackedConverter.Inspection mapInspection)
 		throws WorldBuilderContractException {
+		return planSource(target, typed, composition, mapReady, mapInspection, SQLITE_SOURCE, false);
+	}
+
+	/** Read live state only through the authenticated installed generation, not its old migration seal. */
+	static Map<String,Object> planManaged(Path target, Map<String,Object> typed,
+		WorldBuilderProviderCatalog.Composition composition, boolean mapReady,
+		WorldBuilderPackedConverter.Inspection mapInspection, Map<String,Object> installedSpecification)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> verified = WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target);
+		if (!WorldBuilderJsonDocuments.pretty(verified).equals(WorldBuilderJsonDocuments.pretty(installedSpecification)))
+			throw blocked("Installed generation changed before current-state migration planning.");
+		Path root = target.toRealPath();
+		Path state = Paths.get(string(verified, "serverStateRoot")).resolve("current_base.db");
+		if (!state.startsWith(root)) throw blocked("Installed current state is outside the exact target.");
+		return planSource(root, typed, composition, mapReady, mapInspection,
+			root.relativize(state).toString().replace('\\', '/'), true);
+	}
+
+	private static Map<String,Object> planSource(Path target, Map<String,Object> typed,
+		WorldBuilderProviderCatalog.Composition composition, boolean mapReady,
+		WorldBuilderPackedConverter.Inspection mapInspection, String sourceRelative, boolean current)
+		throws WorldBuilderContractException {
 		List<Object> outputs = new ArrayList<Object>();
 		byte[] config = WorldBuilderJsonDocuments.pretty(typed)
 			.getBytes(StandardCharsets.UTF_8);
@@ -65,15 +97,18 @@ final class WorldBuilderPreservationStagedMigrator {
 
 		Map<String,Object> database = object(typed.get("databaseMigration"));
 		String engine = string(database, "engine");
-		Path sqlite = target.resolve(SQLITE_SOURCE);
+		if (current && !"sqlite".equals(engine)) throw blocked("Managed Current Base successors require SQLite state.");
+		Path sqlite = target.resolve(sourceRelative);
 		boolean sqlitePresent = "sqlite".equals(engine)
 			&& Files.exists(sqlite, LinkOption.NOFOLLOW_LINKS);
 		if (sqlitePresent) requireClosedSqliteSnapshot(target, sqlite);
 		Map<String,Object> provider = providerStateBinding(composition);
+		if (current && !SUCCESSOR_CONTRACT_SHA256.equals(string(provider, "contractSha256")))
+			throw blocked("Selected provider does not support current-to-current state migration.");
 		provider.put("engine", engine);
-		provider.put("migrationRowIds", migrationRows(engine));
-		provider.put("sourceRelativePath", "sqlite".equals(engine) ? SQLITE_SOURCE : "");
-		provider.put("sourceSha256", sqlitePresent ? fileHash(sqlite, SQLITE_SOURCE) : "");
+		provider.put("migrationRowIds", current ? CURRENT_SQLITE_ROWS : migrationRows(engine));
+		provider.put("sourceRelativePath", "sqlite".equals(engine) ? sourceRelative : "");
+		provider.put("sourceSha256", sqlitePresent ? fileHash(sqlite, sourceRelative) : "");
 		provider.put("stageRelativePath", "sqlite".equals(engine) ? SQLITE_OUTPUT : "");
 		provider.put("evidenceRelativePath", SQLITE_EVIDENCE);
 		provider.put("evidenceSchemaId", "current-base-state-migration-evidence-v1");
@@ -87,7 +122,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
 		result.put("implementationId", "preservation-staged-data-migrator-v1");
 		result.put("requiredStateMigrationContractId", "current-base-state-migration-v1");
-		result.put("requiredStateMigrationRowIds", migrationRows(engine));
+		result.put("requiredStateMigrationRowIds", provider.get("migrationRowIds"));
 		List<Object> roles = new ArrayList<Object>();
 		roles.add("state-migration-manifest"); roles.add("contract-schema");
 		roles.add("server-runtime");
@@ -124,11 +159,9 @@ final class WorldBuilderPreservationStagedMigrator {
 		if ("mariadb".equals(engine))
 			blockers.add("mariadb-external-stage-rollback-not-implemented");
 		if (!mapReady) blockers.add("complete-canonical-map-package-conversion-required");
-		blockers.add("live-instance-installation-and-recovery-required");
 		if (!WorldBuilderBoundedInventory.bool(runtimeLayout.get("ready"),
 				"preservation-migration", "ready"))
 			blockers.add("runnable-current-runtime-layout-materialization-required");
-		blockers.add("editor-installed-execution-verifier-integration-required");
 		result.put("readinessBlockers", blockers);
 		return result;
 	}
@@ -301,7 +334,7 @@ final class WorldBuilderPreservationStagedMigrator {
 		if (contract == null || tool == null) throw blocked(
 			"Provider composition omits the closed state-migration manifest or server runtime.");
 		String contractHash = string(contract.inventory, "sha256");
-		if (!STATE_CONTRACT_SHA256.equals(contractHash)) throw blocked(
+		if (!reviewedStateContract(contractHash)) throw blocked(
 			"Provider state-migration manifest is not the compiled reviewed contract.");
 		validateStateContract(contract.source);
 		Map<String,Object> result = new LinkedHashMap<String,Object>();
@@ -318,6 +351,19 @@ final class WorldBuilderPreservationStagedMigrator {
 		if ("sqlite".equals(engine)) return SQLITE_ROWS;
 		if ("mariadb".equals(engine)) return MARIA_ROWS;
 		throw blocked("Provider state-migration engine is unsupported.");
+	}
+
+	private static boolean reviewedStateContract(String hash) {
+		return STATE_CONTRACT_SHA256.equals(hash) || SUCCESSOR_CONTRACT_SHA256.equals(hash);
+	}
+
+	private static boolean currentStateBinding(Map<String,Object> binding) throws WorldBuilderContractException {
+		return CURRENT_SQLITE_ROWS.equals(array(binding.get("migrationRowIds")));
+	}
+
+	private static boolean admittedSchema(String row, String fingerprint) throws WorldBuilderContractException {
+		return CURRENT_SQLITE_ROW.equals(row) ? CURRENT_SCHEMA_FINGERPRINTS.contains(fingerprint)
+			: sqliteSchemaFingerprint(row).equals(fingerprint);
 	}
 
 	private static String sqliteSchemaFingerprint(String row)
@@ -348,6 +394,7 @@ final class WorldBuilderPreservationStagedMigrator {
 			"supportedSources", "transformations", "resourceLimits", "invocation", "evidenceContract");
 		List<Object> allRows = new ArrayList<Object>(SQLITE_ROWS);
 		allRows.addAll(MARIA_ROWS);
+		if (SUCCESSOR_CONTRACT_SHA256.equals(fileHash(path, STATE_CONTRACT_BUNDLE))) allRows.add(CURRENT_SQLITE_ROW);
 		if (!"current-base-state-migration-v1".equals(string(contract, "schemaId"))
 			|| !"current-base-state-migration".equals(string(contract, "manifestType"))
 			|| !allRows.equals(array(contract.get("migrationRows")))
@@ -375,14 +422,18 @@ final class WorldBuilderPreservationStagedMigrator {
 		for (Object raw : array(contract.get("supportedSources"))) {
 			Map<String,Object> engine = object(raw);
 			String row = string(engine, "migrationRowId");
-			if (!migrationRows(string(engine, "engine")).contains(row))
+			boolean current = CURRENT_SQLITE_ROW.equals(row);
+			if (!(current && "sqlite".equals(string(engine, "engine")))
+				&& !migrationRows(string(engine, "engine")).contains(row))
 				throw blocked("Provider source row is bound to the wrong database engine.");
 			observedRows.add(row);
 			if ("sqlite".equals(string(engine, "engine"))) {
 				boolean sqlite = "new-database-file".equals(string(engine, "stageMode"))
 					&& "forbidden-read-only".equals(string(engine, "sourceMutation"))
 					&& "none".equals(string(engine, "credentialPolicy"))
-					&& sqliteSchemaFingerprint(row).equals(string(engine, "sourceSchemaFingerprint"));
+					&& (current ? CURRENT_SCHEMA_FINGERPRINTS.equals(array(engine.get("sourceSchemaFingerprints")))
+						&& "current-base-byte-copy-v1".equals(string(engine, "transformationId"))
+						: sqliteSchemaFingerprint(row).equals(string(engine, "sourceSchemaFingerprint")));
 				if (!sqlite) throw blocked("Provider SQLite source migration row is incomplete.");
 			}
 		}
@@ -546,8 +597,7 @@ final class WorldBuilderPreservationStagedMigrator {
 			|| !"current-base-state-migration-evidence".equals(
 				string(evidence, "manifestType"))
 			|| !array(binding.get("migrationRowIds")).contains(string(evidence, "migrationRowId"))
-			|| !sqliteSchemaFingerprint(string(evidence, "migrationRowId")).equals(
-				string(evidence, "sourceSchemaFingerprint"))
+			|| !admittedSchema(string(evidence, "migrationRowId"), string(evidence, "sourceSchemaFingerprint"))
 			|| !"sqlite".equals(string(evidence, "engine"))
 			|| !string(binding, "contractSha256").equals(
 				string(evidence, "contractSha256"))
@@ -562,6 +612,8 @@ final class WorldBuilderPreservationStagedMigrator {
 			|| !"discard-stage-only".equals(string(evidence, "rollbackPolicy"))
 			|| !"verified".equals(string(evidence, "status"))) throw blocked(
 			"Provider state-migration evidence failed its closed verification contract.");
+		if (currentStateBinding(binding) && !sourceHash.equals(WorldBuilderHashes.sha256(output)))
+			throw blocked("Current-to-current state migration must preserve every source byte.");
 		for (String key : Arrays.asList("sourceSchemaFingerprint", "sourceStateSha256",
 			"stagedSourceProjectionSha256")) requireHash(string(evidence, key), key);
 	}
@@ -575,12 +627,15 @@ final class WorldBuilderPreservationStagedMigrator {
 			"evidenceRelativePath", "evidenceSchemaId", "host", "port",
 			"sourceSchema", "stageSchema", "userEnvironmentName",
 			"passwordEnvironmentName");
+		boolean current = currentStateBinding(binding);
 		if (!STATE_CONTRACT_BUNDLE.equals(string(binding, "contractBundlePath"))
-			|| !STATE_CONTRACT_SHA256.equals(string(binding, "contractSha256"))
+			|| !(current ? SUCCESSOR_CONTRACT_SHA256.equals(string(binding, "contractSha256"))
+				: reviewedStateContract(string(binding, "contractSha256")))
 			|| !STATE_TOOL_BUNDLE.equals(string(binding, "toolBundlePath"))
 			|| !"server-runtime".equals(string(binding, "toolArtifactRole"))
 			|| !STATE_MAIN_CLASS.equals(string(binding, "mainClass"))
-			|| !migrationRows(string(binding, "engine")).equals(array(binding.get("migrationRowIds")))
+			|| !(current ? "sqlite".equals(string(binding, "engine"))
+				: migrationRows(string(binding, "engine")).equals(array(binding.get("migrationRowIds"))))
 			|| !SQLITE_EVIDENCE.equals(string(binding, "evidenceRelativePath"))
 			|| !"current-base-state-migration-evidence-v1".equals(
 				string(binding, "evidenceSchemaId"))) throw blocked(
@@ -590,7 +645,8 @@ final class WorldBuilderPreservationStagedMigrator {
 		if (!sourceHash.isEmpty()) requireHash(sourceHash, "sourceSha256");
 		String engine = string(binding, "engine");
 		if ("sqlite".equals(engine)) {
-			if (!SQLITE_SOURCE.equals(string(binding, "sourceRelativePath"))
+			if (!(current ? currentStatePath(string(binding, "sourceRelativePath"))
+				: SQLITE_SOURCE.equals(string(binding, "sourceRelativePath")))
 				|| !SQLITE_OUTPUT.equals(string(binding, "stageRelativePath"))
 				|| !string(binding, "host").isEmpty()
 				|| integer(binding, "port") != 0L
@@ -615,6 +671,13 @@ final class WorldBuilderPreservationStagedMigrator {
 		} else throw blocked("Provider state-migration engine is unsupported.");
 	}
 
+	private static boolean currentStatePath(String relative) {
+		// Initial state and fresh successor branches only. This validates persisted
+		// evidence; planManaged separately authenticates the active descriptor.
+		return relative.equals(".world-builder/current-runtime/instance/state/server/current_base.db")
+			|| relative.matches("\\.world-builder/current-runtime/instance/state/[A-Za-z0-9][A-Za-z0-9._-]{0,127}/server/current_base\\.db");
+	}
+
 	private static void requireBoundProviderFile(Path path, String hash, String role)
 		throws IOException, WorldBuilderContractException {
 		if (!safeRegular(path) || !WorldBuilderHashes.sha256(path).equals(hash))
@@ -636,11 +699,11 @@ final class WorldBuilderPreservationStagedMigrator {
 		}
 	}
 
-	private static void requireClosedSqliteSnapshot(Path target, Path source)
+	static void requireClosedSqliteSnapshot(Path target, Path source)
 		throws WorldBuilderContractException {
 		if (!safeRegular(source)) throw blocked("SQLite state is missing, linked, or non-regular.");
 		for (String suffix : new String[] {"-journal", "-wal", "-shm"}) {
-			if (Files.exists(target.resolve(SQLITE_SOURCE + suffix), LinkOption.NOFOLLOW_LINKS))
+			if (Files.exists(source.resolveSibling(source.getFileName() + suffix), LinkOption.NOFOLLOW_LINKS))
 				throw blocked("SQLite sidecar state exists; obtain one closed offline snapshot.");
 		}
 		try {

@@ -64,7 +64,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderCurrentRuntimeContracts.Kind.INPUT_ADAPTER, inputAdapter);
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, inputAdapter, projectCapability, transactionId,
-			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter), null, null, true);
+			WorldBuilderCurrentRuntimeExecutionProfile.synthetic(adapter), null, null, null, true);
 	}
 
 	Preview previewPreservation(Path targetRoot, Path transactionRoot,
@@ -78,10 +78,18 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
 		String transactionId, Path packedSourceRoot, Path packedDiscoveryReport)
 		throws IOException, WorldBuilderContractException {
+		return previewPreservation(targetRoot, transactionRoot, providerCatalogRoot,
+			compositionIdentity, projectCapability, transactionId, packedSourceRoot, packedDiscoveryReport, null);
+	}
+
+	Preview previewPreservation(Path targetRoot, Path transactionRoot,
+		Path providerCatalogRoot, Path compositionIdentity, Path projectCapability,
+		String transactionId, Path packedSourceRoot, Path packedDiscoveryReport, Path preservationProject)
+		throws IOException, WorldBuilderContractException {
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, null, projectCapability, transactionId,
 			WorldBuilderCurrentRuntimeExecutionProfile.preservation(),
-			packedSourceRoot, packedDiscoveryReport, true);
+			packedSourceRoot, packedDiscoveryReport, preservationProject, true);
 	}
 
 	/** Non-production topology for isolated migration regressions; activation remains disabled. */
@@ -92,14 +100,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		return previewInternal(targetRoot, transactionRoot, providerCatalogRoot,
 			compositionIdentity, null, projectCapability, transactionId,
 			WorldBuilderCurrentRuntimeExecutionProfile.preservationFixture(),
-			packedSourceRoot, packedDiscoveryReport, true);
+			packedSourceRoot, packedDiscoveryReport, null, true);
 	}
 
 	private Preview previewInternal(Path targetRoot, Path transactionRoot,
 		Path providerCatalogRoot, Path compositionIdentity, Path inputAdapter,
 		Path projectCapability, String transactionId,
 		WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
-		Path packedDiscoveryReport, boolean inspectOffline)
+		Path packedDiscoveryReport, Path preservationProject, boolean inspectOffline)
 		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
@@ -118,8 +126,14 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderProviderCatalog.resolve(providerCatalogRoot, compositionIdentity);
 		WorldBuilderCurrentRuntimeContracts.Document adapter = profile.adapter;
 		WorldBuilderCurrentRuntimeContracts.Document project =
-			WorldBuilderCurrentRuntimeContracts.read(
-				WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+			projectCapability == null ? nativeProjectCapability(preservationProject)
+				: WorldBuilderCurrentRuntimeContracts.read(
+					WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, projectCapability);
+		if (preservationProject != null) {
+			Map<String,Object> manifest = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(preservationProject, false).manifest;
+			if (!string(project.root, "projectId").equals(string(manifest, "projectId")))
+				throw activationMismatch("projectCapability");
+		}
 		if (!LEDGER_RELATIVE.equals(string(adapter.root, "targetLedgerRelativePath"))) {
 			throw problem(WorldBuilderErrorCodes.UNSUPPORTED_ADAPTER,
 				"targetLedgerRelativePath", false,
@@ -149,13 +163,32 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 
 		Map<String,Object> plan = buildPlan(target, workspace, composition, adapter,
 			project, classification, transactionId, profile, packedSourceRoot,
-			packedDiscoveryReport);
-		if (inspectOffline) WorldBuilderCurrentRuntimeOfflineLease.inspect(target,
-			object(object(plan.get("migrationPlan")).get("typedConfiguration")),
-			profile.syntheticOnly);
+			packedDiscoveryReport, preservationProject);
+		if (inspectOffline) try (WorldBuilderCurrentRuntimeOfflineLease ignored = previewLease(target, plan, profile.syntheticOnly)) { }
 		return new Preview(target, workspace, providerCatalogRoot, compositionIdentity,
 			inputAdapter, projectCapability, profile, packedSourceRoot,
-			packedDiscoveryReport, plan);
+			packedDiscoveryReport, preservationProject, plan);
+	}
+
+	/** Derived in memory from an already verified native project; preview writes no capability file. */
+	private static WorldBuilderCurrentRuntimeContracts.Document nativeProjectCapability(Path path)
+		throws IOException, WorldBuilderContractException {
+		if (path == null) throw activationMismatch("projectCapability");
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(path, false);
+		WorldBuilderCurrentBaseProjectContent.verifiedIdentity(path);
+		if (!"target-packed".equals(project.origin) || !WorldBuilderPreservationLayoutAdapter.ID.equals(project.snapshot.get("adapterId")))
+			throw activationMismatch("native-project");
+		Map<String,Object> capability = new LinkedHashMap<String,Object>();
+		capability.put("schemaVersion", Long.valueOf(1)); capability.put("manifestType", "world-builder-current-project-capability");
+		capability.put("projectId", project.projectId); capability.put("projectSchemaId", "world-builder-project-v2");
+		// Exact project-manifest-v2 schema implemented by the compiled lifecycle validator.
+		capability.put("projectSchemaHash", "68f538f0ed211b2993f0d23f188808e836d9f1a91dd95886a73d9cf3280d0653");
+		capability.put("authoredDataFingerprintSha256", project.working.fingerprintSha256);
+		capability.put("allowedVariantIds", Collections.<Object>singletonList("current-base-v1"));
+		capability.put("requiredCapabilityIds", Collections.<Object>singletonList("canonical-signed-layered-map-v1"));
+		capability.put("requiredModuleIds", new ArrayList<Object>());
+		WorldBuilderAdaptiveExporter.bindFingerprint(capability, "capabilityFingerprintSha256");
+		return WorldBuilderCurrentRuntimeContracts.builtIn(WorldBuilderCurrentRuntimeContracts.Kind.PROJECT_CAPABILITY, capability);
 	}
 
 	Result apply(Preview reviewed, String confirmation)
@@ -182,9 +215,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"Review and confirm a fresh plan; there is no force mode.");
 
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
-			WorldBuilderCurrentRuntimeOfflineLease.acquire(reviewed.targetRoot,
-				object(object(reviewed.plan.get("migrationPlan")).get("typedConfiguration")),
-				reviewed.profile.syntheticOnly)) {
+			previewLease(reviewed.targetRoot, reviewed.plan, reviewed.profile.syntheticOnly)) {
 		Path transaction = transactionPath(reviewed.transactionRoot,
 			string(reviewed.plan, "transactionId"));
 		if (Files.exists(transaction, LinkOption.NOFOLLOW_LINKS)) throw problem(
@@ -241,6 +272,43 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Target or authority changed after backup and staging.",
 				"Keep the target offline and review a fresh transaction.");
 			verifyReviewedRelease(reviewed, staging, executionPlan);
+			if (!reviewed.profile.syntheticOnly) {
+				boolean successor = "MANAGED_N".equals(reviewed.plan.get("classificationTier"));
+				InitialActivation prepared = successor ? prepareSuccessorActivation(reviewed, staging, executionPlan, transaction)
+					: prepareInitialActivation(reviewed, staging, executionPlan, transaction,
+						preservedSideSources(reviewed, true), preservedSideSources(reviewed, false));
+				executionPlan = prepared.execution;
+				// Outer receipt is durable before any target instance or startup guard exists.
+				writeReceipt(receipt, receipt(executionPlan, "pending", false, false, "", "installed-cutover-prepared"));
+				observe("after-installed-cutover-prepared", transaction);
+				Path instance = targetPath(reviewed.targetRoot, WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE);
+				Path release = targetPath(reviewed.targetRoot, string(executionPlan, "releaseRelativePath"));
+				ensureParents(reviewed.targetRoot, instance.getParent(), createdTargetDirectories);
+				if (!successor) WorldBuilderCurrentRuntimeInstance.materializeGuarded(prepared.construction, instance, prepared.cutover);
+				observe("after-instance-constructed", instance);
+				WorldBuilderCurrentRuntimeInstanceLease roles = successor ? offline.installedLease()
+					: WorldBuilderCurrentRuntimeInstanceLease.acquire(instance.resolve("installation"));
+				try {
+					WorldBuilderCurrentRuntimeCutover.guard(prepared.cutover, transaction.resolve("cutover"), roles);
+					if (successor) WorldBuilderCurrentRuntimeSuccessor.materialize(prepared.successor, reviewed.targetRoot, staging, roles);
+					observe("after-installed-outputs-published", instance);
+					ensureParents(reviewed.targetRoot, release.getParent(), createdTargetDirectories);
+					releasePublished = true;
+					moveNewDirectory(staging, release);
+					writeReceipt(receipt, receipt(executionPlan, "pending", true, false, "", "release-published"));
+					observe("after-release-published", release);
+					verifyOwnedReleaseTree(reviewed.targetRoot, executionPlan);
+					if (successor) WorldBuilderCurrentRuntimeSuccessor.verify(prepared.successor, reviewed.targetRoot, true);
+					else WorldBuilderCurrentRuntimeInstance.verifyGuardedInitialOutputs(initialOutputPlan(transaction, executionPlan), instance, prepared.cutover);
+					if (!successor) WorldBuilderPreservationPersistentInputs.reverify(reviewed.targetRoot,
+						object(object(reviewed.plan.get("migrationPlan")).get("persistentInputs")));
+					new WorldBuilderCurrentRuntimeCutover(milestone -> observeCutover(milestone, transaction)).apply(prepared.cutover, transaction.resolve("cutover"), roles);
+					WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(reviewed.targetRoot);
+					writeReceipt(receipt, receipt(executionPlan, "successful", true, true,
+						string(executionPlan, "verificationEvidenceHash"), ""));
+					return new Result(string(executionPlan, "transactionId"), "successful", receipt, release);
+				} finally { if (!successor) roles.close(); }
+			}
 
 			Path release = targetPath(reviewed.targetRoot,
 				string(reviewed.plan, "releaseRelativePath"));
@@ -264,6 +332,15 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			return new Result(string(reviewed.plan, "transactionId"), "successful",
 				receipt, release);
 		} catch (Throwable failure) {
+			if (!installedActivation(executionPlan).isEmpty()
+				&& Files.exists(transaction.resolve("cutover/commit.json"), LinkOption.NOFOLLOW_LINKS)) {
+				// Any durable-decision entry is a one-way boundary, including unreadable or corrupt entries.
+				try { writeReceipt(receipt, receipt(executionPlan, "recovery-required", true, false, "", "committed-finalization-required")); }
+				catch (Throwable receiptFailure) { failure.addSuppressed(receiptFailure); }
+				throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "cutover", true,
+					"Installed activation reached its irreversible commit; state rollback is forbidden.",
+					"Run exact recovery to validate and finalize the committed activation.", failure);
+			}
 			if (!runtimeAttempt(executionPlan).isEmpty()) {
 				try { WorldBuilderCurrentRuntimeVerifierAuthority.close(runtimeAttempt(executionPlan), array(executionPlan.get("artifactPlan"))); }
 				catch (Throwable unproven) {
@@ -284,6 +361,11 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			}
 			try {
 				observe("before-rollback", reviewed.targetRoot);
+				if (!installedActivation(executionPlan).isEmpty()) {
+					if ("successor".equals(installedActivation(executionPlan).get("mode")))
+						rollbackInitialInstanceHeld(reviewed.targetRoot, transaction, executionPlan, offline.installedLease());
+					else rollbackInitialInstance(reviewed.targetRoot, transaction, executionPlan);
+				}
 				rollback(reviewed.targetRoot, executionPlan, backup,
 					releasePublished, ledgerActivated, createdTargetDirectories);
 				observe("after-rollback", reviewed.targetRoot);
@@ -321,10 +403,23 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			preview.providerCatalogRoot, preview.compositionIdentity,
 			preview.inputAdapter, preview.projectCapability,
 			string(preview.plan, "transactionId"), preview.profile,
-			preview.packedSourceRoot, preview.packedDiscoveryReport, false);
+			preview.packedSourceRoot, preview.packedDiscoveryReport, preview.preservationProject, false);
 	}
 
 	Result recover(Path targetRoot, Path transactionRoot, String transactionId)
+		throws IOException, WorldBuilderContractException {
+		return recover(targetRoot, transactionRoot, transactionId, null);
+	}
+
+	RecoveryPreview previewRecovery(Path targetRoot, Path transactionRoot, String transactionId)
+		throws IOException, WorldBuilderContractException {
+		RecoveryPreview preview = readRecovery(targetRoot, transactionRoot, transactionId);
+		try (WorldBuilderCurrentRuntimeOfflineLease ignored = recoveryLease(preview.target, preview.plan)) {
+			return preview;
+		}
+	}
+
+	private RecoveryPreview readRecovery(Path targetRoot, Path transactionRoot, String transactionId)
 		throws IOException, WorldBuilderContractException {
 		validateTransactionId(transactionId);
 		Path target = realDirectory(targetRoot, "target-root");
@@ -351,7 +446,6 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderErrorCodes.RECOVERY_REQUIRED, "transactionId", true,
 			"Recovery transaction identity does not match its directory.",
 			"Restore the exact transaction evidence.");
-		Path backup = transaction.resolve("backup");
 		Map<String,Object> priorReceipt;
 		try {
 			priorReceipt = WorldBuilderJsonDocuments.readObject(
@@ -372,10 +466,40 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			transaction, plan);
 		plan = restoreExecutionPlan(plan, priorReceipt,
 			pendingReceiptTemporary == null ? null : pendingReceiptTemporary.document);
+		return new RecoveryPreview(target, workspace, transactionId, plan, pendingReceiptTemporary,
+			canonicalHash(Arrays.asList(target.toString(), workspace.toString(), transactionId, plan,
+				priorReceipt, pendingReceiptTemporary == null ? null : pendingReceiptTemporary.document)));
+	}
+
+	Result recover(Path targetRoot, Path transactionRoot, String transactionId, String confirmedEvidenceHash)
+		throws IOException, WorldBuilderContractException {
+		RecoveryPreview reviewed = readRecovery(targetRoot, transactionRoot, transactionId);
+		if (confirmedEvidenceHash != null && !reviewed.fingerprint.equals(confirmedEvidenceHash))
+			throw problem(WorldBuilderErrorCodes.RECOVERY_REQUIRED, "recovery-preview", false,
+				"Recovery evidence changed after preview.", "Review the exact interrupted transaction again.");
+		Path target = reviewed.target;
+		Path transaction = reviewed.workspace.resolve(transactionId);
+		Path backup = transaction.resolve("backup");
+		Map<String,Object> plan = reviewed.plan;
+		PendingReceiptTemporary pendingReceiptTemporary = reviewed.pending;
 		try (WorldBuilderCurrentRuntimeOfflineLease offline =
-			WorldBuilderCurrentRuntimeOfflineLease.acquire(target,
-				object(object(plan.get("migrationPlan")).get("typedConfiguration")),
-				bool(object(plan.get("executionProfile")), "syntheticOnly"))) {
+			recoveryLease(target, plan)) {
+			Map<String,Object> installed = installedActivation(plan);
+			if (!installed.isEmpty() && Files.exists(transaction.resolve("cutover/commit.json"), LinkOption.NOFOLLOW_LINKS)) {
+				WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.read(
+					transaction.resolve("cutover"), target, string(installed, "cutoverPlanSha256"));
+				new WorldBuilderCurrentRuntimeCutover().recover(cutover, transaction.resolve("cutover"), offline.installedLease());
+				// Only immutable current launch inputs are read. No initial DB seal or backup is reopened.
+				WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target);
+				if (pendingReceiptTemporary != null) {
+					Files.delete(pendingReceiptTemporary.path);
+					WorldBuilderAdaptiveDurability.forceDirectory(transaction);
+				}
+				writeReceipt(transaction.resolve("receipt.json"), receipt(plan, "successful", true, true,
+					string(plan, "verificationEvidenceHash"), ""));
+				return new Result(transactionId, "successful", transaction.resolve("receipt.json"),
+					targetPath(target, string(plan, "releaseRelativePath")));
+			}
 			Map<String,Object> attempt = runtimeAttempt(plan);
 			if (!attempt.isEmpty()) {
 				WorldBuilderCurrentRuntimeVerifierAuthority.authenticate(transaction.resolve("runtime-verification"),
@@ -402,6 +526,8 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				return new Result(transactionId, "rolled-back",
 					transaction.resolve("receipt.json"), null);
 			}
+			if (!installed.isEmpty() && Files.exists(target.resolve(WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE), LinkOption.NOFOLLOW_LINKS))
+				rollbackInitialInstanceHeld(target, transaction, plan, offline.installedLease());
 			rollback(target, plan, backup, true, true, Collections.<Path>emptyList());
 			verifyPreimage(target, plan);
 			if (pendingReceiptTemporary != null) {
@@ -422,6 +548,36 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				"Exact recovery was interrupted.",
 				"Keep the target offline and retry exact recovery.", interrupted);
 		}
+	}
+
+	private static WorldBuilderCurrentRuntimeOfflineLease recoveryLease(Path target, Map<String,Object> plan)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> typed = object(object(plan.get("migrationPlan")).get("typedConfiguration"));
+		Path installation = target.resolve(WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE + "/installation");
+		if (!installedActivation(plan).isEmpty() && Files.exists(installation, LinkOption.NOFOLLOW_LINKS))
+			return WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(installation, typed);
+		return WorldBuilderCurrentRuntimeOfflineLease.acquire(target, typed,
+			bool(object(plan.get("executionProfile")), "syntheticOnly"));
+	}
+
+	static final class RecoveryPreview {
+		final Path target, workspace;
+		final String transactionId, fingerprint;
+		final Map<String,Object> plan;
+		private final PendingReceiptTemporary pending;
+		RecoveryPreview(Path target, Path workspace, String transactionId, Map<String,Object> plan,
+			PendingReceiptTemporary pending, String fingerprint) {
+			this.target = target; this.workspace = workspace; this.transactionId = transactionId;
+			this.plan = plan; this.pending = pending; this.fingerprint = fingerprint;
+		}
+	}
+
+	private static WorldBuilderCurrentRuntimeOfflineLease previewLease(Path target, Map<String,Object> plan, boolean synthetic)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> typed = object(object(plan.get("migrationPlan")).get("typedConfiguration"));
+		if (!synthetic && "MANAGED_N".equals(plan.get("classificationTier")))
+			return WorldBuilderCurrentRuntimeOfflineLease.acquireInstalled(target.resolve(WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE + "/installation"), typed);
+		return WorldBuilderCurrentRuntimeOfflineLease.acquire(target, typed, synthetic);
 	}
 
 	boolean mapImportAvailable(Path targetRoot, Path providerCatalogRoot,
@@ -505,7 +661,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		WorldBuilderCurrentRuntimeContracts.Document project,
 		Map<String,Object> classification, String transactionId,
 		WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
-		Path packedDiscoveryReport)
+		Path packedDiscoveryReport, Path preservationProject)
 		throws IOException, WorldBuilderContractException {
 		Map<String,Object> plan = new LinkedHashMap<String,Object>();
 		plan.put("schemaVersion", Long.valueOf(1));
@@ -524,7 +680,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		plan.put("inputAdapter", adapterReference);
 		plan.put("executionProfile", profile.identity());
 		plan.put("migrationPlan", profile.migrationPlan(target, classification, composition,
-			packedSourceRoot, packedDiscoveryReport));
+			packedSourceRoot, packedDiscoveryReport, preservationProject));
 		Map<String,Object> projectReference = new LinkedHashMap<String,Object>();
 		projectReference.put("projectId", string(project.root, "projectId"));
 		projectReference.put("capabilityFingerprintSha256",
@@ -535,6 +691,17 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.pretty(composition.identity).getBytes(StandardCharsets.UTF_8)));
 
 		List<Object> preimage = preimageInventory(target, classification, adapter.root);
+		if (!profile.syntheticOnly && "MANAGED_N".equals(classification.get("tier"))) {
+			for (Object raw : array(object(plan.get("migrationPlan")).get("durableState"))) {
+				Map<String,Object> state = object(raw); String relative = string(state, "relativePath");
+				Path source = safeExistingFile(target, relative);
+				Map<String,Object> record = new LinkedHashMap<String,Object>(); record.put("relativePath", relative);
+				record.put("present", Boolean.TRUE); record.put("size", Long.valueOf(Files.size(source)));
+				record.put("sha256", string(state, "sourceSha256")); record.put("backupRelativePath", "files/" + relative);
+				requireFileMatches(source, record, relative); preimage.add(record);
+			}
+			preimage.sort((left, right) -> ((String)((Map<?,?>)left).get("relativePath")).compareTo((String)((Map<?,?>)right).get("relativePath")));
+		}
 		plan.put("preimageInventory", preimage);
 		plan.put("preimageInventoryHash", canonicalHash(preimage));
 		List<Object> semantic = semanticActions(classification);
@@ -836,12 +1003,29 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 				WorldBuilderCurrentRuntimeLayout.materialize(staging, runtimeLayout);
 			Map<String,Object> map = object(migration.get("mapMigration"));
 			if (bool(map, "packageReady")) {
+				if (WorldBuilderCurrentBaseManagedInputs.BOUNDARY.equals(map.get("executionBoundary"))) {
+					WorldBuilderCurrentBaseManagedInputs.stageMap(preview.targetRoot, staging, migration);
+				} else if (WorldBuilderPreservationProjectEvidence.BOUNDARY.equals(map.get("executionBoundary"))) {
+					if (preview.preservationProject == null) throw activationMismatch("preservation-project");
+					WorldBuilderPreservationProjectEvidence.Verified genuine = WorldBuilderPreservationProjectEvidence.open(
+						preview.preservationProject, preview.targetRoot, composition);
+					WorldBuilderPreservationProjectEvidence.requireInspection(genuine.inspectConversion(), map);
+					// Public forensic input is retained outside the immutable runnable release.
+					Path retained = staging.resolveSibling(staging.getFileName() + "-preservation-source");
+					genuine.stageSource(retained);
+					WorldBuilderPreservationProjectEvidence.Verified reopened = WorldBuilderPreservationProjectEvidence.reopenStaged(retained, composition, map);
+					Files.createDirectories(staging.resolve("migration/output/map"));
+					reopened.convert(staging.resolve("migration/output/map/conversion"));
+					WorldBuilderPackedConverter.normalizePrivateModes(staging.resolve("migration/output/map/conversion"));
+					verifyReviewedPreservationMap(staging, map);
+				} else {
 				if (preview.packedSourceRoot == null || preview.packedDiscoveryReport == null)
 					throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, "mapMigration", false,
 						"Reviewed packed conversion paths are absent from the in-memory preview.",
 						"Review a fresh production transaction.");
 				stageReviewedPreservationMap(preview.packedSourceRoot,
 					preview.packedDiscoveryReport, staging, map);
+				}
 			}
 			WorldBuilderPreservationStagedMigrator.writeTypedConfiguration(staging,
 				object(migration.get("typedConfiguration")), execution, map);
@@ -864,6 +1048,196 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			WorldBuilderJsonDocuments.pretty(activation));
 		verifyProviderReleaseTree(staging, "", composition.artifacts, activation,
 			object(preview.plan.get("migrationPlan")));
+	}
+
+	/** Prepare and persist the exact initial cutover before any launchable target output. */
+	private InitialActivation prepareInitialActivation(Preview preview, Path staging,
+		Map<String,Object> executionPlan, Path transaction, Map<String,Path> serverSources,
+		Map<String,Path> clientSources) throws IOException, WorldBuilderContractException {
+		if (preview.profile.syntheticOnly || runtimeExecutionOutputs(executionPlan).isEmpty())
+			throw activationMismatch("installedActivation");
+		serverSources = initialServerSideSources(serverSources, transaction);
+		WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(
+			preview.providerCatalogRoot, preview.compositionIdentity);
+		Map<String,Object> migration = object(executionPlan.get("migrationPlan"));
+		Map<String,Object> typed = object(migration.get("typedConfiguration"));
+		Path instance = targetPath(preview.targetRoot, WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE);
+		Path release = targetPath(preview.targetRoot, string(executionPlan, "releaseRelativePath"));
+		WorldBuilderCurrentRuntimeInstance.Plan construction = WorldBuilderCurrentRuntimeInstance.inspectInitial(
+			staging, release, instance, string(object(executionPlan.get("activationLedger")), "targetInstallationId"),
+			string(executionPlan, "transactionId"), composition.identity,
+			object(object(migration.get("stagedExecution")).get("runtimeLayout")), generatedStateOutputs(executionPlan),
+			serverSources, clientSources, "127.0.0.1", (int)integer(typed, "gamePort"));
+		Map<String,Object> constructionDocument = construction.document();
+		Map<String,Object> specification = object(constructionDocument.get("specification"));
+		Map<String,Object> mapManifest = readObject(staging.resolve(
+			"migration/output/map/conversion/package/manifest.json"), "canonical-map");
+		Map<String,Object> ledger = new LinkedHashMap<String,Object>(object(executionPlan.get("activationLedger")));
+		ledger.put("activeMapPackageId", string(mapManifest, "packageId"));
+		ledger.put("activeLauncherRelativePath", WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE
+			+ "/installation/active-launch.json");
+		ledger = WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger, preview.targetRoot,
+			specification, composition.identity, mapManifest, string(object(executionPlan.get("projectCapability")), "projectId"));
+		WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.inspect(
+			preview.targetRoot, string(executionPlan, "transactionId"), "", "",
+			WorldBuilderJsonDocuments.pretty(object(constructionDocument.get("generation")).get("activeSelection"))
+				.getBytes(StandardCharsets.UTF_8), WorldBuilderJsonDocuments.pretty(ledger).getBytes(StandardCharsets.UTF_8));
+		Path instancePlan = transaction.resolve("instance-plan.json");
+		writeNew(instancePlan, WorldBuilderJsonDocuments.pretty(constructionDocument));
+		WorldBuilderCurrentRuntimeCutover.journal(cutover, transaction.resolve("cutover"));
+		Map<String,Object> binding = new LinkedHashMap<String,Object>();
+		binding.put("policyId", "current-base-installed-upgrade-v1"); binding.put("mode", "initial");
+		binding.put("instancePlanSha256", WorldBuilderHashes.sha256(instancePlan));
+		binding.put("cutoverPlanSha256", cutover.fingerprint);
+		return new InitialActivation(construction, cutover, bindInstalledActivation(executionPlan, binding));
+	}
+
+	private static final class InitialActivation {
+		final WorldBuilderCurrentRuntimeInstance.Plan construction;
+		final Map<String,Object> successor;
+		final WorldBuilderCurrentRuntimeCutover.Plan cutover;
+		final Map<String,Object> execution;
+		InitialActivation(WorldBuilderCurrentRuntimeInstance.Plan construction,
+			WorldBuilderCurrentRuntimeCutover.Plan cutover, Map<String,Object> execution) {
+			this.construction = construction; this.cutover = cutover; this.execution = execution;
+			this.successor = null;
+		}
+		InitialActivation(Map<String,Object> successor, WorldBuilderCurrentRuntimeCutover.Plan cutover, Map<String,Object> execution) {
+			this.construction = null; this.successor = successor; this.cutover = cutover; this.execution = execution;
+		}
+	}
+
+	private InitialActivation prepareSuccessorActivation(Preview preview, Path staging, Map<String,Object> executionPlan, Path transaction)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition selected = WorldBuilderProviderCatalog.resolve(preview.providerCatalogRoot, preview.compositionIdentity);
+		Path release = targetPath(preview.targetRoot, string(executionPlan, "releaseRelativePath"));
+		Map<String,Object> construction = WorldBuilderCurrentRuntimeSuccessor.inspect(preview.targetRoot, staging, release,
+			string(executionPlan, "transactionId"), selected.identity,
+			object(object(object(executionPlan.get("migrationPlan")).get("stagedExecution")).get("runtimeLayout")), generatedStateOutputs(executionPlan));
+		Map<String,Object> spec = object(construction.get("specification"));
+		Map<String,Object> previous = WorldBuilderCurrentRuntimeContracts.read(WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER,
+			safeExistingFile(preview.targetRoot, LEDGER_RELATIVE)).root;
+		String projectId = string(object(previous.get("installedInstance")), "projectId");
+		if (!projectId.equals(string(object(executionPlan.get("projectCapability")), "projectId"))) throw activationMismatch("installed-projectId");
+		Map<String,Object> manifest = readObject(staging.resolve("migration/output/map/conversion/package/manifest.json"), "retained-map");
+		Map<String,Object> ledger = new LinkedHashMap<String,Object>(object(executionPlan.get("activationLedger")));
+		ledger.put("activeMapPackageId", string(manifest, "packageId"));
+		ledger.put("activeLauncherRelativePath", WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE + "/installation/active-launch.json");
+		ledger = WorldBuilderCurrentRuntimeInstalledGeneration.bind(ledger, preview.targetRoot, spec, selected.identity, manifest, projectId);
+		Path selection = preview.targetRoot.resolve(WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE + "/installation/active-launch.json");
+		WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.inspect(preview.targetRoot,
+			string(executionPlan, "transactionId"), WorldBuilderHashes.sha256(selection), WorldBuilderHashes.sha256(preview.targetRoot.resolve(LEDGER_RELATIVE)),
+			WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeInstance.renderGeneration(spec).get("activeSelection")).getBytes(StandardCharsets.UTF_8),
+			WorldBuilderJsonDocuments.pretty(ledger).getBytes(StandardCharsets.UTF_8));
+		Path instancePlan = transaction.resolve("instance-plan.json"); writeNew(instancePlan, WorldBuilderJsonDocuments.pretty(construction));
+		WorldBuilderCurrentRuntimeCutover.journal(cutover, transaction.resolve("cutover"));
+		Map<String,Object> binding = new LinkedHashMap<String,Object>(); binding.put("policyId", "current-base-installed-upgrade-v1");
+		binding.put("mode", "successor"); binding.put("instancePlanSha256", WorldBuilderHashes.sha256(instancePlan)); binding.put("cutoverPlanSha256", cutover.fingerprint);
+		return new InitialActivation(construction, cutover, bindInstalledActivation(executionPlan, binding));
+	}
+
+	private void observeCutover(String milestone, Path transaction) throws IOException {
+		try { observe("cutover-" + milestone, transaction); }
+		catch (IOException failure) { throw failure; }
+		catch (Exception failure) { throw new IOException("Interrupted installed cutover", failure); }
+	}
+
+	private static Map<String,Path> preservedSideSources(Preview preview, boolean server)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Object> persistent = object(object(preview.plan.get("migrationPlan")).get("persistentInputs"));
+		WorldBuilderPreservationPersistentInputs.reverify(preview.targetRoot, persistent);
+		Map<String,Path> result = new LinkedHashMap<String,Path>();
+		if (server) {
+			for (String name : Arrays.asList("server.pem", "client.pem", "badwords.txt", "goodwords.txt", "alertwords.txt", "ipbans.txt", "ipbans.temp"))
+				result.put(name, preview.targetRoot.resolve("server/" + name));
+		} else {
+			result.put("client.pem", preview.targetRoot.resolve("server/client.pem"));
+			result.put("clientSettings.conf", preview.targetRoot.resolve("Client_Base/clientSettings.conf"));
+			for (String name : Arrays.asList("uid.dat", "hideIp.txt", "credentials.txt")) {
+				Path absent = preview.targetRoot.resolve("Client_Base/" + name);
+				if (Files.exists(absent, LinkOption.NOFOLLOW_LINKS)) throw activationMismatch("unreviewed-client-side-state");
+				result.put(name, absent);
+			}
+		}
+		return result;
+	}
+
+	/** Missing historical filters mean empty filter lists, not the provider's defaults. */
+	static Map<String,Path> initialServerSideSources(Map<String,Path> reviewed, Path transaction)
+		throws IOException, WorldBuilderContractException {
+		Map<String,Path> result = new LinkedHashMap<String,Path>(reviewed);
+		Path defaults = transaction.resolve("initial-empty-filters");
+		boolean created = false;
+		for (String name : Arrays.asList("badwords.txt", "goodwords.txt", "alertwords.txt")) {
+			Path source = reviewed.get(name);
+			if (source == null) throw activationMismatch("unbound-filter-source");
+			if (Files.exists(source, LinkOption.NOFOLLOW_LINKS)) continue;
+			if (!created) {
+				Files.createDirectory(defaults, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+					java.nio.file.attribute.PosixFilePermissions.fromString("rwx------")));
+				created = true;
+			}
+			Path empty = defaults.resolve(name);
+			Files.createFile(empty, java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+				java.nio.file.attribute.PosixFilePermissions.fromString("rw-------")));
+			result.put(name, empty);
+		}
+		if (created) {
+			WorldBuilderAdaptiveDurability.forceTree(defaults);
+			WorldBuilderAdaptiveDurability.forceDirectory(transaction);
+		}
+		return result;
+	}
+
+	private static WorldBuilderCurrentRuntimeInstance.InitialOutputPlan initialOutputPlan(Path transaction, Map<String,Object> plan)
+		throws IOException, WorldBuilderContractException {
+		Path path = safeExistingFile(transaction, "instance-plan.json");
+		if (!WorldBuilderHashes.sha256(path).equals(string(installedActivation(plan), "instancePlanSha256")))
+			throw recoveryDrift("instance-plan", new IOException("Construction bytes differ from durable receipt authority"));
+		Map<String,Object> document = readObject(path, "instance-plan");
+		return WorldBuilderCurrentRuntimeInstance.validateInitialOutputPlan(document, string(document, "planFingerprintSha256"));
+	}
+
+	private static void rollbackInitialInstance(Path target, Path transaction, Map<String,Object> plan)
+		throws IOException, WorldBuilderContractException {
+		Path instance = targetPath(target, WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE);
+		if (!Files.exists(instance, LinkOption.NOFOLLOW_LINKS)) return;
+		try (WorldBuilderCurrentRuntimeInstanceLease roles = WorldBuilderCurrentRuntimeInstanceLease.acquire(instance.resolve("installation"))) {
+			rollbackInitialInstanceHeld(target, transaction, plan, roles);
+		}
+	}
+
+	private static void rollbackInitialInstanceHeld(Path target, Path transaction, Map<String,Object> plan,
+		WorldBuilderCurrentRuntimeInstanceLease roles) throws IOException, WorldBuilderContractException {
+		Map<String,Object> binding = installedActivation(plan);
+		WorldBuilderCurrentRuntimeCutover.Plan cutover = WorldBuilderCurrentRuntimeCutover.read(
+			transaction.resolve("cutover"), target, string(binding, "cutoverPlanSha256"));
+		if (Files.exists(transaction.resolve("cutover/commit.json"), LinkOption.NOFOLLOW_LINKS))
+			throw recoveryDrift("cutover", new IOException("Committed activation can never authorize deletion"));
+		Path instance = targetPath(target, WorldBuilderCurrentRuntimeInstalledGeneration.INSTANCE);
+		if (!Files.exists(instance, LinkOption.NOFOLLOW_LINKS)) return;
+		if ("successor".equals(string(binding, "mode"))) {
+			Path path = safeExistingFile(transaction, "instance-plan.json");
+			if (!WorldBuilderHashes.sha256(path).equals(string(binding, "instancePlanSha256"))) throw activationMismatch("successor-plan");
+			Map<String,Object> successor = readObject(path, "successor-plan");
+			WorldBuilderCurrentRuntimeSuccessor.verify(successor, target, false);
+			new WorldBuilderCurrentRuntimeCutover().recover(cutover, transaction.resolve("cutover"), roles);
+			WorldBuilderCurrentRuntimeSuccessor.removeNeverStarted(successor, target, roles);
+			return;
+		}
+		if (!"initial".equals(string(binding, "mode"))) throw activationMismatch("installedActivation");
+		WorldBuilderCurrentRuntimeInstance.InitialOutputPlan initial = initialOutputPlan(transaction, plan);
+		roles.verifyHeld(instance.resolve("installation"));
+			if (Files.exists(transaction.resolve("cutover/rollback.json"), LinkOption.NOFOLLOW_LINKS)) {
+				WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(initial, instance, cutover);
+			} else {
+				WorldBuilderCurrentRuntimeInstance.verifyGuardedInitialOutputs(initial, instance, cutover);
+				new WorldBuilderCurrentRuntimeCutover().recover(cutover, transaction.resolve("cutover"), roles);
+				WorldBuilderCurrentRuntimeInstance.verifyRolledBackInitialOutputs(initial, instance, cutover);
+			}
+			// Complete detached initial seal and no commit prove this is never-started transaction output.
+			deleteOwnedTree(instance);
+			WorldBuilderAdaptiveDurability.forceDirectory(instance.getParent());
 	}
 
 	Map<String,Object> inspectReviewedPreservationMigration(Path target,
@@ -1273,6 +1647,36 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			? object(document.get("runtimeVerificationAttempt")) : Collections.<String,Object>emptyMap();
 	}
 
+	/** External receipt authority for the two-file irreversible cutover. Empty before preparation. */
+	private static Map<String,Object> installedActivation(Map<String,Object> document)
+		throws WorldBuilderContractException {
+		return document.containsKey("installedActivation") ? object(document.get("installedActivation"))
+			: Collections.<String,Object>emptyMap();
+	}
+
+	private static void validateInstalledActivation(Map<String,Object> binding)
+		throws WorldBuilderContractException {
+		if (binding.isEmpty()) return;
+		WorldBuilderBoundedInventory.exactKeys(binding, OPERATION,
+			"policyId", "mode", "instancePlanSha256", "cutoverPlanSha256");
+		if (!"current-base-installed-upgrade-v1".equals(string(binding, "policyId"))
+			|| !Arrays.asList("initial", "successor").contains(string(binding, "mode")))
+			throw recoveryDrift("installedActivation", new IOException("Unsupported installed cutover policy"));
+		requireHash(string(binding, "instancePlanSha256"), "instancePlanSha256");
+		requireHash(string(binding, "cutoverPlanSha256"), "cutoverPlanSha256");
+	}
+
+	private static Map<String,Object> bindInstalledActivation(Map<String,Object> plan, Map<String,Object> binding)
+		throws WorldBuilderContractException {
+		validateInstalledActivation(binding);
+		if (!binding.isEmpty() && (bool(object(plan.get("executionProfile")), "syntheticOnly")
+			|| generatedStateOutputs(plan).isEmpty() || runtimeExecutionOutputs(plan).isEmpty()))
+			throw activationMismatch("installedActivation");
+		Map<String,Object> result = new LinkedHashMap<String,Object>(plan);
+		result.put("installedActivation", Collections.unmodifiableMap(new LinkedHashMap<String,Object>(binding)));
+		return result;
+	}
+
 	private static Map<String,Object> bindRuntimeAttempt(Map<String,Object> plan, Map<String,Object> attempt)
 		throws WorldBuilderContractException {
 		WorldBuilderCurrentRuntimeVerifierAuthority.validate(attempt, true);
@@ -1314,6 +1718,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		List<Object> generated = generatedStateOutputs(priorReceipt);
 		List<Object> runtime = runtimeExecutionOutputs(priorReceipt);
 		Map<String,Object> attempt = runtimeAttempt(priorReceipt);
+		Map<String,Object> activation = installedActivation(priorReceipt);
 		if (pendingReceipt != null) {
 			validateExecutionReceipt(plan, pendingReceipt);
 			List<Object> pendingGenerated = generatedStateOutputs(pendingReceipt);
@@ -1329,8 +1734,12 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			if (!attempt.isEmpty() && !canonicalHash(attempt).equals(canonicalHash(pendingAttempt)))
 				throw recoveryDrift("runtimeVerificationAttempt", new IOException("phase receipts disagree about live authority"));
 			if (attempt.isEmpty()) attempt = pendingAttempt;
+			Map<String,Object> pendingActivation = installedActivation(pendingReceipt);
+			if (!activation.isEmpty() && !canonicalHash(activation).equals(canonicalHash(pendingActivation)))
+				throw recoveryDrift("installedActivation", new IOException("phase receipts disagree about cutover authority"));
+			if (activation.isEmpty()) activation = pendingActivation;
 		}
-		return bindRuntimeAttempt(bindRuntimeExecution(bindGeneratedState(plan, generated), runtime), attempt);
+		return bindInstalledActivation(bindRuntimeAttempt(bindRuntimeExecution(bindGeneratedState(plan, generated), runtime), attempt), activation);
 	}
 
 	private static void validateExecutionReceipt(Map<String,Object> plan, Map<String,Object> receipt)
@@ -1356,6 +1765,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		if (!synthetic && "pending".equals(status) && "verification-prepared".equals(string(receipt, "failureType")) && attempt.isEmpty())
 			throw recoveryDrift("runtimeVerificationAttempt", new IOException("prepared phase lacks its authority binding"));
 		Map<String,Object> execution = bindRuntimeExecution(bindGeneratedState(plan, generated), runtime);
+		bindInstalledActivation(execution, installedActivation(receipt));
 		if ("successful".equals(status) && !string(execution, "verificationEvidenceHash").equals(
 			string(receipt, "verificationEvidenceHash")))
 			throw recoveryDrift("verificationEvidenceHash", new IOException(
@@ -1852,6 +2262,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		receipt.put("generatedStateOutputs", generatedStateOutputs(plan));
 		receipt.put("runtimeExecutionOutputs", runtimeExecutionOutputs(plan));
 		receipt.put("runtimeVerificationAttempt", runtimeAttempt(plan));
+		receipt.put("installedActivation", installedActivation(plan));
 		receipt.put("failureType", failureType == null ? "" : failureType);
 		receipt.put("receiptFingerprintSha256", ZERO_HASH);
 		bindFingerprint(receipt, "receiptFingerprintSha256");
@@ -2036,19 +2447,21 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		final Path projectCapability;
 		final Path packedSourceRoot;
 		final Path packedDiscoveryReport;
+		final Path preservationProject;
 		final WorldBuilderCurrentRuntimeExecutionProfile profile;
 		final Map<String,Object> plan;
 
 		Preview(Path targetRoot, Path transactionRoot, Path providerCatalogRoot,
 			Path compositionIdentity, Path inputAdapter, Path projectCapability,
 			WorldBuilderCurrentRuntimeExecutionProfile profile, Path packedSourceRoot,
-			Path packedDiscoveryReport, Map<String,Object> plan) {
+			Path packedDiscoveryReport, Path preservationProject, Map<String,Object> plan) {
 			this.targetRoot = targetRoot; this.transactionRoot = transactionRoot;
 			this.providerCatalogRoot = providerCatalogRoot;
 			this.compositionIdentity = compositionIdentity;
 			this.inputAdapter = inputAdapter; this.projectCapability = projectCapability;
 			this.packedSourceRoot = packedSourceRoot;
 			this.packedDiscoveryReport = packedDiscoveryReport;
+			this.preservationProject = preservationProject;
 			this.profile = profile;
 			this.plan = plan;
 		}
@@ -2176,8 +2589,10 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 			"preimageInventoryHash", "artifactPlanHash", "verificationEvidenceHash",
 			"failureType", "receiptFingerprintSha256", "generatedStateOutputs", "runtimeExecutionOutputs"));
 		if (receipt.containsKey("runtimeVerificationAttempt")) receiptKeys.add("runtimeVerificationAttempt");
+		if (receipt.containsKey("installedActivation")) receiptKeys.add("installedActivation");
 		WorldBuilderBoundedInventory.exactKeys(receipt, OPERATION, receiptKeys.toArray(new String[0]));
 		WorldBuilderCurrentRuntimeVerifierAuthority.validate(runtimeAttempt(receipt), true);
+		validateInstalledActivation(installedActivation(receipt));
 		WorldBuilderCurrentRuntimeGeneratedState.validate(generatedStateOutputs(receipt), true);
 		WorldBuilderCurrentRuntimeExecutionEvidence.validate(runtimeExecutionOutputs(receipt), true);
 		String status = string(receipt, "status");

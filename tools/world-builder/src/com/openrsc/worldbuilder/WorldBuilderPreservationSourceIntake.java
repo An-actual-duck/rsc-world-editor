@@ -48,6 +48,7 @@ final class WorldBuilderPreservationSourceIntake {
 			rule.put("evidenceKind", "configuration");
 			rule.put("recognizedDeltas", new ArrayList<Object>()); rules.add(rule);
 		}
+		rules.addAll(WorldBuilderPreservationPersistentInputs.evidenceRules());
 		Collections.sort(rules, new Comparator<Object>() {
 			@Override public int compare(Object first, Object second) {
 				return ((String)object(first).get("relativePath"))
@@ -112,7 +113,11 @@ final class WorldBuilderPreservationSourceIntake {
 		try {
 			int actual = ((Number)java.nio.file.Files.getAttribute(file, "unix:mode",
 				java.nio.file.LinkOption.NOFOLLOW_LINKS)).intValue() & 07777;
-			return actual == expected || actual == 0600 && relative.endsWith(".conf");
+			// Git records executable status, not the checkout's group-write umask.
+			// Admit ordinary 0002 checkouts without changing executable status;
+			// private persistent inputs use their separate, stricter admission policy.
+			return actual == expected || actual == (expected | 0020)
+				|| actual == 0600 && relative.endsWith(".conf");
 		} catch (IOException | UnsupportedOperationException | IllegalArgumentException failure) {
 			return false;
 		}

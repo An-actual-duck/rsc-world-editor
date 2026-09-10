@@ -10,7 +10,6 @@ import os
 import select
 from pathlib import Path
 import shutil
-import sqlite3
 import subprocess
 import tempfile
 import time
@@ -40,7 +39,17 @@ public final class InstalledVerifierHarness {
   public static void main(String[] args) throws Exception {
     Path root = Paths.get(args[1]);
     try {
-      if ("process".equals(args[0])) {
+      if ("stage-native".equals(args[0])) {
+        Path target = Paths.get(args[2]), project = Paths.get(args[3]);
+        WorldBuilderCurrentRuntimeUpgradeTransaction transaction = new WorldBuilderCurrentRuntimeUpgradeTransaction();
+        WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview = transaction.previewPreservation(
+          target, root, Paths.get(args[4]), Paths.get(args[5]), null, "real-pair", null, null, project);
+        Map<String,Object> staged = transaction.stageReviewedRelease(preview, root.resolve("real-pair"));
+        Files.write(root.resolve("real-pair.migration.json"),
+          WorldBuilderJsonDocuments.pretty(staged.get("migrationPlan")).getBytes(java.nio.charset.StandardCharsets.UTF_8),
+          StandardOpenOption.CREATE_NEW);
+        System.out.print("staged-native-without-target-activation");
+      } else if ("process".equals(args[0])) {
         final Path cancel = root.resolve("cancel");
         List<String> command = Arrays.asList(Paths.get(System.getProperty("java.home"),"bin","java").toString(),
           "-cp", System.getProperty("java.class.path"), "com.openrsc.worldbuilder.VerifierProcessFixture", args[2]);
@@ -263,31 +272,31 @@ class VerifierProcessFixture {
         self.assertNotEqual(0, run(evidence).returncode)
         self.assertTrue(secret.exists(), "evidence refusal must not erase unverified credentials")
 
+    @unittest.skipUnless(os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT"), "explicit public source required for genuine staged verification")
     def test_editor_runs_built_pair_against_its_staged_inputs(self) -> None:
-        """Real process proof over invented intake data, not public-intake acceptance."""
+        """Real verifier/recovery over genuine public map input and invented private state."""
         self.assertTrue(os.environ.get("DISPLAY"),
                         "Installed runtime verification requires the non-headless GUI test lane")
-        subprocess.run(["python3", "scripts/build-current-base.py"], cwd=PROVIDER,
-                       check=True, capture_output=True, text=True, timeout=240)
         specification = importlib.util.spec_from_file_location(
             "installed_verifier_upgrade_fixture",
-            ROOT / "tests/myworld/test-world-builder-current-runtime-upgrade-transaction.py")
+            ROOT / "tests/myworld/test-world-builder-base-project-lifecycle.py")
         assert specification is not None and specification.loader is not None
         module = importlib.util.module_from_spec(specification)
         specification.loader.exec_module(module)
-        helper_class = module.CurrentRuntimeUpgradeTransactionTest
+        module.LAUNCH = False
+        module.tree_snapshot = module.snapshot
+        helper_class = module.BaseProjectLifecycleTest
         helper_class.setUpClass()
-        self.addCleanup(helper_class.tearDownClass)
+        self.addCleanup(lambda: print("Retained genuine verifier source fixture: " + str(helper_class.root), flush=True)
+                        if self.retain_real_fixture else helper_class.doClassCleanups())
         helper = helper_class()
-        helper.setUp()
-        self.addCleanup(lambda: helper.case._finalizer.detach() if self.retain_real_fixture else helper.tearDown())
-        target, source, report = helper.complete_packed_target_source()
-        database = target / "server/inc/sqlite/preservation.db"
-        database.parent.mkdir(parents=True)
-        with sqlite3.connect(database) as writable:
-            writable.executescript((PROVIDER / "server/database/sqlite/retro.sqlite").read_text())
+        helper.test_real_create_reopen_export_and_native_launch_commands_keep_target_private()
+        target = helper.root / "historical-input"
+        project = next((helper.root / "installation/projects").glob("*/project.json")).parent
+        source = project / "source"
         original_target, original_source = module.tree_snapshot(target), module.tree_snapshot(source)
-        workspace = helper.workspace()
+        workspace = helper.root / "verifier-staging"
+        workspace.mkdir(mode=0o700)
         identity = PROVIDER / "output/current-platform/current-base-v1/composition-identity.json"
         catalog = PROVIDER / "current-platform"
         def recover(root):
@@ -308,15 +317,14 @@ class VerifierProcessFixture {
                     if closed is None or closed.returncode:
                         self.retain_real_fixture = True
                         raise AssertionError("Retaining uncertain disposable verifier fixtures: " + str(self.case)
-                                             + " and " + str(helper.case_root))
+                                             + " and " + str(helper.root))
             finally:
                 self.defer_real_cleanup = False
                 self.tearDown()
         self.defer_real_cleanup = True
         self.addCleanup(prove_fixture_cleanup)
-        staged = helper.run_harness("launch-inputs-stage", target, workspace, "real-pair",
-                                    identity=identity, catalog=catalog,
-                                    packed_source=source, packed_report=report)
+        staged = subprocess.run(self.command("stage-native", workspace, target, project, catalog, identity),
+                                capture_output=True, text=True, timeout=300)
         self.assertEqual(0, staged.returncode, staged.stderr)
         release = workspace / "real-pair"
         inventory = workspace / "reviewed-state.json"

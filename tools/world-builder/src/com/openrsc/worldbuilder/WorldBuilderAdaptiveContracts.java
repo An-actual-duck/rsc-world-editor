@@ -400,7 +400,7 @@ final class WorldBuilderAdaptiveContracts {
 		StateReference selected = stateReference(root.get("selectedConfiguration"),
 			op, "selectedConfiguration", true);
 		String representation = enumeration(root, "representation", op,
-			"layered", "none", "packed", "unknown");
+			"layered", "none", "packed", "historical-jag", "unknown");
 		CapabilityReference capability = capabilityReference(root.get("capability"), op);
 		int minimumFiles = "compatible".equals(status) ? 1 : 0;
 		List<WorldBuilderBoundedInventory.Record> files =
@@ -440,7 +440,11 @@ final class WorldBuilderAdaptiveContracts {
 				}
 			}
 			if (!selected.present || !capability.resolved
-				|| !("packed".equals(representation) || "layered".equals(representation))
+				|| !("packed".equals(representation) || "layered".equals(representation)
+					|| WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(representation)
+						&& !descriptor.present
+						&& WorldBuilderPreservationLayoutAdapter.ID.equals(capability.adapterId)
+						&& WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(capability.capabilityId))
 				|| blockers || !selectedCandidate || !presentSourceEvidence
 				|| !operations.discoveryOnly()) {
 				invalid(op, "Compatible discovery report is missing proven target evidence.");

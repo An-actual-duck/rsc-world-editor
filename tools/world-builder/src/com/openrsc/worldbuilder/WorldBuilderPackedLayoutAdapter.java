@@ -23,6 +23,8 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 	@Override
 	public ProbeResult probe(WorldBuilderReadOnlyTarget target)
 		throws WorldBuilderContractException {
+		if (WorldBuilderPreservationLayoutAdapter.recognizes(target))
+			return new ProbeResult(PROFILE_ID, Probe.NO_EVIDENCE, Collections.<ProbeResult.Anchor>emptyList());
 		boolean config = false;
 		boolean serverTerrain = false;
 		boolean locations = false;
