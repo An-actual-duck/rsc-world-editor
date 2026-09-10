@@ -189,7 +189,44 @@ ancestor `e9cf05c78a6aadde44ecc1a8449dbba2cecdc159` builds and verifies separate
 from selected `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2`. Both have the current
 SQLite copy contract; the selected revision includes real client/server gameplay
 changes. No provider source or Editor lock was modified to prepare this input.
-This is build evidence only, not a completed two-version server upgrade.
+The first genuine two-version execution exposed two concrete integration bugs:
+normal predecessor gameplay creates `ipbans.txt` with umask-derived permissions,
+and the staged-plan validator still expected historical SQLite migration rows
+for a managed successor. Both Editor paths are now corrected on the active topic.
+The permission bridge admits only `ipbans.txt` / `ipbans.temp` at the bounded
+legacy modes inside a canonical, target-owned `0700` side-state root; it preserves
+the predecessor without chmod, still rejects links, and does not broaden database,
+key, credential, or other-state permissions. Managed plan validation binds the
+exact current-state copy row rather than the historical row set.
+
+The retained invented-state probe subsequently completed the genuine
+`e9cf05c7` -> `4d589cb4` upgrade and normal player login/shutdown. Both code trees
+changed, the edited map fingerprint stayed exact, the new database matched the
+predecessor before launch, and side-state paths stayed unchanged. The initial
+failed transaction reported no target mutation and completed rollback.
+
+The subsequent fresh combined regression passed in **410.074 seconds**:
+genuine project creation, initial predecessor installation, normal player login,
+two saved map imports/restarts/recovery checks, genuine successor activation,
+normal successor login/shutdown, and existing-project reopen/save/export. It also
+rejects forged historical migration rows and verifies that the still-old authoring
+composition cannot import into the successor, without target mutation. This last
+refusal is a recorded remaining requirement, **not** successful post-upgrade import
+acceptance. Log: `/tmp/base-genuine-successor-complete.log`; retained invented-state
+fixture: `/tmp/base-project-lifecycle-hf9de2vz`. All owned processes exited cleanly.
+
+Reproduce this extra two-build lane with the normal Base-cycle test and explicit
+`WORLD_BUILDER_BASE_PREDECESSOR_PROVIDER` pointing to a clean built checkout of
+`e9cf05c7`, plus the existing authorized public-source and coordinated-display
+inputs. The test independently checks the exact ancestor against the selected
+provider repository. No historical reference checkout is built or launched.
+
+Runtime worker `fix/current-base-private-ban-state` is clean, pushed and READY at
+`bf0fcac5eeab106aebed69294886622a97997969`: new installed ban/temp files use `0600`,
+existing ban bytes/modes survive startup, and non-installed behavior stays intact.
+Three focused runtime tests passed, including real server restart and compiled
+ban/unban/link-refusal checks. This correction is **not** yet merged to runtime
+main or adopted by the Editor lock; full integration verification remains due.
 
 Concrete follow-on work found during review: native map import currently compares
 the target against the project's original composition and code trees. A genuine
@@ -199,8 +236,18 @@ composition without rewriting the immutable project source, recreating the
 project, dropping the map-compatibility checks, or trusting an arbitrary target
 ledger as runtime authority. This is functional closure work, not optional polish.
 
-Consolidated Editor verification now covers all 48 suite entrypoints on the active
-branch: 527 tests passed, 13 were explicitly skipped, and the direct repository
+The authoring review found no existing project-runtime adoption mechanism to reuse:
+`working/runtime` is verified against immutable `source/provider` and the project
+manifest. Matching valid-ID catalogs alone cannot establish compatibility because
+they omit definition/asset semantics. The two genuine builds also change content
+configuration. Do not remove exact import checks or claim the old authoring runtime
+has been upgraded. The next functional step is a guarded current-authoring adoption
+path that preserves original source evidence and authored data, followed by another
+saved edit/import/restart from the same project. Until then the regression explicitly
+expects old-project successor import to refuse without target mutation.
+
+At checkpoint `42377cd`, consolidated Editor verification covered all 48 suite
+entrypoints: 527 tests passed, 13 were explicitly skipped, and the direct repository
 independence check passed. Coverage was completed in three segments, not one
 uninterrupted green command. The initial headless run reached a mandatory GUI
 login test; enabling the coordinated display resolved that environment failure.
@@ -216,3 +263,8 @@ pass remains recorded above), external discovery input (1), packaged native
 runtime input (1), external reconciliation matrix inputs (5), and unavailable
 PowerShell execution (5). These are explicit limits, not fresh packaged or
 cross-platform acceptance. The exact locked runtime parity check also passed.
+
+The subsequent successor fixes have focused verification: eight successor
+topology/permission tests and all 34 upgrade-transaction tests pass. The full
+integration gate must be rerun before publishing/adopting the newer changes;
+the earlier 48-entrypoint result is not an acceptance claim for a changed tip.

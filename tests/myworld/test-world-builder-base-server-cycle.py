@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Genuine public intake -> installed upgrade -> normal login -> two saved map imports.
 
+An explicitly supplied reviewed predecessor adds the real managed successor
+transition. That lane proves server continuity, not project runtime adoption.
+
 Uses only fresh invented-state fixtures. Retains the fixture on failure, never
 force-stops a process, and reuses the established normal-launch/UI test helpers.
 """
@@ -20,6 +23,8 @@ from adaptive_project_test_support import change_working_terrain
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
+PREDECESSOR_COMMIT = "e9cf05c78a6aadde44ecc1a8449dbba2cecdc159"
+PREDECESSOR = os.environ.get("WORLD_BUILDER_BASE_PREDECESSOR_PROVIDER")
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 
 
@@ -36,6 +41,19 @@ class BaseServerCycleTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.native = load("cycle_native", ROOT / "tests/myworld/test-world-builder-base-project-lifecycle.py")
+        cls.initial_provider = PROVIDER
+        if PREDECESSOR:
+            cls.initial_provider = Path(PREDECESSOR).resolve(strict=True)
+            def git(path, *args):
+                return subprocess.check_output(["git", "-C", str(path), *args], text=True).strip()
+            # The dependency checkout may be a separate clone. The pinned
+            # repository must independently contain this exact ancestor.
+            if git(cls.initial_provider, "rev-parse", "HEAD") != PREDECESSOR_COMMIT:
+                raise AssertionError("successor cycle requires the reviewed exact predecessor")
+            subprocess.run(["git", "-C", str(PROVIDER), "merge-base", "--is-ancestor",
+                            PREDECESSOR_COMMIT, "HEAD"], check=True)
+            cls.native.PROVIDER = cls.initial_provider
+            cls.native.BaseProjectLifecycleTest.expected_provider_commit = PREDECESSOR_COMMIT
         cls.native.KEEP_PROBE = True  # Never erase an uncertain installed runtime/session.
         cls.native.BaseProjectLifecycleTest.setUpClass()
         cls.addClassCleanup(cls.native.BaseProjectLifecycleTest.doClassCleanups)
@@ -45,9 +63,26 @@ class BaseServerCycleTest(unittest.TestCase):
         source = cls.root / "BaseCycleProbe.java"
         source.write_text('''package com.openrsc.worldbuilder;
 import java.nio.file.*;
+import java.util.*;
 public final class BaseCycleProbe {
+  @SuppressWarnings("unchecked")
   public static void main(String[] args) throws Exception {
-    if ("lease".equals(args[0])) {
+    if ("validate-managed-migration".equals(args[0])) {
+      Map<String,Object> plan = WorldBuilderJsonDocuments.readObject(Paths.get(args[1]));
+      WorldBuilderCurrentRuntimeExecutionProfile profile = WorldBuilderCurrentRuntimeExecutionProfile.preservation();
+      profile.validateMigrationPlan(plan);
+      Map<String,Object> staged = (Map<String,Object>)plan.get("stagedExecution");
+      Object required = staged.get("requiredStateMigrationRowIds");
+      staged.put("requiredStateMigrationRowIds", WorldBuilderPreservationStagedMigrator.migrationRows("sqlite"));
+      WorldBuilderAdaptiveExporter.bindFingerprint(plan,"migrationPlanFingerprintSha256");
+      try { profile.validateMigrationPlan(plan); throw new AssertionError("historical required rows admitted for managed upgrade"); }
+      catch (WorldBuilderContractException refused) { }
+      staged.put("requiredStateMigrationRowIds", required);
+      ((Map<String,Object>)staged.get("providerStateMigration")).put("migrationRowIds", WorldBuilderPreservationStagedMigrator.migrationRows("sqlite"));
+      WorldBuilderAdaptiveExporter.bindFingerprint(plan,"migrationPlanFingerprintSha256");
+      try { profile.validateMigrationPlan(plan); throw new AssertionError("historical state rows admitted for managed upgrade"); }
+      catch (WorldBuilderContractException refused) { }
+    } else if ("lease".equals(args[0])) {
       try (WorldBuilderCurrentRuntimeInstanceLease lease = WorldBuilderCurrentRuntimeInstanceLease.acquire(Paths.get(args[1]))) {
         lease.verifyHeld();
       }
@@ -80,7 +115,7 @@ public final class BaseCycleProbe {
         workspace.mkdir(mode=0o700)
         common = ["--target-root", self.target, "--transaction-root", workspace,
             "--transaction-id", "base-initial", "--adapter", "preservation-family-v1",
-            "--provider-catalog-root", PROVIDER / "current-platform", "--composition-identity", self.fixture.identity,
+            "--provider-catalog-root", self.initial_provider / "current-platform", "--composition-identity", self.fixture.identity,
             "--preservation-project", self.project]
         preview = self.cli("preview-current-runtime-upgrade", *common)
         self.assertTrue(preview["activationAuthorized"])
@@ -90,14 +125,18 @@ public final class BaseCycleProbe {
         self.assert_original(before, source_before)
         self.exercise_installed_cycle(workspace, before, source_before)
 
-    def exercise_installed_cycle(self, workspace, before, source_before):
+    def prepare_pair(self):
         self.pair = load("cycle_normal", ROOT / "tests/myworld/test-world-builder-initial-instance-integration.py").InitialInstanceIntegrationTest()
         import tempfile
         self.pair.root = Path(tempfile.mkdtemp(prefix="normal-session-logs-", dir=self.root))
         self.pair.processes, self.pair.previous_nonces = [], set()
+        self.pair.anchor = self.target / ".world-builder/current-runtime/instance/installation"
         self.pair.provider_ui = load("cycle_ui", PROVIDER / "tests/myworld/test-current-base-installed-launch.py")
         self.pair.invoke = self.probe
         self.addCleanup(self.close_pair)
+
+    def exercise_installed_cycle(self, workspace, before, source_before):
+        self.prepare_pair()
         spec = self.normal_login()
         print("Base cycle: normal player login and clean shutdown passed", flush=True)
         for name in ("badwords.txt", "goodwords.txt", "alertwords.txt"):
@@ -140,6 +179,57 @@ public final class BaseCycleProbe {
             self.assertEqual(gameplay, database.read_bytes())
             self.assert_original(before, source_before)
             print("Base cycle: saved map import, normal restart, and state-safe recovery passed: " + str(number), flush=True)
+        if PREDECESSOR:
+            spec = self.upgrade_successor(workspace, spec, before, source_before)
+            # The server upgrade must not corrupt or invalidate existing authored
+            # data. Import authority still deliberately refuses predecessor code;
+            # current authoring adoption is a separate candidate requirement.
+            reopened = self.fixture.invoke("open-project", "--installation-root", self.root / "installation", "--validate-only")
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            change_working_terrain(self.project)
+            self.cli("save-project", "--project", self.project)
+            exported = self.cli("export-adaptive", "--project", self.project)
+            target_before = self.native.snapshot(self.target)
+            refused = self.cli("preview-current-map-import", "--project", self.project,
+                "--export", exported["exportDirectory"], "--target-root", self.target,
+                "--transaction-root", workspace, "--transaction-id", "old-project-after-successor", success=False)
+            self.assertIn("project's current composition", refused.stderr)
+            self.assertEqual(target_before, self.native.snapshot(self.target))
+            self.assert_original(before, source_before)
+            print("Base cycle: old project still reopens/saves/exports; successor import correctly awaits current-authoring adoption", flush=True)
+
+    def upgrade_successor(self, workspace, predecessor, before, source_before, transaction_id="base-successor"):
+        """Install genuinely different current code while keeping this project and its edited map."""
+        state = self.native.snapshot(Path(predecessor["serverStateRoot"]))
+        side = {role: self.native.snapshot(Path(predecessor[role + "SideStateRoot"]))
+                for role in ("server", "client")}
+        common = ["--target-root", self.target, "--transaction-root", workspace,
+            "--transaction-id", transaction_id, "--adapter", "preservation-family-v1",
+            "--provider-catalog-root", PROVIDER / "current-platform", "--composition-identity",
+            PROVIDER / "output/current-platform/current-base-v1/composition-identity.json",
+            "--preservation-project", self.project]
+        preview = self.cli("preview-current-runtime-upgrade", *common)
+        self.assertTrue(preview["activationAuthorized"])
+        migration = self.root / (transaction_id + "-migration-check.json")
+        migration.write_text(json.dumps(preview["migrationPlan"]))
+        migration.chmod(0o600)
+        self.probe("validate-managed-migration", migration)
+        result = self.cli("apply-current-runtime-upgrade", *common,
+                          "--confirmation-identity", preview["confirmationIdentity"])
+        self.assertEqual("successful", result["status"])
+        updated = json.loads(self.probe("inspect", self.target).stdout)
+        self.assertEqual(predecessor["mapPackageFingerprintSha256"], updated["mapPackageFingerprintSha256"])
+        self.assertNotEqual(predecessor["serverStateRoot"], updated["serverStateRoot"])
+        self.assertEqual(state, self.native.snapshot(Path(predecessor["serverStateRoot"])))
+        self.assertEqual({"current_base.db": state["current_base.db"]},
+                         self.native.snapshot(Path(updated["serverStateRoot"])))
+        for role in ("server", "client"):
+            self.assertNotEqual(predecessor[role + "CodeTreeSha256"], updated[role + "CodeTreeSha256"])
+            self.assertEqual(predecessor[role + "SideStateRoot"], updated[role + "SideStateRoot"])
+            self.assertEqual(side[role], self.native.snapshot(Path(updated[role + "SideStateRoot"])))
+        self.assert_original(before, source_before)
+        print("Base cycle: genuine managed successor committed with edited map and state preserved", flush=True)
+        return self.normal_login()
 
     def assert_original(self, before, source_before):
         current = self.native.snapshot(self.target)

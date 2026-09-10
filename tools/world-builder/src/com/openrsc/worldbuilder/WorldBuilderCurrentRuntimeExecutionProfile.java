@@ -502,7 +502,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 				"implementationId", "stagedOutputs", "readinessBlockers");
 			if (!"synthetic-plan-only".equals(string(staged, "implementationId")))
 				throw refusal("Synthetic staged execution identity changed.");
-		} else validateProductionStagedExecution(staged);
+		} else validateProductionStagedExecution(staged, managed);
 		for (Object raw : array(plan.get("durableState"))) {
 			Map<String,Object> record = object(raw);
 			WorldBuilderBoundedInventory.exactKeys(record, "current-runtime-migration",
@@ -548,7 +548,7 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 		return result;
 	}
 
-	private static void validateProductionStagedExecution(Map<String,Object> staged)
+	private static void validateProductionStagedExecution(Map<String,Object> staged, boolean managed)
 		throws WorldBuilderContractException {
 		WorldBuilderBoundedInventory.exactKeys(staged, "current-runtime-migration",
 			"implementationId", "requiredStateMigrationContractId",
@@ -562,8 +562,9 @@ final class WorldBuilderCurrentRuntimeExecutionProfile {
 			string(staged, "implementationId"))
 			|| !"current-base-state-migration-v1".equals(
 				string(staged, "requiredStateMigrationContractId"))
-			|| !WorldBuilderPreservationStagedMigrator.migrationRows(
-				string(object(staged.get("providerStateMigration")), "engine")).equals(
+			|| !(managed ? Collections.<Object>singletonList(WorldBuilderPreservationStagedMigrator.CURRENT_SQLITE_ROW)
+				: WorldBuilderPreservationStagedMigrator.migrationRows(
+					string(object(staged.get("providerStateMigration")), "engine"))).equals(
 					array(staged.get("requiredStateMigrationRowIds")))) throw refusal(
 			"Production staged migrator identity changed.");
 		if (!array(staged.get("requiredProviderArtifactRoles")).equals(

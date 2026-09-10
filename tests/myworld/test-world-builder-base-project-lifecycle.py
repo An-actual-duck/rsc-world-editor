@@ -81,6 +81,9 @@ class BaseProjectLifecycleTest(unittest.TestCase):
     def setUpClass(cls):
         expected = next(line.split("=", 1)[1] for line in (ROOT / "runtime-provider.lock").read_text().splitlines()
                         if line.startswith("RUNTIME_PROVIDER_COMMIT="))
+        # Only the genuine two-build cycle supplies an independently checked
+        # published ancestor. Ordinary lifecycle coverage stays exactly pinned.
+        expected = getattr(cls, "expected_provider_commit", expected)
         actual = subprocess.check_output(["git", "-C", str(PROVIDER), "rev-parse", "HEAD"], text=True).strip()
         if expected != actual or subprocess.run(["git", "-C", str(PROVIDER), "diff", "--quiet", "HEAD", "--"]).returncode:
             raise AssertionError("native Base lifecycle requires the exact unchanged selected provider")

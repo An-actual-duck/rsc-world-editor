@@ -81,7 +81,11 @@ final class WorldBuilderCurrentBaseManagedInputs {
         TreeMap<String,String> paths = new TreeMap<String,String>();
         paths.put(relative(target, Paths.get(text(spec, "serverStateRoot")).resolve("current_base.db")), "preserved-database");
         for (String role : Arrays.asList("server", "client")) {
-            Path root = Paths.get(text(spec, role + "SideStateRoot"));
+            Path root = WorldBuilderReadOnlyTarget.open(target).requiredDirectory(
+                relative(target, Paths.get(text(spec, role + "SideStateRoot"))));
+            if (!root.equals(root.toRealPath()) || mode(root) != 0700
+                || !Files.getOwner(root, LinkOption.NOFOLLOW_LINKS).equals(Files.getOwner(target, LinkOption.NOFOLLOW_LINKS)))
+                throw refused("Installed side-state directory must be canonical, target-owned and private.");
             try (DirectoryStream<Path> entries = Files.newDirectoryStream(root)) {
                 for (Path entry : entries) paths.put(relative(target, entry), "preserved-" + role + "-side-state");
             }
@@ -90,7 +94,17 @@ final class WorldBuilderCurrentBaseManagedInputs {
         WorldBuilderReadOnlyTarget source = WorldBuilderReadOnlyTarget.open(target);
         for (Map.Entry<String,String> entry : paths.entrySet()) {
             Path path = source.requiredFile(entry.getKey());
-            if (!Files.getPosixFilePermissions(path).equals(PosixFilePermissions.fromString("rw-------"))) throw refused("Installed state is not private.");
+            int permissions = mode(path);
+            // Older installed Base creates ban files using File.createNewFile /
+            // FileWriter and the owner's umask. They remain inaccessible through
+            // the required private side-state root. Preserve these exact files;
+            // never chmod the predecessor or generalize this to secrets/state.
+            boolean oldBanFile = "preserved-server-side-state".equals(entry.getValue())
+                && Arrays.asList("ipbans.txt", "ipbans.temp").contains(path.getFileName().toString())
+                && Arrays.asList(0600, 0640, 0644, 0660, 0664).contains(permissions);
+            if ((permissions != 0600 && !oldBanFile)
+                || !Files.getOwner(path, LinkOption.NOFOLLOW_LINKS).equals(Files.getOwner(target, LinkOption.NOFOLLOW_LINKS)))
+                throw refused("Installed state is not private: " + entry.getKey());
             if (Files.size(path) > (entry.getValue().equals("preserved-database") ? 4294967296L : 1048576L)) throw refused("Installed state exceeds its input bound.");
             Map<String,Object> row = new LinkedHashMap<String,Object>(); row.put("role", entry.getValue()); row.put("relativePath", entry.getKey());
             row.put("sourceSha256", WorldBuilderHashes.sha256(path)); row.put("policy", "copy-to-staged-durable-state-and-verify-before-cutover"); result.add(row);
@@ -119,6 +133,9 @@ final class WorldBuilderCurrentBaseManagedInputs {
     private static String relative(Path target, Path path) throws WorldBuilderContractException {
         if (!path.isAbsolute() || !path.normalize().equals(path) || !path.startsWith(target) || path.equals(target)) throw refused("Managed input escaped the target.");
         return target.relativize(path).toString().replace('\\', '/');
+    }
+    private static int mode(Path path) throws IOException {
+        return ((Number)Files.getAttribute(path, "unix:mode", LinkOption.NOFOLLOW_LINKS)).intValue() & 07777;
     }
     private static String required(Map<String,String> values, String key) throws WorldBuilderContractException {
         String value = values.get(key); if (value == null || value.isEmpty() || value.length() > 253) throw refused("Installed configuration omits a bounded required value."); return value;

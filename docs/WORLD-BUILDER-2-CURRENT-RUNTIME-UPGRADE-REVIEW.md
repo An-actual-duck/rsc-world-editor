@@ -231,15 +231,27 @@ PowerShell execution skips. See the delivery checkpoint in
 [`PRESERVATION-BASE-INTAKE.md`](PRESERVATION-BASE-INTAKE.md). This does not establish
 fresh packaged desktop or Windows upgrade acceptance.
 
-Consolidated Editor coverage now spans all 48 entrypoints in three segments:
+At checkpoint `42377cd`, consolidated Editor coverage spanned all 48 entrypoints in three segments:
 527 tests passed, 13 were explicitly skipped, and the direct independence check
 passed. A missing-display failure was rerun in the GUI lane; an obsolete verifier
 fixture was moved onto genuine production staging without relaxing validation.
 The delivery checkpoint records the skip limits and remaining acceptance work.
 
-The upgrade branch remains ACTIVE, not accepted. Managed-successor connected
-execution (including another import from the existing project), Editor integration/
-publication and fresh packaged acceptance remain. Advanced
+Genuine managed-successor execution now has fresh combined proof (410.074 seconds): the separately built
+published `e9cf05c7` predecessor upgraded to selected `4d589cb4`, retained its edited
+map and player state, and passed normal login/shutdown after two map imports.
+The same project still reopens/saves/exports; post-successor import remains safely
+blocked pending current-authoring adoption. This exposed and corrected
+the legacy ban-file permission intake and historical-only migration-row validator.
+The runtime's private new-ban-file correction is separately READY at `bf0fcac5` and
+awaits integration/adoption. See the delivery checkpoint for evidence and limits.
+
+The upgrade branch remains ACTIVE, not accepted. Existing-project **current
+authoring adoption and another saved import after upgrade**, runtime correction
+integration, Editor integration/publication and fresh packaged acceptance remain.
+The immutable project runtime cannot be changed piecemeal or bypassed by trusting
+the target ledger. This is the remaining functional continuity work, not a reason
+to reopen completed map conversion or gameplay features. Advanced
 and unrelated polish remain outside this Base closure pass. No accepted candidate
 or live-target mutation is implied.
 

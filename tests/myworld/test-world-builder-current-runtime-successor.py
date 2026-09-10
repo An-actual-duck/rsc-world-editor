@@ -22,6 +22,9 @@ public final class SuccessorHarness {
   Path root=Paths.get(a[1]),target=root.resolve("target"),stage=root.resolve("successor-stage");
   if ("sidecar".equals(a[0])) { WorldBuilderPreservationStagedMigrator.requireClosedSqliteSnapshot(target,Paths.get(a[2])); return; }
   Map<String,Object> old=WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target);
+  if ("durable".equals(a[0])) {
+    System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentBaseManagedInputs.durable(target,old))); return;
+  }
   Map<String,Object> identity=WorldBuilderJsonDocuments.readObject(root.resolve("identity.json"));
   Map<String,Object> plan=WorldBuilderCurrentRuntimeSuccessor.inspect(target,stage,target.resolve(".world-builder/current-runtime/releases/successor-bundle/next"),"next",identity,
     WorldBuilderJsonDocuments.readObject(root.resolve("layout.json")),(List<Object>)WorldBuilderJsonDocuments.readObject(root.resolve("generated.json")).get("outputs"));
@@ -119,5 +122,57 @@ class CurrentRuntimeSuccessorTest(unittest.TestCase):
             side.write_bytes(b"active")
             self.invoke("sidecar",state,success=False)
             side.unlink()
+
+    def test_predecessor_umask_ban_files_are_preserved_inside_private_state(self):
+        side = self.case.instance / "state/server/side"
+        for name in ("ipbans.txt", "ipbans.temp"):
+            path = side / name
+            path.write_bytes(b"192.0.2.7\n")
+            for mode in (0o600, 0o640, 0o644, 0o660, 0o664):
+                with self.subTest(name=name, mode=oct(mode)):
+                    path.chmod(mode)
+                    before = fixture.snapshot(self.case.instance)
+                    result = self.invoke("durable")
+                    row = next(row for row in result if row["relativePath"] == str(path.relative_to(self.target)))
+                    self.assertEqual(fixture.sha(path), row["sourceSha256"])
+                    self.assertEqual(before, fixture.snapshot(self.case.instance))
+
+    def test_ban_exception_does_not_admit_unsafe_modes_or_public_roots(self):
+        side = self.case.instance / "state/server/side"
+        ban = side / "ipbans.txt"
+        ban.write_bytes(b"192.0.2.7\n")
+        for mode in (0o666, 0o700, 0o4600):
+            with self.subTest(mode=oct(mode)):
+                ban.chmod(mode)
+                self.invoke("durable", success=False)
+        ban.chmod(0o600)
+        side.chmod(0o755)
+        self.invoke("durable", success=False)
+
+    def test_ban_exception_never_admits_nonprivate_secrets_or_other_state(self):
+        side = self.case.instance / "state/server/side"
+        for path in (side / "server.pem", side / "badwords.txt",
+                     self.case.instance / "state/server/current_base.db"):
+            with self.subTest(path=path.name):
+                path.chmod(0o644)
+                self.invoke("durable", success=False)
+                path.chmod(0o600)
+        extra = side / "unrecognized.txt"
+        extra.write_bytes(b"not a ban file")
+        extra.chmod(0o644)
+        self.invoke("durable", success=False)
+
+    def test_ban_exception_never_admits_linked_files(self):
+        side = self.case.instance / "state/server/side"
+        ban = side / "ipbans.txt"
+        original = self.root / "link-source.txt"
+        original.write_bytes(b"192.0.2.7\n")
+        original.chmod(0o600)
+        ban.unlink()  # Replace only this test's generated ban-file fixture.
+        ban.symlink_to(original)
+        self.invoke("durable", success=False)
+        ban.unlink()
+        os.link(original, ban)
+        self.invoke("durable", success=False)
 
 if __name__ == "__main__": unittest.main()
