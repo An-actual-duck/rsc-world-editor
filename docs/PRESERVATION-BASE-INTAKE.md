@@ -246,6 +246,38 @@ path that preserves original source evidence and authored data, followed by anot
 saved edit/import/restart from the same project. Until then the regression explicitly
 expects old-project successor import to refuse without target mutation.
 
+The first implementation step now reuses `WorldBuilderAdaptiveRuntimePreparer`
+and native provider capture to prepare a separate current-authoring generation.
+It consumes selected current Base code/content and the original project's sealed
+isolated seed/control inputs, without copying player or existing authoring state.
+The original project, source evidence, working map, runtime and server target are
+not replaced. Current definition IDs must still fit the original catalog; the
+generation includes the complete selected current definitions/assets, not merely
+an assertion that matching ID lists imply matching gameplay.
+
+Preparation is append-only in a new external directory. Project locks, canonical
+paths, source/provider/target separation, selected-input revalidation, complete
+byte/mode inventories and an independently retained seal hash protect readback.
+Incomplete stages cannot activate anything. The plan explicitly records
+`activationAuthorized: false`; there is no new end-user command or launch routing
+yet. This is implementation of preparation, **not** completed authoring adoption.
+
+Focused generation verification passed three real-artifact tests in 148.478
+seconds using an `e9cf05c7` project and selected `4d589cb4` artifacts. Checks cover
+complete current payload preparation, unchanged project/target, independently
+bound seals, changed/extra files and modes, links, occupied projects, forbidden
+destinations and selected-artifact drift before stage creation. The test runner's
+three focused checks also passed, and the new test is included in the projects
+group. These results do not claim a current-authoring launch, switch/recovery,
+post-upgrade import, full-suite integration or candidate acceptance.
+
+Next: bind the prepared seal into a durable project-generation switch with exact
+predecessor backup/recovery; route the existing launcher and map import through
+that verified selection; then prove current authoring and another saved import on
+the existing project after server upgrade. Preserve the original source and map
+throughout. Runtime `bf0fcac5` integration/adoption and fresh packaged acceptance
+remain separate pending gates.
+
 At checkpoint `42377cd`, consolidated Editor verification covered all 48 suite
 entrypoints: 527 tests passed, 13 were explicitly skipped, and the direct repository
 independence check passed. Coverage was completed in three segments, not one

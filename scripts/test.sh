@@ -133,6 +133,7 @@ add_group() {
 		projects)
 			members=(
 				test-world-builder-adaptive-project-lifecycle.py
+				test-world-builder-base-authoring-generation.py
 				test-world-builder-runtime-preparation.py
 				test-world-builder-supervision.py
 				test-world-builder-project-revisions.py

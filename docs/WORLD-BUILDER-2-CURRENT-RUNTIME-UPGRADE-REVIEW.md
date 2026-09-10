@@ -249,6 +249,9 @@ awaits integration/adoption. See the delivery checkpoint for evidence and limits
 The upgrade branch remains ACTIVE, not accepted. Existing-project **current
 authoring adoption and another saved import after upgrade**, runtime correction
 integration, Editor integration/publication and fresh packaged acceptance remain.
+Current-authoring generation preparation is implemented using the existing runtime
+preparer and native content capture. It is append-only and explicitly cannot
+activate; durable selection/recovery and launcher/import routing are still pending.
 The immutable project runtime cannot be changed piecemeal or bypassed by trusting
 the target ledger. This is the remaining functional continuity work, not a reason
 to reopen completed map conversion or gameplay features. Advanced
