@@ -49,6 +49,23 @@ Existing-project adoption of a later authoring runtime remains product work,
 but is **not a prerequisite for this fresh first-install test candidate**.
 There is no packaged candidate at this checkpoint; the source test copy exists.
 
+### Integration checkpoint
+
+Editor work through `510b2fe` is now merged locally on manager `main` with an
+identical tree. The 16-selection discovery/project group passed in 334 seconds:
+176 tests executed successfully and six external-fixture skips. The full-stock
+native project creation/reopen/export tests passed; they did not launch the GUI
+in that group.
+
+The manager now adopts published runtime
+`30833010dcd16cf2fca6997e1de3e2ebabccba04`, including the reviewed private ban-file
+creation fix. Its full runtime gate completed in two segments on the identical
+worker tree: 245 top-level checks/modules, 232 unittest passes and five skipped
+external Preservation semantic-probe tests. Actual installed launch, login,
+map loading, persistence and restart checks passed. Editor runtime parity
+passes; the combined Editor full gate is next. No candidate acceptance or
+production release is implied by this checkpoint.
+
 ## Implemented selected-layout contract
 
 The compiled `preservation-source-jag-v1` discovery adapter admits the reviewed

@@ -11,8 +11,8 @@
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
 | Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
 | Published Editor implementation | `b001b0def66374d69fdae4ed6238ec6a7bf22a35`; Base workflow topics not yet published on `main` |
-| Published runtime | `4d589cb4bb43c8db3954a3d412eceaa5d743d7b2` |
-| Editor's adopted runtime | Integration topic pins `4d589cb4` in `060ecfb`; published Editor `main` still pins `d2102175` |
+| Published runtime | `30833010dcd16cf2fca6997e1de3e2ebabccba04` |
+| Editor's adopted runtime | Local integrated manager `main` pins `30833010`; published Editor `main` still pins `d2102175` until the combined gate passes |
 | Preservation fixture | `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree `6db5536d795abf34f303bb03b20c43b8cfb9e3fe` |
 | Core-copy evidence | `fec94c8731b5521410963575ef0f2fa5c05ef0b3`, tree `22051f8cff480975f3f1d2d1c7e2af836d9d7ff0`, tag `v0.2.87` |
 
