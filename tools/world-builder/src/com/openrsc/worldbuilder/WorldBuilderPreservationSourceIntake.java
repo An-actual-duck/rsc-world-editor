@@ -114,9 +114,9 @@ final class WorldBuilderPreservationSourceIntake {
 			int actual = ((Number)java.nio.file.Files.getAttribute(file, "unix:mode",
 				java.nio.file.LinkOption.NOFOLLOW_LINKS)).intValue() & 07777;
 			// Git records executable status, not the checkout's group-write umask.
-			// Admit the ordinary 0002 checkout of public, non-executable inputs;
+			// Admit ordinary 0002 checkouts without changing executable status;
 			// private persistent inputs use their separate, stricter admission policy.
-			return actual == expected || expected == 0644 && actual == 0664
+			return actual == expected || actual == (expected | 0020)
 				|| actual == 0600 && relative.endsWith(".conf");
 		} catch (IOException | UnsupportedOperationException | IllegalArgumentException failure) {
 			return false;

@@ -92,6 +92,21 @@ def git_bytes(repo, path):
     return subprocess.check_output(["git", "-C", repo, "cat-file", "blob", f"{COMMIT}:{path}"])
 
 
+def populate_public_stock(target):
+    """Add complete public stock probe roots, without any owner private bytes."""
+    stock = json.loads((RESOURCES / "preservation-c0102e-stock-inputs.json").read_text())
+    closure = json.loads((RESOURCES / "preservation-c0102e-source-build-dependencies.json").read_text())
+    for record in stock["records"] + [r for r in closure["records"]
+                                     if r["path"].startswith(("server/lib/", "PC_Client/lib/"))]:
+        data = git_bytes(SOURCE_GIT, record["path"])
+        if record["sha256"] != hashlib.sha256(data).hexdigest() or record["size"] != len(data):
+            raise AssertionError("public stock metadata mismatch: " + record["path"])
+        path = target / record["path"]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        path.chmod((int(record["mode"], 8) & 0o777) | 0o020)
+
+
 class PreservationSourceIntakeTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -285,6 +300,19 @@ class PreservationSourceIntakeTest(unittest.TestCase):
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for production discovery")
     def test_production_discovery_admits_jag_without_private_file_copy_authority(self):
         target = self.target()
+        # Full stock probe-root shape, not just the selected map/source subset.
+        # Public exact blobs only; owner databases, keys, logs and real UID state
+        # are never copied. Persistent state below is freshly generated.
+        stock = json.loads((RESOURCES / "preservation-c0102e-stock-inputs.json").read_text())
+        closure = json.loads((RESOURCES / "preservation-c0102e-source-build-dependencies.json").read_text())
+        public_paths = subprocess.check_output(["git", "-C", SOURCE_GIT, "ls-tree", "-rz",
+                                               "--name-only", COMMIT, "--", "Client_Base", "PC_Client", "server"])
+        expected_paths = {p.decode() for p in public_paths.split(b"\0") if p}
+        expected_paths = {p for p in expected_paths if not p.startswith(("server/inc/sqlite/", "server/logs/"))
+                          and not p.endswith((".pem", ".db", ".log"))}
+        recorded_paths = {r["path"] for r in stock["records"] + closure["records"] + self.metadata["records"]}
+        self.assertEqual(expected_paths, recorded_paths | {"server/connections.conf"})
+        populate_public_stock(target)
         database = target / "server/inc/sqlite/preservation.db"
         database.parent.mkdir(parents=True)
         with sqlite3.connect(database) as connection:
@@ -309,6 +337,8 @@ class PreservationSourceIntakeTest(unittest.TestCase):
         self.assertNotIn("server/server.pem", paths)
         self.assertNotIn("server/client.pem", paths)
         self.assertNotIn("server/inc/sqlite/preservation.db", paths)
+        self.assertNotIn("Client_Base/.gitignore", paths)
+        self.assertNotIn("Client_Base/Cache/uid.dat", paths)
         self.assertIn("pending-provider-sealed-migration", accepted.stdout)
         # The real selected provider supplies migration/tool identity. This is a
         # read-only plan, not a claim that the database schema or project is ready.
@@ -400,17 +430,70 @@ class PreservationSourceIntakeTest(unittest.TestCase):
                 self.assertEqual(expected, row["tier"], row)
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
+    def test_stock_metadata_is_compiled_not_target_supplied(self):
+        target = self.target()
+        path = target / "Client_Base/.gitignore"
+        path.write_bytes(git_bytes(SOURCE_GIT, "Client_Base/.gitignore"))
+        path.chmod(0o644)
+        resource = "com/openrsc/worldbuilder/preservation-c0102e-stock-inputs.json"
+        for operation in ("missing", "changed"):
+            jar = self.root / ("stock-" + operation + ".jar")
+            with zipfile.ZipFile(JAR) as original, zipfile.ZipFile(jar, "w") as output:
+                for entry in original.infolist():
+                    data = original.read(entry)
+                    if entry.filename == resource:
+                        if operation == "missing":
+                            continue
+                        data += b" "
+                    output.writestr(entry, data)
+            result = subprocess.run(["java", "-cp", os.pathsep.join((str(self.classes), str(jar))),
+                                     MAIN, "evidence", str(target)], capture_output=True, text=True, timeout=40)
+            # Classifier may turn contract failures into T5 evidence; neither
+            # route may treat a replaced resource as stock-file authority.
+            if result.returncode == 0:
+                self.assertTrue(any(r["tier"] == "T5" for r in json.loads(result.stdout)["evidence"]))
+            else:
+                self.assertIn("stock input metadata", result.stderr)
+
+    @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
+    def test_optional_stock_inputs_are_exact_and_never_private_state_authority(self):
+        target = self.target()
+        samples = ("Client_Base/.gitignore", "server/conf/server/defs/PrayerDef.xml",
+                   "server/gradlew", "Client_Base/Cache/uid.dat")
+        stock = {r["path"]: r for r in json.loads(
+            (RESOURCES / "preservation-c0102e-stock-inputs.json").read_text())["records"]}
+        for relative in samples:
+            path = target / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(git_bytes(SOURCE_GIT, relative))
+            path.chmod(int(stock[relative]["mode"], 8) & 0o777)
+        admitted = {r["relativePath"]: r for r in self.evidence(target)}
+        for relative in samples:
+            self.assertEqual("T0", admitted[relative]["tier"])
+            self.assertEqual("retire", admitted[relative]["disposition"])
+            path = target / relative
+            original = path.read_bytes()
+            path.write_bytes(original + b"invented non-stock delta")
+            row = next(r for r in self.evidence(target) if r["relativePath"] == relative)
+            self.assertEqual("T5", row["tier"])
+            path.write_bytes(original)
+            path.chmod(0o666)
+            row = next(r for r in self.evidence(target) if r["relativePath"] == relative)
+            self.assertEqual("T5", row["tier"])
+
+    @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_ordinary_group_writable_checkout_retains_source_identity(self):
         target = self.target()
         paths = ("Client_Base/build.xml", "server/src/com/openrsc/server/Server.java",
-                 "server/preservation.conf")
+                 "server/preservation.conf", "server/ant_launcher.sh")
+        modes = {path: ((target / path).stat().st_mode & 0o7777) | 0o020 for path in paths}
         before = {r["relativePath"]: r for r in self.evidence(target)}
         for path in paths:
-            (target / path).chmod(0o664)
+            (target / path).chmod(modes[path])
         after = {r["relativePath"]: r for r in self.evidence(target)}
         for path in paths:
             self.assertEqual(before[path], after[path])
-            self.assertEqual(0o664, (target / path).stat().st_mode & 0o7777)
+            self.assertEqual(modes[path], (target / path).stat().st_mode & 0o7777)
 
     @unittest.skipUnless(SOURCE_GIT, "Exact historical source Git input required for genuine intake acceptance")
     def test_missing_linked_or_permission_changed_sources_are_blocked(self):

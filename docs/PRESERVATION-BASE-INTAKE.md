@@ -4,41 +4,50 @@
 
 The owner designated `/home/justin/RSC-Preservation` as the read-only source for
 a separate test environment. Its public revision is the exact c0102e revision
-used below, but **a full checkout is not yet accepted**. Read-only discovery
-refuses `Client_Base/.gitignore`: the bounded source fixtures omit this and
-other stock ancillary files that the full-checkout probe encounters. Therefore
-the existing fixture lifecycle passes do not establish drop-in acceptance.
-Do not remove stock files from the test environment merely to satisfy the
-current classifier, or label the existing fixture subset a full server copy.
+used below. The original selected-file fixtures missed ordinary stock files
+encountered in a full checkout. That public-stock detection gap is now fixed
+with 266 exact optional public-file records. Their compiled hash seal is not
+target-supplied authority. Missing optional files are allowed; changed bytes,
+links, unsafe modes and unknown files remain blocked. Active historical stock
+definitions are baseline behavior replaced by Current Base, not claimed to be
+unused. All historical files remain untouched and historical code is never run.
 
 Ordinary mode 0664 (a Git checkout under umask 0002) is now admitted wherever
-the public source policy expects 0644. Exact byte checks remain; executable,
-special-bit and world-writable public inputs remain refused. Database/key
-permissions still use the separate private-input policy. This correction alone
-does not resolve the full-checkout admission gap.
+the public source policy expects 0644; tracked executable launchers similarly
+allow 0755/0775. Adding executable bits to non-executable sources, special bits,
+or world-write remains refused. Database/key permissions still use the separate
+private-input policy.
 
-The tools build and all 10 focused source-intake tests passed using the
-designated repository's exact public Git blobs (33.212 seconds, no skips).
-These include safe group-write acceptance and executable/special/world-write
-refusals; they are not a full integration or full-checkout acceptance gate.
+The tools build and all 12 focused source-intake tests passed using the
+designated repository's exact public Git blobs (43.098 seconds, no skips).
+The discovery fixture now includes every public stock file in the probe roots,
+with an exhaustive comparison to the Git tree, fresh database/keys, and explicit
+exclusion of original private state. Native lifecycle/cycle fixtures also now
+include those stock files; their complete integration gate must be rerun.
+
+`/home/justin/RSC-Preservation-Test-2026-09-10` is prepared from **2,225 public
+tracked files**, with fresh empty SQLite, fresh test-only keys, loopback-only
+test ports, and the public empty UID placeholder. No original working-tree
+credentials, `.env`, accounts, backups, databases, logs or real UID are copied.
+Its development-tools discovery passes as `compatible`, `historical-jag`,
+`preservation-source-jag-v1`. No project has been created or upgrade applied.
+The original source itself still refuses at its effective connections config;
+this fresh-state public-baseline result is not acceptance of private original
+configuration/state. No changes were made to that original.
 
 The next candidate work is, in order:
 
-1. Account for the complete public stock checkout, distinguishing unchanged
-   ancillary inputs, active selected data/configuration, and private state.
-   Unknown or changed behavior must still receive an explicit disposition.
-   Add a full-checkout regression, not another selected-file-only fixture.
-2. Prepare a new, non-overwriting disposable copy from the designated public
-   source, with clearly identified fresh test-local state rather than copied
-   credentials, accounts, logs or databases. Leave the original untouched.
-3. Integrate the pending runtime fix and Editor work, run the final integration
+1. Integrate the pending runtime fix and Editor work, run the final integration
    gate, build and independently inspect a fresh restricted candidate, and put
    its folder inside the disposable server root. Smoke-check launch/default
    detection without consuming the user's fresh project-creation walkthrough.
+2. Hand off the exact launch path and bounded fresh-install test steps. The
+   prepared source directory is not ready for the owner until the candidate is
+   installed and verified there.
 
 Existing-project adoption of a later authoring runtime remains product work,
 but is **not a prerequisite for this fresh first-install test candidate**.
-There is no packaged candidate or prepared test environment at this checkpoint.
+There is no packaged candidate at this checkpoint; the source test copy exists.
 
 ## Implemented selected-layout contract
 
@@ -63,8 +72,9 @@ binding records paths, roles, presence, size and SHA-256 only. Database/key/clie
 preferences require mode 0600; text filters and bans permit 0600 or 0644.
 Symlinks, hard-link aliases, non-regular entries and unclosed SQLite sidecars
 are refused. Bounds are 4 GiB for SQLite, 64 KiB per key and 1 MiB per other file.
-Later client UID/remembered-credential layouts are not silently classified as
-historical c0102e state.
+The historical client already implements UID state. Only its exact empty public
+`Client_Base/Cache/uid.dat` placeholder is admitted as stock metadata; nonempty
+UID/remembered-credential state is not silently adopted or copied into projects.
 
 A closed SQLite header is not schema validation. Production migration preview
 records `schemaValidation: pending-provider-sealed-migration`, sets

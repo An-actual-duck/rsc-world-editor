@@ -106,6 +106,9 @@ class BaseProjectLifecycleTest(unittest.TestCase):
         cls.source_fixture = module.PreservationSourceIntakeTest
         cls.source_fixture.setUpClass()
         cls.addClassCleanup(cls.source_fixture.doClassCleanups)
+        # Lifecycle/cycle proof must tolerate the full stock checkout shape,
+        # not only the selected source/map inputs used by unit fixtures.
+        module.populate_public_stock(cls.source_fixture.baseline)
 
     def invoke(self, *args, harness=False, timeout=180):
         prefix = ["java", "-Xmx1024m", "-cp", os.pathsep.join((str(self.classes), str(JAR))), MAIN] if harness else ["java", "-Xmx1024m", "-jar", str(JAR)]

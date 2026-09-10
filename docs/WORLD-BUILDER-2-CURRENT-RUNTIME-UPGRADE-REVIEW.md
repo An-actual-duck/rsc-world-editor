@@ -6,7 +6,7 @@
 | --- | --- |
 | Status | Active planning decision and evidence review |
 | Captured | 2026-09-04 |
-| Last reconciled | 2026-09-10, actual owner-designated Preservation checkout exposes full-checkout intake gap |
+| Last reconciled | 2026-09-10, public-stock intake fixed and fresh disposable source copy detects successfully; candidate packaging pending |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
 | Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
@@ -26,11 +26,11 @@ document is the smaller current source for the replacement architecture,
 fixture matrix, staged implementation order, and release gates.
 
 The immediate requested deliverable is a **fresh disposable Preservation copy
-with the candidate folder inside its server root**. Actual read-only discovery
-of the owner-designated source currently rejects stock files omitted by our
-selected-input fixtures. This is required first-install work, not optional
-polish. See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for
-evidence and the ordered path to that deliverable. Later-runtime adoption by
+with the candidate folder inside its server root**. Public stock-file recognition
+now passes against a new full public-source copy with fresh private test state;
+runtime integration, complete final verification and candidate packaging remain.
+See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for evidence and
+the ordered path to that deliverable. Later-runtime adoption by
 existing authored projects must not hold up this fresh-install candidate.
 
 ## Candidate scope and closure checkpoint — 2026-09-06

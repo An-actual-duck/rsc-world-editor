@@ -628,6 +628,12 @@ final class WorldBuilderCurrentRuntimeContracts {
 					relative = target.relative(path);
 					if (rules.containsKey(WorldBuilderPortablePath.collisionKey(relative, op))) continue;
 					WorldBuilderReadOnlyTarget.FileState state = target.requiredState("unclassified", relative);
+					if (sourceIntake && WorldBuilderPreservationStockInputs.matches(target.requiredFile(relative), state)) {
+						result.add(new Evidence("historical-stock-input", relative, "T0", "retire", "",
+							"Exact optional public stock input retained in the historical tree; not executed or adopted as current runtime authority.",
+							state.size, state.sha256));
+						continue;
+					}
 					if (sourceIntake && WorldBuilderPreservationSourceIntake.modeMatches(
 						target.requiredFile(relative), relative)) {
 						if (WorldBuilderPreservationSourceIntake.knownVendor(state)) {
