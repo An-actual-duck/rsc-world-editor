@@ -14,6 +14,19 @@ terrain presentation readiness, not remove the readiness/retention safeguard.
 Verification is limited to that boundary regression and actual navigation in
 a disposable Base project, followed by candidate integrity/smoke checks.
 
+Alpha.5 resolves that display-retention bug with runtime `43bdcdfa6ad5`
+and Editor `aaaa19605ed4`. After the interrupted session, the existing archives
+were reused and independently re-inspected; no rebuild/full-suite rerun was
+needed. The owner clarified that same-level new-chunk loading is the acceptance
+case. The packaged test now covers L-1 → L0 setup, then on **L0 only**:
+120,648 → 146,658 → 300,550 → 120,648 (48-tile chunks 2,13 → 3,13 →
+6,11 → 2,13). The first crossing and return use the click-teleport send path;
+the distant jump uses the navigation coordinate action. Every destination
+reached the expected coordinates, kept rendering, and released the old frame;
+the distant destination screenshot was inspected. This is navigation acceptance,
+not a claim that all other editor tools have been tested. Runtime unit coverage
+also retains incomplete-activation and incomplete-terrain refusal cases.
+
 ## Current owner direction — Preservation authoring UI
 
 After testing alpha.3, the owner superseded the fullscreen/side-bar request:
