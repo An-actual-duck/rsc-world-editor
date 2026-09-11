@@ -10,9 +10,9 @@
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
 | Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
 | Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
-| Published Editor implementation | `b001b0def66374d69fdae4ed6238ec6a7bf22a35`; Base workflow topics not yet published on `main` |
+| Editor implementation | Base topics integrated through `510b2fe`, runtime adoption `49b3fd5`, and refusal correction `f1fe86a`; combined 49-entrypoint code gate complete for candidate publication |
 | Published runtime | `30833010dcd16cf2fca6997e1de3e2ebabccba04` |
-| Editor's adopted runtime | Local integrated manager `main` pins `30833010`; published Editor `main` still pins `d2102175` until the combined gate passes |
+| Editor's adopted runtime | Integrated `main` pins published `30833010`; runtime parity and combined Editor code gate pass |
 | Preservation fixture | `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`, tree `6db5536d795abf34f303bb03b20c43b8cfb9e3fe` |
 | Core-copy evidence | `fec94c8731b5521410963575ef0f2fa5c05ef0b3`, tree `22051f8cff480975f3f1d2d1c7e2af836d9d7ff0`, tag `v0.2.87` |
 
@@ -27,8 +27,9 @@ fixture matrix, staged implementation order, and release gates.
 
 The immediate requested deliverable is a **fresh disposable Preservation copy
 with the candidate folder inside its server root**. Public stock-file recognition
-now passes against a new full public-source copy with fresh private test state;
-runtime integration, complete final verification and candidate packaging remain.
+now passes against a new full public-source copy with fresh private test state.
+Runtime integration and the combined code gate are complete; fresh restricted
+candidate packaging, archive inspection and packaged launch/detection follow.
 See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for evidence and
 the ordered path to that deliverable. Later-runtime adoption by
 existing authored projects must not hold up this fresh-install candidate.

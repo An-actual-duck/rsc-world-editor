@@ -66,6 +66,34 @@ map loading, persistence and restart checks passed. Editor runtime parity
 passes; the combined Editor full gate is next. No candidate acceptance or
 production release is implied by this checkpoint.
 
+### Combined candidate code gate — complete
+
+The gate covers all **49 Editor test entrypoints**: **539 unittest passes,
+12 explicit skips, and one direct repository-independence check**. Coverage
+was completed in segments, not one uninterrupted green run. The first run
+exposed a validator contradiction when T5 unsafe evidence coexisted with a
+customization needing a port. `f1fe86a` fixes only refusal precedence: the target
+remains blocked, both evidence rows remain visible, and no target mutation is
+allowed. All 18 foundation and 34 upgrade-transaction tests then passed,
+including a new mixed-evidence regression. All 33 remaining entrypoints passed.
+Earlier positive workflow results are retained because the change affects only
+the previously invalid unsafe-refusal case.
+
+The integrated full-stock Base server cycle passed in **329 seconds**, including
+initial upgrade, normal login, two saved-map imports/restarts and recovery
+checks, on a separate invented-state fixture. The owner's prepared test copy
+was not consumed by these tests. Runtime parity against published `30833010`
+passes. The 12 Editor skips are external discovery (1), opt-in packaged native
+runtime integration (1), external decoded-map reconciliation inputs (5), and
+unavailable native PowerShell (5). They are not counted as passes. Candidate
+archive inspection and the actual packaged launcher/default-detection smoke
+check remain separate delivery steps; Windows execution is not claimed.
+
+The next artifact is restricted **v0.8.0-alpha.1**, not a production release.
+Its generated archive inspection report and the test copy's local handoff notes
+record packaging/launch results. Do not open the production release gate or
+promote candidate archives in place. Owner testing still precedes acceptance.
+
 ## Implemented selected-layout contract
 
 The compiled `preservation-source-jag-v1` discovery adapter admits the reviewed
