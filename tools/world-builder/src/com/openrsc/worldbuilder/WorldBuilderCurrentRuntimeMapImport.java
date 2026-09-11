@@ -88,9 +88,7 @@ final class WorldBuilderCurrentRuntimeMapImport {
         ledger.put("predecessorIdentityHash", beforeLedger.get("ledgerFingerprintSha256"));
         ledger.put("activeLauncherRelativePath", generationRelative + "/server-launch.json");
         ledger.put("activeMapPackageId", export.packageValue.packageId);
-        List<Object> receipts = new ArrayList<Object>(array(beforeLedger.get("transactionReceiptIds")));
-        if (receipts.contains(id) || receipts.size() >= 256) throw unsafe("Map transaction identity is reused or receipt history is full.");
-        receipts.add(id); ledger.put("transactionReceiptIds", receipts);
+        ledger.put("transactionReceiptIds", appendReceipt(array(beforeLedger.get("transactionReceiptIds")), id));
         Map<String,Object> verification = new LinkedHashMap<String,Object>();
         verification.put("predecessor", beforeLedger.get("verificationEvidenceHash"));
         verification.put("export", export.manifestCanonicalSha256); verification.put("map", export.packageValue.nativeInventorySha256);
@@ -110,6 +108,17 @@ final class WorldBuilderCurrentRuntimeMapImport {
         value.put("generationOutputs", documentInventory(generationDocuments));
         value.put("retainedStatePolicy", "same-code-configuration-player-and-side-state-paths-no-state-copy");
         return new Plan(value, target, workspace, transaction, cutover, export, mapDocuments, generationDocuments);
+    }
+
+    static List<String> appendReceipt(List<?> previous, String id) throws WorldBuilderContractException {
+        if (previous.contains(id) || previous.size() >= 256)
+            throw unsafe("Map transaction identity is reused or receipt history is full.");
+        List<String> receipts = new ArrayList<String>();
+        for (Object receipt : previous) receipts.add((String) receipt);
+        receipts.add(id);
+        // Ledger identifiers are a canonical set, not chronological history.
+        Collections.sort(receipts);
+        return receipts;
     }
 
     String apply(Plan reviewed, String confirmation) throws IOException, WorldBuilderContractException {

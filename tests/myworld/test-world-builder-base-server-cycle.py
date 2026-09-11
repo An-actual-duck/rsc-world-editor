@@ -150,11 +150,14 @@ public final class BaseCycleProbe {
         self.assertEqual(saved_gameplay, live_database.read_bytes())
         previous_map = spec["mapPackageFingerprintSha256"]
         for number in (1, 2):
+            # Real desktop UUIDs are not monotonic: exercise insertion before
+            # the upgrade receipt and then before the preceding map receipt.
+            transaction_id = "000-map-" + str(3 - number)
             change_working_terrain(self.project)
             self.cli("save-project", "--project", self.project)
             exported = self.cli("export-adaptive", "--project", self.project)
             args = ["--project", self.project, "--export", exported["exportDirectory"], "--target-root", self.target,
-                "--transaction-root", workspace, "--transaction-id", "map-" + str(number)]
+                "--transaction-root", workspace, "--transaction-id", transaction_id]
             preview = self.cli("preview-current-map-import", *args)
             before_state = self.native.snapshot(Path(spec["serverStateRoot"]))
             result = self.cli("apply-current-map-import", *args, "--confirmation-identity", preview["confirmationIdentity"])
@@ -173,7 +176,7 @@ public final class BaseCycleProbe {
             database = Path(spec["serverStateRoot"]) / "current_base.db"
             gameplay = database.read_bytes()
             recovered = self.cli("recover-current-map-import", "--target-root", self.target,
-                "--transaction-root", workspace, "--transaction-id", "map-" + str(number),
+                "--transaction-root", workspace, "--transaction-id", transaction_id,
                 "--confirmed-plan-sha256", preview["planFingerprintSha256"])
             self.assertEqual("successful", recovered["status"])
             self.assertEqual(gameplay, database.read_bytes())

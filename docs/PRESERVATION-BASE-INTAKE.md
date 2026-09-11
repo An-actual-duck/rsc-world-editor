@@ -1,5 +1,24 @@
 # Preservation source intake boundary
 
+## Map import receipt ordering correction
+
+The owner confirmed alpha.6 tools, save and Upgrade Target Runtime succeeded.
+Import Map Changes then failed with `CONTRACT_VALUE_INVALID` for
+`transactionReceiptIds`. Map preview appended a random transaction UUID without
+sorting; the ledger requires unique lexically ordered identifiers. Upgrade
+already sorts its receipts. Target inspection showed only the successful upgrade
+generation, with no map-import generation published.
+
+Map preview now constructs a sorted copy before binding the successor ledger.
+Duplicate-ID and 256-receipt limits are unchanged; predecessor metadata is not
+modified. The focused import/recovery module passed all 10 tests, including
+out-of-order insertion, duplicates, capacity limits and existing recovery safety.
+The full Base server-cycle fixture now uses descending map IDs before the upgrade
+ID; that expensive live cycle was updated but not rerun for this isolated fix.
+No runtime-provider change or target mutation is needed for the correction.
+The corrected Editor tools JAR is built for a launcher-only installation;
+the owner's existing project/export and successful target upgrade must be kept.
+
 ## Tool acceptance and software-overlay follow-up
 
 After alpha.5 the owner reported all tools working. The follow-up is visual:

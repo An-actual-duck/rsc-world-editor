@@ -23,6 +23,14 @@ class CurrentMapImportRecoveryTest(unittest.TestCase):
 import java.nio.file.Paths;
 public final class CurrentActionsProbe {
     public static void main(String[] args) throws Exception {
+        if ("receipts".equals(args[0])) {
+            java.util.List<String> before = java.util.Arrays.asList(
+                java.util.Arrays.copyOfRange(args, 2, args.length));
+            java.util.List<String> snapshot = new java.util.ArrayList<String>(before);
+            System.out.print(WorldBuilderCurrentRuntimeMapImport.appendReceipt(before, args[1]));
+            if (!before.equals(snapshot)) throw new AssertionError("predecessor ledger mutated");
+            return;
+        }
         if (args.length > 1) {
             WorldBuilderCurrentRuntimeRecoveryActions.Preview preview = WorldBuilderCurrentRuntimeRecoveryActions.preview(
                 Paths.get(args[1]), args[3], Paths.get(args[2]));
@@ -88,6 +96,25 @@ public final class CurrentActionsProbe {
         if confirmation is not None:
             arguments.append(confirmation)
         return subprocess.run(arguments, capture_output=True, text=True, timeout=20)
+
+    def test_receipts_are_canonical_regardless_of_transaction_id_order(self):
+        def append(identifier, previous):
+            return subprocess.run(["java", "-cp", str(self.classes),
+                "com.openrsc.worldbuilder.CurrentActionsProbe", "receipts", identifier, *previous],
+                capture_output=True, text=True, timeout=10)
+        for identifier, previous, expected in (
+            ("000-map-2", ["upgrade-7895"], ["000-map-2", "upgrade-7895"]),
+            ("000-map-1", ["000-map-2", "upgrade-7895"], ["000-map-1", "000-map-2", "upgrade-7895"]),
+            ("middle", ["first", "last"], ["first", "last", "middle"]),
+            ("only", [], ["only"]),
+        ):
+            with self.subTest(identifier=identifier):
+                result = append(identifier, previous)
+                self.assertEqual(0, result.returncode, result.stderr)
+                self.assertEqual("[" + ", ".join(expected) + "]", result.stdout)
+        self.assertNotEqual(0, append("duplicate", ["duplicate"]).returncode)
+        self.assertNotEqual(0, append("new", ["id-%03d" % i for i in range(256)]).returncode)
+        self.assertEqual(0, append("new", ["id-%03d" % i for i in range(255)]).returncode)
 
     def test_desktop_preview_and_confirmed_precommit_recovery(self):
         self.assertEqual(73, self.f.run_cutover("apply", "selection-published").returncode)
