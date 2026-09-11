@@ -1,5 +1,41 @@
 # Preservation source intake boundary
 
+## Registration correction and baseline retest
+
+After the alpha.6 receipt-order hotfix, the owner completed Import Map Changes.
+The installed server loaded the imported map and listened successfully, but New
+User registration failed: the upgraded client omitted the composition handshake
+on its new registration socket. Configuration fetch alone was not proof of login.
+
+Runtime `382d7d54031cb7c2eefb5020d923f9530d2aea9b` adds the existing handshake to
+registration and both password-recovery socket paths. Server compatibility
+validation remains intact. Focused real installed-client testing created a fresh
+account, restarted the client and logged into that account, then shut down both
+roles cleanly. The existing six-field handshake acceptance/refusal test and all
+pre-login socket ordering checks passed. Full password-reset interaction was not
+tested; no rendering, map, schema or storage implementation changed.
+
+The owner requested restoring the disposable target to pre-upgrade state for
+another end-to-end test. Original files matched every present preimage hash;
+none required replacement. With both roles stopped and their locks held, the
+managed `.world-builder` tree was moved intact to a separate sibling backup.
+The originally absent ledger is absent again. All candidate folders, sealed
+projects, map saves/exports and external transaction receipts were preserved.
+This is a requested test-environment reset, not a new completed-upgrade Undo UI.
+
+The next owner candidate must contain both this runtime correction and the
+receipt-order fix. Create a fresh project against the restored baseline to pick
+up the corrected runtime; do not silently rewrite the old alpha.6 project.
+Then repeat editing/save, Upgrade Target Runtime, Import Map Changes, and normal
+player registration/login. Treat character appearance confirmation as expected.
+
+Adoption verification was narrowed after the coarse `transactions` preset began
+running the unrelated legacy adaptive-transaction suite. That preset run was
+interrupted and is not claimed as passing. The scoped checks are current map
+import/recovery, current runtime instance, and initial-instance integration,
+alongside provider parity and the real registration/handshake evidence above.
+No full suite or production release acceptance is implied.
+
 ## Map import receipt ordering correction
 
 The owner confirmed alpha.6 tools, save and Upgrade Target Runtime succeeded.
