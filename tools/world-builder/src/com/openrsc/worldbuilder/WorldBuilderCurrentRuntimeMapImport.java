@@ -26,17 +26,21 @@ final class WorldBuilderCurrentRuntimeMapImport {
             WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(projectPath, true);
         if (workspace.startsWith(project.projectRoot) || project.projectRoot.startsWith(workspace))
             throw unsafe("Map transaction workspace must be separate from the project.");
-        Map<String,Object> projectTarget = object(project.manifest.get("target"));
-        if (!"target-packed".equals(project.origin) || !"preservation-source-jag-v1".equals(projectTarget.get("adapterId"))
-            || !"preservation-c0102e-data-conversion-v1".equals(projectTarget.get("capabilityId")))
-            throw unsafe("Map import requires the verified native Preservation Base project.");
+        if (!WorldBuilderCurrentRuntimeUserActions.isNativeBase(project))
+            throw unsafe("Map import requires a verified native Base project.");
         Map<String,Object> identity = WorldBuilderCurrentBaseProjectContent.verifiedIdentity(project.projectRoot);
         if (!Boolean.TRUE.equals(identity.get("installable")) || !"current-base-v1".equals(identity.get("variantId")))
             throw unsafe("Project does not select installable Current Base.");
         Map<String,Object> spec = WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(target);
         Map<String,Object> ledger = WorldBuilderCurrentRuntimeContracts.read(WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER, target.resolve(LEDGER)).root;
-        if (!project.projectId.equals(object(ledger.get("installedInstance")).get("projectId")))
-            throw unsafe("The installed target belongs to a different project.");
+        if (!project.projectId.equals(object(ledger.get("installedInstance")).get("projectId"))) {
+            if (!WorldBuilderManagedTargetAdapter.report(project.discoveryReport)
+                || !target.equals(WorldBuilderCurrentRuntimeUserActions.target(project))
+                || !ledger.equals(WorldBuilderCurrentRuntimeContracts.read(WorldBuilderCurrentRuntimeContracts.Kind.TARGET_LEDGER,
+                    project.projectRoot.resolve("source/original/" + LEDGER)).root)
+                || !project.baseline.nativeInventorySha256.equals(spec.get("mapPackageFingerprintSha256")))
+                throw unsafe("The installed target belongs to a different project or changed since its managed capture.");
+        }
         for (String field : COMPOSITION) if (!Objects.equals(identity.get(field), ledger.get(field)))
             throw unsafe("Upgrade Target Runtime to the project's current composition before importing maps.");
         for (String role : Arrays.asList("server", "client"))

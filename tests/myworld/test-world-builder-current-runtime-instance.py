@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -47,6 +48,20 @@ import java.util.*;
 public final class InstanceHarness {
   @SuppressWarnings("unchecked") public static void main(String[] args) throws Exception {
     Path root = Paths.get(args[1]);
+    if ("managed-discovery".equals(args[0])) {
+      System.out.print(new WorldBuilderAdaptiveDiscovery().discover(root.resolve("target"), null).toJson()); return;
+    }
+    if ("managed-command".equals(args[0])) {
+      System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderManagedLaunch.command(root.resolve("target"), "server"))); return;
+    }
+    if ("managed-startup".equals(args[0])) {
+      WorldBuilderManagedLaunch.install(root.resolve("target"), root.resolve("target/World Builder's test"));
+      System.out.print("{}"); return;
+    }
+    if ("managed-ready".equals(args[0])) {
+      System.out.print(WorldBuilderManagedLaunch.ready(root.resolve("test-session"),
+        root.resolve("target/.world-builder/current-runtime/instance/generations/first-generation/server-launch.json"))); return;
+    }
     if ("verify-installed".equals(args[0])) {
       System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderCurrentRuntimeInstalledGeneration.readSpecification(root.resolve("target")))); return;
     }
@@ -288,6 +303,68 @@ public final class InstanceHarness {
         descriptor = self.instance / "generations/first-generation/client-launch.json"
         descriptor.write_bytes(descriptor.read_bytes() + b" ")
         self.invoke("verify-installed", success=False)
+
+    def test_managed_discovery_and_startup_follow_verified_generation(self):
+        target = self.root / "target"
+        parent = target / ".world-builder/current-runtime"
+        parent.mkdir(parents=True)
+        contained_release = parent / "releases/fixture"
+        shutil.copytree(self.stage, contained_release)
+        self.stage = contained_release
+        self.request.update(stage=str(self.stage), release=str(self.stage))
+        self.instance = parent / "instance"
+        self.request.update(target=str(target), instance=str(self.instance), output=str(self.instance))
+        self.invoke("construct-guarded")
+        # Retained legacy data and even an invalid legacy descriptor must not win.
+        write(target / "server/conf/server.xml", b"historical map configuration")
+        write(target / "world-builder-capability.json", b"invalid retired descriptor")
+        report = self.invoke("managed-discovery")
+        self.assertEqual("compatible", report["status"], report)
+        self.assertEqual("managed-current-v1", report["capability"]["adapterId"])
+        self.assertEqual("layered", report["representation"])
+        self.assertNotIn("current_base.db", json.dumps(report))
+        self.assertNotIn("client.pem", json.dumps(report))
+        command = self.invoke("managed-command")
+        self.assertEqual("com.openrsc.server.CurrentBaseInstalledServer", command[-3])
+        self.assertEqual(str(self.instance / "generations/first-generation/server-launch.json"), command[-1])
+        installation = target / "World Builder's test"
+        write(installation / "builder-runtime/launcher/world-builder-tools.jar", b"fixture")
+        original = b"#!/bin/bash\nmake runserver\n"
+        write(target / "Start-Linux.sh", original, 0o751)
+        self.invoke("managed-startup")
+        backup = target / ".world-builder/startup-backups" / (hashlib.sha256(original).hexdigest() + ".sh")
+        self.assertEqual(original, backup.read_bytes())
+        self.assertEqual(0o751, backup.stat().st_mode & 0o777)
+        installed = (target / "Start-Linux.sh").read_bytes()
+        self.assertIn(b"launch-current-target", installed)
+        subprocess.run(["bash", "-n", str(target / "Start-Linux.sh")], check=True)
+        write(installation / "runtime/bin/java", b'#!/bin/bash\nprintf "%s\\n" "$@"\n', 0o755)
+        routed = subprocess.run([str(target / "Start-Linux.sh"), "server"], capture_output=True, text=True, check=True)
+        self.assertEqual(["-jar", str(installation / "builder-runtime/launcher/world-builder-tools.jar"),
+                          "launch-current-target", "--target-root", str(target), "--role", "server"], routed.stdout.splitlines())
+        self.assertEqual(2, subprocess.run([str(target / "Start-Linux.sh"), "wrong"], capture_output=True).returncode)
+        descriptor = self.instance / "generations/first-generation/server-launch.json"
+        launch = json.loads(descriptor.read_text())
+        profile = json.loads(Path(launch["installedMapProfile"]["path"]).read_text())
+        receipt = dict(schemaVersion=1, manifestType="current-base-installed-session", action="ready", role="server",
+                       nonce="test-session", installationId=launch["installationId"], descriptorSha256=sha(descriptor),
+                       compositionIdentitySha256=launch["compositionIdentity"]["sha256"], mapManifestSha256=profile["manifestSha256"])
+        write(self.root / "test-session/ready.json", receipt)
+        self.assertTrue(self.invoke("managed-ready"))
+        receipt["descriptorSha256"] = "0" * 64
+        write(self.root / "test-session/ready.json", receipt)
+        self.assertFalse(self.invoke("managed-ready"))
+        self.invoke("managed-startup")
+        self.assertEqual(installed, (target / "Start-Linux.sh").read_bytes())
+        # Corrupt current authority must stop both discovery and startup, never fall back.
+        ledger = target / ".world-builder/runtime-ledger-v1.json"
+        ledger.write_bytes(b"{}")
+        self.assertNotEqual("compatible", self.invoke("managed-discovery")["status"])
+        self.invoke("managed-command", success=False)
+        self.invoke("managed-startup", success=False)
+        self.assertEqual(installed, (target / "Start-Linux.sh").read_bytes())
+        ledger.unlink()
+        self.assertNotEqual("compatible", self.invoke("managed-discovery")["status"])
 
     def test_detached_initial_recovery_inventory(self):
         target = self.root / "target"

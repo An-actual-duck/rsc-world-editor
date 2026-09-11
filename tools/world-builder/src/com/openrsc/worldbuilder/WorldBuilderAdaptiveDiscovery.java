@@ -96,6 +96,10 @@ final class WorldBuilderAdaptiveDiscovery {
 		WorldBuilderReadOnlyTarget.FileState descriptor = null;
 		WorldBuilderTargetCapability capability = null;
 		try {
+			if (WorldBuilderManagedTargetAdapter.present(target)) {
+				return inspectAdapter(target, null, null, new WorldBuilderManagedTargetAdapter(),
+					requestedRole, Collections.<WorldBuilderLayoutAdapter.ProbeResult>emptyList());
+			}
 			if (target.exists(WorldBuilderTargetCapability.RELATIVE_PATH)) {
 				descriptor = target.requiredState(
 					"target-capability", WorldBuilderTargetCapability.RELATIVE_PATH);

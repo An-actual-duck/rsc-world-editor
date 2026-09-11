@@ -831,7 +831,9 @@ public final class WorldBuilderProcessSupervisor {
 			this.sourceFingerprint = sourceFingerprint;
 			this.sourceCapability = sourceCapability;
 			this.nativeBase = WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(sourceCapability)
-				&& WorldBuilderPreservationLayoutAdapter.ID.equals(verified.snapshot.get("adapterId"));
+				&& WorldBuilderPreservationLayoutAdapter.ID.equals(verified.snapshot.get("adapterId"))
+				|| WorldBuilderManagedTargetAdapter.CAPABILITY.equals(sourceCapability)
+				&& WorldBuilderManagedTargetAdapter.ID.equals(verified.snapshot.get("adapterId"));
 			this.origin = verified.origin;
 			this.definitionId = verified.definitions.catalogId;
 			this.definitionSha256 = evidence.definitionSha256;

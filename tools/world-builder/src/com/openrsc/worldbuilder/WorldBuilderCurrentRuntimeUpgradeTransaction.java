@@ -176,7 +176,7 @@ final class WorldBuilderCurrentRuntimeUpgradeTransaction {
 		if (path == null) throw activationMismatch("projectCapability");
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(path, false);
 		WorldBuilderCurrentBaseProjectContent.verifiedIdentity(path);
-		if (!"target-packed".equals(project.origin) || !WorldBuilderPreservationLayoutAdapter.ID.equals(project.snapshot.get("adapterId")))
+		if (!WorldBuilderCurrentRuntimeUserActions.isNativeBase(project))
 			throw activationMismatch("native-project");
 		Map<String,Object> capability = new LinkedHashMap<String,Object>();
 		capability.put("schemaVersion", Long.valueOf(1)); capability.put("manifestType", "world-builder-current-project-capability");

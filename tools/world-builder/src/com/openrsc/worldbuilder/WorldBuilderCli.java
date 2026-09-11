@@ -31,6 +31,29 @@ public final class WorldBuilderCli {
 		if ("discover-adaptive".equals(args[0])) {
 			return discoverAdaptive(args);
 		}
+		if ("launch-current-target".equals(args[0]) || "install-current-launcher".equals(args[0])) {
+			try {
+				Path target = null, installation = null; String role = "both", confirm = "";
+				java.util.Set<String> seen = new java.util.HashSet<String>();
+				for (int i = 1; i < args.length; i += 2) {
+					if (i + 1 >= args.length) throw new IllegalArgumentException("Missing option value");
+					if (!seen.add(args[i])) throw new IllegalArgumentException("Repeated option: " + args[i]);
+					if ("--target-root".equals(args[i])) target = Paths.get(args[i+1]);
+					else if ("--installation-root".equals(args[i])) installation = Paths.get(args[i+1]);
+					else if ("--role".equals(args[i])) role = args[i+1];
+					else if ("--confirm".equals(args[i])) confirm = args[i+1];
+					else throw new IllegalArgumentException("Unknown option: " + args[i]);
+				}
+				if (target == null) throw new IllegalArgumentException("--target-root is required");
+				if ("launch-current-target".equals(args[0])) {
+					if (installation != null || !confirm.isEmpty()) throw new IllegalArgumentException("Install options cannot be used when launching");
+					return WorldBuilderManagedLaunch.run(target, role);
+				}
+				if (seen.contains("--role")) throw new IllegalArgumentException("--role is only valid when launching");
+				if (installation == null || !"INSTALL".equals(confirm)) throw new IllegalArgumentException("--installation-root and --confirm INSTALL are required");
+				System.out.println(WorldBuilderManagedLaunch.install(target, installation)); return 0;
+			} catch (Exception failure) { System.err.println("Managed launch refused: " + failure.getMessage()); return 3; }
+		}
 		if ("preview-current-map-import".equals(args[0]) || "apply-current-map-import".equals(args[0])
 			|| "recover-current-map-import".equals(args[0])) return currentMapImport(args);
 		if ("validate-current-runtime-contract".equals(args[0])) {
@@ -1074,6 +1097,7 @@ public final class WorldBuilderCli {
 				}
 				System.out.print(new WorldBuilderCurrentRuntimeUpgradeTransaction().apply(
 					preview, preview.confirmationIdentity()).toJson());
+				System.out.println(WorldBuilderCurrentRuntimeUserActions.installStartupAfterUpgrade(preview.targetRoot, installation));
 				return 0;
 			}
 			if ("standalone-empty".equals(project.origin)) {
@@ -2235,6 +2259,8 @@ public final class WorldBuilderCli {
 	private static void usage() {
 		System.err.println("Usage:\n  WorldBuilderCli discover-adaptive --target-root <path>"
 			+ " [--configuration-role <role>]"
+			+ "\n  WorldBuilderCli launch-current-target --target-root <server-root> [--role both|server|client]"
+			+ "\n  WorldBuilderCli install-current-launcher --target-root <server-root> --installation-root <World Builder> --confirm INSTALL"
 			+ "\n  WorldBuilderCli validate-current-runtime-contract --kind <kind>"
 			+ " --document <manifest.json>"
 			+ "\n  WorldBuilderCli classify-current-target --target-root <server-root>"

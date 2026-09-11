@@ -139,6 +139,8 @@ final class WorldBuilderAdaptiveDiscoveryReport {
 		return WorldBuilderJsonDocuments.pretty(document);
 	}
 
+	boolean isManaged() { return WorldBuilderManagedTargetAdapter.report(document); }
+
 	String summary() {
 		return summary;
 	}

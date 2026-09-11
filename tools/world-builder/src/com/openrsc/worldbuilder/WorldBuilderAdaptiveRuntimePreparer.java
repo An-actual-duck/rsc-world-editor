@@ -251,7 +251,9 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		byte[] inventoryBytes = readBounded(inventoryPath,
 			WorldBuilderContractLimits.MAX_JSON_BYTES, INVENTORY_FILE);
 		boolean nativeBase = WorldBuilderPreservationLayoutAdapter.ID.equals(snapshot.get("adapterId"))
-			&& WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId")) && "target-packed".equals(origin);
+			&& WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId")) && "target-packed".equals(origin)
+			|| WorldBuilderManagedTargetAdapter.ID.equals(snapshot.get("adapterId"))
+			&& WorldBuilderManagedTargetAdapter.CAPABILITY.equals(snapshot.get("capabilityId")) && "target-layered".equals(origin);
 		byte[] allowlist = nativeBase ? new byte[0] : readEmbeddedAllowlist();
 		Map<String,Object> nativeBinding = nativeBase ? WorldBuilderCurrentBaseProjectContent.verify(project) : null;
 		if (!nativeBase && Files.exists(project.resolve(WorldBuilderCurrentBaseProjectContent.ROOT), LinkOption.NOFOLLOW_LINKS))
@@ -712,7 +714,8 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 	private static byte[] assetEvidence(Map<String,Object> snapshot, String origin,
 		Map<String,Entry> runtimeEntries) throws WorldBuilderContractException {
 		StringBuilder value = new StringBuilder(ASSET_HEADER).append('\n');
-		if ("standalone-empty".equals(origin) || WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId"))) {
+		if ("standalone-empty".equals(origin) || WorldBuilderPreservationLayoutAdapter.CAPABILITY.equals(snapshot.get("capabilityId"))
+			|| WorldBuilderManagedTargetAdapter.CAPABILITY.equals(snapshot.get("capabilityId"))) {
 			for (Map.Entry<String,Entry> item : runtimeEntries.entrySet()) {
 				if (!item.getKey().startsWith("client/")) continue;
 				value.append(item.getKey().substring("client/".length()))

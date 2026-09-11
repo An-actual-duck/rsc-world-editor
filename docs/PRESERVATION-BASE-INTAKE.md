@@ -1,5 +1,69 @@
 # Preservation source intake boundary
 
+## Post-upgrade discovery and normal startup correction
+
+The owner accepted alpha.7 login and re-detection. The subsequent file audit
+verified the installed composition, active imported package, transaction outputs,
+retained historical files and player database. It found two workflow gaps:
+discovery still chose the retained historical JAG map, and root `Start-Linux.sh`
+still routed through the historical build/start scripts.
+
+Managed discovery now gives the committed runtime ledger priority over all
+historical probes. It verifies the installed generation and captures the active
+layered package with matching Current Base authoring content. No player database,
+private key or side-state file is copied into the project. An invalid ledger or
+incomplete cutover blocks capture; there is no historical fallback. Capture needs
+the matching installed Base provider, not a silently mixed newer composition.
+Re-detected projects retain Base UI/launch behavior. Import from a new project
+requires its immutable captured ledger and map baseline to match the active
+target before transferring the project binding; a stale foreign capture refuses.
+Existing projects are not rewritten: re-detect and create a new project to use
+the installed map, or continue using the original editing project.
+
+Public Upgrade Target Runtime actions install managed Linux root startup after
+successful activation. `Start-Linux.sh` defaults to a local server/client pair;
+`Start-Linux.sh server` and `Start-Linux.sh client` launch roles separately.
+Startup reads and verifies the current ledger each time, including after a map
+import, and never invokes the historical Makefile or `killall java` helper.
+The paired launcher waits for fresh generation-bound server readiness before
+starting its client, and stops only its own server when that client exits.
+
+Startup installation is a separate, offline, single-file atomic replacement.
+The exact previous script and its permissions are retained under
+`.world-builder/startup-backups/<sha256>.sh`. If startup installation fails after
+runtime activation, the user receives a distinct warning: the runtime remains
+successfully upgraded, but the historical startup must not be used. Retry the
+installed tools CLI while both roles are offline:
+
+```text
+install-current-launcher --target-root <server-root> --installation-root <World Builder folder> --confirm INSTALL
+```
+
+The explicit low-level transaction CLI does not infer an application installation;
+call the installer separately after successful activation. This correction covers
+Linux startup only; it does not claim new Windows player-launch acceptance.
+
+Focused evidence: current instance/startup integrity and refusal tests, existing
+map-import recovery tests, discovery regressions, and an opt-in desktop-model
+capture/export/import-preview test against the stopped alpha.7 test installation.
+The latter verified all 357 baseline files against the active imported package
+and preserved the target ledger without applying an import. Synthetic startup
+tests cover quoted installation names, backups, idempotence, malformed/missing
+ledger refusal and mismatched readiness. Full suites and the old intake/upgrade
+cycle are not repeated for this Editor-only correction; runtime lock unchanged.
+Run the opt-in test with `WORLD_BUILDER_MANAGED_CAPTURE_INSTALLATION` pointing at
+the matching installed candidate. It creates projects only in temporary fixtures.
+
+The alpha.7 disposable installation received a launcher-JAR-only hotfix with
+its prior JAR and package manifest backed up outside the installation. Original
+release/source identity files remain the archive identity; this is a local
+candidate overlay, not a new release. Real root `Start-Linux.sh server` loaded
+the active imported map (26,813 scenery placements), became ready on the existing
+loopback endpoint, and invoked normal save-on-exit shutdown. No account login or
+new map import was performed in this smoke. The default paired GUI launch remains
+an owner acceptance check; its role routing and readiness matching are covered by
+focused tests. Existing projects and original historical launch helpers remain.
+
 ## Registration correction and baseline retest
 
 After the alpha.6 receipt-order hotfix, the owner completed Import Map Changes.

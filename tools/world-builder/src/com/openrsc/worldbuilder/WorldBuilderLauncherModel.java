@@ -204,6 +204,8 @@ final class WorldBuilderLauncherModel {
 	WorldBuilderLayeredBaseDiscovery.Discovery inspectLayeredBases(
 		DiscoveryPreview preview) throws IOException {
 		if (preview == null) throw new IOException("A server map preview was not supplied.");
+		if (preview.report.isManaged()) return new WorldBuilderLayeredBaseDiscovery.Discovery(
+			Collections.<WorldBuilderLayeredBaseDiscovery.Candidate>emptyList());
 		return new WorldBuilderLayeredBaseDiscovery().discover(
 			preview.source, preview.selectedConfigurationPath);
 	}
@@ -217,6 +219,7 @@ final class WorldBuilderLauncherModel {
 		DiscoveryPreview selected, String requestedConfiguration)
 		throws IOException, WorldBuilderContractException {
 		if (selected == null || !selected.canCreateServerProject()) return null;
+		if (selected.report.isManaged()) return null;
 		if ("packed".equals(selected.representation)) {
 			if (!WorldBuilderPackedMigrationChoice.applies(selected.report)) return null;
 			WorldBuilderPackedMigrationChoice.create(selected.report, true);
@@ -430,7 +433,8 @@ final class WorldBuilderLauncherModel {
 		DiscoveryPreview preview, String displayName, Path itemVisualMappings)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderProviderCatalog.Composition selected = null;
-		if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)) {
+		if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)
+			|| preview.report.isManaged()) {
 			selected = baseComposition == null ? WorldBuilderProviderCatalog.resolve(
 				installation.resolve("current-platform"),
 				installation.resolve("current-platform/composition-identity.json")) : baseComposition;
@@ -612,7 +616,8 @@ final class WorldBuilderLauncherModel {
 				new WorldBuilderCurrentRuntimeUpgradeTransaction().apply(
 					prepared.upgradePlan, prepared.upgradePlan.confirmationIdentity());
 			return "Target runtime was upgraded successfully. The canonical map is installed; "
-				+ "use Import Map Changes for subsequent saved edits.\n\n" + result.toJson();
+				+ "use Import Map Changes for subsequent saved edits.\n\n" + result.toJson()
+				+ WorldBuilderCurrentRuntimeUserActions.installStartupAfterUpgrade(prepared.upgradePlan.targetRoot, installation);
 		}
 		WorldBuilderAdaptiveImporter.ImportResult result =
 			prepared.importer.applyRuntimeUpgrade(prepared.preview, "UPGRADE");

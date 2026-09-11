@@ -161,6 +161,7 @@ add_group() {
 				test-world-builder-installed-instance-lease.py
 				test-world-builder-installed-cutover.py
 				test-world-builder-current-map-import.py
+				test-world-builder-managed-capture.py
 				test-world-builder-initial-side-state.py
 				test-world-builder-base-server-cycle.py
 				test-world-builder-base-upgrade-user-actions.py

@@ -31,6 +31,7 @@ final class WorldBuilderLayoutAdapterRegistry {
 
 	static WorldBuilderLayoutAdapterRegistry standard() {
 		return new WorldBuilderLayoutAdapterRegistry(java.util.Arrays.asList(
+			new WorldBuilderManagedTargetAdapter(),
 			new WorldBuilderGenericLayeredAdapter(),
 			new WorldBuilderPreservationLayoutAdapter(),
 			new WorldBuilderPackedLayoutAdapter()));

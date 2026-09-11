@@ -12,7 +12,8 @@ final class WorldBuilderCurrentRuntimeUserActions {
 
     static boolean isNativeBase(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project) {
         Object target = project.manifest.get("target");
-        return "target-packed".equals(project.origin) && target instanceof Map
+        return ("target-layered".equals(project.origin) && WorldBuilderManagedTargetAdapter.report(project.discoveryReport))
+            || "target-packed".equals(project.origin) && target instanceof Map
             && "preservation-source-jag-v1".equals(((Map<?,?>)target).get("adapterId"))
             && "preservation-c0102e-data-conversion-v1".equals(((Map<?,?>)target).get("capabilityId"));
     }
@@ -70,11 +71,19 @@ final class WorldBuilderCurrentRuntimeUserActions {
             + "\nActivation authorized: " + preview.plan.get("activationAuthorized")
             + "\n\nInstalls the reviewed server/client composition and canonical map together."
             + "\nMigrates a backed-up copy of player state; retains existing owner keys and filters."
+            + "\nAfter activation, replaces Start-Linux.sh with managed startup and retains its exact original backup."
             + "\nThe server and client must remain offline through verification and activation."
             + "\n\n" + profile.get("executionReadinessReason")
             + "\n\nTransaction evidence: " + preview.transactionRoot.resolve((String)preview.plan.get("transactionId"))
             + "\nPlan SHA-256: " + preview.plan.get("planFingerprintSha256")
             + "\nExact confirmation: " + preview.plan.get("confirmationIdentity") + "\n";
+    }
+
+    static String installStartupAfterUpgrade(Path target, Path installation) {
+        try { return "\nManaged startup installed: " + WorldBuilderManagedLaunch.install(target, installation)
+            + "\nRun without arguments for a local server/client pair, or with server/client for separate roles."; }
+        catch (Exception failure) { return "\nRuntime activation succeeded, but managed startup installation needs attention: "
+            + failure.getMessage() + "\nDo not use the historical startup script. Retry install-current-launcher with --confirm INSTALL while both roles are offline."; }
     }
 
     private static Path directory(Path path) throws IOException {
