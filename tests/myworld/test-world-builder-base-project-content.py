@@ -4,12 +4,15 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
+sys.path.insert(0, str(ROOT / "scripts"))
+from world_builder_base_catalog import selected_base_files
 MAIN = "com.openrsc.worldbuilder.BaseProjectContentHarness"
 HARNESS = """
 package com.openrsc.worldbuilder;
@@ -61,10 +64,32 @@ class BaseProjectContentTest(unittest.TestCase):
         subprocess.run(["python3", "scripts/build-current-base.py"], cwd=PROVIDER,
                        check=True, capture_output=True, timeout=240)
 
-    def invoke(self, operation, project):
+    def invoke(self, operation, project, provider=PROVIDER, identity=None):
         return subprocess.run(["java", "-cp", os.pathsep.join((str(self.classes), str(JAR))), MAIN,
-                               operation, str(project), str(PROVIDER / "current-platform"), str(self.identity)],
+                               operation, str(project), str(provider / "current-platform"), str(identity or self.identity)],
                               capture_output=True, text=True, timeout=60)
+
+    def test_packaged_provider_and_project_can_share_installation_but_not_input_files(self):
+        installation = self.root / "packaged-installation"
+        files = selected_base_files(PROVIDER)
+        for relative, (data, mode) in files.items():
+            path = installation / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            path.chmod(mode)
+        identity = installation / "current-platform/composition-identity.json"
+        refused = self.invoke("capture", installation, installation, identity)
+        self.assertNotEqual(0, refused.returncode)
+        self.assertIn("must not contain selected provider input files", refused.stderr)
+        self.assertFalse((installation / "source/provider").exists())
+        project = installation / "projects/native-base"
+        project.mkdir(parents=True)
+        created = self.invoke("capture", project, installation, identity)
+        self.assertEqual(0, created.returncode, created.stderr)
+        self.assertEqual(0, self.invoke("verify", project).returncode)
+        for relative, (data, mode) in files.items():
+            self.assertEqual(data, (installation / relative).read_bytes())
+            self.assertEqual(mode, (installation / relative).stat().st_mode & 0o7777)
 
     def test_full_native_catalog_and_payload_are_bound_without_advanced_overlay(self):
         project = self.root / "project"

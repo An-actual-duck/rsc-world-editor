@@ -959,6 +959,12 @@ final class WorldBuilderDesktopLauncher {
 				showSourcePreview(preview, advanced, null, preferMostRecentlyModified);
 				return;
 			}
+			// Native Base owns its reviewed content and historical conversion. Do not
+			// infer a portable overlay from the stock server's definitions directory.
+			if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)) {
+				showNativeBasePreview(preview);
+				return;
+			}
 			runTask("Checking for legacy map changes…",
 				new Task<WorldBuilderLauncherModel.LegacyMigrationPreview>() {
 					@Override public WorldBuilderLauncherModel.LegacyMigrationPreview run()
@@ -1003,6 +1009,31 @@ final class WorldBuilderDesktopLauncher {
 							preferMostRecentlyModified);
 					}
 				});
+		}
+
+		private void showNativeBasePreview(
+			WorldBuilderLauncherModel.DiscoveryPreview preview) {
+			JTextArea report = readOnlyText();
+			report.setRows(9);
+			report.setColumns(58);
+			report.setText("Detected Preservation server: " + preview.source.getFileName()
+				+ "\n\n" + preview.summary
+				+ "\n\nContent: bundled Current Base composition."
+				+ "\nThe historical map becomes an immutable baseline in an isolated project."
+				+ "\nThe server remains unchanged. Upgrade Target Runtime and Import Map Changes"
+				+ " are separate, previewed actions after project creation.");
+			report.setCaretPosition(0);
+			JTextField name = new JTextField("Imported Server Map", 28);
+			if (JOptionPane.showConfirmDialog(frame,
+				new Object[] {new JScrollPane(report), "Project name:", name},
+				"Create Project from Detected Server", JOptionPane.OK_CANCEL_OPTION,
+				JOptionPane.PLAIN_MESSAGE) != JOptionPane.OK_OPTION) return;
+			String displayName = name.getText().trim();
+			if (displayName.isEmpty()) {
+				showError("Enter a project name.", null);
+				return;
+			}
+			createPreviewedProject(preview, displayName);
 		}
 
 		private void exportDetectedProviderDiagnostic() {

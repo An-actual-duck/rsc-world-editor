@@ -1,5 +1,48 @@
 # Preservation source intake boundary
 
+## Owner candidate finding — 2026-09-11
+
+The installed v0.8.0-alpha.1 candidate detected the prepared Preservation copy,
+but the owner's Swing project-creation attempt failed with `CAPABILITY_MISMATCH`:
+historical Preservation requires native Base without a custom overlay/migration
+choice. The generic desktop preview still inspected portable content and could
+automatically import stock definitions as a custom provider. Native Base's
+creation guard correctly rejects the resulting overlay. This is a desktop
+routing defect, not an instruction for the owner to select provider files.
+
+The correction routes compatible historical Preservation directly to a native
+Base confirmation dialog before legacy-migration or portable-provider setup,
+for both normal detection and advanced source selection. It retains project
+naming and cancellation, uses the bundled Base selection, and leaves all
+lifecycle guards intact. Other map formats keep their existing content choices.
+Regression coverage checks this early routing and exercises real project
+creation/reopen/export through the launcher model against full public stock.
+
+An actual Swing confirmation probe then found a second packaging-only blocker:
+native content capture and historical decoding treated the entire installation
+ancestor as a provider input, refusing its sibling `projects/` tree. Both now
+reject overlap with exact selected input files rather than their common
+installation ancestor. Decoder attempts still cannot overlap original map inputs.
+Selected-file hash/mode checks, fresh output, immutable evidence and verification
+remain required. A relocated real packaged-catalog regression verifies both
+successful sibling project capture and pre-mutation rejection when the project
+would contain selected input files, including unchanged provider bytes/modes.
+
+The previous packaged smoke check proved launcher startup and model detection,
+not the Swing confirmation-to-creation path. That distinction matters: detection
+alone is insufficient acceptance for the next candidate. The installed alpha.1
+folder and any owner-created state must not be overwritten as part of testing
+this correction. A source fix is not an installed candidate update; fresh
+packaging and verification remain separate steps.
+
+The corrected development Swing probe reached real project creation, then
+exposed a separate bundled-Java-17 server startup failure in Log4j caller lookup.
+The runtime provider's fat JAR contains Java-version-specific logging classes
+but omits the `Multi-Release` manifest flag. A narrow provider build correction
+and Java 17 verification are pending; Java 8 development checks do not establish
+packaged Java 17 startup acceptance. Do not mark the replacement candidate ready
+until creation and private editor startup both pass with the bundled JVM.
+
 ## Actual checkout checkpoint — 2026-09-10
 
 The owner designated `/home/justin/RSC-Preservation` as the read-only source for

@@ -90,8 +90,10 @@ final class WorldBuilderCurrentBaseProjectContent {
 		if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) throw refusal("Native content capture never overwrites existing evidence.");
 		for (Bound item : plan.selected.values()) {
 			item.verify();
-			if (project.startsWith(item.providerRoot) || item.providerRoot.startsWith(project))
-				throw refusal("Project capture and selected provider roots must be disjoint.");
+			// Packaged projects and provider inputs share an installation ancestor.
+			// Only the exact selected files are capture inputs, not that whole root.
+			if (project.startsWith(item.source) || item.source.startsWith(project))
+				throw refusal("Project capture must not contain selected provider input files.");
 		}
 		Files.createDirectories(destination);
 		for (Bound item : plan.selected.values()) {
@@ -238,16 +240,13 @@ final class WorldBuilderCurrentBaseProjectContent {
 		}
 	}
 	private static final class Bound {
-		final Path source, providerRoot;
+		final Path source;
 		final String role, bundlePath, mode, hash;
 		final long size;
 		Bound(WorldBuilderProviderCatalog.Artifact artifact) throws WorldBuilderContractException {
 			source = artifact.source; role = string(artifact.inventory, "role"); bundlePath = artifact.bundlePath;
 			mode = string(artifact.inventory, "mode"); hash = string(artifact.inventory, "sha256");
 			size = WorldBuilderBoundedInventory.integer(artifact.inventory.get("size"), OP, "size");
-			Path root = source;
-			for (String ignored : artifact.sourcePath.split("/")) root = root.getParent();
-			providerRoot = root;
 		}
 		Map<String,Object> record() {
 			Map<String,Object> value = new LinkedHashMap<String,Object>();

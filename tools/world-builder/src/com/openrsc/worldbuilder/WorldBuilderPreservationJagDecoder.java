@@ -43,9 +43,9 @@ final class WorldBuilderPreservationJagDecoder {
 		verifyArtifact(core); verifyArtifact(contract);
 		if (!CONTRACT_SHA256.equals(contract.inventory.get("sha256"))) throw blocked("Provider has no compiled reviewed historical decoder contract.");
 		for (WorldBuilderProviderCatalog.Artifact selected : Arrays.asList(core, contract)) {
-			Path providerRoot = selected.source;
-			for (int i = 0; i < Paths.get(selected.sourcePath).getNameCount(); i++) providerRoot = providerRoot.getParent();
-			disjoint(directory(providerRoot), requestedAttempt);
+			// The packaged provider and decoder attempt share an installation root;
+			// retain separation from the actual inputs, not their common ancestor.
+			disjoint(selected.source, requestedAttempt);
 		}
 		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(original);
 		List<WorldBuilderReadOnlyTarget.FileState> archives = new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
@@ -145,7 +145,7 @@ final class WorldBuilderPreservationJagDecoder {
 		return path;
 	}
 	private static void disjoint(Path a, Path b) throws WorldBuilderContractException {
-		if (a.startsWith(b) || b.startsWith(a)) throw blocked("Decoder output overlaps an original input or provider root.");
+		if (a.startsWith(b) || b.startsWith(a)) throw blocked("Decoder output overlaps an original input or selected provider file.");
 	}
 	private static boolean cancelled(BooleanSupplier cancellation) {
 		return Thread.currentThread().isInterrupted() || cancellation != null && cancellation.getAsBoolean();

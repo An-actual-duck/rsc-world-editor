@@ -9,12 +9,15 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
+sys.path.insert(0, str(ROOT / "scripts"))
+from world_builder_base_catalog import selected_base_files
 SOURCE_GIT = os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT")
 LAUNCH = os.environ.get("WORLD_BUILDER_BASE_PROJECT_LAUNCH") == "1"
 KEEP_PROBE = os.environ.get("WORLD_BUILDER_BASE_PROJECT_KEEP_PROBE") == "1"
@@ -42,9 +45,8 @@ public final class BaseLifecycleHarness {
       if (exit != 0) throw new AssertionError("native Base authoring session exited " + exit);
       System.out.println("base-native-authoring-authenticated-ready-clean-exit");
     } else if ("desktop-create".equals(args[0])) {
-      WorldBuilderProviderCatalog.Composition composition = WorldBuilderProviderCatalog.resolve(Paths.get(args[4]), Paths.get(args[5]));
       WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(project, Paths.get(args[2]), Paths.get(args[3]),
-        Integer.parseInt(args[6]), "preservation", composition);
+        Integer.parseInt(args[4]), "preservation");
       System.out.print(model.create(model.inspectDefaultTarget(), "Native Base desktop").toJson());
     } else {
       WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
@@ -70,6 +72,17 @@ def compile_harness(root):
 
 
 class BaseProjectLifecycleApiTest(unittest.TestCase):
+    def test_desktop_native_base_route_precedes_custom_content_and_migration(self):
+        source = (ROOT / "tools/world-builder/src/com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.java").read_text()
+        routing = source[source.index("final boolean preferMostRecentlyModified) {", source.index("private void inspectLegacyMigrationThenShow")):]
+        self.assertLess(routing.index("if (!preview.canCreateServerProject())"), routing.index("showNativeBasePreview(preview);"))
+        self.assertLess(routing.index("showNativeBasePreview(preview);"), routing.index('runTask("Checking for legacy map changes'))
+        self.assertIn("showNativeBasePreview(preview);\n\t\t\t\treturn;", routing)
+        dialog = source.split("private void showNativeBasePreview(", 1)[1].split("private void exportDetectedProviderDiagnostic", 1)[0]
+        self.assertIn("createPreviewedProject(preview, displayName);", dialog)
+        for forbidden in ("inspectPortableProvider", "importPortableProvider", "guidedProvider", "createMigrated"):
+            self.assertNotIn(forbidden, dialog)
+
     def test_native_creation_and_supervisor_entrypoints_compile_without_runtime_authority(self):
         with tempfile.TemporaryDirectory(prefix="base-lifecycle-api-") as temporary:
             compile_harness(Path(temporary))
@@ -152,15 +165,23 @@ class BaseProjectLifecycleTest(unittest.TestCase):
             shutil.copy2(source, output)
         installation = self.root / "installation"
         installation.mkdir()
+        # Match the shipped folder, including bundled provider and projects
+        # under one installation. External provider fixtures missed this layout.
+        for relative, (data, mode) in selected_base_files(PROVIDER).items():
+            path = installation / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            path.chmod(mode)
         discovered = self.invoke("discover-adaptive", "--target-root", target)
         self.assertEqual(0, discovered.returncode, discovered.stdout + discovered.stderr)
         report = self.root / "discovery.json"
         report.write_text(discovered.stdout)
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0)); port = listener.getsockname()[1]
-        created = self.invoke("create-project", "--installation-root", installation, "--runtime-root", application,
-            "--target-root", target, "--discovery-report", report, "--display-name", "Native Base", "--port", port,
-            "--confirm", "CREATE", "--provider-catalog-root", PROVIDER / "current-platform", "--composition-identity", self.identity)
+        # Exercise the same no-overlay launcher model call as the native Swing
+        # dialog, including discovery and Base selection, not only the CLI.
+        created = self.invoke("desktop-create", installation, application, target,
+            port, harness=True)
         self.assertEqual(0, created.returncode, created.stdout + created.stderr)
         project = Path(json.loads(created.stdout)["projectRoot"])
         manifest = json.loads((project / "project.json").read_text())
