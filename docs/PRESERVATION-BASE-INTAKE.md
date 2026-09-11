@@ -51,6 +51,21 @@ expected interaction, not a startup failure. The replacement still requires
 the integrated Editor gate, fresh archives and independent archive inspection;
 this development probe is not a claim that the installed alpha.1 was updated.
 
+### Replacement integration gate — complete
+
+The full integrated Editor gate at `ce6cb5c` with runtime `c6c6d090` passed in
+one uninterrupted run: 49 entrypoints, 541 unittest passes, 12 explicit skips,
+and one direct repository-independence check (1,696 seconds). The real Base
+server upgrade/login/two-import/recovery cycle passed in 330 seconds. The skips
+are external discovery (1), opt-in native integration (1), external decoded-map
+reconciliation fixtures (5), and unavailable native PowerShell (5).
+
+The next restricted artifact is **v0.8.0-alpha.2**. Fresh archive inspection and
+an exact packaged Swing walkthrough remain delivery steps. Install it beside
+alpha.1, preserving the old folder and all owner-created state. First-run
+character confirmation remains expected. No production release, Windows
+execution acceptance, or completed user test is implied.
+
 ## Actual checkout checkpoint — 2026-09-10
 
 The owner designated `/home/justin/RSC-Preservation` as the read-only source for
