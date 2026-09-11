@@ -14,6 +14,15 @@ remain canonical; do not substitute Base IDs into an Advanced composition.
 Focused projection/menu regressions and actual software preview screenshots
 are the acceptance scope, not another full gameplay/import gate.
 
+Delivered alpha.6 with runtime `22b3eb4aa328` and Editor `13ce8786ff3b`.
+Actual software screenshots verified classic Magic/Prayer lists, copy/paste
+markers, line/rectangle previews and the build grid. Coordinates moved y34→48
+and yield to open menus after visual review caught a tab overlap. Focused
+projection/clipping/menu checks, the prior navigation latch regression, archive
+inspection and packaged Linux launch/exit passed. Preview-state fixtures do
+not substitute for full edit transactions; the owner's functional-tool report
+stands, while normal interactive visual acceptance remains with the owner.
+
 ## Owner acceptance and active navigation correction
 
 The owner officially accepted alpha.4's UI and visuals. Preserve that UI;
