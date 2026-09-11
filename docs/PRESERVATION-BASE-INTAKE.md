@@ -37,11 +37,19 @@ packaging and verification remain separate steps.
 
 The corrected development Swing probe reached real project creation, then
 exposed a separate bundled-Java-17 server startup failure in Log4j caller lookup.
-The runtime provider's fat JAR contains Java-version-specific logging classes
-but omits the `Multi-Release` manifest flag. A narrow provider build correction
-and Java 17 verification are pending; Java 8 development checks do not establish
-packaged Java 17 startup acceptance. Do not mark the replacement candidate ready
-until creation and private editor startup both pass with the bundled JVM.
+The runtime provider's fat JAR contained Java-version-specific logging classes
+but omitted the `Multi-Release` manifest flag. Published runtime
+`c6c6d0901a549062c2e0c4be3b323a34c591e388` corrects that build flag without
+upgrading dependencies. Its full gate passed (245 entrypoints, 232 unittest
+passes, five external-input skips), with additional bundled Java 17 logging/JDBC
+and real installed server startup/restart checks.
+
+An isolated development installation using that exact provider passed actual
+Swing Detect Server Map, project confirmation, creation, native Java 17 editor
+readiness and clean exit. The first-run builder-character confirmation is an
+expected interaction, not a startup failure. The replacement still requires
+the integrated Editor gate, fresh archives and independent archive inspection;
+this development probe is not a claim that the installed alpha.1 was updated.
 
 ## Actual checkout checkpoint — 2026-09-10
 
