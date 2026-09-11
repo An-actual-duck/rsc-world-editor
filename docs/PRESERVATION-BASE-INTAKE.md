@@ -1,5 +1,19 @@
 # Preservation source intake boundary
 
+## Owner acceptance and active navigation correction
+
+The owner officially accepted alpha.4's UI and visuals. Preserve that UI;
+the active objective is working editor tools, beginning with navigation.
+After level changes and click teleport from 120,648 to 146,658 on L0, the
+destination activated but the displayed frame froze. Thread traces showed
+ongoing software rendering, not a blocked server request. Investigation found
+the retained-frame release was called only when a captured 3D frame existed;
+the software authoring profile disables that capture. The correction must
+release a freshly rendered software frame after authoritative activation and
+terrain presentation readiness, not remove the readiness/retention safeguard.
+Verification is limited to that boundary regression and actual navigation in
+a disposable Base project, followed by candidate integrity/smoke checks.
+
 ## Current owner direction — Preservation authoring UI
 
 After testing alpha.3, the owner superseded the fullscreen/side-bar request:
