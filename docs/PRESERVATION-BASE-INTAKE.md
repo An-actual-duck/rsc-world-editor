@@ -1,5 +1,34 @@
 # Preservation source intake boundary
 
+## Owner display finding — 2026-09-11 (in progress)
+
+The owner confirmed alpha.2 launches successfully, but its native Base editor
+opens windowed with a small UI. Base authoring explicitly disabled the shared
+OpenGL presenter, primary window and input mapping; the fullscreen option could
+not affect the resulting legacy software window. The authorized read-only Core
+reference-client review confirmed the intended existing presentation: a 960×540
+logical surface scaled to a borderless fullscreen window, with matching pointer
+coordinates. Those components already exist in the runtime provider; no new
+renderer or reference-code copy is needed.
+
+The scoped correction packages the provider's pinned LWJGL presenter dependencies
+and enables presentation/input/window ownership for newly captured Base clients.
+Base continues to supply its software-rendered world frame; Advanced world mesh,
+replacement compositing and UI overlays remain explicitly disabled. Normal
+installed-player launch behavior is outside this map-editor correction.
+
+Older projects retain their immutable embedded runtimes. A verified older client
+without the complete presenter payload retains software launch, rather than
+being overwritten or failing because libraries are absent. Consequently a new
+installation alone does **not** fix an existing alpha.2 project's display. Keep
+the old folder and any saved edits; use a fresh project for launch-only testing,
+or resolve safe project-runtime adoption before promising the fix for saved work.
+
+Remaining acceptance is the integrated provider/Editor gate and actual native
+fullscreen/scaling evidence, then fresh candidate packaging. Launcher readiness
+alone does not prove display scale. First-run builder-character confirmation
+remains expected, not a failure. No updated installed candidate is claimed here.
+
 ## Owner candidate finding — 2026-09-11
 
 The installed v0.8.0-alpha.1 candidate detected the prepared Preservation copy,
