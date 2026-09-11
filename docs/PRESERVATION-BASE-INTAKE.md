@@ -1,5 +1,19 @@
 # Preservation source intake boundary
 
+## Tool acceptance and software-overlay follow-up
+
+After alpha.5 the owner reported all tools working. The follow-up is visual:
+restore copy/paste markers, terrain line/rectangle anchors and other existing
+editor overlays; move the coordinate overlay down roughly one text line; use
+Preservation Magic/Prayer presentation and remove Summon from authoring.
+The preview artwork was not lost: existing Surface drawing was gated on a
+captured 3D frame that the software authoring profile intentionally lacks.
+Restore camera projection for those overlays without re-enabling OpenGL or
+altering map operations. Base spell/prayer definitions and action IDs must
+remain canonical; do not substitute Base IDs into an Advanced composition.
+Focused projection/menu regressions and actual software preview screenshots
+are the acceptance scope, not another full gameplay/import gate.
+
 ## Owner acceptance and active navigation correction
 
 The owner officially accepted alpha.4's UI and visuals. Preserve that UI;
