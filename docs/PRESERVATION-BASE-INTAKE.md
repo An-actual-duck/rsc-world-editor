@@ -1,6 +1,33 @@
 # Preservation source intake boundary
 
-## Owner display finding — 2026-09-11 (in progress)
+## Current owner direction — Preservation authoring UI
+
+After testing alpha.3, the owner superseded the fullscreen/side-bar request:
+World Builder should use Preservation's UI and selectable x1/x2 software scaling,
+not forced fullscreen/aspect-fit scaling. Keep the established map-editor tools,
+middle-mouse camera rotation/pitch, extended zoom-out and on-screen X/Y/L
+coordinates. Remove Spoiled Milk-only UI extras and nonfunctional renderer
+controls. Retained Graphics options belong in General; no separate Graphics tab.
+The minimum authoring window is 640×480 so the existing 396-pixel-tall editor
+dock remains usable; stock Preservation's 512×346 minimum would clip tools.
+This editor-specific size does not force fullscreen or replace x1/x2 scaling.
+
+This is an explicit authoring-only presentation profile, not a server-gameplay
+or normal installed-player UI migration. Client launch selects
+`openrsc.worldBuilderPreservationUi=true`, software presentation and no forced
+window mode or scalar. Runtime and Editor verification use focused presentation
+and settings/input checks plus actual visual acceptance, per TESTING-POLICY.md;
+do not repeat the unchanged full server upgrade/import suites for this change.
+Advanced authoring software appearance must be identified separately from Base
+acceptance rather than claimed from a Base-only screenshot.
+
+Older project runtime snapshots remain immutable; the standardized UI requires
+a freshly captured current client. Preserve installed alpha.3 and existing
+projects when delivering the next candidate. First-run character confirmation
+remains expected. The following alpha.3 fullscreen evidence is historical, not
+the acceptance criterion for this new UI direction.
+
+## Historical owner display finding — alpha.3
 
 The owner confirmed alpha.2 launches successfully, but its native Base editor
 opens windowed with a small UI. Base authoring explicitly disabled the shared

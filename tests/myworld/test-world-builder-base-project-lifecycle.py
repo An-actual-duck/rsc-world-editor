@@ -12,7 +12,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
@@ -30,11 +29,10 @@ import java.util.*;
 public final class BaseLifecycleHarness {
   public static void main(String[] args) throws Exception {
     Path project = Paths.get(args[1]);
-    if ("presenter".equals(args[0])) {
-      Class<?> launch = Class.forName("com.openrsc.worldbuilder.WorldBuilderProcessSupervisor$AdaptiveLaunch");
-      java.lang.reflect.Method method = launch.getDeclaredMethod("hasBasePresenter", Path.class);
-      method.setAccessible(true);
-      System.out.print(method.invoke(null, project));
+    if ("presentation".equals(args[0])) {
+      List<String> command = new ArrayList<String>(Arrays.asList("java", "-jar", "client.jar"));
+      WorldBuilderProcessSupervisor.configurePreservationUi(command);
+      System.out.print(WorldBuilderJsonDocuments.pretty(command));
     } else if ("commands".equals(args[0])) {
       Map<String,Object> result = new LinkedHashMap<String,Object>();
       result.put("identity", WorldBuilderCurrentBaseProjectContent.verifiedIdentity(project));
@@ -78,25 +76,22 @@ def compile_harness(root):
 
 
 class BaseProjectLifecycleApiTest(unittest.TestCase):
-    def test_sealed_old_clients_keep_software_and_complete_presenter_is_required(self):
-        entries = ("org/lwjgl/Version.class", "org/lwjgl/glfw/GLFW.class", "org/lwjgl/opengl/GL.class",
-                   "linux/x64/org/lwjgl/liblwjgl.so", "linux/x64/org/lwjgl/glfw/libglfw.so",
-                   "linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so", "windows/x64/org/lwjgl/lwjgl.dll",
-                   "windows/x64/org/lwjgl/glfw/glfw.dll", "windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll")
-        with tempfile.TemporaryDirectory(prefix="base-presenter-api-") as temporary:
+    def test_preservation_ui_uses_software_without_forcing_window_or_scalar(self):
+        with tempfile.TemporaryDirectory(prefix="base-presentation-api-") as temporary:
             root = Path(temporary)
             classes = compile_harness(root)
-            for missing in (None, *entries):
-                archive = root / "client.jar"
-                with zipfile.ZipFile(archive, "w") as jar:
-                    for entry in entries:
-                        if entry != missing:
-                            jar.writestr(entry, b"capability fixture, not trusted runtime")
-                before = archive.read_bytes()
-                result = subprocess.run(["java", "-cp", str(classes) + os.pathsep + str(JAR),
-                    MAIN, "presenter", str(archive)], capture_output=True, text=True, check=True)
-                self.assertEqual("true" if missing is None else "false", result.stdout)
-                self.assertEqual(before, archive.read_bytes())
+            result = subprocess.run(["java", "-cp", str(classes) + os.pathsep + str(JAR),
+                MAIN, "presentation", str(root)], capture_output=True, text=True, check=True)
+            command = json.loads(result.stdout)
+            self.assertIn("-Dopenrsc.worldBuilderPreservationUi=true", command)
+            self.assertIn("-Dspoiledmilk.experimentalCameraTilt=true", command)
+            self.assertIn("-Dspoiledmilk.experimentalExtraZoom=true", command)
+            for name in ("openglPresenter", "openglInput", "openglPrimaryWindow",
+                         "directFramebuffer", "skipLegacyWorldRaster", "openglWorldMesh",
+                         "openglWorldSpritesVisible", "openglWorldUiReplay"):
+                self.assertIn("-Dspoiledmilk." + name + "=false", command)
+            self.assertFalse(any("openglWindowMode=" in arg or "renderingScalar=" in arg for arg in command))
+            self.assertEqual(["-jar", "client.jar"], command[-2:])
 
     def test_desktop_native_base_route_precedes_custom_content_and_migration(self):
         source = (ROOT / "tools/world-builder/src/com/openrsc/worldbuilder/WorldBuilderDesktopLauncher.java").read_text()
@@ -231,19 +226,16 @@ class BaseProjectLifecycleTest(unittest.TestCase):
         for role in ("server", "client"):
             self.assertIn("-Dopenrsc.currentCompositionIdentityFile=" + str(project / "source/provider/composition-identity.json"), commands[role])
         self.assertEqual("current-base-v1", commands["identity"]["variantId"])
-        # Retained predecessor fixtures intentionally lack the new presenter;
-        # each project's sealed client, not the surrounding installation, wins.
-        with zipfile.ZipFile(project / "working/runtime/client/Open_RSC_Client.jar") as archive:
-            presenter = "true" if "org/lwjgl/glfw/GLFW.class" in archive.namelist() else "false"
+        self.assertIn("-Dopenrsc.worldBuilderPreservationUi=true", commands["client"])
         for name in ("openglPresenter", "openglInput", "openglPrimaryWindow"):
-            self.assertIn("-Dspoiledmilk." + name + "=" + presenter, commands["client"])
+            self.assertIn("-Dspoiledmilk." + name + "=false", commands["client"])
         for name in ("directFramebuffer", "skipLegacyWorldRaster", "openglWorldMesh",
                      "openglWorldMeshTexturedVisible", "openglWorldChunksReplacementComposite",
                      "openglWorldSpritesVisible", "openglWorldUiReplay"):
             self.assertIn("-Dspoiledmilk." + name + "=false", commands["client"])
         for name in ("opengl_sprite_overlay", "opengl_ui_base_frame", "opengl_native_ui_replace"):
             self.assertIn("-Dspoiled_milk." + name + "=false", commands["client"])
-        self.assertIn("-Dspoiledmilk.openglWindowMode=borderless-fullscreen", commands["client"])
+        self.assertFalse(any("openglWindowMode=" in arg for arg in commands["client"]))
         if LAUNCH:
             self.assertTrue(os.environ.get("DISPLAY"), "coordinate the GUI acceptance lane and provide DISPLAY")
             source_before = snapshot(project / "source")
@@ -253,11 +245,7 @@ class BaseProjectLifecycleTest(unittest.TestCase):
                 self.assertEqual(0, launched.returncode, launched.stdout + launched.stderr + logs[-12000:])
                 self.assertIn("base-native-authoring-authenticated-ready-clean-exit", launched.stdout)
                 self.assertIn("ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true initialRegion=true binding=true", logs)
-                if presenter == "true":
-                    self.assertIn("OpenGL presenter active.", logs)
-                    self.assertIn("OpenGL primary window active; Swing client window is hidden.", logs)
-                    self.assertIn("OpenGL window mode: borderless fullscreen ", logs)
-                    self.assertIn("OpenGL scale mode: aspect-fit automatic", logs)
+                self.assertNotIn("OpenGL primary window active; Swing client window is hidden.", logs)
                 receipt = json.loads((project / "run/last-run.json").read_text())
                 self.assertEqual(0, receipt["serverExit"])
                 self.assertEqual(0, receipt["clientExit"])

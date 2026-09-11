@@ -25,7 +25,6 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.ZipFile;
 
 /** Owns the isolated local server/client lifecycle for one prepared workspace or project. */
 public final class WorldBuilderProcessSupervisor {
@@ -492,12 +491,8 @@ public final class WorldBuilderProcessSupervisor {
 			javaExecutable(),
 			"-Xms512m",
 			"-Xmx2g",
-			// The Builder's primary renderer owns its own LWJGL context. Avoid also
-			// enabling Java2D's OpenGL pipeline. Window visibility is verified by the
-			// client-ready handshake below, so retain the expected fullscreen surface.
+			// Preservation authoring uses the established software x1/x2 surface.
 			"-Dsun.java2d.opengl=false",
-			"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
-			"-Dspoiledmilk.openglVsync=true",
 			"-Dopenrsc.worldBuilderMode=true",
 			"-Dopenrsc.worldBuilderHost=127.0.0.1",
 			"-Dopenrsc.worldBuilderPort=" + port,
@@ -524,7 +519,26 @@ public final class WorldBuilderProcessSupervisor {
 		command.addAll(Arrays.asList(
 			"-jar",
 			"Open_RSC_Client.jar"));
+		configurePreservationUi(command);
 		return command;
+	}
+
+	static void configurePreservationUi(List<String> command) {
+		command.add(1, "-Dopenrsc.worldBuilderPreservationUi=true");
+		command.add(1, "-Dspoiledmilk.experimentalCameraTilt=true");
+		command.add(1, "-Dspoiledmilk.experimentalExtraZoom=true");
+		for (String name : Arrays.asList("openglPresenter", "openglInput", "openglPrimaryWindow",
+			"directFramebuffer", "skipLegacyWorldRaster", "renderer3DGeometryCapture",
+			"renderer3DVisibleWorld", "openglWorldMesh", "openglWorldMeshVisible",
+			"openglWorldMeshTexturedVisible", "openglWorldMeshTexturedStaticVisible",
+			"openglWorldReplacementComposite", "openglWorldChunksTexturedVisible",
+			"openglWorldChunksReplacementComposite", "openglWorldChunksTrustedReplacement",
+			"openglWorldChunksResidentObjects", "openglWorldSpritesVisible", "openglWorldUiReplay")) {
+			command.add(1, "-Dspoiledmilk." + name + "=false");
+		}
+		for (String name : Arrays.asList("opengl_sprite_overlay", "opengl_ui_base_frame", "opengl_native_ui_replace")) {
+			command.add(1, "-Dspoiled_milk." + name + "=false");
+		}
 	}
 
 	private static WorldBuilderLayeredReview readLayeredReview(Path workspace) {
@@ -953,8 +967,6 @@ public final class WorldBuilderProcessSupervisor {
 				javaExecutable(),
 				"-Xms512m", "-Xmx2g",
 				"-Dsun.java2d.opengl=false",
-				"-Dspoiledmilk.openglWindowMode=borderless-fullscreen",
-				"-Dspoiledmilk.openglVsync=true",
 				property("spoiledmilk.clientLog",
 					project.resolve("logs/client-runtime.log")),
 				property("openrsc.worldBuilderMode", "true"),
@@ -989,38 +1001,9 @@ public final class WorldBuilderProcessSupervisor {
 				"-jar", nativeBase ? client.resolve("Open_RSC_Client.jar").toString() : "Open_RSC_Client.jar"));
 			if (nativeBase) {
 				command.add(1, property("openrsc.currentCompositionIdentityFile", project.resolve(WorldBuilderCurrentBaseProjectContent.IDENTITY)));
-				// Only presentation uses GL: Base still supplies its native software frame.
-				// Older sealed projects lack these libraries and must remain launchable
-				// without rewriting their immutable runtime snapshot.
-				String presenter = Boolean.toString(hasBasePresenter(client.resolve("Open_RSC_Client.jar")));
-				for (String property : Arrays.asList("openglPresenter", "openglInput", "openglPrimaryWindow"))
-					command.add(1, property("spoiledmilk." + property, presenter));
-				for (String property : Arrays.asList("directFramebuffer", "skipLegacyWorldRaster",
-					"renderer3DGeometryCapture", "renderer3DVisibleWorld", "openglWorldMesh",
-					"openglWorldMeshVisible", "openglWorldMeshTexturedVisible", "openglWorldMeshTexturedStaticVisible",
-					"openglWorldReplacementComposite", "openglWorldChunksTexturedVisible",
-					"openglWorldChunksReplacementComposite", "openglWorldChunksTrustedReplacement",
-					"openglWorldChunksResidentObjects", "openglWorldSpritesVisible", "openglWorldUiReplay"))
-					command.add(1, property("spoiledmilk." + property, "false"));
-				for (String property : Arrays.asList("opengl_sprite_overlay", "opengl_ui_base_frame", "opengl_native_ui_replace"))
-					command.add(1, property("spoiled_milk." + property, "false"));
 			}
+			configurePreservationUi(command);
 			return command;
-		}
-
-		static boolean hasBasePresenter(Path verifiedClient) throws IOException {
-			// Capability check only, after project verification; dependency authenticity
-			// belongs to the provider build and the sealed project inventory.
-			try (ZipFile archive = new ZipFile(verifiedClient.toFile())) {
-				for (String entry : Arrays.asList("org/lwjgl/Version.class", "org/lwjgl/glfw/GLFW.class",
-					"org/lwjgl/opengl/GL.class", "linux/x64/org/lwjgl/liblwjgl.so",
-					"linux/x64/org/lwjgl/glfw/libglfw.so", "linux/x64/org/lwjgl/opengl/liblwjgl_opengl.so",
-					"windows/x64/org/lwjgl/lwjgl.dll", "windows/x64/org/lwjgl/glfw/glfw.dll",
-					"windows/x64/org/lwjgl/opengl/lwjgl_opengl.dll")) {
-					if (archive.getEntry(entry) == null) return false;
-				}
-				return true;
-			}
 		}
 
 		private static String property(String name, Path value) {

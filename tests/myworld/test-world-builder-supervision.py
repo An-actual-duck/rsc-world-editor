@@ -89,12 +89,12 @@ class WorldBuilderSupervisionTest(unittest.TestCase):
                             require(realClient.contains("-Dsun.java2d.opengl=false"),
                                 "Builder must not start a second Java2D OpenGL pipeline");
                             require(realClient.contains(
-                                "-Dspoiledmilk.openglWindowMode=borderless-fullscreen"),
-                                "Builder must start with borderless fullscreen presentation");
-                            require(!realClient.contains("-Dspoiledmilk.openglWindowMode=windowed"),
-                                "Builder must not regress to windowed presentation");
-                            require(realClient.contains("-Dspoiledmilk.openglVsync=true"),
-                                "Builder must start with vsync enabled");
+                                "-Dopenrsc.worldBuilderPreservationUi=true"),
+                                "Builder must use its Preservation authoring UI");
+                            require(realClient.contains("-Dspoiledmilk.openglPresenter=false"),
+                                "Builder must retain software x1/x2 scaling");
+                            require(!realClient.contains("-Dspoiledmilk.openglWindowMode=borderless-fullscreen"),
+                                "Builder must not force fullscreen aspect-fit scaling");
                             require(realClient.contains("-Dopenrsc.worldBuilderClientReadyFile="
                                     + workspace.resolve("run/client.ready")),
                                 "Builder client window-readiness handshake");
