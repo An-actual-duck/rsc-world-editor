@@ -197,10 +197,14 @@ when manager review is useful.
 4. Merge worker work only from an exact clean pushed READY tip after reviewing
    the complete diff. Direct manager work does not require a synthetic worker
    handoff but receives the same review and verification discipline.
-5. Verification is risk-based. Run focused tests and `git diff --check` for
-   documentation or narrowly isolated low-risk changes. Run the full suite for
-   behavioral features, schemas, transactions, packaging/updaters, dependency
-   lock changes, broad integration, and every release.
+5. Verification follows `docs/TESTING-POLICY.md`. Declare scope and expected
+   duration before testing. UI-only changes use focused presentation checks
+   and actual visual/input acceptance, not full suites. Data/schema/transaction
+   changes require the affected safety suites. Broad integration and production
+   releases require full suites. Neither a runtime-lock change nor an owner-test
+   candidate alone triggers full testing: review the actual implementation diff.
+   Explain and obtain owner agreement before expanding a small UI task to broad
+   verification. Use focused workflow tests for testing-policy/tooling changes.
 6. Push tested `main`, then recycle a merged slot only after its exact tip is
    contained in published `main`.
 7. Release production remains separately guarded: clean published `main`, the

@@ -32,7 +32,7 @@ class MaintainabilityToolingTest(unittest.TestCase):
             (path / "fixture.sh").write_text(
                 "#!/usr/bin/env bash\nset -euo pipefail\n", encoding="utf-8"
             )
-        for name in ("test.sh", "preview-generated-output-cleanup.sh"):
+        for name in ("test.sh", "preview-generated-output-cleanup.sh", "product-manager.sh"):
             shutil.copy2(SOURCE_ROOT / "scripts" / name, self.root / "scripts" / name)
         build = self.root / "scripts/build-tools.sh"
         build.write_text(
@@ -147,6 +147,40 @@ class MaintainabilityToolingTest(unittest.TestCase):
         )
         self.assertEqual(2, unsafe.returncode)
         self.assertIn("must name tests/myworld", unsafe.stderr)
+
+    def test_presentation_profile_excludes_expensive_lifecycle_class(self) -> None:
+        self.write_test("test-world-builder-supervision.py")
+        (self.root / "tests/myworld/test-world-builder-base-project-lifecycle.py").write_text(
+            "import unittest\n"
+            "class BaseProjectLifecycleApiTest(unittest.TestCase):\n"
+            "    def test_fast(self): pass\n"
+            "class BaseProjectLifecycleTest(unittest.TestCase):\n"
+            "    @classmethod\n"
+            "    def setUpClass(cls): raise AssertionError('expensive fixture must not run')\n"
+            "    def test_slow(self): pass\n"
+            "if __name__ == '__main__': unittest.main()\n", encoding="utf-8")
+        result = self.run_script("test.sh", "--group", "presentation")
+        self.assertIn("BaseProjectLifecycleApiTest", result.stdout)
+        self.assertIn("2 selection(s)", result.stdout)
+        self.assertEqual(["build"], (self.root / "build-count.txt").read_text().splitlines())
+
+    def test_adoption_requires_scope_and_reason_before_checkout_or_mutation(self) -> None:
+        for args in ((), ("--verification", "unknown", "--reason", "reviewed"),
+                     ("--verification", "presentation"),
+                     ("--verification", "presentation", "--reason", "   ")):
+            result = self.run_script("product-manager.sh", "adopt-runtime", *args, check=False)
+            self.assertNotEqual(0, result.returncode)
+            self.assertNotIn("manager checkout is missing", result.stderr)
+            self.assertFalse((self.root / "runtime-provider.lock").exists())
+        for profile in ("presentation", "transactions", "full"):
+            result = self.run_script("product-manager.sh", "adopt-runtime",
+                "--verification", profile, "--reason", "Reviewed affected components", check=False)
+            self.assertIn("manager checkout is missing", result.stderr)
+        source = (self.root / "scripts/product-manager.sh").read_text()
+        self.assertIn('./scripts/test.sh --group "$verification"', source)
+        self.assertIn('./scripts/test.sh --group all', source)
+        self.assertNotIn('\n\t./scripts/test.sh\n', source)
+        self.assertIn('Verification: $verification. Scope review: $reason', source)
 
     def test_cleanup_preview_is_read_only_and_blocks_durable_state(self) -> None:
         candidates = self.root / "output/candidates/world-builder-v2"

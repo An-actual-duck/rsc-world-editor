@@ -72,7 +72,8 @@ The manager reviews and completes integration:
 ./scripts/ai-manager.sh status
 git diff main...feat/descriptive-task
 ./scripts/ai-manager.sh merge feat/descriptive-task
-./scripts/test.sh
+# Select affected checks per TESTING-POLICY.md; example for UI-only work:
+./scripts/test.sh --group presentation
 git push origin main
 ./scripts/ai-workspace.sh recycle ai-1
 ```
@@ -95,7 +96,7 @@ One cross-repository feature assignment normally authorizes this entire cycle:
 3. inspect and test the exact READY handoff;
 4. merge and publish runtime `main`;
 5. select that exact published commit in `runtime-provider.lock`;
-6. materialize the detached dependency, run parity and the Editor full suite;
+6. materialize the detached dependency, run parity and scope-selected Editor checks;
 7. commit and publish the bounded Editor integration; and
 8. continue or merge any associated Editor-owned feature work.
 
@@ -108,14 +109,17 @@ The combined status and adoption helper is:
 
 ```bash
 ./scripts/product-manager.sh status
-./scripts/product-manager.sh adopt-runtime
+./scripts/product-manager.sh adopt-runtime --verification presentation --reason "Reviewed client-only presentation diff; server and persistence unchanged"
 ```
 
 `adopt-runtime` selects only the clean published runtime manager `main`, updates
-only the lock/protocol inputs, materializes the lock, runs parity and the full
-Editor suite, then commits and publishes the bounded integration. An optional
+only the lock/protocol inputs, materializes the lock, runs parity and the selected
+Editor checks, then commits and publishes the bounded integration. An optional
 full SHA may be supplied as an additional guard. It refuses an open release
-gate or unrelated dirty Editor state.
+gate or unrelated dirty Editor state. The required profile is `presentation`,
+`transactions`, or `full`, accompanied by a nonempty scope-review reason recorded
+in the integration commit. This is a manager decision, not automatic proof that
+a diff is safe. Review both repositories and add affected tests when needed.
 
 ## Recovery and exact handoffs
 
@@ -135,16 +139,13 @@ the owner to manually shuttle information between managers.
 
 ## Risk-based verification
 
-- Documentation and narrow low-risk changes: focused tests plus
-  `git diff --check` may be sufficient.
-- Behavioral features: relevant focused suites plus the full repository suite
-  before publishing.
-- Runtime-lock, schema, transaction, import/export, updater, packaging, or broad
-  integration changes: parity where applicable and the full suite.
-- Candidate acceptance and releases: every documented release check, full
-  suite, owner validation where required, and fresh production artifacts.
-
-The manager reports what ran, what was unavailable, and any accepted limits.
+Follow [the testing policy](TESTING-POLICY.md). Focused verification is the
+default for bounded changes; full suites are for broad integration and production
+releases. Runtime-lock changes are classified by the underlying provider diff.
+Restricted owner-test candidates use affected-area verification, fresh archives,
+archive integrity checks and a packaged smoke check; they are not production
+release acceptance. No offline, backup, verification or recovery safeguards are
+removed. Report the exact scope, baseline, results and remaining acceptance.
 
 ## Release gates
 

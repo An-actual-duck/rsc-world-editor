@@ -15,13 +15,17 @@ usage() {
 	cat <<'EOF'
 Usage:
   ./scripts/product-manager.sh status
-  ./scripts/product-manager.sh adopt-runtime [EXPECTED_40_CHARACTER_SHA]
+  ./scripts/product-manager.sh adopt-runtime [EXPECTED_40_CHARACTER_SHA] --verification PROFILE --reason TEXT
 
 status reports the independent Editor and runtime manager/workers without
 inspecting Core-Framework. adopt-runtime selects the clean published runtime
 manager main commit (optionally requiring an exact expected SHA), advances the
-Editor lock/protocol, materializes and verifies the dependency, runs the full
-Editor suite, commits the bounded integration, and publishes Editor main.
+Editor lock/protocol, materializes and verifies the dependency, runs the selected
+Editor checks, commits the bounded integration, and publishes Editor main.
+PROFILE is presentation, transactions, or full. Selection and a nonempty review
+reason are required before any mutation. Review the provider diff first; a lock
+change alone is not a reason to run full tests. This does not certify a candidate
+or visual appearance; those require their own scoped acceptance evidence.
 EOF
 }
 
@@ -60,9 +64,25 @@ product_status() {
 }
 
 adopt_runtime() {
-	local expected="${1:-}" runtime_commit changed untracked unexpected
-
-	[[ $# -le 1 ]] || fail "adopt-runtime accepts at most one exact commit"
+	local expected="" verification="" reason="" runtime_commit changed untracked unexpected
+	while (($#)); do
+		case "$1" in
+			--verification)
+				[[ $# -ge 2 && -z "$verification" ]] || fail "Supply one --verification profile"
+				verification="$2"; shift 2 ;;
+			--reason)
+				[[ $# -ge 2 && -z "$reason" ]] || fail "Supply one --reason text"
+				reason="$2"; shift 2 ;;
+			*)
+				[[ -z "$expected" && "$1" != --* ]] || fail "Unexpected adoption argument: $1"
+				expected="$1"; shift ;;
+		esac
+	done
+	case "$verification" in
+		presentation|transactions|full) ;;
+		*) fail "Choose --verification presentation, transactions, or full after reviewing the provider diff" ;;
+	esac
+	[[ -n "${reason//[[:space:]]/}" ]] || fail "A nonempty --reason is required for verification scope"
 	if [[ -n "$expected" ]]; then
 		expected="${expected,,}"
 		[[ "$expected" =~ ^[0-9a-f]{40}$ ]] \
@@ -100,7 +120,12 @@ adopt_runtime() {
 		return 0
 	fi
 
-	./scripts/test.sh
+	printf 'Verification scope: %s\nReason: %s\n' "$verification" "$reason"
+	if [[ "$verification" == full ]]; then
+		./scripts/test.sh --group all
+	else
+		./scripts/test.sh --group "$verification"
+	fi
 	git diff --check
 	[[ "$(git -C "$RUNTIME_MANAGER_ROOT" rev-parse 'HEAD^{commit}')" == "$runtime_commit" ]] \
 		|| fail "Runtime manager HEAD changed during Editor verification"
@@ -108,7 +133,8 @@ adopt_runtime() {
 		|| fail "Published runtime main changed during Editor verification"
 
 	git add runtime-provider.lock release/world-builder-v2/world-builder-runtime.conf
-	git commit -m "Advance runtime provider to ${runtime_commit:0:12}"
+	git commit -m "Advance runtime provider to ${runtime_commit:0:12}" \
+		-m "Verification: $verification. Scope review: $reason"
 	git push origin main
 	printf 'Published World Editor runtime integration %s -> %s\n' \
 		"$runtime_commit" "$(git rev-parse HEAD)"

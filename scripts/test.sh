@@ -27,7 +27,10 @@ Usage:
 
 No selectors runs the complete repository gate. Successful tests are concise by
 default; --verbose prints their complete unittest output. Available groups:
-  workflow, discovery, projects, transactions, packaging, updater, candidate, all
+  presentation, workflow, discovery, projects, transactions, packaging, updater, candidate, all
+
+For UI-only iteration use --group presentation. It does not certify visual
+appearance: check the actual UI and pointer alignment before packaging.
 USAGE
 }
 
@@ -107,6 +110,11 @@ add_group() {
 	local group="$1" relative
 	local -a members=()
 	case "$group" in
+		presentation)
+			add_entry test-world-builder-base-project-lifecycle.py BaseProjectLifecycleApiTest
+			add_entry test-world-builder-supervision.py
+			return 0
+			;;
 		workflow)
 			members=(test-world-builder-ai-workspaces.py test-world-builder-maintainability-tooling.py)
 			;;
@@ -212,7 +220,7 @@ add_group() {
 }
 
 if [[ "$list_only" == true ]]; then
-	printf 'Groups: workflow discovery projects transactions packaging updater candidate all\n'
+	printf 'Groups: workflow discovery projects transactions packaging updater candidate all presentation\n'
 	printf 'Test files:\n'
 	find "$ROOT_DIR/tests/myworld" -maxdepth 1 -type f \
 		-name 'test-world-builder-*.py' -printf '  %f\n' | sort
