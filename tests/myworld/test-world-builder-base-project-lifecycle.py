@@ -253,6 +253,11 @@ class BaseProjectLifecycleTest(unittest.TestCase):
                 self.assertEqual(0, launched.returncode, launched.stdout + launched.stderr + logs[-12000:])
                 self.assertIn("base-native-authoring-authenticated-ready-clean-exit", launched.stdout)
                 self.assertIn("ADAPTIVE_WORLD_BUILDER_READY nativeTerrain=true initialRegion=true binding=true", logs)
+                if presenter == "true":
+                    self.assertIn("OpenGL presenter active.", logs)
+                    self.assertIn("OpenGL primary window active; Swing client window is hidden.", logs)
+                    self.assertIn("OpenGL window mode: borderless fullscreen ", logs)
+                    self.assertIn("OpenGL scale mode: aspect-fit automatic", logs)
                 receipt = json.loads((project / "run/last-run.json").read_text())
                 self.assertEqual(0, receipt["serverExit"])
                 self.assertEqual(0, receipt["clientExit"])

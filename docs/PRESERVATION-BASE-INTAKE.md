@@ -24,9 +24,35 @@ installation alone does **not** fix an existing alpha.2 project's display. Keep
 the old folder and any saved edits; use a fresh project for launch-only testing,
 or resolve safe project-runtime adoption before promising the fix for saved work.
 
-Remaining acceptance is the integrated provider/Editor gate and actual native
-fullscreen/scaling evidence, then fresh candidate packaging. Launcher readiness
-alone does not prove display scale. First-run builder-character confirmation
+The owner confirmed alpha.2 was used only to test launching, with no saved map
+edits to carry forward. Deliver the corrected candidate in a fresh sibling
+folder and create a fresh project there; leave alpha.2 intact. Project-runtime
+adoption is therefore not a prerequisite for this display-fix candidate.
+
+Published runtime `888e06d397059757fe4089c42cd09b4970ccaeff` contains the
+reviewed dependency correction. Its complete gate passed across preserved
+segments: 246 checks/modules, 236 unittest passes and five explicit external
+semantic-probe skips. A missing DISPLAY precondition and a shared-desktop focus
+interruption were resolved by targeted resumptions, not source changes or a
+repeat of the passed prefix. No Windows native execution is claimed.
+
+The exact selected runtime also passed the native Editor lifecycle check: four
+tests, including real Base creation and two authenticated authoring sessions,
+with unchanged source/target, clean exits, and explicit log assertions for the
+GLFW primary window, borderless fullscreen and automatic aspect-fit scaling.
+The provider regression checks 960×540 input mapping at 1440p and 4K/HiDPI.
+This is not a manual visual review of the owner's monitor or Windows acceptance.
+
+The integrated Editor gate passed all 49 entrypoints in 1,686 seconds: 542
+unittest passes, 12 explicit skips and the direct repository-independence check.
+This includes the real upgrade/login/two-import/recovery cycle. The skips are
+external discovery (1), opt-in native integration (1, separately covered by the
+focused Base authoring run above), external reconciliation fixtures (5), and
+unavailable native PowerShell (5).
+
+Remaining delivery is fresh alpha.3 candidate packaging, independent archive
+inspection and the bundled-Java launch check. Launcher readiness alone does not
+prove display scale. First-run builder-character confirmation
 remains expected, not a failure. No updated installed candidate is claimed here.
 
 ## Owner candidate finding — 2026-09-11
