@@ -35,12 +35,16 @@ workspace. The first public v2 alpha was accepted after
 real-archive validation recorded in
 `docs/releases/world-builder-v2-v0.1.0-alpha.1-validation.md`. The dedicated v2
 packager and workspace-preserving updater operate without reopening the frozen
-v1 channel. The current adaptive release is `v0.7.0-alpha.88`, accepted and
-published on 2026-09-03. Production artifacts were rebuilt from its published
-gate commit rather than promoted from restricted validation archives.
+v1 channel. The current adaptive release is
+[World Builder 2 v0.8.0](https://github.com/An-actual-duck/rsc-world-editor/releases/latest),
+published on 2026-09-12 and marked GitHub Latest. Fresh Linux and Windows
+production archives were built from its accepted gate commit; candidate
+archives were not promoted in place. See the
+[validation record](docs/releases/world-builder-v2-v0.8.0-validation.md) for
+accepted scope and platform limitations.
 
-The later development-only pinned-generic-core upgrade candidate is rejected
-and has not opened another release gate. Current upgrade direction is one
+The historical development-only pinned-generic-core upgrade candidate remains
+rejected; it is not the upgrade path shipped in v0.8.0. Current direction is one
 managed platform generation with Current Base for Preservation-like/lightly
 customized public servers and Current Advanced for the owner's reviewed game,
 plus explicit current modules and bounded historical input adapters. See
@@ -69,8 +73,8 @@ End users should download a supported platform archive from this repository's
 [Releases](https://github.com/An-actual-duck/rsc-world-editor/releases) page.
 Source checkouts are intended for development and release production. Published
 history includes the frozen legacy v1 line, the historical pre-adaptive alpha,
-and the current adaptive `rsc-world-editor-v2-0.7.0-alpha.88`. Development
-continues after that alpha with its release gate closed.
+and the current adaptive `rsc-world-editor-v2-0.8.0`. Development continues
+after that release with its consumed release gate closed.
 
 The legacy v1 packaged workflow is:
 
