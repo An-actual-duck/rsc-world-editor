@@ -706,11 +706,13 @@ public final class AdaptiveProjectSupervisorHarness {
                     + project.resolve("logs/client-runtime.log")),
                 "client runtime log confinement");
             require(contains(productionClient,
-                "-Dspoiledmilk.openglWindowMode=borderless-fullscreen"),
-                "client borderless fullscreen presentation");
-            require(!contains(productionClient,
-                "-Dspoiledmilk.openglWindowMode=windowed"),
-                "client must not regress to windowed presentation");
+                "-Dopenrsc.worldBuilderPreservationUi=true"),
+                "client Preservation presentation");
+            for (String argument : productionClient) {
+                require(!argument.startsWith("-Dspoiledmilk.openglWindowMode=")
+                    && !argument.startsWith("-Dspoiledmilk.renderingScalar="),
+                    "client must retain user window and x1/x2 scaling choices");
+            }
             require(contains(productionClient,
                 "-Dopenrsc.worldBuilderClientReadyFile="
                     + project.resolve("run/client.ready")),
