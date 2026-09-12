@@ -4,13 +4,44 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active audit and ordered product worklist |
+| Status | Current Base owner acceptance complete; release preparation only |
 | Created | 2026-08-30 |
-| Last reconciled | 2026-09-06, collected handoffs and bounded Base/Advanced candidate distinction |
+| Last reconciled | 2026-09-12, owner accepts map-editor-compatible Base result and closes feature scope |
 | Product | World Builder 2 |
-| Immediate objective | Replace the failed target-runtime path with trustworthy adaptable upgrades and map-only Import while shortening development feedback loops |
+| Immediate objective | Publish the accepted Base workflow through the existing release safeguards; make the new V2 release GitHub Latest |
 | Historical feature integration base | Editor `147fdc5b34e2f23f441ce4ccdf60cf908ce85aad`; adopted runtime provider `d2903f21530959a3bd9072846c8611fdf035f792` |
 | Release state | `v0.7.0-alpha.88` published; later pinned-core candidate rejected; development release gate closed |
+
+## Owner acceptance and scope closure — 2026-09-12
+
+The owner accepts the current alpha.7 Base result with Editor fixes through
+`b1828c9` and runtime `382d7d54031cb7c2eefb5020d923f9530d2aea9b`.
+Editing, save, runtime upgrade, map import, normal player launch and corrected
+re-detection have been exercised. Read-only validation confirmed both launched
+roles bind the installed runtime/map, all 357 active map files match the latest
+imported export, and the newest captured baseline matches that active map.
+
+The present product scope is map-editor compatibility, not broader client
+modernization. Optional renderer/client enhancements are deferred. The owner's
+one-off Spoiled Milk integration was handled on that side, per the owner; do not
+add an Editor-specific adapter, Advanced-composition work or another compatibility
+project to reproduce it. Earlier Advanced plans below are historical/future
+possibilities, not remaining work or blockers for this release. Inherited client
+UI is accepted for now; no additional UI cleanup or optimization is requested.
+
+Remaining work is release preparation, not feature expansion: retain the existing
+full release checks, exact runtime pin, version-bound gate and fresh production
+archives. Do not promote the locally modified candidate archive in place.
+These required release checks do not reopen the accepted implementation scope.
+
+GitHub was inspected on 2026-09-12: Latest is `v1.1.0`; every published V2 is a
+prerelease, newest `rsc-world-editor-v2-0.7.0-alpha.88` from September 3. That old
+build is not the accepted candidate and must not be promoted as its substitute.
+Publish the accepted V2 build as a non-prerelease with `make_latest=true`, then
+verify `/releases/latest` resolves to its exact V2 tag. GitHub does not permit
+prereleases to be Latest. Keep frozen V1 archives and updater identities intact;
+changing the featured download must not make V1 installations cross-update.
+No GitHub release metadata or artifacts were changed during this scope checkpoint.
 
 This document keeps the reliability work visible after the independent
 stop-gap was applied manually to the separate Core checkout. It restored that

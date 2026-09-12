@@ -4,12 +4,12 @@
 
 | Field | Value |
 | --- | --- |
-| Status | Active planning decision and evidence review |
+| Status | Owner-accepted Base implementation; release preparation pending |
 | Captured | 2026-09-04 |
 | Last reconciled | 2026-09-10, public-stock intake fixed and fresh disposable source copy detects successfully; candidate packaging pending |
 | Product objective | Upgrade supported servers to one current managed runtime generation without losing selected game behavior or durable state |
-| Current candidate | None accepted; the earlier pinned generic-core candidate remains rejected |
-| Checkpoint scope | Base-first guarded workflow under disposable validation; no accepted candidate and live-target mutation unauthorized |
+| Current candidate | Alpha.7 plus Editor fixes through `b1828c9` accepted by owner on 2026-09-12; older rejected strategies remain historical |
+| Checkpoint scope | Map-editor-compatible Current Base; optional renderer upgrades and one-off Spoiled Milk integration are not release blockers |
 | Editor implementation | Base topics integrated through `510b2fe`, runtime adoption `49b3fd5`, and refusal correction `f1fe86a`; combined 49-entrypoint code gate complete for candidate publication |
 | Published runtime | `30833010dcd16cf2fca6997e1de3e2ebabccba04` |
 | Editor's adopted runtime | Integrated `main` pins published `30833010`; runtime parity and combined Editor code gate pass |
@@ -33,6 +33,14 @@ candidate packaging, archive inspection and packaged launch/detection follow.
 See [the actual-checkout checkpoint](PRESERVATION-BASE-INTAKE.md) for evidence and
 the ordered path to that deliverable. Later-runtime adoption by
 existing authored projects must not hold up this fresh-install candidate.
+
+**2026-09-12 superseding checkpoint:** that disposable deliverable is complete
+and accepted. The older implementation SHAs and packaging tasks above describe
+the September 10 checkpoint, not outstanding feature work. Current acceptance,
+runtime pin, deferred scope and the requirement to publish the accepted V2 as
+GitHub Latest are recorded in
+[Owner acceptance and scope closure](WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md#owner-acceptance-and-scope-closure--2026-09-12).
+Do not resume the older Advanced/one-off customization plans as a release prerequisite.
 
 ## Candidate scope and closure checkpoint — 2026-09-06
 
