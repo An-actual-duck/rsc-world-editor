@@ -2,6 +2,15 @@
 
 ## Post-upgrade discovery and normal startup correction
 
+Desktop follow-up: the initial managed-capture fix covered direct model creation
+but missed the visible dialog's historical-only Native Base branch. Managed
+capture consequently entered the generic provider dialog, which could attach an
+automatic custom-content mapping and trigger `CAPABILITY_MISMATCH`. Both managed
+and historical Base inputs now use the Native Base dialog with no portable overlay.
+The dialog labels managed input as the active installed map, and the focused
+desktop-routing regression explicitly checks the managed branch. The immutable
+capture guard remains unchanged; existing projects do not need repair.
+
 The owner accepted alpha.7 login and re-detection. The subsequent file audit
 verified the installed composition, active imported package, transaction outputs,
 retained historical files and player database. It found two workflow gaps:

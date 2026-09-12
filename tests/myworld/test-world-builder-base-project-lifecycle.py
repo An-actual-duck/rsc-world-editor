@@ -99,8 +99,11 @@ class BaseProjectLifecycleApiTest(unittest.TestCase):
         self.assertLess(routing.index("if (!preview.canCreateServerProject())"), routing.index("showNativeBasePreview(preview);"))
         self.assertLess(routing.index("showNativeBasePreview(preview);"), routing.index('runTask("Checking for legacy map changes'))
         self.assertIn("showNativeBasePreview(preview);\n\t\t\t\treturn;", routing)
+        native_route = routing[:routing.index("showNativeBasePreview(preview);")]
+        self.assertIn("|| preview.report.isManaged()", native_route)
         dialog = source.split("private void showNativeBasePreview(", 1)[1].split("private void exportDetectedProviderDiagnostic", 1)[0]
         self.assertIn("createPreviewedProject(preview, displayName);", dialog)
+        self.assertIn("The active installed map becomes an immutable baseline", dialog)
         for forbidden in ("inspectPortableProvider", "importPortableProvider", "guidedProvider", "createMigrated"):
             self.assertNotIn(forbidden, dialog)
 

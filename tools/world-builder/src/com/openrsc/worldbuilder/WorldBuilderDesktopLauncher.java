@@ -961,7 +961,8 @@ final class WorldBuilderDesktopLauncher {
 			}
 			// Native Base owns its reviewed content and historical conversion. Do not
 			// infer a portable overlay from the stock server's definitions directory.
-			if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)) {
+			if (WorldBuilderPreservationLayoutAdapter.REPRESENTATION.equals(preview.representation)
+				|| preview.report.isManaged()) {
 				showNativeBasePreview(preview);
 				return;
 			}
@@ -1016,10 +1017,13 @@ final class WorldBuilderDesktopLauncher {
 			JTextArea report = readOnlyText();
 			report.setRows(9);
 			report.setColumns(58);
-			report.setText("Detected Preservation server: " + preview.source.getFileName()
+			report.setText((preview.report.isManaged() ? "Detected managed Current Base server: "
+				: "Detected Preservation server: ") + preview.source.getFileName()
 				+ "\n\n" + preview.summary
 				+ "\n\nContent: bundled Current Base composition."
-				+ "\nThe historical map becomes an immutable baseline in an isolated project."
+				+ (preview.report.isManaged()
+					? "\nThe active installed map becomes an immutable baseline in an isolated project."
+					: "\nThe historical map becomes an immutable baseline in an isolated project.")
 				+ "\nThe server remains unchanged. Upgrade Target Runtime and Import Map Changes"
 				+ " are separate, previewed actions after project creation.");
 			report.setCaretPosition(0);
