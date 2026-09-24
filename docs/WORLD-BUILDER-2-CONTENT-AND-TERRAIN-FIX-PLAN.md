@@ -1,7 +1,8 @@
 # World Builder 2 content and terrain correction plan
 
-Date: 2026-09-24. Status: active; initial browser correction integrated,
-wall reproduction and interactive acceptance pending.
+Date: 2026-09-24. Status: active; initial browser and GPU material corrections
+integrated. Floor migration, wall reproduction, and full interactive acceptance
+remain pending.
 
 ## Objective and baseline
 
@@ -42,7 +43,7 @@ verified conversion if necessary rather than filling every empty tile.
 2. **Floor consistency (runtime; Editor conversion if required) — pending.**
    Implement the floor contract above. Verify painting, collision, save/reload,
    surrounding void, and negative and higher signed levels as well as 0/1/2.
-3. **Material identity (runtime) — pending.** Preserve explicit solid-color
+3. **Material identity (runtime) — correction integrated; full-client acceptance pending.** Preserve explicit solid-color
    versus texture identity through GPU meshes and rendering. Black and low RGB
    colors must not alias texture IDs. Cover floor/wall/roof materials, genuine
    textures, overlay 10, and classic/remastered presentation. Do not reindex
@@ -89,6 +90,47 @@ server actions, and public release/tag/upload require their separate applicable
 authorization. No hash-guard bypass or weakening of transaction safety is part
 of this plan.
 
+## Floor migration findings and required implementation boundary
+
+The first implementation audit found no durable authored-floor distinction in
+the current raw terrain fields. `WorldBuilderPackedTerrainCodec.toLayered`
+preserves overlay bytes, and `WorldBuilderPackedConversionModel.readTerrain`
+verifies exact reverse conversion. Preservation reconciliation likewise seals
+the derived terrain. On the runtime side, both the terrain face-input builder
+and the older raster loop suppress base color on planes 1 and 2, including the
+native signed-level presentation path.
+
+Consequently, removing the renderer branch alone would make historical
+invisible upper-floor space visible. Replacing historical overlay 0 with
+structural void 8 would change walkability. Neither is the intended fix.
+
+The follow-on floor change must establish explicit current floor semantics and
+a bounded migration from historical semantics:
+
+- Preserve historical invisible walkable space as an explicit invisible
+  walkable material; preserve blocking invisible space and visible materials
+  independently. Do not infer authored intent from a zero color byte.
+- Make newly authored overlay 0 mean the same selected-color walkable floor
+  on every signed level. Explicit invisible walkable flooring remains a
+  separate discoverable selection. Blocking base color must also retain its
+  selected color consistently.
+- Bind semantics to a versioned package/encoding contract accepted by both
+  client and server, rather than a launch-only renderer flag. Preserve target
+  definition IDs; do not assume overlay 26 exists or is available to reserve.
+- Convert historical inputs and existing projects through reviewed, recoverable
+  staging, retaining immutable before-state and exact derivation evidence.
+  Reopen/save/export/region operations and target compatibility checks must
+  carry the distinction. An older runtime must not silently load new semantics.
+- Validate imported surrounding void and authored floors together, including
+  mixed historical/current data, negative/higher levels, collision, interrupted
+  migration and rollback. Existing bytes can encode both historical invisible
+  space and an unsuccessful attempt to paint overlay 0; preserve recorded
+  behavior during migration and make repainting 0 explicitly produce a floor.
+
+This is an implementation boundary, not a completed migration or a reason to
+retain the old behavior indefinitely. The independent material/RGB fix is
+being integrated first because it needs no data or semantic migration.
+
 ## Progress and evidence
 
 - 2026-09-24: reviewed both repository baselines, release evidence, and handoff.
@@ -125,3 +167,26 @@ of this plan.
   void still needs separate audit. The runtime evidence generator already
   advertises encodings 1 through 5, so the reported stale declaration is not
   reproduced by that current generator alone.
+- GPU material correction reviewed at runtime handoff
+  `f8d233955b86d1ba8e01af25a7d16c1db91fdc85` and published on runtime main as
+  `b09b1d5eebb04015791220624c5f6e45b853955d`. The World GPU producer now
+  resolves legacy resources into separate texture-ID and RGB channels before
+  rendering; consumers and texture-dependency collection no longer interpret
+  RGB as an index. No definition IDs, saved bytes, collision, or protocols
+  changed. The Editor lock selects this published revision.
+- Material validation passed: client build, runtime presentation group,
+  world-model product split, renderer geometry, object primitive builder,
+  material-family and texture-cache regressions. Behavioral coverage includes
+  terrain/wall/roof front and back materials, black/low RGB/white, transparency,
+  genuine textures 0/1, UVs, and classic/remaster material-color inputs.
+  `test-opengl-world-texture-reference-cache.py --render` additionally passed
+  hidden OpenGL framebuffer readback using production vertex upload, texture
+  atlas, and texture-enabled batch classification/binding. This covers the
+  fixed-function path, not full remaster shaders, software rasterization, or
+  interactive owner-project acceptance. Reproduction commands and limitations
+  are in the runtime's `docs/TERRAIN-MATERIAL-CORRECTION.md`.
+- Material adoption validation: exact runtime parity and all four Editor
+  presentation/supervision tests passed (ten seconds for the two selections).
+  This is a tested development integration, not a release or an update to the
+  owner's installation. Next implementation milestone is the explicit floor
+  contract and recoverable migration described above.
