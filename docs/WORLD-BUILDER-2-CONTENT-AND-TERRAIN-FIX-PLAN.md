@@ -1,6 +1,7 @@
 # World Builder 2 content and terrain correction plan
 
-Date: 2026-09-24. Status: active; implementation starting with browser defects.
+Date: 2026-09-24. Status: active; initial browser correction integrated,
+wall reproduction and interactive acceptance pending.
 
 ## Objective and baseline
 
@@ -33,7 +34,7 @@ verified conversion if necessary rather than filling every empty tile.
 
 ## Ordered implementation
 
-1. **Browser contracts (runtime) — in progress.** Correct the floor browser's
+1. **Browser contracts (runtime) — initial correction integrated.** Correct the floor browser's
    `floor` versus `tile` family mismatch. Reproduce the wall crash separately;
    it already requests `boundary`. Exercise open, filter, select, and close on
    multiple levels with stock and custom catalogs. Malformed entries must
@@ -96,3 +97,31 @@ of this plan.
   existing invisible-floor candidate and placement-bound NPC provider evidence.
 - Update this section with exact commits, checks, remaining acceptance, and
   changes to scope as each milestone completes.
+- Browser correction reviewed at runtime handoff
+  `e8388ca8c2c50ee640659c6e32b2d308c4e8eef6`, published on runtime main as
+  `175b60216f4970e89f601658b79b545fe3ed7d7e`, and selected in the Editor lock.
+  Fixes the floor family call and a missing bridge-definition dereference;
+  malformed tile/wall records now log their IDs and provider guidance.
+  Existing tests bypassed adaptive profile wiring. New coverage exercises
+  actual Editor browser opening, filtering, keyboard/mouse selection, and
+  closing against stock/custom/malformed in-memory inventories.
+- Runtime validation: client build, presentation group, one new browser test
+  with three scenarios, two existing browser tests, six catalog tests, shell
+  syntax and diff checks passed. The full runner now includes both browser
+  suites. Wall selection passes north/east/diagonal/smart-wall fixture paths,
+  but the owner's crash is not reproduced. Rendered GUI, signed-level
+  interaction, and owner-specific reproduction remain open; these headless
+  fixtures do not prove those acceptance criteria. No production package or
+  user installation was updated.
+- Editor adoption validation: exact runtime parity and
+  `scripts/test.sh --group presentation` passed (four tests, nine seconds
+  reported for the two selections). Reviewed runtime changes affect client
+  browser/catalog handling only; no server, data, protocol, or persistence
+  changes require transaction-suite expansion for this milestone.
+- Further floor audit: overlay 26 is already labeled `Invisible Path` in the
+  runtime catalog, but Current Base's public TileDef.xml ends at overlay 25.
+  Availability therefore needs composition-aware handling. New Editor space
+  explicitly uses overlay 8 for structural void; legacy upper-plane implicit
+  void still needs separate audit. The runtime evidence generator already
+  advertises encodings 1 through 5, so the reported stale declaration is not
+  reproduced by that current generator alone.
