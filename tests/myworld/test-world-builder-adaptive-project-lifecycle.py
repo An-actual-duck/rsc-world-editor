@@ -1503,9 +1503,11 @@ public final class FakeAdaptiveClient {
             capture_output=True,
             text=True,
         )
+        server_manifest = source / "server-manifest.mf"
+        server_manifest.write_text("Manifest-Version: 1.0\nWorld-Builder-Floor-Semantics: standard-floors-v1\n\n")
         subprocess.run(
             [
-                "jar", "cf", str(runtime / "server/core.jar"),
+                "jar", "cfm", str(runtime / "server/core.jar"), str(server_manifest),
                 "-C", str(classes), "com/openrsc/server/Server.class",
             ],
             check=True,
@@ -1515,7 +1517,7 @@ public final class FakeAdaptiveClient {
         )
         manifest = source / "client-manifest.mf"
         manifest.write_text(
-            "Manifest-Version: 1.0\nMain-Class: fixture.FakeAdaptiveClient\n\n",
+            "Manifest-Version: 1.0\nMain-Class: fixture.FakeAdaptiveClient\nWorld-Builder-Floor-Semantics: standard-floors-v1\n\n",
             encoding="utf-8",
         )
         subprocess.run(

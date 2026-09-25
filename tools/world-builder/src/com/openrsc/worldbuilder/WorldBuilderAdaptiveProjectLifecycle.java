@@ -289,6 +289,164 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 		}
 	}
 
+	/** Create a separately identified upgraded copy; never rewrite an existing project's evidence. */
+	ProjectResult upgradeProjectFloors(Path requestedInstall, Path requestedRuntime,
+		Path requestedProject, String expectedFingerprint, String confirmation, int port)
+		throws IOException, WorldBuilderContractException {
+		if (!"UPGRADE PROJECT FLOORS".equals(confirmation)) throw new IOException(
+			"Confirm UPGRADE PROJECT FLOORS to create the upgraded project copy.");
+		if (port < 1 || port >= 65535) throw new IOException("Invalid Builder port.");
+		Path install = realDirectory(requestedInstall, "World Builder installation");
+		Path project = realDirectory(requestedProject, "selected project");
+		if (!project.getParent().equals(install.resolve(PROJECTS_DIRECTORY)))
+			throw new IOException("Selected project is outside this installation.");
+		try (FileChannel channel = openLock(install.resolve(PROJECTS_DIRECTORY).resolve(".registry.lock"));
+			WorldBuilderAdaptiveProjectLock ignored = WorldBuilderAdaptiveProjectLock.acquire(project, "upgrade project floors")) {
+			FileLock lock = tryLock(channel);
+			if (lock == null) throw new IOException("Project registry is busy; retry after the active operation.");
+			try {
+				RegistryState registry = loadRegistry(install, true);
+				if (registry.records.size() >= WorldBuilderContractLimits.MAX_PROJECTS)
+					throw new IOException("Project registry is full.");
+				VerifiedProject old = verifyProjectDirectory(project, true);
+				if (!registry.byId.containsKey(old.projectId)) throw new IOException("Selected project is not registered.");
+				if (!string(old.manifest, "projectFingerprintSha256").equals(expectedFingerprint))
+					throw new IOException("Project changed since the upgrade preview; preview it again.");
+				if ("standalone-empty".equals(old.origin)) throw new IOException(
+					"Upgrade Project Floors applies to imported server projects. This standalone project has no captured server content.");
+				boolean nativeBase = Files.exists(project.resolve(WorldBuilderCurrentBaseProjectContent.BINDING));
+				if (!nativeBase && !Files.isDirectory(project.resolve(WorldBuilderProjectContentBundle.SOURCE_DIRECTORY)))
+					throw new IOException("This project has no complete captured content bundle to upgrade safely.");
+				if (nativeBase && baseComposition == null) throw new IOException("The current Base composition is unavailable.");
+				WorldBuilderAdaptiveRuntimePreparer.SourceRuntime source = nativeBase
+					? WorldBuilderAdaptiveRuntimePreparer.inspectBase(requestedRuntime, WorldBuilderCurrentBaseProjectContent.inspect(baseComposition))
+					: WorldBuilderAdaptiveRuntimePreparer.inspect(requestedRuntime);
+				return upgradeFloorsLocked(install, registry, old, source, port);
+			} finally { lock.release(); }
+		}
+	}
+
+	private ProjectResult upgradeFloorsLocked(Path install, RegistryState registry,
+		VerifiedProject old, WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, int port)
+		throws IOException, WorldBuilderContractException {
+		String id = UUID.randomUUID().toString();
+		Path destination = install.resolve(PROJECTS_DIRECTORY).resolve(id);
+		Path stage = destination.resolveSibling(".staging-" + id + "-" + UUID.randomUUID());
+		byte[] oldRegistry = readOptionalRegular(install.resolve(REGISTRY_FILE));
+		byte[] oldActive = readOptionalRegular(install.resolve(ACTIVE_FILE));
+		boolean published = false;
+		try {
+			Files.createDirectory(stage);
+			observe("stage-created", stage);
+			copyTreeExact(old.projectRoot.resolve("source"), stage.resolve("source"));
+			copyTreeExact(old.projectRoot.resolve("discovery"), stage.resolve("discovery"));
+			verifySourceTree(stage, old.snapshot);
+			copyTreeExact(old.projectRoot.resolve(WORKING_PACKAGE_DIRECTORY), stage.resolve(WORKING_PACKAGE_DIRECTORY));
+			byte[] catalog;
+			if (runtime.basePlan != null) {
+				// These are derived provider copies in an unpublished stage, not captured target evidence.
+				deleteTree(stage.resolve(WorldBuilderCurrentBaseProjectContent.ROOT));
+				deleteTree(stage.resolve(WorldBuilderAdaptiveRuntimePreparer.NATIVE_SUPPORT_ROOT));
+				WorldBuilderCurrentBaseProjectContent.capture(stage, runtime.basePlan);
+				WorldBuilderAdaptiveRuntimePreparer.captureBaseSupport(stage, runtime);
+				requireStableNativeFloorIds(old.projectRoot, stage);
+				catalog = Files.readAllBytes(stage.resolve(WorldBuilderCurrentBaseProjectContent.CATALOG));
+			} else {
+				WorldBuilderProjectContentBundle.Bundle bundle = WorldBuilderProjectContentBundle.extendStandardFloors(
+					stage.resolve(WorldBuilderProjectContentBundle.SOURCE_DIRECTORY));
+				catalog = WorldBuilderJsonDocuments.pretty(bundle.compatibilityCatalog()).getBytes(StandardCharsets.UTF_8);
+			}
+			Files.write(stage.resolve(SOURCE_SERVER_AUTHORING_DEFINITIONS), catalog);
+			Files.write(stage.resolve(SOURCE_CLIENT_AUTHORING_DEFINITIONS), catalog);
+			Map<String,Object> snapshot = old.snapshot;
+			snapshot.put("projectId", id);
+			Map<String,Object> lineage = new LinkedHashMap<String,Object>();
+			lineage.put("manifestType", "world-builder-project-floor-upgrade-origin");
+			lineage.put("schemaVersion", Long.valueOf(1));
+			lineage.put("projectId", old.projectId);
+			lineage.put("projectFingerprintSha256", string(old.manifest, "projectFingerprintSha256"));
+			lineage.put("workingFingerprintSha256", old.working.fingerprintSha256);
+			writeNew(stage.resolve("source/floor-upgrade/origin-" + old.projectId + ".json"), WorldBuilderJsonDocuments.pretty(lineage).getBytes(StandardCharsets.UTF_8));
+			Files.write(stage.resolve("source/floor-upgrade/current.json"), WorldBuilderJsonDocuments.pretty(lineage).getBytes(StandardCharsets.UTF_8));
+			// Preserve original roles and absence evidence while refreshing derived file inventories.
+			Set<String> inventoried = new HashSet<String>();
+			for (String key : Arrays.asList("originalFiles", "definitionRuntimeFiles", "conversionEvidenceFiles", "layeredBaselineFiles")) {
+				List<InventoryRecord> refreshed = new ArrayList<InventoryRecord>();
+				for (Object raw : array(snapshot.get(key), key)) {
+					InventoryRecord record = InventoryRecord.from(object(raw, key));
+					if (!record.present) { refreshed.add(record); inventoried.add(record.relativePath); }
+					else if (Files.exists(stage.resolve(record.relativePath))) {
+						refreshed.add(recordFor(stage, record.role, record.relativePath)); inventoried.add(record.relativePath);
+					}
+				}
+				snapshot.put(key, records(refreshed));
+			}
+			List<Object> originals = new ArrayList<Object>(array(snapshot.get("originalFiles"), "originalFiles"));
+			snapshot.put("originalFiles", originals);
+			for (String relative : scanRegularFiles(stage.resolve("source"), stage)) {
+				if (!relative.equals(SNAPSHOT_FILE) && !inventoried.contains(relative))
+					originals.add(recordFor(stage, "project-floor-upgrade-evidence", relative).toJson());
+			}
+			List<InventoryRecord> sortedOriginals = new ArrayList<InventoryRecord>();
+			for (Object raw : originals) sortedOriginals.add(InventoryRecord.from(object(raw, "original evidence")));
+			snapshot.put("originalFiles", records(sortedOriginals));
+			bindSelfFingerprint(snapshot, "sourceFingerprintSha256", false);
+			writeContractAtomic(stage.resolve(SNAPSHOT_FILE), snapshot, WorldBuilderAdaptiveContracts.Kind.SOURCE_SNAPSHOT);
+			WorldBuilderReadOnlyTarget stagedTarget = WorldBuilderReadOnlyTarget.open(stage);
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog definitions = WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(stagedTarget, definitionCatalogPath(snapshot));
+			WorldBuilderGenericLayeredPackage working = WorldBuilderGenericLayeredPackage.inspect(stagedTarget, WORKING_PACKAGE_DIRECTORY, "working", definitions);
+			if (!working.fingerprintSha256.equals(old.working.fingerprintSha256)) throw new IOException("Upgrade changed the saved map.");
+			for (String dir : Arrays.asList("exports", "backups", "receipts", "diagnostics", "logs", "run")) ensureRealDirectory(stage.resolve(dir));
+			if (runtime.basePlan == null) WorldBuilderContentReconciliation.write(stage, runtime, working, WorldBuilderProjectContentBundle.copyToWorking(stage));
+			observe("source-prepared", stage);
+			WorldBuilderAdaptiveRuntimePreparer.prepare(stage, runtime, snapshot, old.origin, port);
+			writeRuntimeMetadata(stage, id, old.origin, runtime.fingerprintSha256, port, working);
+			Map<String,Object> manifest = old.manifest;
+			manifest.put("projectId", id);
+			String name = string(manifest, "displayName");
+			name = (name.length() > 100 ? name.substring(0, 100) : name) + " (upgraded floors)";
+			manifest.put("displayName", name);
+			Map<String,Object> fingerprints = object(manifest.get("fingerprints"), "fingerprints");
+			fingerprints.put("sourceSha256", string(snapshot, "sourceFingerprintSha256"));
+			fingerprints.put("definitionsSha256", WorldBuilderHashes.sha256(stage.resolve(definitionCatalogPath(snapshot))));
+			fingerprints.put("runtimeSha256", runtime.fingerprintSha256);
+			bindSelfFingerprint(manifest, "projectFingerprintSha256", true);
+			writeContractNew(stage.resolve(PROJECT_FILE), manifest, WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST);
+			observe("working-prepared", stage);
+			verifyProjectDirectory(stage, true, true);
+			observe("before-project-publish", stage);
+			moveAtomicNew(stage, destination); published = true;
+			observe("project-published", destination);
+			String hash = WorldBuilderHashes.sha256(destination.resolve(PROJECT_FILE));
+			writeContractAtomic(install.resolve(REGISTRY_FILE), registryWith(registry, id, name, old.origin, old.state, hash), WorldBuilderAdaptiveContracts.Kind.PROJECT_REGISTRY);
+			observe("registry-published", destination);
+			writeContractAtomic(install.resolve(ACTIVE_FILE), activeProject(id, hash), WorldBuilderAdaptiveContracts.Kind.ACTIVE_PROJECT);
+			observe("active-published", destination);
+			loadRegistry(install, true);
+			return new ProjectResult(destination, id, old.origin, old.state, working.fingerprintSha256, port);
+		} catch (IOException | WorldBuilderContractException | RuntimeException failure) {
+			rollbackCreation(install, destination, stage, published, oldRegistry, oldActive, failure);
+			throw failure;
+		} catch (Exception failure) {
+			IOException wrapped = new IOException("Project floor upgrade interrupted.", failure);
+			rollbackCreation(install, destination, stage, published, oldRegistry, oldActive, wrapped);
+			throw wrapped;
+		}
+	}
+
+	private static void requireStableNativeFloorIds(Path original, Path upgraded) throws IOException {
+		String relative = WorldBuilderCurrentBaseProjectContent.NATIVE + "/server/conf/server/defs/TileDef.xml";
+		List<WorldBuilderTerrainDefinitionCatalog.TileDefinition> before = WorldBuilderTerrainDefinitionCatalog.readTiles(original.resolve(relative)).tiles;
+		List<WorldBuilderTerrainDefinitionCatalog.TileDefinition> after = WorldBuilderTerrainDefinitionCatalog.readTiles(upgraded.resolve(relative)).tiles;
+		if (after.size() < before.size()) throw new IOException("Current Base removes an existing floor ID; a map migration is required.");
+		for (int index = 0; index < before.size(); index++) {
+			WorldBuilderTerrainDefinitionCatalog.TileDefinition left = before.get(index), right = after.get(index);
+			if (left.colour != right.colour || left.unknown != right.unknown || left.objectType != right.objectType
+				|| left.worldBuilderSourceOverlay != right.worldBuilderSourceOverlay || !left.worldBuilderMaterial.equals(right.worldBuilderMaterial))
+				throw new IOException("Current Base changes existing floor ID " + (index + 1) + "; a map migration is required.");
+		}
+	}
+
 	private ProjectResult createLocked(Path install,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime sourceRuntime,
 		String runtimeSha256, Path target,

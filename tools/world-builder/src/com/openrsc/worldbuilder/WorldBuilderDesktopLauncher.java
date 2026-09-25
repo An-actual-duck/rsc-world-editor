@@ -294,6 +294,7 @@ final class WorldBuilderDesktopLauncher {
 			new JButton("Upgrade Target Runtime");
 		private final JButton importToServer =
 			new JButton("Import Map Changes");
+		private final JButton upgradeFloors = new JButton("Upgrade Project Floors");
 		private final JButton restoreBackup = new JButton("Restore Project Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
@@ -333,6 +334,9 @@ final class WorldBuilderDesktopLauncher {
 			file.add(new JSeparator());
 			file.add(menu("Export Selected Project Complete Map Package…", new Runnable() {
 				@Override public void run() { exportSelectedProject(); }
+			}));
+			file.add(menu("Upgrade Project Floors…", new Runnable() {
+				@Override public void run() { upgradeProjectFloors(); }
 			}));
 			file.add(menu("Project Backups…", new Runnable() {
 				@Override public void run() { openProjectBackups(); }
@@ -418,6 +422,8 @@ final class WorldBuilderDesktopLauncher {
 			upgradeServer.addActionListener(event -> upgradeSelectedProjectRuntime());
 			importToServer.addActionListener(event -> importSelectedProject());
 			restoreBackup.addActionListener(event -> openProjectBackups());
+			upgradeFloors.addActionListener(event -> upgradeProjectFloors());
+			upgradeFloors.setToolTipText("Create an upgraded copy with current floor choices, preserving your saved map edits and original project.");
 			for (JButton primary : new JButton[] {installedSource, open}) {
 				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
 				primary.setPreferredSize(new Dimension(245, 44));
@@ -434,6 +440,7 @@ final class WorldBuilderDesktopLauncher {
 			upgradeServer.setEnabled(false);
 			importToServer.setEnabled(false);
 			restoreBackup.setEnabled(false);
+			upgradeFloors.setEnabled(false);
 
 			JPanel actions = new JPanel(new GridBagLayout());
 			actions.setBorder(BorderFactory.createEmptyBorder(0, 20, 12, 20));
@@ -460,6 +467,8 @@ final class WorldBuilderDesktopLauncher {
 			selectedProjectActions.add(importToServer, selectedAction);
 			selectedAction.gridx = 2;
 			selectedProjectActions.add(restoreBackup, selectedAction);
+			selectedAction.gridx = 0; selectedAction.gridy = 1; selectedAction.gridwidth = 3;
+			selectedProjectActions.add(upgradeFloors, selectedAction);
 
 			JPanel actionRows = new JPanel();
 			actionRows.setLayout(new BoxLayout(actionRows, BoxLayout.Y_AXIS));
@@ -524,6 +533,7 @@ final class WorldBuilderDesktopLauncher {
 			upgradeServer.setEnabled(!busy && entry != null);
 			importToServer.setEnabled(!busy && entry != null);
 			restoreBackup.setEnabled(!busy && entry != null);
+			upgradeFloors.setEnabled(!busy && entry != null && !"standalone-empty".equals(entry.origin));
 			if (entry == null) return;
 			frame.getRootPane().setDefaultButton(open);
 			details.setText("Project: " + entry.displayName
@@ -627,6 +637,33 @@ final class WorldBuilderDesktopLauncher {
 							"Complete Map Exported", JOptionPane.INFORMATION_MESSAGE);
 					}
 				});
+		}
+
+		private void upgradeProjectFloors() {
+			final WorldBuilderLauncherModel.ProjectEntry entry = selectedForServerAction("upgrade project floors");
+			if (entry == null) return;
+			runTask("Verifying the selected project…", new Task<String>() {
+				@Override public String run() throws Exception { return model.previewProjectFloorUpgrade(entry); }
+			}, new Success<String>() {
+				@Override public void accept(final String fingerprint) {
+					String message = "Create an upgraded copy of “" + entry.displayName + "”?\n\n"
+						+ "The new copy keeps your saved map and placements and adds the current floor choices.\n"
+						+ "Your original project, backups and import history remain available.\n"
+						+ "The copy starts with a fresh Builder character and separate backup history.\n"
+						+ "This does not change your server.\n\nCreate and select the upgraded copy?";
+					if (JOptionPane.showConfirmDialog(frame, message, "Upgrade Project Floors",
+						JOptionPane.OK_CANCEL_OPTION, JOptionPane.INFORMATION_MESSAGE) != JOptionPane.OK_OPTION) return;
+					runTask("Creating the upgraded project copy…", new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
+						@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run() throws Exception {
+							return model.upgradeProjectFloors(entry, fingerprint);
+						}
+					}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
+						@Override public void accept(WorldBuilderAdaptiveProjectLifecycle.ProjectResult result) {
+							refreshProjects(result.projectId);
+						}
+					});
+				}
+			});
 		}
 
 		private void openProjectBackups() {
@@ -1590,6 +1627,7 @@ final class WorldBuilderDesktopLauncher {
 			upgradeServer.setEnabled(!value && selected);
 			importToServer.setEnabled(!value && selected);
 			restoreBackup.setEnabled(!value && selected);
+			upgradeFloors.setEnabled(!value && selected && !"standalone-empty".equals(projectList.getSelectedValue().origin));
 			status.setText(message);
 		}
 
