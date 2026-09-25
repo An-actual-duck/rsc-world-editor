@@ -508,7 +508,11 @@ final class WorldBuilderLauncherModel {
 
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult upgradeProjectFloors(ProjectEntry entry, String fingerprint)
 		throws IOException, WorldBuilderContractException {
-		return new WorldBuilderAdaptiveProjectLifecycle(null, baseComposition).upgradeProjectFloors(
+		WorldBuilderProviderCatalog.Composition selected = baseComposition;
+		if (Files.exists(entry.projectRoot.resolve(WorldBuilderCurrentBaseProjectContent.BINDING)) && selected == null)
+			selected = WorldBuilderProviderCatalog.resolve(installation.resolve("current-platform"),
+				installation.resolve("current-platform/composition-identity.json"));
+		return new WorldBuilderAdaptiveProjectLifecycle(null, selected).upgradeProjectFloors(
 			installation, runtime, entry.projectRoot, fingerprint, "UPGRADE PROJECT FLOORS", creationPort());
 	}
 

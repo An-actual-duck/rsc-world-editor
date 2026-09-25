@@ -8562,6 +8562,14 @@ public final class UpgradeNpcPlacements {
             installation = base / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
+            # This negative intentionally represents the pre-floor-semantics runtime.
+            for jar in (runtime / "server/core.jar", runtime / "Client_Base/Open_RSC_Client.jar"):
+                with zipfile.ZipFile(jar) as archive:
+                    entries = {name: archive.read(name) for name in archive.namelist()}
+                entries["META-INF/MANIFEST.MF"] = b"Manifest-Version: 1.0\n\n"
+                with zipfile.ZipFile(jar, "w") as archive:
+                    for name, data in entries.items():
+                        archive.writestr(name, data)
             report = base / "report.json"
             self.discover(target, report)
             target_before, runtime_before = tree_bytes(target), tree_bytes(runtime)

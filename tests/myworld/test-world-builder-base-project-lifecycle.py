@@ -48,6 +48,12 @@ public final class BaseLifecycleHarness {
       int exit = new WorldBuilderProcessSupervisor().superviseAdaptiveWithCommands(project, server, client, 180000L);
       if (exit != 0) throw new AssertionError("native Base authoring session exited " + exit);
       System.out.println("base-native-authoring-authenticated-ready-clean-exit");
+    } else if ("upgrade-floors".equals(args[0])) {
+      WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(project.getParent().getParent(), Paths.get(args[2]), null, 43951, null);
+      for (WorldBuilderLauncherModel.ProjectEntry entry : model.projects()) if (entry.projectRoot.equals(project)) {
+        System.out.print(model.upgradeProjectFloors(entry, model.previewProjectFloorUpgrade(entry)).toJson()); return;
+      }
+      throw new AssertionError("native project not registered");
     } else if ("desktop-create".equals(args[0])) {
       WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(project, Paths.get(args[2]), Paths.get(args[3]),
         Integer.parseInt(args[4]), "preservation");
@@ -271,6 +277,19 @@ class BaseProjectLifecycleTest(unittest.TestCase):
         self.assertNotEqual(0, refused.returncode)
         changed.write_bytes(original)
         self.assertEqual(before, snapshot(target))
+
+        # A separately identified current-floor copy retains the complete original
+        # project and its edited world; no historical target is consulted/mutated.
+        old_project = snapshot(project)
+        upgraded = self.invoke("upgrade-floors", project, application, harness=True)
+        self.assertEqual(0, upgraded.returncode, upgraded.stdout + upgraded.stderr)
+        sibling = Path(json.loads(upgraded.stdout)["projectRoot"])
+        self.assertNotEqual(project, sibling)
+        self.assertEqual(old_project, snapshot(project))
+        self.assertEqual(snapshot(project / "working/layered-world/package"), snapshot(sibling / "working/layered-world/package"))
+        self.assertEqual(before, snapshot(target))
+        self.assertEqual(0, self.invoke("verify", sibling, harness=True).returncode)
+        self.assertEqual(project.name, json.loads((sibling / "source/floor-upgrade/current.json").read_text())["projectId"])
 
 
 if __name__ == "__main__":
