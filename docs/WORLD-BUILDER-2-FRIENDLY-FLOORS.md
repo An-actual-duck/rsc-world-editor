@@ -3,6 +3,27 @@
 Implementation contract, 2026-09-24. Follow progress in the
 [content and terrain plan](WORLD-BUILDER-2-CONTENT-AND-TERRAIN-FIX-PLAN.md).
 
+## Imported-server completion (in progress)
+
+The first candidate only extended Current Base. Imported/custom catalogs must
+also receive a deterministic append-only extension during project preparation.
+Reuse existing same-source semantic partners and safe original definitions;
+preserve every existing ID and original row. Historical projectile floors 2/11
+and invisible floors need explicit semantic partners. Complete or partially
+extended catalogs must upgrade idempotently. Capacity exhaustion is a precise
+pre-publication refusal, never silent ID reassignment.
+
+Existing projects upgrade through a new sibling project carrying the exact
+working map, with the complete original project retained for recovery. Source
+evidence, derived content, runtime binding and catalogs must remain verifiable.
+The normal player client must load the same verified definitions as the server.
+Upgrade Target Runtime installs that pair with exact backups and recovery;
+Import Map Changes remains map-only and requires the installed definitions.
+
+Acceptance includes custom water, original-row preservation, repeated upgrades,
+existing edited projects, failed publication, client/server definition pairing,
+map-only refusal before upgrade, and upgrade rollback/interruption recovery.
+
 ## Authoring behavior
 
 The Floor tool combines appearance and floor walkability. Select Color chooses

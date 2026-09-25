@@ -2,6 +2,9 @@
 """Exercise standard floor metadata at the real Editor content boundary."""
 
 import gzip
+import shutil
+import json
+import xml.etree.ElementTree as ET
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +19,14 @@ import java.nio.file.*;
 public final class StandardFloorHarness {
     public static void main(String[] args) throws Exception {
         Path root = Paths.get(args[1]);
+        if (args[0].equals("extend")) {
+            Files.write(Paths.get(args[2]), WorldBuilderStandardFloorDefinitions.extend(root));
+            return;
+        }
+        if (args[0].equals("extend-bundle")) {
+            System.out.println(WorldBuilderProjectContentBundle.extendStandardFloors(root).bundleFingerprintSha256);
+            return;
+        }
         if (args[0].equals("runtime")) {
             if (WorldBuilderStandardFloorRuntime.required(root.resolve("TileDef.xml"))) {
                 WorldBuilderStandardFloorRuntime.require(root.resolve("server.jar"), root.resolve("client.jar"));
@@ -153,6 +164,65 @@ class StandardFloors(unittest.TestCase):
                 if not expected:
                     self.assertIn("standard-floors-v1 in both client and server", result.stderr)
                 self.assertEqual(before, {p: p.read_bytes() for p in before})
+
+    def test_imported_extension_preserves_originals_and_completes_materials(self):
+        directory = self.root / self._testMethodName
+        directory.mkdir()
+        original = ("<?xml version=\"1.0\"?>\n<TileDef-array><!-- custom palette -->\n" +
+            tile(-19) + tile(42, 4, 1) + tile(12345678) + "</TileDef-array>\n").encode()
+        source = directory / "input.xml"
+        output = directory / "output.xml"
+        source.write_bytes(original)
+        def extend(src, dst):
+            return subprocess.run(["java", "-cp", f"{self.root}:{CLASSES}",
+                "com.openrsc.worldbuilder.StandardFloorHarness", "extend", str(src), str(dst)],
+                capture_output=True, text=True)
+        result = extend(source, output)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(source.read_bytes(), original)
+        self.assertTrue(output.read_bytes().startswith(original.split(b"</TileDef-array>")[0]))
+        rows = list(ET.fromstring(output.read_bytes()))
+        partners = {(int(r.findtext("worldBuilderSourceOverlay")), int(r.findtext("objectType")))
+            for r in rows if r.find("worldBuilderSourceOverlay") is not None}
+        self.assertEqual(partners, {(1, 1), (2, 0), (2, 1), (3, 0), (3, 1)})
+        for row in rows:
+            if row.findtext("worldBuilderSourceOverlay") == "2":
+                self.assertEqual(row.findtext("colour"), "42")
+                self.assertEqual(row.findtext("unknown"), "4")
+        again = directory / "again.xml"
+        self.assertEqual(extend(output, again).returncode, 0)
+        self.assertEqual(again.read_bytes(), output.read_bytes())
+        source.write_text("<TileDef-array>" + tile() * 249 + "</TileDef-array>")
+        refused = directory / "refused.xml"
+        result = extend(source, refused)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("249 usable slots", result.stderr)
+        self.assertFalse(refused.exists())
+
+    def test_bundle_upgrade_is_staged_preserves_other_files_and_is_idempotent(self):
+        directory = self.root / self._testMethodName
+        bundle = directory / ".staging-test" / "source/content-bundle"
+        shutil.copytree(ROOT / "tests/fixtures/project-content-bundle-v1/bundle", bundle)
+        before = {str(p.relative_to(bundle)): p.read_bytes() for p in bundle.rglob("*") if p.is_file()}
+        def invoke(root):
+            return subprocess.run(["java", "-cp", f"{self.root}:{CLASSES}",
+                "com.openrsc.worldbuilder.StandardFloorHarness", "extend-bundle", str(root)],
+                capture_output=True, text=True)
+        result = invoke(bundle)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for path, payload in before.items():
+            if path not in ("manifest.json", "files/server/conf/server/defs/TileDef.xml"):
+                self.assertEqual((bundle / path).read_bytes(), payload)
+        manifest = json.loads((bundle / "manifest.json").read_text())
+        old = json.loads(before["manifest.json"])
+        self.assertEqual(manifest["assetFingerprintSha256"], old["assetFingerprintSha256"])
+        self.assertNotEqual(manifest["definitionFingerprintSha256"], old["definitionFingerprintSha256"])
+        after = {str(p.relative_to(bundle)): p.read_bytes() for p in bundle.rglob("*") if p.is_file()}
+        self.assertEqual(invoke(bundle).returncode, 0)
+        self.assertEqual(after, {str(p.relative_to(bundle)): p.read_bytes() for p in bundle.rglob("*") if p.is_file()})
+        sealed = directory / "sealed" / "source/content-bundle"
+        shutil.copytree(bundle, sealed)
+        self.assertNotEqual(invoke(sealed).returncode, 0)
 
 
 if __name__ == "__main__":
