@@ -215,10 +215,10 @@ final class WorldBuilderProjectContentBundle {
 				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
 		WorldBuilderDefinitionComposition.Profile composition =
 			WorldBuilderDefinitionComposition.inspect(copied, sourceLayout);
-		if (WorldBuilderStandardFloorRuntime.required(copied.requiredFile(sourceLayout.definitionRoot + "/TileDef.xml"))) {
-			WorldBuilderStandardFloorRuntime.require(runtime.verifiedSourcePath("server/core.jar"),
-				runtime.verifiedSourcePath("client/Open_RSC_Client.jar"));
-		}
+		byte[] standardFloors = WorldBuilderStandardFloorDefinitions.extend(
+			copied.requiredFile(sourceLayout.definitionRoot + "/TileDef.xml"));
+		WorldBuilderStandardFloorRuntime.require(runtime.verifiedSourcePath("server/core.jar"),
+			runtime.verifiedSourcePath("client/Open_RSC_Client.jar"));
 		WorldBuilderSupplementalNpcDefinitions.Result npcRegistry =
 			WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
@@ -304,7 +304,10 @@ final class WorldBuilderProjectContentBundle {
 			}
 			boolean overridden = !composition.sourceFor(
 				spec.role, selectedSpec.targetPath).equals(selectedSpec.targetPath);
-			if (sceneryMigration.changed()
+			if ("definition.tile".equals(spec.role)) {
+				Files.write(destination, standardFloors);
+				overridden = true;
+			} else if (sceneryMigration.changed()
 				&& "definition.scenery".equals(spec.role)) {
 				Files.write(destination, sceneryMigration.definitionsOverride);
 				overridden = true;
@@ -392,6 +395,36 @@ final class WorldBuilderProjectContentBundle {
 				"Discard the unpublished project stage and retry.");
 		}
 		return copied;
+	}
+
+	/** Rebind only a copied unpublished project's bundle; never edits a sealed project. */
+	static Bundle extendStandardFloors(Path requestedRoot)
+		throws IOException, WorldBuilderContractException {
+		Bundle before = read(requestedRoot);
+		Path project = before.root.getParent().getParent();
+		if (!project.getFileName().toString().startsWith(".staging-")
+			|| !before.root.equals(project.resolve(SOURCE_DIRECTORY)))
+			throw unsafe("Floor palette upgrades require an unpublished sibling project stage.");
+		Path tiles = before.pathForRole("definition.tile");
+		byte[] extended = WorldBuilderStandardFloorDefinitions.extend(tiles);
+		if (Arrays.equals(extended, Files.readAllBytes(tiles))) return before;
+		Files.write(tiles, extended);
+		int version = CAPABILITY_ID.equals(before.capabilityId) ? 3
+			: V2_CAPABILITY_ID.equals(before.capabilityId) ? 2 : 1;
+		List<FileRecord> records = new ArrayList<FileRecord>();
+		for (FileRecord record : before.files) {
+			records.add("definition.tile".equals(record.spec.role)
+				? new FileRecord(record.spec, record.bundlePath, extended.length,
+					WorldBuilderHashes.sha256(extended), record.mediaType) : record);
+		}
+		Map<String,Object> catalog = deriveCatalog(before.root,
+			(String)before.definitionCatalog.get("catalogId"));
+		String definitions = fingerprint("world-builder-project-content-definitions-v" + version + "\n",
+			records, true, (String)catalog.get("catalogSha256"));
+		Map<String,Object> updated = manifest(version, catalog, before.itemVisuals, records,
+			definitions, before.assetFingerprintSha256, before.itemVisualFingerprintSha256);
+		Files.write(before.root.resolve(MANIFEST), WorldBuilderJsonDocuments.pretty(updated).getBytes(StandardCharsets.UTF_8));
+		return read(before.root);
 	}
 
 	static Bundle read(Path requestedRoot)
