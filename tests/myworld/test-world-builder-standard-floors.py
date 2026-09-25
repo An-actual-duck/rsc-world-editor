@@ -5,6 +5,7 @@ import gzip
 import shutil
 import json
 import xml.etree.ElementTree as ET
+import importlib.util
 import subprocess
 import tempfile
 import unittest
@@ -223,6 +224,33 @@ class StandardFloors(unittest.TestCase):
         sealed = directory / "sealed" / "source/content-bundle"
         shutil.copytree(bundle, sealed)
         self.assertNotEqual(invoke(sealed).returncode, 0)
+
+    def test_imported_extension_matches_provider_semantics(self):
+        script = ROOT / ".runtime-provider/scripts/standard-floors.py"
+        spec = importlib.util.spec_from_file_location("provider_standard_floors", script)
+        provider = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(provider)
+        directory = self.root / self._testMethodName
+        directory.mkdir()
+        fixtures = [
+            "<TileDef><colour>3</colour></TileDef>",
+            tile() * 11 + tile(3, 4, 1),
+            tile(12345678) + tile(42, 4, 1),
+            tile() + tile(blocking=1, metadata="<worldBuilderSourceOverlay>1</worldBuilderSourceOverlay>"),
+        ]
+        def values(payload):
+            return [tuple(r.findtext(k, "0").strip() or "0" for k in
+                ("colour", "unknown", "objectType", "worldBuilderMaterial", "worldBuilderSourceOverlay"))
+                for r in ET.fromstring(payload)]
+        for index, rows in enumerate(fixtures):
+            with self.subTest(index=index):
+                source, output = directory / f"{index}.xml", directory / f"{index}-out.xml"
+                source.write_text("<TileDef-array>" + rows + "</TileDef-array>")
+                result = subprocess.run(["java", "-cp", f"{self.root}:{CLASSES}",
+                    "com.openrsc.worldbuilder.StandardFloorHarness", "extend", str(source), str(output)],
+                    capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(values(output.read_bytes()), values(provider.extend(source.read_bytes())))
 
 
 if __name__ == "__main__":
