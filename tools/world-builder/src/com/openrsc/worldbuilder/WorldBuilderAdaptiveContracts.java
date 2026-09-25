@@ -1025,7 +1025,11 @@ final class WorldBuilderAdaptiveContracts {
 	private static void validateMutationPlan(Map<String,Object> root)
 		throws WorldBuilderContractException {
 		String op = "validate-mutation-plan";
-		exact(root, op, "schemaVersion", "manifestType", "transactionId", "projectId",
+		Map<String,Object> shape = new LinkedHashMap<String,Object>(root);
+		if (shape.containsKey(WorldBuilderFloorUpgradeLineage.FIELD)) {
+			WorldBuilderFloorUpgradeLineage.validateShape(shape.remove(WorldBuilderFloorUpgradeLineage.FIELD));
+		}
+		exact(shape, op, "schemaVersion", "manifestType", "transactionId", "projectId",
 			"exportFingerprintSha256", "adapterId", "capabilityId", "mutationProfileId",
 			"targetLineageSha256", "selectedConfiguration", "requirements",
 			"actions", "createdDirectories", "configurationChanges", "backupRootRelativePath",
