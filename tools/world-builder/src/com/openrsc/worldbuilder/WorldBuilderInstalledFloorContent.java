@@ -181,7 +181,10 @@ final class WorldBuilderInstalledFloorContent {
 			&& !configuration.clientRuntimeRelativePath.startsWith("Client_Base/")) return original;
 		String client = clientRoot(configuration);
 		String descriptor = client + "/" + CLIENT_DESCRIPTOR;
-		if (!target.exists(descriptor)) return original;
+		if (!target.exists(descriptor)) {
+			if (target.exists(client + "/" + CLIENT_TILES)) throw refusal("Installed player floor definitions have no descriptor.");
+			return original;
+		}
 		try {
 			Path tiles = target.requiredFile(client + "/" + CLIENT_TILES);
 			int count = WorldBuilderTerrainDefinitionCatalog.readTiles(tiles).tiles.size();

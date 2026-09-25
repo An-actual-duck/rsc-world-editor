@@ -51,6 +51,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		safeExistingFile(target,
 			WorldBuilderAdaptiveConfiguration.pathForRole(selectedRole),
 			"Selected target configuration");
+		Plan parent = WorldBuilderFloorUpgradeLineage.installedParent(project, target);
 
 		WorldBuilderAdaptiveDiscoveryReport fresh =
 			new WorldBuilderAdaptiveDiscovery().discover(target,
@@ -58,8 +59,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 					project.discoveryReport));
 		String expectedLineage = WorldBuilderAdaptiveExporter.string(
 			projectTarget, "targetFingerprintSha256");
-		if (!"compatible".equals(fresh.status)
-			|| !expectedLineage.equals(fresh.fingerprintSha256())) {
+		if (parent == null && (!"compatible".equals(fresh.status)
+			|| !expectedLineage.equals(fresh.fingerprintSha256()))) {
 			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, "target-root",
 				"Target no longer matches this project's immutable affected-runtime source lineage.",
 				"Create a fresh project from the exact offline affected backup before upgrading it.");
@@ -88,7 +89,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			selectedRole);
 		if (!configurationPath.equals(configuration.relativePath)
 			|| !configuration.sha256.equals(
-				WorldBuilderAdaptiveExporter.string(selectedReference, "sha256"))) {
+				parent == null ? WorldBuilderAdaptiveExporter.string(selectedReference, "sha256")
+					: WorldBuilderHashes.sha256(parent.configurationBytes))) {
 			throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, configurationPath,
 				"Selected configuration no longer matches the affected backup snapshot.",
 				"Restore the exact affected backup or create a fresh project from it.");
@@ -108,6 +110,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			capability, configuration, expectedLineage, actions,
 			Collections.<ConfigurationChange>emptyList(), directories, requiredSpace,
 			configuration.sha256);
+		if (parent != null) inherit(generated, WorldBuilderFloorUpgradeLineage.describe(parent));
 		return new Plan(target, project, export, capability, configuration,
 			profile, configuration.serverMapRelativePath,
 			configuration.clientMapRelativePath, configurationBytes,
@@ -305,7 +308,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			installedDestinations.add(action.destinationRelativePath);
 		}
 		verifyUnchangedTargetEvidence(project, target,
-			installed.configuration.relativePath, installedDestinations);
+			installed.configuration.relativePath, installedDestinations,
+			installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);
 		if (!installed.capability.evidenceSha256.equals(capability.evidenceSha256)
@@ -370,6 +374,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				capability, configuration, installed.targetLineage(), compatibility,
 				Collections.<ConfigurationChange>emptyList(), directories,
 				requiredSpace, configuration.sha256);
+			inherit(document, installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
 			return new Plan(target, project, export, capability, configuration,
 				installed.profileId, installed.serverPackageRelativePath,
 				installed.clientPackageRelativePath, unchangedConfiguration,
@@ -407,6 +412,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Map<String,Object> document = document(transactionId, project, export,
 			capability, configuration, fresh.fingerprintSha256(), actions, changes,
 			directories, requiredSpace);
+		inherit(document, installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		return new Plan(target, project, export, capability, configuration,
 			installed.profileId, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directories, document);
@@ -1013,7 +1019,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				action, "destinationRelativePath"));
 		}
 		verifyUnchangedTargetEvidence(project, target, configurationPath,
-			installedDestinations);
+			installedDestinations, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		if (runtimeCompatibilityOnly(storedObject)) {
 			return reconstructRuntimeCompatibilityOnly(project, export, target,
 				transactionId, capability, profile, selectedRole, configurationPath,
@@ -1100,6 +1106,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Map<String,Object> generated = document(transactionId, project, export,
 			capability, configuration, lineage, actions, changes, directories,
 			requiredSpace, planSelectedHash);
+		inherit(generated, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		Plan plan = new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directories, generated);
@@ -1207,6 +1214,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			capability, configuration, lineage, actions,
 			Collections.<ConfigurationChange>emptyList(), directories,
 			requiredSpace, selectedHash);
+		inherit(generated, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		Plan plan = new Plan(target, project, export, capability, configuration,
 			profile, configuration.serverMapRelativePath,
 			configuration.clientMapRelativePath, configurationBytes, actions,
@@ -1447,6 +1455,15 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, String changedConfiguration, Set<String> installedDestinations)
 		throws IOException, WorldBuilderContractException {
+		verifyUnchangedTargetEvidence(project, target, changedConfiguration, installedDestinations, null);
+	}
+
+	private static void verifyUnchangedTargetEvidence(
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+		Path target, String changedConfiguration, Set<String> installedDestinations, Object inherited)
+		throws IOException, WorldBuilderContractException {
+		Set<String> inheritedPaths = inherited == null ? Collections.<String>emptySet()
+			: WorldBuilderFloorUpgradeLineage.verifyRemaining(project, target, inherited, installedDestinations);
 		Set<String> retirementPaths = legacyRetirementPaths(project);
 		for (String key : new String[] {"originalFiles", "definitionRuntimeFiles"}) {
 			for (Object raw : WorldBuilderAdaptiveExporter.array(
@@ -1459,6 +1476,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				String relative = sourcePath.substring(prefix.length());
 				if (relative.equals(changedConfiguration)) continue;
 				if (installedDestinations.contains(relative)) continue;
+				if (inheritedPaths.contains(relative)) continue;
 				if (retirementPaths.contains(relative)) continue;
 				if (WorldBuilderInstalledFloorContent.verifyRetainedPath(project, target, relative)) continue;
 				boolean present = WorldBuilderAdaptiveExporter.bool(record, "present");
@@ -1750,6 +1768,14 @@ final class WorldBuilderAdaptiveMutationProfile {
 		return value;
 	}
 
+	private static void inherit(Map<String,Object> document, Object proof) throws WorldBuilderContractException {
+		if (proof == null) return;
+		WorldBuilderFloorUpgradeLineage.validateShape(proof);
+		document.put(WorldBuilderFloorUpgradeLineage.FIELD, proof);
+		WorldBuilderAdaptiveExporter.bindFingerprint(document, "planFingerprintSha256");
+		WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, document);
+	}
+
 	static Plan reverseForUndo(Plan installed, String transactionId)
 		throws IOException, WorldBuilderContractException {
 		List<Action> actions = new ArrayList<Action>();
@@ -1821,6 +1847,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			installed.project, installed.export, installed.capability,
 			installed.configuration, installed.targetLineage(), actions, changes,
 			Collections.<String>emptyList(), requiredSpace, selectedInstalledHash);
+		inherit(generated, installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		return new Plan(installed.targetRoot, installed.project, installed.export,
 			installed.capability, installed.configuration, installed.profileId,
 			installed.serverPackageRelativePath, installed.clientPackageRelativePath,
@@ -2372,7 +2399,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 				if (!WorldBuilderAdaptiveUndo.changedAfterPaths(installed).isEmpty()) throw refusal("Installed receipt action state changed.");
 				Set<String> destinations = new HashSet<String>();
 				for (Action action : installed.actions) destinations.add(action.destinationRelativePath);
-				verifyUnchangedTargetEvidence(project, target.root, installed.configuration.relativePath, destinations);
+				verifyUnchangedTargetEvidence(project, target.root, installed.configuration.relativePath, destinations,
+					installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
 			} catch (IOException unreadable) { throw refusal("Installed receipt evidence could not be reverified."); }
 			requireStates(target, targetStates);
 			requireStates(WorldBuilderReadOnlyTarget.open(project.projectRoot), projectStates);

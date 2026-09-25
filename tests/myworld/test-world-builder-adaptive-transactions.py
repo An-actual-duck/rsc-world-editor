@@ -1565,6 +1565,64 @@ public final class mudclient {
                                                "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
 
+    def test_floor_sibling_inherits_installed_parent_without_weakening_drift_checks(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-floor-parent-") as temp:
+            base = Path(temp)
+            target, installation, parent, export = self.floor_target_project(base)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", parent,
+                                               "--export", export, "--target-root", target)
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
+                                              "--export", export, "--target-root", target)
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            # A new application runtime generation, without modifying the parent.
+            runtime = base / "builder-runtime"
+            self.rewrite_runtime_entry(runtime / "server/core.jar", "fixture/generation.txt", b"next-floor-generation")
+            self.rewrite_runtime_entry(runtime / "Client_Base/Open_RSC_Client.jar", "fixture/generation.txt", b"next-floor-generation")
+            harness = base / "SiblingFloorProbe.java"
+            harness.write_text('''package com.openrsc.worldbuilder;
+import java.nio.file.*;
+public final class SiblingFloorProbe {
+ public static void main(String[] a) throws Exception {
+  Path p=Paths.get(a[2]);
+  String hash=(String)WorldBuilderJsonDocuments.readObject(p.resolve("project.json")).get("projectFingerprintSha256");
+  System.out.print(new WorldBuilderAdaptiveProjectLifecycle().upgradeProjectFloors(
+   Paths.get(a[0]),Paths.get(a[1]),p,hash,"UPGRADE PROJECT FLOORS",43883).projectRoot);
+ }
+}''')
+            subprocess.run(["javac", "-cp", str(self.classes), "-d", str(self.classes), str(harness)], check=True)
+            copied = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.SiblingFloorProbe",
+                                     str(installation), str(runtime), str(parent)], capture_output=True, text=True)
+            self.assertEqual(0, copied.returncode, copied.stderr)
+            child = Path(copied.stdout)
+            parent_before = project_support.tree_bytes(parent)
+            exported = self.run_cli("export-adaptive", "--project", child)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            child_export = Path(json.loads(exported.stdout)["exportDirectory"])
+            # Parent authority must not excuse unrelated target edits.
+            configuration = target / "server/world-builder-configs/primary.json"
+            original_configuration = configuration.read_bytes()
+            configuration.write_bytes(original_configuration + b"\n")
+            drifted = project_support.tree_bytes(target, installation)
+            refused = self.run_cli("upgrade-target-runtime", "--project", child, "--export", child_export,
+                                    "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+            configuration.write_bytes(original_configuration)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", child,
+                                               "--export", child_export, "--target-root", target)
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            for _ in range(2):
+                project_support.change_working_terrain(child)
+                self.assertEqual(0, self.run_cli("save-project", "--project", child).returncode)
+                exported = self.run_cli("export-adaptive", "--project", child)
+                self.assertEqual(0, exported.returncode, exported.stderr)
+                child_export = Path(json.loads(exported.stdout)["exportDirectory"])
+                applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", child,
+                                                  "--export", child_export, "--target-root", target)
+                self.assertEqual(0, applied.returncode, applied.stderr)
+            self.assertEqual(parent_before, project_support.tree_bytes(parent))
+
     def test_standard_floors_interrupted_rollback_recovers_exact_target(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-floor-recovery-") as temp:
             target, installation, project, export = self.floor_target_project(Path(temp))
