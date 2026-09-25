@@ -1481,6 +1481,104 @@ public final class mudclient {
             self.assertIn("Player, Skills, Inventory, World", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
+    def floor_target_project(self, base):
+        def runtime_floors(runtime):
+            for jar in (runtime / "server/core.jar", runtime / "Client_Base/Open_RSC_Client.jar"):
+                with zipfile.ZipFile(jar) as archive:
+                    entries = {name: archive.read(name) for name in archive.namelist()}
+                entries["META-INF/MANIFEST.MF"] = (
+                    b"Manifest-Version: 1.0\n"
+                    b"World-Builder-Floor-Semantics: standard-floors-v1\n"
+                    b"World-Builder-Installed-Floors: installed-floors-v1\n\n"
+                )
+                if jar.name == "Open_RSC_Client.jar":
+                    entries["orsc/WorldBuilderInstalledFloorDefinitions.class"] = b"installed-floors-v1"
+                with zipfile.ZipFile(jar, "w") as archive:
+                    for name, payload in entries.items():
+                        archive.writestr(name, payload)
+
+        def water(target):
+            (target / "server/conf/server/defs/TileDef.xml").write_text(
+                "<TileDef-array><TileDef><colour>0</colour><unknown>0</unknown><objectType>0</objectType></TileDef>"
+                "<TileDef><colour>1</colour><unknown>3</unknown><objectType>1</objectType></TileDef></TileDef-array>\n",
+                encoding="utf-8",
+            )
+
+        return self.target_project(base, representation="packed", runtime_mutator=runtime_floors, target_mutator=water)
+
+    def test_standard_floors_upgrade_then_repeated_map_only_import(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-standard-floors-") as temp:
+            target, installation, project, export = self.floor_target_project(Path(temp))
+            tiles = project / "source/content-bundle/files/server/conf/server/defs/TileDef.xml"
+            rows = ET.fromstring(tiles.read_bytes()).findall("TileDef")
+            water = next(index + 1 for index, row in enumerate(rows)
+                         if row.findtext("worldBuilderSourceOverlay") == "2" and row.findtext("objectType") == "0")
+            self.set_fixture_ground_overlay(project / "working/layered-world/package", water)
+            self.assertEqual(0, self.run_cli("save-project", "--project", project).returncode)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            export = Path(json.loads(exported.stdout)["exportDirectory"])
+            before = project_support.tree_bytes(target, installation)
+            refused = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            selected = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+            client = target / Path(selected["clientRuntimeRelativePath"]).parts[0]
+            self.assertEqual(tiles.read_bytes(), (target / "server/conf/server/defs/TileDef.xml").read_bytes())
+            self.assertEqual(tiles.read_bytes(), (client / "world-builder-configs/TileDef.xml").read_bytes())
+            definition_files = {
+                path: path.read_bytes() for path in (
+                    target / "server/conf/server/defs/TileDef.xml", client / "world-builder-configs/TileDef.xml",
+                    client / "world-builder-configs/installed-floors.json", target / "server/core.jar", client / "Open_RSC_Client.jar")
+            }
+            for iteration in range(2):
+                detected = self.run_cli("discover-adaptive", "--target-root", target)
+                self.assertEqual(0, detected.returncode, detected.stderr + detected.stdout)
+                applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                                  "--export", export, "--target-root", target)
+                self.assertEqual(0, applied.returncode, applied.stderr)
+                for path, expected in definition_files.items():
+                    self.assertEqual(expected, path.read_bytes())
+                project_support.change_working_terrain(project)
+                self.assertEqual(0, self.run_cli("save-project", "--project", project).returncode)
+                exported = self.run_cli("export-adaptive", "--project", project)
+                self.assertEqual(0, exported.returncode, exported.stderr)
+                export = Path(json.loads(exported.stdout)["exportDirectory"])
+            (client / "world-builder-configs/TileDef.xml").write_bytes(b"tampered floor definitions")
+            drifted = project_support.tree_bytes(target, installation)
+            refused = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+
+    def test_standard_floors_upgrade_rollback_restores_definitions(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-floor-rollback-") as temp:
+            target, installation, project, export = self.floor_target_project(Path(temp))
+            before = project_support.tree_bytes(target, installation)
+            failed = self.run_failure("runtime-upgrade", "before-success-receipt", project, target, export)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assert_no_transaction_stage(target)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
+            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+
+    def test_standard_floors_interrupted_rollback_recovers_exact_target(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-floor-recovery-") as temp:
+            target, installation, project, export = self.floor_target_project(Path(temp))
+            before = project_support.tree_bytes(target, installation)
+            failed = self.run_failure("runtime-upgrade", "before-success-receipt,rollback-before-0000",
+                                      project, target, export)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertNotEqual(before, project_support.tree_bytes(target, installation))
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project,
+                                                "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assert_no_transaction_stage(target)
+
     def test_explicit_runtime_upgrade_repairs_affected_backup_then_imports_map(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-explicit-runtime-upgrade-") as temp:
             def make_affected(target):

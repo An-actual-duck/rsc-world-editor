@@ -445,7 +445,7 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
-	private static WorldBuilderAdaptiveReceipt.State latestOutstandingSuccessfulImport(
+	static WorldBuilderAdaptiveReceipt.State latestOutstandingSuccessfulImport(
 		Path project)
 		throws IOException, WorldBuilderContractException {
 		List<WorldBuilderAdaptiveReceipt.State> receipts =

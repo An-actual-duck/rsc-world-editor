@@ -152,6 +152,7 @@ final class WorldBuilderRuntimeCompatibility {
 					: "runtime-compatibility-superseded-capability-retirement",
 				actions);
 		}
+		WorldBuilderInstalledFloorContent.appendUpgrade(project, target, configuration, actions);
 		if (actions.isEmpty()) throw new WorldBuilderContractException(
 			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
 			"upgrade-target-runtime", HOST_CAPABILITY_DESTINATION, false,
@@ -308,6 +309,7 @@ final class WorldBuilderRuntimeCompatibility {
 
 		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
 			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+		WorldBuilderInstalledFloorContent.verifyInstalled(project, target, configuration);
 		appendServerProfile(target, targetCapability, packageValue, actions);
 		appendClientProfile(target, clientDestination, targetCapability,
 			packageValue, actions);

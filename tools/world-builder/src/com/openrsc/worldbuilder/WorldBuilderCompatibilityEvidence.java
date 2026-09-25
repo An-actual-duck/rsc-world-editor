@@ -118,6 +118,7 @@ final class WorldBuilderCompatibilityEvidence {
 			"runtime-agreement", "passed",
 			"Server/client builds declare matching protocol, loader format, definitions, and authoring.",
 			server.buildId + " / " + client.buildId + " using " + server.protocolId + "."));
+		catalog = WorldBuilderInstalledFloorContent.inspectTarget(target, configuration, catalog, files);
 		return new WorldBuilderCompatibilityEvidence(catalog, files, checks);
 	}
 
@@ -164,6 +165,10 @@ final class WorldBuilderCompatibilityEvidence {
 				ids(root.get("scenery"), path, "scenery"),
 				ids(root.get("npcs"), path, "npcs"),
 				ids(root.get("groundItems"), path, "groundItems"));
+		}
+
+		DefinitionCatalog withTiles(Set<Integer> installedTiles) {
+			return new DefinitionCatalog(catalogId, installedTiles, boundaries, scenery, npcs, groundItems);
 		}
 
 		void require(String family, int id, String path)
