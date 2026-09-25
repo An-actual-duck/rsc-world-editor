@@ -136,6 +136,7 @@ add_group() {
 				test-world-builder-portable-provider.py
 				test-world-builder-npc-definition-provider.py
 				test-world-builder-project-content-bundle.py
+				test-world-builder-standard-floors.py
 			)
 			;;
 		projects)

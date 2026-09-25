@@ -17,6 +17,7 @@ evidence, or an active product decision.
 | [Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md) | Active replacement architecture, public adaptability, and acceptance plan | Upgrading Preservation-like or advanced targets to the current platform generation |
 | [Reliability and Iteration Plan](WORLD-BUILDER-2-RELIABILITY-AND-ITERATION-PLAN.md) | Active ordered worklist and historical incident record | Planning the adaptable runtime replacement, map-import reliability, or maintainability work |
 | [Content and Terrain Fix Plan](WORLD-BUILDER-2-CONTENT-AND-TERRAIN-FIX-PLAN.md) | Active 2026-09-24 correction plan | Browser crashes, cross-level floors, material identity, capabilities, and custom-content refresh |
+| [Friendly Floors](WORLD-BUILDER-2-FRIENDLY-FLOORS.md) | Unified floor authoring contract | Color, texture, walkability, standard definitions, and legacy preservation |
 | [Maintainability Audit](WORLD-BUILDER-2-MAINTAINABILITY-AUDIT.md) | Measured 2026-08-30 audit and recommendations | Reducing storage, test, navigation, documentation, or AI cost |
 
 ## Implemented workflow and contract references

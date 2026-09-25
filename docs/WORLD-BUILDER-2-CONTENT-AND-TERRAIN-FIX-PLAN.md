@@ -1,7 +1,7 @@
 # World Builder 2 content and terrain correction plan
 
 Date: 2026-09-24. Status: active; initial browser and GPU material corrections
-integrated. Floor migration, wall reproduction, and full interactive acceptance
+integrated. Friendly floor authoring, wall reproduction, and full interactive acceptance
 remain pending.
 
 ## Objective and baseline
@@ -19,10 +19,24 @@ in the manager checkout is local evidence, not a shipped source dependency.
 
 ## Required floor behavior
 
-The same authored settings must have the same appearance and collision on all
-supported signed levels. Overlay 0 uses the selected ground color and is
-walkable: a setting that produces white on level 0 must also produce white
-upstairs. It must not implicitly turn transparent on levels 1 and 2.
+Owner direction updated after the pristine Preservation comparison: retain
+historical raw overlay 0 semantics. The original client already hides its base
+color on upper planes; the signed-level loader did not introduce this behavior.
+The earlier proposal to redefine raw 0 and migrate existing void is superseded.
+
+Provide a unified Floor tool with Walkable, Select Color, and Select Texture.
+Texture None uses the selected color; a texture overrides, but retains, that
+color. Resolve the user's appearance and walkability to verified definitions
+for the current level and bound catalog. Unsupported choices are unavailable
+with an explanation. Walkable controls floor collision; walls and objects
+retain their own collision. Inspection must describe actual effective materials,
+including legacy raw 0 becoming invisible upstairs.
+
+Ship an appended standard of floor appearances with both blocking states and
+explicit dynamic base-color definitions that work across supported levels.
+Keep original definition IDs and untouched map bytes stable. Audit water/lava
+gameplay effects before finalizing the new palette; the expected new contract
+is appearance plus walkability, with existing map behavior preserved.
 
 Intentional empty space, an invisible walkable floor, and a solid black floor
 are distinct behaviors. The current runtime TileDef.xml contains a candidate
@@ -40,8 +54,9 @@ verified conversion if necessary rather than filling every empty tile.
    it already requests `boundary`. Exercise open, filter, select, and close on
    multiple levels with stock and custom catalogs. Malformed entries must
    yield actionable diagnostics rather than escape through client input.
-2. **Floor consistency (runtime; Editor conversion if required) — pending.**
-   Implement the floor contract above. Verify painting, collision, save/reload,
+2. **Friendly floor authoring (runtime and Editor content validation) — active.**
+   Implement the floor contract above through explicit standard definitions,
+   without globally redefining legacy raw IDs. Verify painting, collision, save/reload,
    surrounding void, and negative and higher signed levels as well as 0/1/2.
 3. **Material identity (runtime) — correction integrated; full-client acceptance pending.** Preserve explicit solid-color
    versus texture identity through GPU meshes and rendering. Black and low RGB
@@ -111,34 +126,26 @@ Consequently, removing the renderer branch alone would make historical
 invisible upper-floor space visible. Replacing historical overlay 0 with
 structural void 8 would change walkability. Neither is the intended fix.
 
-The follow-on floor change must establish explicit current floor semantics and
-a bounded migration from historical semantics:
+The owner then selected a friendly semantic palette instead of redefining raw
+0. This supersedes the earlier migration proposal. Preserve historical map
+bytes; append explicit standard definitions and let the Floor tool resolve the
+chosen appearance and collision. Existing immutable projects retain their
+bound catalog until an explicit supported content update. Missing definitions
+must be reported, never silently approximated by a different floor.
 
-- Preserve historical invisible walkable space as an explicit invisible
-  walkable material; preserve blocking invisible space and visible materials
-  independently. Do not infer authored intent from a zero color byte.
-- Make newly authored overlay 0 mean the same selected-color walkable floor
-  on every signed level. Explicit invisible walkable flooring remains a
-  separate discoverable selection. Blocking base color must also retain its
-  selected color consistently.
-- Carry any new semantic distinction through a contract accepted by both
-  client and server, rather than a launch-only renderer flag. Determine the
-  smallest adequate representation; the comparison alone does not require a
-  new binary terrain encoding. Preserve target definition IDs; do not assume
-  overlay 26 exists or is available to reserve.
-- Convert historical inputs and existing projects through reviewed, recoverable
-  staging, retaining immutable before-state and exact derivation evidence.
-  Reopen/save/export/region operations and target compatibility checks must
-  carry the distinction. An older runtime must not silently load new semantics.
-- Validate imported surrounding void and authored floors together, including
-  mixed historical/current data, negative/higher levels, collision, interrupted
-  migration and rollback. Existing bytes can encode both historical invisible
-  space and an unsuccessful attempt to paint overlay 0; preserve recorded
-  behavior during migration and make repainting 0 explicitly produce a floor.
+New standard definitions use optional validated TileDef metadata. Dynamic base
+color reads the existing per-tile color byte on every supported level. Visual
+copies identify an original unmarked definition, preserve its appearance, and
+set floor blocking independently. Original IDs remain unchanged. Both client
+and server must accept the selected current content contract; an older target
+must follow the managed runtime upgrade path before receiving the new content.
 
-This is an implementation boundary, not a completed migration or a reason to
-retain the old behavior indefinitely. The independent material/RGB fix is
-being integrated first because it needs no data or semantic migration.
+Water/lava audit found no general terrain-triggered damage/swimming. Specific
+agility scripts implement lava damage, while original overlays 2 and 11 block
+projectiles. New semantic painting uses generated definitions for both
+walkability states, so raw-ID effects are not inherited. Original map tiles
+retain them. Verify rendering, minimap, picking, collision and save/reload with
+historical and newly painted tiles together.
 
 ## Progress and evidence
 

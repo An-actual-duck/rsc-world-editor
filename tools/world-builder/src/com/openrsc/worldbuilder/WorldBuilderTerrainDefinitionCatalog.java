@@ -39,10 +39,40 @@ final class WorldBuilderTerrainDefinitionCatalog {
 		List<TileDefinition> result = new ArrayList<TileDefinition>();
 		for (int id = 0; id < rows.size(); id++) {
 			Element row = rows.get(id);
+			String material = text(row, "worldBuilderMaterial", "", "floor", id);
+			int sourceOverlay = integer(row, "worldBuilderSourceOverlay", 0, "floor", id);
+			boolean hasMaterial = uniqueText(row, "worldBuilderMaterial", "floor", id) != null;
+			if (hasMaterial && !"base-color-v1".equals(material)) {
+				throw new IOException("floor definition " + id + " has unsupported worldBuilderMaterial");
+			}
+			boolean hasSource = uniqueText(row, "worldBuilderSourceOverlay", "floor", id) != null;
+			if (hasSource && (sourceOverlay <= 0 || sourceOverlay > id || sourceOverlay == 250
+				|| !material.isEmpty())) {
+				throw new IOException("floor definition " + id + " has invalid worldBuilderSourceOverlay");
+			}
 			result.add(new TileDefinition(
 				integer(row, "colour", 0, "floor", id),
 				integer(row, "unknown", 0, "floor", id),
-				integer(row, "objectType", 0, "floor", id)));
+				integer(row, "objectType", 0, "floor", id), material, sourceOverlay));
+			TileDefinition definition = result.get(id);
+			if ((hasMaterial || hasSource) && (id + 1 == 250 || id + 1 == 255)) {
+				throw new IOException("floor definition " + id + " uses a reserved overlay for standard material");
+			}
+			if ((!material.isEmpty() || hasSource)
+				&& definition.objectType != 0 && definition.objectType != 1) {
+				throw new IOException("floor definition " + id + " has noncanonical standard walkability");
+			}
+			if (definition.usesBaseColor() && (definition.colour != 0 || definition.unknown != 0)) {
+				throw new IOException("floor definition " + id + " has invalid base-color-v1 material fields");
+			}
+			if (hasSource) {
+				TileDefinition source = result.get(sourceOverlay - 1);
+				if (!source.worldBuilderMaterial.isEmpty() || source.worldBuilderSourceOverlay != 0
+					|| source.colour != definition.colour || source.unknown != definition.unknown
+					|| source.objectType != 0 && source.objectType != 1) {
+					throw new IOException("floor definition " + id + " does not match its original source overlay");
+				}
+			}
 		}
 		return new WorldBuilderTerrainDefinitionCatalog(result,
 			Collections.<BoundaryDefinition>emptyList());
@@ -168,11 +198,26 @@ final class WorldBuilderTerrainDefinitionCatalog {
 		final int colour;
 		final int unknown;
 		final int objectType;
+		final String worldBuilderMaterial;
+		final int worldBuilderSourceOverlay;
 
-		TileDefinition(int colour, int unknown, int objectType) {
+		TileDefinition(int colour, int unknown, int objectType,
+			String worldBuilderMaterial, int worldBuilderSourceOverlay) {
 			this.colour = colour;
 			this.unknown = unknown;
 			this.objectType = objectType;
+			this.worldBuilderMaterial = worldBuilderMaterial;
+			this.worldBuilderSourceOverlay = worldBuilderSourceOverlay;
+		}
+
+		boolean usesBaseColor() {
+			return "base-color-v1".equals(worldBuilderMaterial);
+		}
+
+		int materialResource(int rawOverlay) {
+			if (usesBaseColor()) throw new IllegalStateException("Base-color floor uses the tile palette");
+			int sourceOverlay = worldBuilderSourceOverlay == 0 ? rawOverlay : worldBuilderSourceOverlay;
+			return unknown == 4 ? (sourceOverlay == 12 ? 31 : 1) : colour;
 		}
 	}
 

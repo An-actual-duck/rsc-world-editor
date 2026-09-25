@@ -49,7 +49,10 @@ final class WorldBuilderTerrainMaterialProvider {
 				copiedTarget.resolve(BOUNDARY_DEFINITIONS));
 		TreeMap<Integer,List<Reference>> required = new TreeMap<Integer,List<Reference>>();
 		for (int id = 0; id < tiles.tiles.size(); id++) {
-			require(required, tiles.tiles.get(id).colour, "floor", id, "colour");
+			WorldBuilderTerrainDefinitionCatalog.TileDefinition definition = tiles.tiles.get(id);
+			if (!definition.usesBaseColor()) {
+				require(required, definition.materialResource(id + 1), "floor", id, "colour");
+			}
 		}
 		for (int id = 0; id < boundaries.boundaries.size(); id++) {
 			WorldBuilderTerrainDefinitionCatalog.BoundaryDefinition definition =
