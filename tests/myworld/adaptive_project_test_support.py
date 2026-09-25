@@ -897,12 +897,13 @@ def make_runtime(root: Path, scenery_count: int = 4) -> Path:
     for jar in (server / "core.jar", server / "plugins.jar", client / "Open_RSC_Client.jar"):
         with zipfile.ZipFile(jar, "w") as archive:
             write_deterministic_zip_entry(
-                archive, "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\n\n"
+                archive, "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nWorld-Builder-Floor-Semantics: standard-floors-v1\nWorld-Builder-Installed-Floors: installed-floors-v1\n\n"
             )
             if jar.name == "core.jar":
                 for path, payload in FIXTURE_HOST_SERVER_ARCHIVE_ENTRIES.items():
                     write_deterministic_zip_entry(archive, path, payload)
             elif jar.name == "Open_RSC_Client.jar":
+                write_deterministic_zip_entry(archive, "orsc/WorldBuilderInstalledFloorDefinitions.class", b"fixture")
                 for path, payload in FIXTURE_HOST_CLIENT_ARCHIVE_ENTRIES.items():
                     write_deterministic_zip_entry(archive, path, payload)
     return runtime
