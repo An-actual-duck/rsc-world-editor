@@ -62,7 +62,11 @@ project content remains an explicit lifecycle operation.
 The standard does not introduce another binary terrain format. Existing
 color/overlay fields persist the choice. Managed import and runtime-upgrade
 checks must still prove the selected client/server/content pairing before
-new definitions reach a target. No real target is modified by implementation
+new definitions reach a target. Marked definitions additionally require both
+runtime JAR manifests to declare `World-Builder-Floor-Semantics:
+standard-floors-v1`. Project capture and runtime verification check this
+declaration; unmarked historical content does not gain that requirement.
+No real target is modified by implementation
 or automated acceptance.
 
 Acceptance covers original-ID preservation, deterministic generation, malformed

@@ -55,8 +55,8 @@ final class WorldBuilderTerrainDefinitionCatalog {
 				integer(row, "unknown", 0, "floor", id),
 				integer(row, "objectType", 0, "floor", id), material, sourceOverlay));
 			TileDefinition definition = result.get(id);
-			if ((hasMaterial || hasSource) && (id + 1 == 250 || id + 1 == 255)) {
-				throw new IOException("floor definition " + id + " uses a reserved overlay for standard material");
+			if ((hasMaterial || hasSource) && id + 1 >= 250) {
+				throw new IOException("floor definition " + id + " is outside the standard overlay range 1..249");
 			}
 			if ((!material.isEmpty() || hasSource)
 				&& definition.objectType != 0 && definition.objectType != 1) {

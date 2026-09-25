@@ -12,6 +12,7 @@ import struct
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 import zipfile
 import zlib
 from pathlib import Path
@@ -8541,6 +8542,36 @@ public final class UpgradeNpcPlacements {
                 baseline_before,
                 tree_bytes(project / "source/layered-baseline/package"),
             )
+
+    def test_standard_floor_content_refuses_older_runtime_before_publication(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-floor-semantics-") as temp:
+            base = Path(temp)
+            target = self.packed_fixtures.fixture(base)
+            definitions = target / "server/conf/server/defs/TileDef.xml"
+            document = ET.parse(definitions)
+            row = document.getroot()[0]
+            for field, value in (("colour", "0"), ("unknown", "0"), ("objectType", "0")):
+                element = row.find(field)
+                if element is None:
+                    element = ET.SubElement(row, field)
+                element.text = value
+            ET.SubElement(row, "worldBuilderMaterial").text = "base-color-v1"
+            document.write(definitions, encoding="utf-8")
+            installation = base / "World Builder 2"
+            installation.mkdir()
+            runtime = self.make_runtime(installation)
+            report = base / "report.json"
+            self.discover(target, report)
+            target_before, runtime_before = tree_bytes(target), tree_bytes(runtime)
+            refused, _ = self.create_project(installation, runtime, target, report,
+                                              "Unsupported floor semantics", 43910)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("LOADER_INCOMPATIBLE", refused.stderr)
+            self.assertIn("standard-floors-v1", refused.stderr)
+            self.assertFalse((installation / "project-registry.json").exists())
+            self.assertFalse(list((installation / "projects").glob(".staging-*")))
+            self.assertEqual(target_before, tree_bytes(target))
+            self.assertEqual(runtime_before, tree_bytes(runtime))
 
     def test_runtime_capability_mismatches_fail_before_project_publication(self):
         mutations = {

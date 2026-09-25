@@ -51,7 +51,12 @@ final class WorldBuilderTerrainMaterialProvider {
 		for (int id = 0; id < tiles.tiles.size(); id++) {
 			WorldBuilderTerrainDefinitionCatalog.TileDefinition definition = tiles.tiles.get(id);
 			if (!definition.usesBaseColor()) {
-				require(required, definition.materialResource(id + 1), "floor", id, "colour");
+				require(required, definition.colour, "floor", id, "colour");
+				// Bridges also render a water/lava base face beneath their colour material.
+				int baseMaterial = definition.materialResource(id + 1);
+				if (baseMaterial != definition.colour) {
+					require(required, baseMaterial, "floor", id, "baseMaterial");
+				}
 			}
 		}
 		for (int id = 0; id < boundaries.boundaries.size(); id++) {

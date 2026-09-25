@@ -179,6 +179,10 @@ final class WorldBuilderCurrentBaseProjectContent {
 
 	private static Map<String,Object> deriveCatalog(Path nativeRoot) throws IOException, WorldBuilderContractException {
 		WorldBuilderReadOnlyTarget content = WorldBuilderReadOnlyTarget.open(nativeRoot);
+		if (WorldBuilderStandardFloorRuntime.required(content.requiredFile("server/conf/server/defs/TileDef.xml"))) {
+			WorldBuilderStandardFloorRuntime.require(content.requiredFile("server/core.jar"),
+				content.requiredFile("client/Open_RSC_Client.jar"));
+		}
 		for (String name : Arrays.asList("DoorDef.xml", "GameObjectDef.xml", "TileDef.xml", "ItemDefs.json", "ItemDefsCustom.json", "NpcDefs.json", "NpcDefsCustom.json", "PrayerDef.xml", "SpellDef.xml")) {
 			String server = WorldBuilderHashes.sha256(content.requiredFile("server/conf/server/defs/" + name));
 			String client = WorldBuilderHashes.sha256(content.requiredFile("client/Cache/current-base-definitions/" + name));

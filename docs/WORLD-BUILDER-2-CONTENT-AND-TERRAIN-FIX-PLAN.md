@@ -1,8 +1,8 @@
 # World Builder 2 content and terrain correction plan
 
-Date: 2026-09-24. Status: active; initial browser and GPU material corrections
-integrated. Friendly floor authoring, wall reproduction, and full interactive acceptance
-remain pending.
+Date: 2026-09-24. Status: active; initial browser, GPU material, and friendly
+floor corrections integrated. Content refresh, wall reproduction, and full
+owner-installed interactive acceptance remain pending.
 
 ## Objective and baseline
 
@@ -54,7 +54,7 @@ verified conversion if necessary rather than filling every empty tile.
    it already requests `boundary`. Exercise open, filter, select, and close on
    multiple levels with stock and custom catalogs. Malformed entries must
    yield actionable diagnostics rather than escape through client input.
-2. **Friendly floor authoring (runtime and Editor content validation) — active.**
+2. **Friendly floor authoring (runtime and Editor content validation) — integrated.**
    Implement the floor contract above through explicit standard definitions,
    without globally redefining legacy raw IDs. Verify painting, collision, save/reload,
    surrounding void, and negative and higher signed levels as well as 0/1/2.
@@ -149,6 +149,31 @@ historical and newly painted tiles together.
 
 ## Progress and evidence
 
+- Friendly floor authoring reviewed at runtime handoff
+  `559d5b2e7c4d0432e83ee14a8deee5050162d2d9`, published as
+  `baade62c36b7577e14c04e3c29cf8586579590a9`, and selected in the Editor lock.
+  One Floor tool resolves color/texture/walkability against the bound catalog.
+  Current Base appends 52 definitions to its 25 originals, covering both floor
+  blocking states and explicit cross-level color. Original map bytes and raw
+  overlay semantics are unchanged. Existing immutable/custom catalogs retain
+  only combinations their own content supports; no project content refresh is
+  implied by this milestone. See the [contract](WORLD-BUILDER-2-FRIENDLY-FLOORS.md).
+- Runtime checks passed: client/server builds, clean Base build and packaged
+  public-definition parity, strict native/project XML loaders, composition and
+  artifact pairing refusals, semantic material/render inputs, existing terrain
+  collision/stroke/drag/history/save checks, and presentation. Actual UI pointer
+  input, outgoing atomic paint bytes, retained color, copied upper invisibility,
+  and inspection of raw 0/255 on levels 1/2 were exercised. Manager reviewed
+  software-rendered compact/expanded controls and palette screenshots. These
+  are isolated fixtures, not an owner-installed full-client acceptance claim.
+- Editor checks cover explicit metadata rejection, both bridge texture
+  dependencies, source preservation, paired floor-semantics JAR declarations,
+  and refusal before project publication when marked content meets an older
+  runtime. Existing packed creation/reopen and capability refusal checks passed.
+  Exact provider parity, both native Base project capture/integrity tests, and
+  the Editor presentation group also passed against the selected provider.
+  No terrain encoding or transaction format changed; verification is focused on
+  the affected content and preparation boundaries rather than a full release gate.
 - 2026-09-24: reviewed both repository baselines, release evidence, and handoff.
   Source confirms floor family mismatch, plane-1/2 transparency override, and
   fallback-color/texture ambiguity. Wall crash remains unreproduced. Identified

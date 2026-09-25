@@ -5,6 +5,7 @@ import gzip
 import subprocess
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -15,6 +16,13 @@ import java.nio.file.*;
 public final class StandardFloorHarness {
     public static void main(String[] args) throws Exception {
         Path root = Paths.get(args[1]);
+        if (args[0].equals("runtime")) {
+            if (WorldBuilderStandardFloorRuntime.required(root.resolve("TileDef.xml"))) {
+                WorldBuilderStandardFloorRuntime.require(root.resolve("server.jar"), root.resolve("client.jar"));
+            }
+            System.out.println("compatible");
+            return;
+        }
         if (args[0].equals("normalize")) {
             WorldBuilderTerrainMaterialProvider.Result result =
                 WorldBuilderTerrainMaterialProvider.normalize(root, null);
@@ -90,7 +98,7 @@ class StandardFloors(unittest.TestCase):
         rows = [tile()] * 11 + [tile(3, 4, 1), tile(3, 4, 0,
             "<worldBuilderSourceOverlay>12</worldBuilderSourceOverlay>")]
         self.assertTrue(self.run_harness(rows).endswith("12:1:31\n13:0:31"))
-        self.assertEqual(self.run_harness(rows, normalize=True), "[31]")
+        self.assertEqual(self.run_harness(rows, normalize=True), "[3, 31]")
 
     def test_dynamic_color_does_not_require_texture_zero(self):
         self.assertEqual(self.run_harness([tile(0, metadata=BASE)], normalize=True), "[]")
@@ -109,11 +117,42 @@ class StandardFloors(unittest.TestCase):
              tile(metadata="<worldBuilderSourceOverlay>2</worldBuilderSourceOverlay>")],
             [tile(), tile(0, metadata=BASE + "<worldBuilderSourceOverlay>1</worldBuilderSourceOverlay>")],
             [tile()] * 249 + [tile(0, metadata=BASE)],
+            [tile()] * 250 + [tile(0, metadata=BASE)],
             [tile()] * 254 + [tile(0, metadata=BASE)],
         ]
         for rows in variants:
             with self.subTest(rows=rows[-1]):
                 self.run_harness(rows, valid=False)
+
+    def test_marked_content_requires_both_runtime_semantic_declarations(self):
+        target = self.root / self._testMethodName
+        target.mkdir()
+        xml = target / "TileDef.xml"
+        def invoke():
+            return subprocess.run(["java", "-cp", f"{self.root}:{CLASSES}",
+                "com.openrsc.worldbuilder.StandardFloorHarness", "runtime", str(target)],
+                capture_output=True, text=True)
+        # Historical content does not acquire a new runtime requirement.
+        xml.write_text("<TileDef-array>" + tile() + "</TileDef-array>")
+        self.assertEqual(invoke().returncode, 0)
+        xml.write_text("<TileDef-array>" + tile(0, metadata=BASE) + "</TileDef-array>")
+        supported = "World-Builder-Floor-Semantics: standard-floors-v1\r\n"
+        for server, client, expected in [
+            ("", "", False), (supported, "", False), ("", supported, False),
+            (supported, "World-Builder-Floor-Semantics: unknown\r\n", False),
+            (supported, supported + supported, False),
+            (supported, supported, True),
+        ]:
+            with self.subTest(server=server, client=client):
+                for name, attributes in (("server", server), ("client", client)):
+                    with zipfile.ZipFile(target / (name + ".jar"), "w") as jar:
+                        jar.writestr("META-INF/MANIFEST.MF", "Manifest-Version: 1.0\r\n" + attributes + "\r\n")
+                before = {p: p.read_bytes() for p in target.iterdir()}
+                result = invoke()
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
+                if not expected:
+                    self.assertIn("standard-floors-v1 in both client and server", result.stderr)
+                self.assertEqual(before, {p: p.read_bytes() for p in before})
 
 
 if __name__ == "__main__":

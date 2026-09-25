@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[2]
 PROVIDER = ROOT / ".runtime-provider"
@@ -105,6 +106,22 @@ class BaseProjectContentTest(unittest.TestCase):
         self.assertEqual(list(range(836)), catalog["npcs"])
         self.assertEqual(list(range(1296)), catalog["scenery"])
         native = project / "source/provider/installed"
+        original = ET.parse(PROVIDER / "current-platform/runtime/current-base-v1/public-definitions/TileDef.xml").getroot()
+        tiles = ET.parse(native / "server/conf/server/defs/TileDef.xml").getroot()
+        self.assertEqual(list(range(len(tiles))), catalog["tiles"])
+        fields = lambda row: {child.tag: child.text for child in row}
+        self.assertEqual([fields(row) for row in original],
+                         [fields(row) for row in tiles[:len(original)]])
+        dynamic = [row for row in tiles if row.findtext("worldBuilderMaterial") == "base-color-v1"]
+        self.assertEqual({"0", "1"}, {row.findtext("objectType") for row in dynamic})
+        self.assertEqual(2, len(dynamic))
+        for source, row in enumerate(original, 1):
+            copies = [entry for entry in tiles if entry.findtext("worldBuilderSourceOverlay") == str(source)]
+            self.assertEqual(2, len(copies), f"source overlay {source}")
+            self.assertEqual({"0", "1"}, {entry.findtext("objectType") for entry in copies})
+            for copy in copies:
+                self.assertEqual(row.findtext("colour"), copy.findtext("colour"))
+                self.assertEqual(row.findtext("unknown"), copy.findtext("unknown"))
         self.assertTrue((native / "client/Cache/video/CurrentBase_Public_Sprites.osar").is_file())
         self.assertFalse((native / "client/Cache/video/Custom_Sprites.osar").exists())
         self.assertFalse((native / "server/conf/server/defs/ItemDefsMyWorld.json").exists())

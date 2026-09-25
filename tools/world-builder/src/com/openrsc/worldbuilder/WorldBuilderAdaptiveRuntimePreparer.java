@@ -302,6 +302,14 @@ final class WorldBuilderAdaptiveRuntimePreparer {
 		}
 		if (!nativeBase) validateDefinitionClosure(entries.keySet(), requiredPaths, true);
 		validateRuntimeClosure(runtime, entries);
+		Path content = project.resolve(WorldBuilderProjectContentBundle.SOURCE_DIRECTORY);
+		if (Files.exists(content, LinkOption.NOFOLLOW_LINKS)) {
+			Path tiles = WorldBuilderReadOnlyTarget.open(content).requiredFile("files/server/conf/server/defs/TileDef.xml");
+			if (WorldBuilderStandardFloorRuntime.required(tiles)) {
+				WorldBuilderStandardFloorRuntime.require(runtime.resolve("server/core.jar"),
+					runtime.resolve("client/Open_RSC_Client.jar"));
+			}
+		}
 		validateCapability(runtime.resolve(
 			"server/conf/world-builder/adaptive-runtime-capability-v2.json"));
 		if (nativeBase) {

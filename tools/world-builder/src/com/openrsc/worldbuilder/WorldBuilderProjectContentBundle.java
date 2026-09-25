@@ -215,6 +215,10 @@ final class WorldBuilderProjectContentBundle {
 				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
 		WorldBuilderDefinitionComposition.Profile composition =
 			WorldBuilderDefinitionComposition.inspect(copied, sourceLayout);
+		if (WorldBuilderStandardFloorRuntime.required(copied.requiredFile(sourceLayout.definitionRoot + "/TileDef.xml"))) {
+			WorldBuilderStandardFloorRuntime.require(runtime.verifiedSourcePath("server/core.jar"),
+				runtime.verifiedSourcePath("client/Open_RSC_Client.jar"));
+		}
 		WorldBuilderSupplementalNpcDefinitions.Result npcRegistry =
 			WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
