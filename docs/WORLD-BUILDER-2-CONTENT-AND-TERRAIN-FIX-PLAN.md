@@ -92,6 +92,13 @@ of this plan.
 
 ## Floor migration findings and required implementation boundary
 
+The owner subsequently supplied an unupgraded Preservation reference. The
+[original-map comparison](WORLD-BUILDER-2-ORIGINAL-PRESERVATION-FLOOR-COMPARISON.md)
+now establishes the baseline independently of World Builder's current loader.
+The original Y-offset model already had internal plane-dependent transparency;
+World Builder carried that assumption into general signed-level authoring.
+Preserve demonstrated original map behavior, not an application regression.
+
 The first implementation audit found no durable authored-floor distinction in
 the current raw terrain fields. `WorldBuilderPackedTerrainCodec.toLayered`
 preserves overlay bytes, and `WorldBuilderPackedConversionModel.readTerrain`
@@ -114,9 +121,11 @@ a bounded migration from historical semantics:
   on every signed level. Explicit invisible walkable flooring remains a
   separate discoverable selection. Blocking base color must also retain its
   selected color consistently.
-- Bind semantics to a versioned package/encoding contract accepted by both
-  client and server, rather than a launch-only renderer flag. Preserve target
-  definition IDs; do not assume overlay 26 exists or is available to reserve.
+- Carry any new semantic distinction through a contract accepted by both
+  client and server, rather than a launch-only renderer flag. Determine the
+  smallest adequate representation; the comparison alone does not require a
+  new binary terrain encoding. Preserve target definition IDs; do not assume
+  overlay 26 exists or is available to reserve.
 - Convert historical inputs and existing projects through reviewed, recoverable
   staging, retaining immutable before-state and exact derivation evidence.
   Reopen/save/export/region operations and target compatibility checks must
@@ -190,3 +199,9 @@ being integrated first because it needs no data or semantic migration.
   This is a tested development integration, not a release or an update to the
   owner's installation. Next implementation milestone is the explicit floor
   contract and recoverable migration described above.
+- Original-reference comparison: selected tracked source/maps in the
+  owner-authorized `/home/justin/RSC-Preservation` match original commit
+  `c0102e60774ab9c9076aabae49f6f97fb6fc4b00`. Actual Editor codecs preserve
+  colors, overlays, sector coordinates, and exact reverse bytes across all
+  1,764 client archive sectors. See the comparison record for counts, original
+  renderer evidence, and limitations. No reference files were changed.
