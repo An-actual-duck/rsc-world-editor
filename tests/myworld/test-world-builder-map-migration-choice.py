@@ -255,6 +255,16 @@ public final class LauncherMigrationTransactionHarness {
             if (entry.projectId.equals(arguments[3])) selected = entry;
         }
         if (selected == null) throw new AssertionError("project not found");
+        Path floor = Paths.get(arguments[2]).resolve("server/conf/server/defs/TileDef.xml");
+        byte[] originalFloor = Files.readAllBytes(floor);
+        Files.write(floor, (new String(originalFloor, StandardCharsets.UTF_8) + "\n").getBytes(StandardCharsets.UTF_8));
+        try {
+            model.prepareServerRuntimeUpgrade(selected);
+            throw new AssertionError("Changed migration floor evidence was accepted");
+        } catch (WorldBuilderContractException expected) {
+            if (!expected.getMessage().contains("floor definitions changed")) throw expected;
+        } finally { Files.write(floor, originalFloor); }
+        System.out.println(model.applyServerRuntimeUpgrade(model.prepareServerRuntimeUpgrade(selected)));
         WorldBuilderLauncherModel.PreparedImport prepared =
             model.prepareServerImport(selected);
         Files.write(Paths.get(arguments[5]),

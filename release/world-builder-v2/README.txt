@@ -98,6 +98,24 @@ The compatibility preview identifies packed, layered, standalone, or blocked
 input and says whether confirming will create a new isolated project or open an
 existing one.
 
+FLOOR APPEARANCE AND WALKABILITY
+-------------------------------
+
+The Floor tool combines Walkable, Select Color, and Select Texture. Texture
+None uses the selected color; a selected texture overrides it. The standard
+palette supplies both walkability states while preserving existing tile IDs.
+Imported custom catalogs receive missing variants when a new project is made.
+If there are too few free tile slots, preparation explains the limit instead
+of reassigning existing IDs.
+
+For an existing imported project, close the editor and choose Upgrade Project
+Floors. Review the preview: it creates a new project with the same saved map
+and retains the complete original. Then use Upgrade Target Runtime to install
+matching server/player-client floor definitions, followed by Import Map Changes.
+Later map imports verify the installed definitions without rewriting them.
+Keep the original project and its transaction history for verification/recovery.
+Walls and objects can still block movement independently of a walkable floor.
+
 The launcher treats its parent as the possible target and performs read-only
 adaptive discovery. It does not assume one configuration filename and never
 substitutes a world bundled with this application. Discovery produces one of

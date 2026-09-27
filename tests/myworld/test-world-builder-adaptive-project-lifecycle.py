@@ -1503,9 +1503,11 @@ public final class FakeAdaptiveClient {
             capture_output=True,
             text=True,
         )
+        server_manifest = source / "server-manifest.mf"
+        server_manifest.write_text("Manifest-Version: 1.0\nWorld-Builder-Floor-Semantics: standard-floors-v1\n\n")
         subprocess.run(
             [
-                "jar", "cf", str(runtime / "server/core.jar"),
+                "jar", "cfm", str(runtime / "server/core.jar"), str(server_manifest),
                 "-C", str(classes), "com/openrsc/server/Server.class",
             ],
             check=True,
@@ -1515,7 +1517,7 @@ public final class FakeAdaptiveClient {
         )
         manifest = source / "client-manifest.mf"
         manifest.write_text(
-            "Manifest-Version: 1.0\nMain-Class: fixture.FakeAdaptiveClient\n\n",
+            "Manifest-Version: 1.0\nMain-Class: fixture.FakeAdaptiveClient\nWorld-Builder-Floor-Semantics: standard-floors-v1\n\n",
             encoding="utf-8",
         )
         subprocess.run(
@@ -8560,6 +8562,14 @@ public final class UpgradeNpcPlacements {
             installation = base / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
+            # This negative intentionally represents the pre-floor-semantics runtime.
+            for jar in (runtime / "server/core.jar", runtime / "Client_Base/Open_RSC_Client.jar"):
+                with zipfile.ZipFile(jar) as archive:
+                    entries = {name: archive.read(name) for name in archive.namelist()}
+                entries["META-INF/MANIFEST.MF"] = b"Manifest-Version: 1.0\n\n"
+                with zipfile.ZipFile(jar, "w") as archive:
+                    for name, data in entries.items():
+                        archive.writestr(name, data)
             report = base / "report.json"
             self.discover(target, report)
             target_before, runtime_before = tree_bytes(target), tree_bytes(runtime)

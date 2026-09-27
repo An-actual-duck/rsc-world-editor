@@ -496,6 +496,26 @@ final class WorldBuilderLauncherModel {
 		return exit;
 	}
 
+	String previewProjectFloorUpgrade(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		if (entry == null) throw new IOException("Select a project to upgrade.");
+		try (WorldBuilderAdaptiveProjectLock ignored = WorldBuilderAdaptiveProjectLock.acquire(entry.projectRoot, "preview floor upgrade")) {
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project = WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(entry.projectRoot, true);
+			if ("standalone-empty".equals(project.origin)) throw new IOException("Upgrade Project Floors applies to imported server projects; standalone projects have no captured server content.");
+			return (String) project.manifest.get("projectFingerprintSha256");
+		}
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult upgradeProjectFloors(ProjectEntry entry, String fingerprint)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderProviderCatalog.Composition selected = baseComposition;
+		if (Files.exists(entry.projectRoot.resolve(WorldBuilderCurrentBaseProjectContent.BINDING)) && selected == null)
+			selected = WorldBuilderProviderCatalog.resolve(installation.resolve("current-platform"),
+				installation.resolve("current-platform/composition-identity.json"));
+		return new WorldBuilderAdaptiveProjectLifecycle(null, selected).upgradeProjectFloors(
+			installation, runtime, entry.projectRoot, fingerprint, "UPGRADE PROJECT FLOORS", creationPort());
+	}
+
 	RevisionListing projectRevisions(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project to view backups.");

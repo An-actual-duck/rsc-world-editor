@@ -166,7 +166,8 @@ final class WorldBuilderAdaptiveImporter {
 				+ outstanding.transactionId() + ".json", false,
 			"This project already has a successful target transaction and cannot establish the affected backup as its upgrade before-state.",
 			"Create a fresh project from the exact offline affected backup, then run Upgrade Target Runtime.");
-		if (!"ready-attached".equals(initial.state) && outstanding == null) {
+		if (!"ready-attached".equals(initial.state) && outstanding == null
+			&& !(runtimeUpgrade && Files.isRegularFile(initial.projectRoot.resolve(WorldBuilderFloorUpgradeLineage.PATH), LinkOption.NOFOLLOW_LINKS))) {
 			Map<String,Object> targetIdentity = WorldBuilderAdaptiveExporter.object(
 				initial.manifest.get("target"), "target");
 			String profile = WorldBuilderAdaptiveExporter.string(
@@ -445,7 +446,7 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
-	private static WorldBuilderAdaptiveReceipt.State latestOutstandingSuccessfulImport(
+	static WorldBuilderAdaptiveReceipt.State latestOutstandingSuccessfulImport(
 		Path project)
 		throws IOException, WorldBuilderContractException {
 		List<WorldBuilderAdaptiveReceipt.State> receipts =

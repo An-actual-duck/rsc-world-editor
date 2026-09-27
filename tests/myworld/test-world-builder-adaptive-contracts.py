@@ -1368,7 +1368,10 @@ class AdaptiveContractTests(unittest.TestCase):
                 self.assertEqual(
                     manifest_type, schema["properties"]["manifestType"]["const"]
                 )
-                self.assertEqual(set(schema["required"]), set(schema["properties"]))
+                optional = ({"inheritedTargetState"}
+                            if name == "target-mutation-plan-v1.schema.json" else set())
+                self.assertEqual(set(schema["required"]), set(schema["properties"]) - optional)
+                self.assertTrue(optional.issubset(schema["properties"]))
                 self.assertNotIn("spoiled-milk", schema["$id"])
                 inspect(schema)
 
