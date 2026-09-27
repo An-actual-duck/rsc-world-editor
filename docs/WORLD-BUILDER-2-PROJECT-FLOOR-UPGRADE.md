@@ -14,6 +14,23 @@ The operation holds the project and registry locks, verifies the existing regist
 
 The staged project must pass normal source, working-package, content, runtime and project verification before publication. Publication uses the existing atomic project creation/registry/active-selection transaction and rollback. Failure leaves the complete original project available and restores the previous registry and active selection. Source corruption, stale preview, missing runtime support, busy project, unsafe paths, exhausted palette IDs, or changes to existing native floor IDs refuse the upgrade.
 
+## Applying the upgraded project
+
+For an existing server, first choose **Upgrade Project Floors**, then review
+**Upgrade Target Runtime** from the new project, and finally **Import Map Changes**.
+The runtime upgrade installs matching floor definitions in the server and normal
+player client. Later map imports verify that pair without rewriting it.
+
+Keep the original project and its transaction history. If it already installed
+changes on this server, the new project verifies those successful transactions
+before its first runtime upgrade and retains their receipt/plan hashes as
+predecessor evidence. Subsequent runtime replacements are recorded explicitly so
+later map imports compare against the upgraded files. Saved-map edits in the
+original remain possible after that transition. Missing or changed historical
+evidence, reversed transactions, or unrelated target edits refuse the operation.
+Historical generic imports whose package paths were relocated need a fresh
+verified target capture before this floor upgrade path can be used.
+
 ## Focused validation
 
 `test-world-builder-project-floor-upgrade.py` exercises an unextended captured catalog, the real launcher model, saved-map preservation, repeated lineage, all seven transaction failure milestones, stale/incorrect confirmation, a held project lock, corrupted source and missing runtime semantics. It is registered in the projects test group. An optional actual Swing acceptance run exercises the selected-project button, preview, and Cancel:

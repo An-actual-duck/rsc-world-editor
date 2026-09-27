@@ -237,3 +237,14 @@ historical and newly painted tiles together.
   colors, overlays, sector coordinates, and exact reverse bytes across all
   1,764 client archive sectors. See the comparison record for counts, original
   renderer evidence, and limitations. No reference files were changed.
+
+- Imported-floor completion: runtime `a6279ec860e324235ef7c96f940604b806cd3b77`
+  adds deterministic append-only custom palettes and verified normal-player
+  definition loading. The full provider gate passed after correcting stale
+  browser/blending assertions; failed checks and the remaining suffix were rerun.
+  Editor/runtime generation parity passes all eight focused checks.
+  The Editor now captures extended imported catalogs, offers a recoverable
+  sibling-project floor upgrade, and installs matched client/server definitions
+  through the runtime-upgrade transaction. Map import remains map-only.
+  Final Editor transaction/integration verification and refreshed owner candidate
+  packaging are in progress; no user target has been changed.
