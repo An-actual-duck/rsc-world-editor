@@ -70,10 +70,14 @@ final class WorldBuilderInstalledFloorContent {
 		for (String group : Arrays.asList("originalFiles", "definitionRuntimeFiles")) {
 			for (Object raw : WorldBuilderAdaptiveExporter.array(project.snapshot.get(group), group)) {
 				Map<String,Object> record = WorldBuilderAdaptiveExporter.object(raw, "source floor evidence");
-				if (!"server-definition.tile".equals(record.get("role"))) continue;
 				String source = WorldBuilderAdaptiveExporter.string(record, "relativePath");
-				if (!source.startsWith("source/original/")) throw refusal("Source floor definition path is not target evidence.");
-				String path = source.substring("source/original/".length());
+				String prefix;
+				if ("server-definition.tile".equals(record.get("role"))) prefix = "source/original/";
+				else if ("legacy-migration-input".equals(record.get("role"))
+					&& source.endsWith("/TileDef.xml")) prefix = "source/migration/input/";
+				else continue;
+				if (!source.startsWith(prefix)) throw refusal("Source floor definition path is not target evidence.");
+				String path = source.substring(prefix.length());
 				boolean allowed = false;
 				for (String root : WorldBuilderPackedSourceLayout.DEFINITION_ROOTS)
 					allowed |= (root + "/TileDef.xml").equals(path);
@@ -83,6 +87,18 @@ final class WorldBuilderInstalledFloorContent {
 		}
 		if (result == null) throw refusal("Project has no exact target floor definition evidence.");
 		return result;
+	}
+
+	static void verifyMigrationSource(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target)
+		throws IOException, WorldBuilderContractException {
+		if (!required(project.projectRoot)) return;
+		String destination = serverDestination(project);
+		Path captured = project.projectRoot.resolve("source/migration/input/" + destination);
+		if (!Files.exists(captured, LinkOption.NOFOLLOW_LINKS)) return;
+		captured = WorldBuilderReadOnlyTarget.open(project.projectRoot).requiredFile("source/migration/input/" + destination);
+		Path installed = WorldBuilderReadOnlyTarget.open(target).requiredFile(destination);
+		if (!WorldBuilderHashes.sha256(captured).equals(WorldBuilderHashes.sha256(installed)))
+			throw refusal("Target floor definitions changed after the migration project was captured.");
 	}
 
 	static String clientRoot(WorldBuilderAdaptiveConfiguration configuration)

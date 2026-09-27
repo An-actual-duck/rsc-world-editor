@@ -68,6 +68,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		// Recovery must restore the installed parent's actual state, not the
 		// original snapshot taken before that parent's successful transactions.
 		if (parent != null) expectedLineage = fresh.fingerprintSha256();
+		else WorldBuilderInstalledFloorContent.verifyMigrationSource(project, target);
 
 		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);
