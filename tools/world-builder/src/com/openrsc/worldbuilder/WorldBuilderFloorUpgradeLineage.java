@@ -25,7 +25,7 @@ final class WorldBuilderFloorUpgradeLineage {
 		if (depth >= 16) throw refusal("Floor upgrade predecessor chain is too deep or cyclic.");
 		DEPTH.set(Integer.valueOf(depth + 1));
 		try {
-			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent = parent(project);
+			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent = parent(project, true);
 			if (parent == null) return null;
 			WorldBuilderAdaptiveReceipt.State receipt =
 				WorldBuilderAdaptiveImporter.latestOutstandingSuccessfulImport(parent.projectRoot);
@@ -35,7 +35,8 @@ final class WorldBuilderFloorUpgradeLineage {
 			WorldBuilderAdaptiveMutationProfile.Plan installed =
 				WorldBuilderAdaptiveMutationProfile.reconstructInstalled(parent, export, target, receipt.transactionId());
 			WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(installed, receipt);
-			installed = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(installed);
+			WorldBuilderAdaptiveMutationProfile.Plan effective = WorldBuilderAdaptiveUndo.resolveEffectiveInstalledPlan(installed);
+			if (effective != installed) throw refusal("Historical relocated predecessor requires a fresh verified target capture before floor upgrade.");
 			if (!WorldBuilderAdaptiveUndo.changedAfterPaths(installed).isEmpty())
 				throw refusal("The parent project's installed files changed after its successful transaction.");
 			return installed;
@@ -80,16 +81,13 @@ final class WorldBuilderFloorUpgradeLineage {
 		validateShape(proof);
 		String id = string(proof, "projectId"), transaction = string(proof, "transactionId");
 		uuid(id); uuid(transaction);
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject previous = parent(project);
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject previous = parent(project, false);
 		int depth = 0;
-		while (previous != null && !previous.projectId.equals(id) && ++depth < 16) previous = parent(previous);
+		while (previous != null && !previous.projectId.equals(id) && ++depth < 16) previous = parent(previous, false);
 		if (previous == null || !previous.projectId.equals(id)
-			|| !previous.manifest.get("projectFingerprintSha256").equals(proof.get("projectFingerprintSha256")))
+			|| !boundParentFingerprint(project, id).equals(proof.get("projectFingerprintSha256")))
 			throw refusal("Inherited target state is not bound to this project's verified predecessor.");
-		WorldBuilderAdaptiveReceipt.State latest =
-			WorldBuilderAdaptiveImporter.latestOutstandingSuccessfulImport(previous.projectRoot);
-		if (latest == null || !transaction.equals(latest.transactionId()))
-			throw refusal("The predecessor's installed transaction changed after the floor upgrade preview.");
+		WorldBuilderAdaptiveReceipt.State latest = successfulReceipt(previous.projectRoot, transaction);
 		WorldBuilderReadOnlyTarget evidence = WorldBuilderReadOnlyTarget.open(previous.projectRoot);
 		Path receiptPath = evidence.requiredFile("receipts/" + transaction + ".json");
 		if (!WorldBuilderHashes.sha256(receiptPath).equals(proof.get("receiptSha256")))
@@ -123,6 +121,22 @@ final class WorldBuilderFloorUpgradeLineage {
 				throw refusal("Inherited configuration does not match the successful runtime transaction.");
 			expected.put(configuration, state);
 		}
+		Map<String,Object> prefix = new LinkedHashMap<String,Object>(proof);
+		prefix.remove("successors");
+		prefix.put("files", fileList(expected));
+		List<Object> accepted = new ArrayList<Object>();
+		for (Object successor : successors(proof)) {
+			Map<String,Object> reference = object(successor);
+			if (!project.projectId.equals(reference.get("projectId")))
+				throw refusal("Floor successor belongs to a different project.");
+			Map<String,Object> successorPlan = historicalPlan(project.projectRoot, reference);
+			if (!prefix.equals(successorPlan.get(FIELD)))
+				throw refusal("Floor successor does not extend the exact preceding inherited proof.");
+			applySuccessor(expected, successorPlan);
+			accepted.add(reference);
+			prefix.put("successors", new ArrayList<Object>(accepted));
+			prefix.put("files", fileList(expected));
+		}
 		if (!expected.equals(actual)) throw refusal("Inherited file inventory differs from the successful predecessor plan.");
 		return proof;
 	}
@@ -145,7 +159,7 @@ final class WorldBuilderFloorUpgradeLineage {
 	}
 
 	private static WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent(
-		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project) throws IOException, WorldBuilderContractException {
+		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, boolean strict) throws IOException, WorldBuilderContractException {
 		Path path = project.projectRoot.resolve(PATH);
 		if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return null;
 		Map<String,Object> reference = read(WorldBuilderReadOnlyTarget.open(project.projectRoot).requiredFile(PATH));
@@ -159,11 +173,97 @@ final class WorldBuilderFloorUpgradeLineage {
 		Path root = project.projectRoot.getParent().resolve(id);
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent =
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(root, true);
-		if (!reference.get("projectFingerprintSha256").equals(parent.manifest.get("projectFingerprintSha256"))
-			|| !reference.get("workingFingerprintSha256").equals(parent.working.fingerprintSha256)
+		if (strict && (!reference.get("projectFingerprintSha256").equals(parent.manifest.get("projectFingerprintSha256"))
+			|| !reference.get("workingFingerprintSha256").equals(parent.working.fingerprintSha256))
 			|| !project.manifest.get("target").equals(parent.manifest.get("target")))
 			throw refusal("The retained predecessor no longer matches its bound project identity.");
 		return parent;
+	}
+
+	static Object advance(WorldBuilderAdaptiveMutationProfile.Plan installed)
+		throws IOException, WorldBuilderContractException {
+		Object raw = installed.document.get(FIELD);
+		if (raw == null) return null;
+		Map<String,Object> proof = verifyProof(installed.project, raw);
+		Map<String,Object> states = files(proof);
+		boolean changes = false;
+		for (WorldBuilderAdaptiveMutationProfile.Action action : installed.actions)
+			changes |= action.role.startsWith("runtime-compatibility-") && states.containsKey(action.destinationRelativePath)
+				&& !states.get(action.destinationRelativePath).equals(action.after.toJson());
+		if (!changes) return proof;
+		WorldBuilderAdaptiveReceipt.State receipt = successfulReceipt(installed.project.projectRoot, installed.transactionId());
+		WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(installed, receipt);
+		Map<String,Object> reference = new LinkedHashMap<String,Object>();
+		reference.put("projectId", installed.project.projectId);
+		reference.put("transactionId", installed.transactionId());
+		reference.put("receiptSha256", WorldBuilderHashes.sha256(installed.project.projectRoot.resolve("receipts/" + installed.transactionId() + ".json")));
+		reference.put("mutationPlanSha256", installed.canonicalSha256);
+		Map<String,Object> plan = historicalPlan(installed.project.projectRoot, reference);
+		if (!proof.equals(plan.get(FIELD))) throw refusal("Successor source proof changed.");
+		applySuccessor(states, plan);
+		Map<String,Object> result = new LinkedHashMap<String,Object>(proof);
+		List<Object> references = new ArrayList<Object>(successors(proof)); references.add(reference);
+		result.put("successors", references); result.put("files", fileList(states)); validateShape(result);
+		return result;
+	}
+
+	private static void applySuccessor(Map<String,Object> states, Map<String,Object> plan) throws WorldBuilderContractException {
+		boolean changed = false;
+		for (Object raw : WorldBuilderAdaptiveExporter.array(plan.get("actions"), "actions")) {
+			Map<String,Object> action = object(raw);
+			String path = string(action, "destinationRelativePath");
+			if (!string(action, "role").startsWith("runtime-compatibility-") || !states.containsKey(path)) continue;
+			if (!states.get(path).equals(action.get("before"))) throw refusal("Successor before-state differs from inherited authority.");
+			states.put(path, action.get("after")); changed = true;
+		}
+		if (!changed) throw refusal("Successor proof does not replace inherited runtime state.");
+	}
+
+	private static List<?> successors(Map<String,Object> proof) throws WorldBuilderContractException {
+		if (!proof.containsKey("successors")) return java.util.Collections.emptyList();
+		List<?> result = WorldBuilderAdaptiveExporter.array(proof.get("successors"), "successors");
+		if (result.isEmpty() || result.size() > 16) throw refusal("Floor successor proof is unbounded.");
+		return result;
+	}
+
+	private static WorldBuilderAdaptiveReceipt.State successfulReceipt(Path root, String transaction)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderAdaptiveReceipt.State found = null;
+		for (WorldBuilderAdaptiveReceipt.State receipt : WorldBuilderAdaptiveReceipt.readAll(root)) {
+			if (transaction.equals(receipt.transactionId()) && "import".equals(receipt.transactionType()) && "successful".equals(receipt.status())) found = receipt;
+			if (transaction.equals(receipt.revertsTransactionId()) && "undo".equals(receipt.transactionType()) && "reverted".equals(receipt.status()))
+				throw refusal("Historical floor authority was explicitly reversed.");
+		}
+		if (found == null) throw refusal("Historical successful transaction is unavailable.");
+		return found;
+	}
+
+	private static Map<String,Object> historicalPlan(Path root, Map<String,Object> reference)
+		throws IOException, WorldBuilderContractException {
+		String transaction = string(reference, "transactionId"); uuid(transaction);
+		WorldBuilderReadOnlyTarget evidence = WorldBuilderReadOnlyTarget.open(root);
+		WorldBuilderAdaptiveReceipt.State receipt = successfulReceipt(root, transaction);
+		if (!WorldBuilderHashes.sha256(evidence.requiredFile("receipts/" + transaction + ".json")).equals(reference.get("receiptSha256")))
+			throw refusal("Historical successor receipt bytes changed.");
+		Map<String,Object> plan = read(evidence.requiredFile("backups/" + transaction + "/mutation-plan.json"));
+		WorldBuilderAdaptiveExporter.requireFingerprint(plan, "planFingerprintSha256");
+		String hash = WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.MUTATION_PLAN, plan).canonicalSha256;
+		if (!hash.equals(reference.get("mutationPlanSha256")) || !hash.equals(receipt.document.get("mutationPlanSha256"))
+			|| !reference.get("projectId").equals(plan.get("projectId")) || !reference.get("projectId").equals(receipt.document.get("projectId"))
+			|| !transaction.equals(plan.get("transactionId")) || !plan.get("exportFingerprintSha256").equals(receipt.document.get("exportFingerprintSha256")))
+			throw refusal("Historical successor plan and receipt disagree.");
+		return plan;
+	}
+
+	private static String boundParentFingerprint(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, String id)
+		throws IOException, WorldBuilderContractException {
+		for (int depth = 0; depth < 16; depth++) {
+			Map<String,Object> reference = read(WorldBuilderReadOnlyTarget.open(project.projectRoot).requiredFile(PATH));
+			if (id.equals(reference.get("projectId"))) return string(reference, "projectFingerprintSha256");
+			project = parent(project, false);
+			if (project == null) break;
+		}
+		throw refusal("Bound predecessor identity was not found.");
 	}
 
 	private static Map<String,Object> inheritedFiles(Map<String,Object> plan) throws WorldBuilderContractException {
@@ -171,17 +271,26 @@ final class WorldBuilderFloorUpgradeLineage {
 	}
 	static void validateShape(Object raw) throws WorldBuilderContractException {
 		Map<String,Object> proof = object(raw);
-		WorldBuilderBoundedInventory.exactKeys(proof, "floor-upgrade-lineage", "projectId",
+		Map<String,Object> shape = new LinkedHashMap<String,Object>(proof);
+		shape.remove("successors");
+		WorldBuilderBoundedInventory.exactKeys(shape, "floor-upgrade-lineage", "projectId",
 			"projectFingerprintSha256", "transactionId", "receiptSha256", "mutationPlanSha256", "files");
 		uuid(string(proof, "projectId")); uuid(string(proof, "transactionId"));
 		for (String key : new String[] {"projectFingerprintSha256", "receiptSha256", "mutationPlanSha256"})
 			if (!WorldBuilderBoundedInventory.isHash(string(proof, key))) throw refusal("Invalid predecessor evidence hash.");
 		files(proof);
+		for (Object rawSuccessor : successors(proof)) {
+			Map<String,Object> successor = object(rawSuccessor);
+			WorldBuilderBoundedInventory.exactKeys(successor, "floor-successor", "projectId", "transactionId", "receiptSha256", "mutationPlanSha256");
+			uuid(string(successor, "projectId")); uuid(string(successor, "transactionId"));
+			for (String key : new String[]{"receiptSha256", "mutationPlanSha256"})
+				if (!WorldBuilderBoundedInventory.isHash(string(successor,key))) throw refusal("Invalid successor evidence hash.");
+		}
 	}
 	static Map<String,Object> files(Map<String,Object> proof) throws WorldBuilderContractException {
 		Map<String,Object> result = new TreeMap<String,Object>();
 		List<?> values = WorldBuilderAdaptiveExporter.array(proof.get("files"), "files");
-		if (values.isEmpty() || values.size() > 4096) throw refusal("Inherited file inventory is unbounded.");
+		if (values.isEmpty() || values.size() > WorldBuilderContractLimits.MAX_INVENTORY_ENTRIES) throw refusal("Inherited file inventory is unbounded.");
 		for (Object value : values) {
 			Map<String,Object> file = object(value);
 			WorldBuilderBoundedInventory.exactKeys(file, "floor-upgrade-lineage", "relativePath", "state");

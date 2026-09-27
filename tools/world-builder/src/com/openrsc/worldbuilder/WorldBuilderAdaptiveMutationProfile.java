@@ -377,7 +377,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				capability, configuration, installed.targetLineage(), compatibility,
 				Collections.<ConfigurationChange>emptyList(), directories,
 				requiredSpace, configuration.sha256);
-			inherit(document, installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
+			inherit(document, WorldBuilderFloorUpgradeLineage.advance(installed));
 			return new Plan(target, project, export, capability, configuration,
 				installed.profileId, installed.serverPackageRelativePath,
 				installed.clientPackageRelativePath, unchangedConfiguration,
@@ -415,7 +415,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		Map<String,Object> document = document(transactionId, project, export,
 			capability, configuration, fresh.fingerprintSha256(), actions, changes,
 			directories, requiredSpace);
-		inherit(document, installed.document.get(WorldBuilderFloorUpgradeLineage.FIELD));
+		inherit(document, WorldBuilderFloorUpgradeLineage.advance(installed));
 		return new Plan(target, project, export, capability, configuration,
 			installed.profileId, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directories, document);
