@@ -1151,6 +1151,7 @@ public final class mudclient {
         alpha59_managed_first=False,
         target_mutator=None,
         runtime_mutator=None,
+        installed_standard_floors=False,
     ):
         target = (
             self.fixtures.descriptor_fixture(str(base))
@@ -1324,6 +1325,28 @@ public final class mudclient {
         elif install_enabled and not port_evidence:
             capability["install"]["offlineEvidence"] = ["pid-file"]
         project_support.write_json(capability_path, capability)
+        if installed_standard_floors:
+            # This fixture tests map-only imports on a current target. Installing
+            # the standard itself has separate upgrade/rollback coverage.
+            source = base / "InstalledFloorFixture.java"
+            source.write_text("""package com.openrsc.worldbuilder;
+import java.nio.file.*;
+public final class InstalledFloorFixture {
+ public static void main(String[] a) throws Exception {
+  byte[] tiles=WorldBuilderStandardFloorDefinitions.extend(Paths.get(a[0]));
+  Files.write(Paths.get(a[0]),tiles);
+  Path root=Paths.get(a[1]).resolve("world-builder-configs"); Files.createDirectories(root);
+  Files.write(root.resolve("TileDef.xml"),tiles);
+  Files.write(root.resolve("installed-floors.json"),WorldBuilderInstalledFloorContent.descriptor(tiles));
+ }
+}""")
+            subprocess.run(["javac", "-cp", str(self.classes), "-d", str(self.classes), str(source)], check=True)
+            subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.InstalledFloorFixture",
+                            str(target / "server/conf/server/defs/TileDef.xml"), str(client_root)], check=True)
+            for jar in (target / "server/core.jar", client_root / "Open_RSC_Client.jar"):
+                self.rewrite_runtime_entry(jar, "META-INF/MANIFEST.MF", b"Manifest-Version: 1.0\nWorld-Builder-Floor-Semantics: standard-floors-v1\nWorld-Builder-Installed-Floors: installed-floors-v1\n\n")
+            self.rewrite_runtime_entry(client_root / "Open_RSC_Client.jar",
+                                       "orsc/WorldBuilderInstalledFloorDefinitions.class", b"fixture")
         if target_mutator is not None:
             target_mutator(target)
         installation = target / "World Builder 2"
@@ -1384,7 +1407,7 @@ public final class mudclient {
 
             target, installation, project, export = self.target_project(
                 Path(temp), representation="packed",
-                target_mutator=add_supplemental_npcs,
+                target_mutator=add_supplemental_npcs, installed_standard_floors=True,
             )
             custom = json.loads((
                 project / "source/content-bundle/files/server/conf/server/defs/"
@@ -2468,7 +2491,7 @@ public final class SuccessorProofProbe {
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:
             target, installation, project, export = self.target_project(
                 Path(temp), representation="packed", supported_encodings=(1,),
-                target_runtime_archives=True,
+                target_runtime_archives=True, installed_standard_floors=True,
             )
             capability_path = target / "server/world-builder-capabilities.json"
             before_capability = capability_path.read_bytes()
@@ -2573,7 +2596,7 @@ public final class SuccessorProofProbe {
             base = Path(temp)
             target, _, project, export = self.target_project(
                 base / "first", representation="packed",
-                target_runtime_archives=True,
+                target_runtime_archives=True, installed_standard_floors=True,
             )
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
@@ -3099,7 +3122,7 @@ public final class InstalledHostProofDriftHarness {
                 prefix=f"adaptive-transaction-{representation}-"
             ) as temp:
                 target, installation, project, export = self.target_project(
-                    Path(temp), representation
+                    Path(temp), representation, installed_standard_floors=(representation == "packed")
                 )
                 before = project_support.tree_bytes(target, installation)
                 source_before = project_support.tree_bytes(project / "source")
