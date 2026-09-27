@@ -256,3 +256,21 @@ historical and newly painted tiles together.
   The provider and Editor gates were resumed from failures without repeating
   completed unaffected suites. Owner candidate packaging is next; no user
   target has been changed.
+
+- Owner confirmed the imported floor system works as intended in alpha.2.
+  The next reproduced visual defect is NPC 866 (Naga): the copied reference's
+  supplemental server definition deliberately uses animation 0 until its client
+  loads an external direction sheet and replaces the presentation mapping.
+  Importing that definition alone produces a basic NPC head. The supported
+  intake must preserve those external frames and their animation mapping as
+  project data, including when the NPC was never placed in the source map.
+  Only tracked source and artwork in the explicitly authorized
+  `/home/justin/Core-Framework (copy)` are reference inputs; it is never built,
+  launched, managed or modified. The exact Naga PNG used for acceptance has
+  SHA-256 `64b89c6235d7b988deff66c0cd627f91f39254d22e2830458f03b01c894d52e6`.
+- A separate confirmed client defect skipped item-image installation for v3
+  content bundles. The minimal runtime correction is published in `884cd422`;
+  actual surface pixel selection now passes for v2/v3 authentic/custom/Menus
+  item mappings and repeated initialization. The regression fails against the
+  prior runtime as expected. NPC direction-sheet capture and rendered acceptance
+  are still in progress; this item correction alone does not fix Naga.
