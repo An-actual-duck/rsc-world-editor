@@ -1566,15 +1566,42 @@ public final class mudclient {
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
 
     def test_floor_sibling_inherits_installed_parent_without_weakening_drift_checks(self):
+        self.check_floor_sibling_installed_parent(import_parent=True)
+
+    def test_floor_sibling_inherits_runtime_only_parent_across_repeated_maps(self):
+        self.check_floor_sibling_installed_parent(import_parent=False)
+
+    def check_floor_sibling_installed_parent(self, import_parent):
         with tempfile.TemporaryDirectory(prefix="adaptive-floor-parent-") as temp:
             base = Path(temp)
-            target, installation, parent, export = self.floor_target_project(base)
+            legacy = base / "legacy-classes"
+            legacy.mkdir()
+            stub = base / "WorldBuilderStandardFloorDefinitions.java"
+            stub.write_text('''package com.openrsc.worldbuilder;
+import java.nio.file.*; import java.io.*;
+final class WorldBuilderStandardFloorDefinitions {
+ static byte[] extend(Path p) throws IOException { return Files.readAllBytes(p); }
+}''')
+            subprocess.run(["javac", "-d", str(legacy), str(stub)], check=True)
+            normal_cli = self.run_cli
+            def legacy_create(*args):
+                if args[0] != "create-project":
+                    return normal_cli(*args)
+                return subprocess.run(["java", "-cp", str(legacy) + os.pathsep + str(self.classes),
+                                       MAIN_CLASS, *map(str, args)], cwd=ROOT, capture_output=True, text=True)
+            self.run_cli = legacy_create
+            try:
+                target, installation, parent, export = self.floor_target_project(base)
+            finally:
+                self.run_cli = normal_cli
+            self.assertNotIn(b"worldBuilderMaterial", (parent / "source/content-bundle/files/server/conf/server/defs/TileDef.xml").read_bytes())
             upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", parent,
                                                "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
-                                              "--export", export, "--target-root", target)
-            self.assertEqual(0, applied.returncode, applied.stderr)
+            if import_parent:
+                applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
+                                                  "--export", export, "--target-root", target)
+                self.assertEqual(0, applied.returncode, applied.stderr)
             # A new application runtime generation, without modifying the parent.
             runtime = base / "builder-runtime"
             self.rewrite_runtime_entry(runtime / "server/core.jar", "fixture/generation.txt", b"next-floor-generation")
@@ -1595,6 +1622,7 @@ public final class SiblingFloorProbe {
                                      str(installation), str(runtime), str(parent)], capture_output=True, text=True)
             self.assertEqual(0, copied.returncode, copied.stderr)
             child = Path(copied.stdout)
+            self.assertIn(b"base-color-v1", (child / "source/content-bundle/files/server/conf/server/defs/TileDef.xml").read_bytes())
             parent_before = project_support.tree_bytes(parent)
             exported = self.run_cli("export-adaptive", "--project", child)
             self.assertEqual(0, exported.returncode, exported.stderr)
@@ -1609,11 +1637,19 @@ public final class SiblingFloorProbe {
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertEqual(drifted, project_support.tree_bytes(target, installation))
             configuration.write_bytes(original_configuration)
+            before_child_upgrade = project_support.tree_bytes(target, installation)
+            failed = self.run_failure("runtime-upgrade", "before-success-receipt,rollback-before-0000",
+                                      child, target, child_export)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", child,
+                                                "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before_child_upgrade, project_support.tree_bytes(target, installation))
             upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", child,
                                                "--export", child_export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            for _ in range(2):
-                project_support.change_working_terrain(child)
+            for iteration in range(2):
+                self.set_fixture_ground_overlay(child / "working/layered-world/package", 4 + iteration)
                 self.assertEqual(0, self.run_cli("save-project", "--project", child).returncode)
                 exported = self.run_cli("export-adaptive", "--project", child)
                 self.assertEqual(0, exported.returncode, exported.stderr)

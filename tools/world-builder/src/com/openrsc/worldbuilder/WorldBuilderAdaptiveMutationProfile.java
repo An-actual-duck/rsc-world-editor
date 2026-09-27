@@ -65,6 +65,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 				"Target no longer matches this project's immutable affected-runtime source lineage.",
 				"Create a fresh project from the exact offline affected backup before upgrading it.");
 		}
+		// Recovery must restore the installed parent's actual state, not the
+		// original snapshot taken before that parent's successful transactions.
+		if (parent != null) expectedLineage = fresh.fingerprintSha256();
 
 		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(readOnly);

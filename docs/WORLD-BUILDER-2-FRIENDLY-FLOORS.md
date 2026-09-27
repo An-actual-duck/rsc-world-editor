@@ -3,10 +3,10 @@
 Implementation contract, 2026-09-24. Follow progress in the
 [content and terrain plan](WORLD-BUILDER-2-CONTENT-AND-TERRAIN-FIX-PLAN.md).
 
-## Imported-server completion (in progress)
+## Imported-server support
 
-The first candidate only extended Current Base. Imported/custom catalogs must
-also receive a deterministic append-only extension during project preparation.
+The first candidate only extended Current Base. Imported/custom catalogs now
+receive a deterministic append-only extension during project preparation.
 Reuse existing same-source semantic partners and safe original definitions;
 preserve every existing ID and original row. Historical projectile floors 2/11
 and invisible floors need explicit semantic partners. Complete or partially
@@ -66,7 +66,8 @@ noncanonical blocking values, forward references, chains, and mismatched source
 materials are rejected. An absent marker retains historical semantics.
 Client, server, and Editor content validation must agree on the contract.
 
-The standard uses generated definitions for both traversal states. Original
+The imported standard reuses safe original definitions and appends missing
+traversal states; Current Base keeps its fixed standard palette. Original
 overlays 2 and 11 carry projectile-blocking behavior, which is not part of the
 new appearance-plus-walkability controls. There is no generic terrain-triggered
 lava damage or water swimming in the audited runtime; specific obstacle scripts
@@ -78,7 +79,8 @@ Current Base ships the standard as part of its exact selected composition.
 Projects remain bound to their own immutable content, so an existing project
 does not silently gain or change definitions. Catalogs without the standard
 offer only combinations their actual definitions can represent. Updating
-project content remains an explicit lifecycle operation.
+project content remains an explicit lifecycle operation through
+[Upgrade Project Floors](WORLD-BUILDER-2-PROJECT-FLOOR-UPGRADE.md).
 
 The standard does not introduce another binary terrain format. Existing
 color/overlay fields persist the choice. Managed import and runtime-upgrade
