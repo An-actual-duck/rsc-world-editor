@@ -246,5 +246,13 @@ historical and newly painted tiles together.
   The Editor now captures extended imported catalogs, offers a recoverable
   sibling-project floor upgrade, and installs matched client/server definitions
   through the runtime-upgrade transaction. Map import remains map-only.
-  Final Editor transaction/integration verification and refreshed owner candidate
-  packaging are in progress; no user target has been changed.
+  Editor integration verification is complete: all selected checks passed after
+  focused reruns of corrected packed-map/migration fixtures and three checks
+  affected by concurrent test-port contention. All 66 adaptive transaction
+  cases have passing results; final floor/recovery cases were rerun after the
+  migration-evidence correction. Environment-gated native fixture, Windows and
+  GUI checks retained their explicit skips; prior focused Swing and native Base
+  lifecycle acceptance is recorded in the project-floor-upgrade handoff.
+  The provider and Editor gates were resumed from failures without repeating
+  completed unaffected suites. Owner candidate packaging is next; no user
+  target has been changed.
