@@ -124,6 +124,7 @@ final class WorldBuilderProjectContentBundle {
 			result.add(target.requiredState(
 				"server-definition.npc.supplemental." + (++supplementalIndex), relative));
 		}
+		result.addAll(WorldBuilderNpcDirectionSheets.inspect(target, layout));
 		for (String selectedPatch : composition.selectedPatchPaths()) {
 			boolean alreadyInventoried = false;
 			for (WorldBuilderReadOnlyTarget.FileState state : result) {
@@ -241,9 +242,11 @@ final class WorldBuilderProjectContentBundle {
 		boolean preservedAnimationRegistry = Files.isRegularFile(
 			copiedTarget.resolve(NPC_ANIMATION_EVIDENCE_PATH),
 			LinkOption.NOFOLLOW_LINKS);
-		boolean animationSuccessor = preservedAnimationRegistry
-			|| !npcMigration.animations.isEmpty();
-		int version = animationSuccessor ? 3 : itemSuccessor ? 2 : 1;
+		List<Object> animationRows = preservedAnimationRegistry
+			? readNpcAnimationRegistry(copiedTarget.resolve(NPC_ANIMATION_EVIDENCE_PATH))
+			: new ArrayList<Object>();
+		if (!preservedAnimationRegistry) for (WorldBuilderNpcDefinitionProvider.Animation animation
+			: npcMigration.animations) animationRows.add(animation.registryJson());
 		if (itemSuccessor) {
 			migration = migrateItemVisuals(copiedTarget,
 				targetOwnedItemVisuals, targetItemDefinitions,
@@ -255,6 +258,19 @@ final class WorldBuilderProjectContentBundle {
 		WorldBuilderTerrainMaterialProvider.Result materialMigration =
 			WorldBuilderTerrainMaterialProvider.normalize(copiedTarget,
 				migration == null ? null : migration.customArchiveOverride);
+		List<Object> normalizedNpcRows = npcRegistry.customRows;
+		if (npcMigration.changed()) {
+			try {
+				normalizedNpcRows = new ArrayList<Object>((List<?>)WorldBuilderJsonDocuments.readTargetDefinitionObject(
+					npcMigration.customDefinitions, "normalized NPC definitions").get("npcs"));
+			} catch (WorldBuilderDiscoveryException malformed) { throw new IOException(malformed); }
+		}
+		WorldBuilderNpcDirectionSheets.Result directionMigration = WorldBuilderNpcDirectionSheets.normalize(
+			copiedTarget, sourceLayout, npcRegistry, normalizedNpcRows, animationRows,
+			migration == null ? null : migration.authenticArchiveOverride,
+			runtime.verifiedSourcePath("client/Open_RSC_Client.jar"), runtime.verifiedSourcePath("server/core.jar"));
+		animationRows = directionMigration.animations;
+		int version = preservedAnimationRegistry || !animationRows.isEmpty() ? 3 : itemSuccessor ? 2 : 1;
 		List<Spec> captureSpecs = new ArrayList<Spec>(SPECS);
 		if (version >= 2) captureSpecs.add(ITEM_VISUAL_SPEC);
 		if (version >= 3) captureSpecs.add(NPC_ANIMATION_SPEC);
@@ -274,7 +290,7 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("itemVisuals", new ArrayList<Object>(itemVisuals));
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
-			} else if (spec == NPC_ANIMATION_SPEC && preservedAnimationRegistry) {
+			} else if (spec == NPC_ANIMATION_SPEC && preservedAnimationRegistry && !directionMigration.changed()) {
 				source = safeRegular(source, selectedSpec.targetPath);
 				readNpcAnimationRegistry(source);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
@@ -283,12 +299,7 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("schemaVersion", Long.valueOf(1L));
 				generated.put("manifestType",
 					"world-builder-npc-animation-registry");
-				List<Object> animations = new ArrayList<Object>();
-				for (WorldBuilderNpcDefinitionProvider.Animation animation
-					: npcMigration.animations) {
-					animations.add(animation.registryJson());
-				}
-				generated.put("animations", animations);
+				generated.put("animations", animationRows);
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
 			} else if ("definition.npc.patch".equals(spec.role)
@@ -302,7 +313,8 @@ final class WorldBuilderProjectContentBundle {
 				validateFile(source, spec);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
-			boolean overridden = !composition.sourceFor(
+			boolean overridden = spec == NPC_ANIMATION_SPEC && directionMigration.changed()
+				|| !composition.sourceFor(
 				spec.role, selectedSpec.targetPath).equals(selectedSpec.targetPath);
 			if ("definition.tile".equals(spec.role)) {
 				Files.write(destination, standardFloors);
@@ -310,6 +322,12 @@ final class WorldBuilderProjectContentBundle {
 			} else if (sceneryMigration.changed()
 				&& "definition.scenery".equals(spec.role)) {
 				Files.write(destination, sceneryMigration.definitionsOverride);
+				overridden = true;
+			} else if (directionMigration.changed() && "definition.npc.custom".equals(spec.role)) {
+				Files.write(destination, directionMigration.customDefinitions);
+				overridden = true;
+			} else if (directionMigration.changed() && "asset.sprite.authentic".equals(spec.role)) {
+				Files.write(destination, directionMigration.authenticArchive);
 				overridden = true;
 			} else if ("definition.npc.custom".equals(spec.role)
 				&& (npcMigration.changed() || npcRegistry.changed())) {
@@ -1455,22 +1473,26 @@ final class WorldBuilderProjectContentBundle {
 		long previous = -1L;
 		for (Object raw : rows) {
 			Map<String,Object> row = object(raw, "NPC animation");
-			exact(row, "animationId", "name", "category", "charColour",
+			boolean rgb = "authentic-rgb".equals(row.get("frameSource"));
+			if (rgb) exact(row, "animationId", "name", "category", "charColour",
+				"blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames",
+				"requiredFrameCount", "frameSource", "authenticBaseSpriteId", "authenticFrameSha256s");
+			else exact(row, "animationId", "name", "category", "charColour",
 				"blueMask", "genderModel", "hasCombatFrames",
 				"hasSpecialCombatFrames", "requiredFrameCount",
 				"customSpriteSubspace", "customSpriteEntry",
 				"customEntrySha256", "authenticBaseSpriteId",
 				"authenticFrameSha256s");
 			long id = integer(row, "animationId");
-			if (id <= previous || id > MAX_RUNTIME_ID) {
+			if (id <= previous || id > MAX_RUNTIME_ID || rgb && id < 1080) {
 				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
 			}
 			previous = id;
 			String name = string(row, "name");
 			String category = string(row, "category");
 			if (!safeArchiveName(name) || !safeArchiveName(category)
-				|| !category.equals(string(row, "customSpriteSubspace"))
-				|| !name.equals(string(row, "customSpriteEntry"))) {
+				|| !rgb && (!category.equals(string(row, "customSpriteSubspace"))
+				|| !name.equals(string(row, "customSpriteEntry")))) {
 				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
 			}
 			for (String field : Arrays.asList("charColour", "blueMask",
@@ -1493,7 +1515,7 @@ final class WorldBuilderProjectContentBundle {
 			long base = integer(row, "authenticBaseSpriteId");
 			if (count != expected || base < 0L
 				|| base + count - 1L > MAX_RUNTIME_ID
-				|| !WorldBuilderBoundedInventory.isHash(
+				|| !rgb && !WorldBuilderBoundedInventory.isHash(
 					string(row, "customEntrySha256"))) {
 				throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
 			}

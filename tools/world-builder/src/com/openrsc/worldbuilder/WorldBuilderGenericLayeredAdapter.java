@@ -185,7 +185,8 @@ final class WorldBuilderGenericLayeredAdapter implements WorldBuilderLayoutAdapt
 		Set<String> roles = new HashSet<String>();
 		for (WorldBuilderReadOnlyTarget.FileState file : sorted) {
 			records.add(file.toJson());
-			if (capability.sourceRoles.contains(file.role) || !WorldBuilderInstalledFloorContent.evidenceRole(file.role))
+			if (capability.sourceRoles.contains(file.role) || !(WorldBuilderInstalledFloorContent.evidenceRole(file.role)
+				|| WorldBuilderNpcDirectionSheets.evidenceRole(file.role)))
 				roles.add(file.role);
 		}
 		WorldBuilderBoundedInventory.read(records, "discover-target", 1, true);
