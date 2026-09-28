@@ -274,3 +274,34 @@ historical and newly painted tiles together.
   item mappings and repeated initialization. The regression fails against the
   prior runtime as expected. NPC direction-sheet capture and rendered acceptance
   are still in progress; this item correction alone does not fix Naga.
+
+- Discovered NPC visual correction completed on 2026-09-28. Reviewed Editor
+  handoff `6eda3189146d05c40540be658e22f942cb6d485e` captures the eight known
+  direction-sheet identities as immutable PNG evidence and lossless RGB frames,
+  retaining NPC IDs and gameplay fields. Runtime handoff
+  `2e3712082bae304cb44c3258f8d7da9ccee1758b` is published in
+  `64d41ecd7b9961f6cf9ecb4fc36d8522bc1dbd28`, selected by the Editor lock.
+  Both client sprite modes use the verified frames; existing paired animations
+  retain their previous behavior. See
+  [the intake contract](WORLD-BUILDER-DISCOVERED-NPC-DIRECTION-SHEETS.md).
+- Acceptance used the exact tracked Naga PNG identified above in a disposable
+  fixture captured by the Editor. Both runtime roles accepted the unchanged
+  captured bundle. Actual client software drawing displayed the full Naga body
+  and weapons in 48 poses (two sprite modes, eight directions, three walking
+  beats); the contact sheet was visually inspected. This is not a networked
+  gameplay or native OpenGL acceptance claim. The reference copy was never
+  built, launched or modified.
+- Focused checks passed: seven direction-sheet lifecycle tests including real
+  artwork capture/reopen, 12 existing NPC-provider tests, 42 discovery tests,
+  11 content-bundle tests, 23 contract tests, four runtime-preparation tests,
+  exact runtime parity, client/server builds, two RGB rendering/refusal tests,
+  three existing animation-registry tests, and four/seven v1/v2 runtime bundle
+  tests. Shared-output fixture setup races were corrected by sequential reruns
+  of the affected suites. No full gate was rerun: the last broad verified
+  baseline remains the imported-floor alpha.2 sources recorded above; map
+  transactions, floor behavior, gameplay and updater implementation are unchanged.
+- The next owner candidate is `v0.8.1-alpha.3`, built fresh with independent
+  archive inspection and packaged launch acceptance. Existing sealed projects
+  need a fresh capture to acquire artwork omitted by older builds; keep those
+  projects and their edits. General content refresh and arbitrary custom-client
+  artwork extraction are not supplied by this bounded input adapter.
