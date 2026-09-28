@@ -32,6 +32,11 @@ final class WorldBuilderJsonDocuments {
 		return readObject(path, true);
 	}
 
+	static Map<String,Object> readTargetDefinitionObject(byte[] bytes, String label)
+		throws WorldBuilderDiscoveryException {
+		return readObject(bytes, label, true);
+	}
+
 	private static Map<String,Object> readObject(Path path, boolean allowDecimals)
 		throws IOException, WorldBuilderDiscoveryException {
 		if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(path)) {

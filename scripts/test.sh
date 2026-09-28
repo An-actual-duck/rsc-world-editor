@@ -135,6 +135,7 @@ add_group() {
 				test-world-builder-packed-conversion.py
 				test-world-builder-portable-provider.py
 				test-world-builder-npc-definition-provider.py
+				test-world-builder-npc-direction-sheets.py
 				test-world-builder-project-content-bundle.py
 				test-world-builder-standard-floors.py
 			)
