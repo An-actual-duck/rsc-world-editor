@@ -305,3 +305,13 @@ historical and newly painted tiles together.
   need a fresh capture to acquire artwork omitted by older builds; keep those
   projects and their edits. General content refresh and arbitrary custom-client
   artwork extraction are not supplied by this bounded input adapter.
+
+- Owner correction: alpha.3's eight-identity adapter does not satisfy the
+  universal custom-content discovery objective. Preservation remains the known
+  baseline; the target must supply custom identities and presentation mappings.
+  Investigation traced the missing existing-definition visual pass, the
+  placement-limited provider, and export occurring before external visual
+  activation. The [corrective investigation and replacement plan](CUSTOM-CONTENT-DISCOVERY-GAP.md)
+  supersedes the identity-specific adapter as the active direction. The generic
+  RGB runtime remains reusable; the generic discovery correction is not yet
+  implemented.
