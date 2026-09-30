@@ -260,8 +260,22 @@ final class WorldBuilderProjectContentBundle {
 		List<Object> animationRows = preservedAnimationRegistry
 			? readNpcAnimationRegistry(copiedTarget.resolve(NPC_ANIMATION_EVIDENCE_PATH))
 			: new ArrayList<Object>();
-		if (!preservedAnimationRegistry) for (WorldBuilderNpcDefinitionProvider.Animation animation
-			: npcMigration.animations) animationRows.add(animation.registryJson());
+        for (WorldBuilderNpcDefinitionProvider.Animation animation : npcMigration.animations) {
+            Map<String,Object> candidate = animation.registryJson();
+            boolean found = false;
+            for (Object raw : animationRows) {
+                Map<String,Object> existing = object(raw, "NPC animation");
+                if (!candidate.get("animationId").equals(existing.get("animationId"))) continue;
+                if (!candidate.equals(existing)) throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
+                    NPC_ANIMATION_EVIDENCE_PATH, "Captured and provider NPC animation bindings disagree.",
+                    "Select one exact consistent visual provider and rediscover the target.");
+                found = true;
+                break;
+            }
+            if (!found) animationRows.add(candidate);
+        }
+        animationRows.sort((a, b) -> Long.compare((Long)((Map<?,?>)a).get("animationId"),
+            (Long)((Map<?,?>)b).get("animationId")));
 		if (itemSuccessor) {
 			migration = migrateItemVisuals(copiedTarget,
 				targetOwnedItemVisuals, targetItemDefinitions,
@@ -309,7 +323,7 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("itemVisuals", new ArrayList<Object>(itemVisuals));
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
-			} else if (spec == NPC_ANIMATION_SPEC && preservedAnimationRegistry && !directionMigration.changed()) {
+			} else if (spec == NPC_ANIMATION_SPEC && preservedAnimationRegistry && !directionMigration.changed() && npcMigration.animations.isEmpty()) {
 				source = safeRegular(source, selectedSpec.targetPath);
 				readNpcAnimationRegistry(source);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
@@ -332,7 +346,7 @@ final class WorldBuilderProjectContentBundle {
 				validateFile(source, spec);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
-			boolean overridden = spec == NPC_ANIMATION_SPEC && directionMigration.changed()
+			boolean overridden = spec == NPC_ANIMATION_SPEC && (directionMigration.changed() || !npcMigration.animations.isEmpty())
 				|| !composition.sourceFor(
 				spec.role, selectedSpec.targetPath).equals(selectedSpec.targetPath);
 			if ("definition.tile".equals(spec.role)) {
