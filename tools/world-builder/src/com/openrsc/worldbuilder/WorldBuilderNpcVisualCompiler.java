@@ -137,6 +137,13 @@ final class WorldBuilderNpcVisualCompiler {
 			}
 			int animationId;
 			if (animation!=null) {
+                if (!"npc".equals(animation.get("category"))
+                    || !Long.valueOf(frames.size()).equals(animation.get("requiredFrameCount")))
+                    throw problem(definition, "Stored visual animation semantics differ from source evidence.");
+                for (String field : Arrays.asList("charColour", "blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames")) {
+                    if (!Objects.equals(record.get(field), animation.get(field)))
+                        throw problem(definition, "Stored visual animation semantics differ from source evidence: " + field + ".");
+                }
 				animationId=number(animation, "animationId", 1080, 65535);
 				if (!hashes.equals(animation.get("authenticFrameSha256s"))) throw problem(definition, "Stored visual frame hashes differ from source evidence.");
 				int previousBase=number(animation, "authenticBaseSpriteId", 0, 65535);

@@ -146,6 +146,10 @@ final class WorldBuilderNpcDefinitionProvider {
                     + (provider.animationFailure != null ? provider.animationFailure : provider.unavailableReason)));
             }
         }
+        if (provider.animations.isEmpty()) for (Integer id : provider.definitions.keySet()) {
+            if (id.intValue() >= originalCount && id.intValue() < appendedCount) warnings.add(new Warning(
+                id.intValue(), "NPC_VISUAL_UNRESOLVED", "The selected NPC record lacks source-bound animation evidence; existing server presentation references were retained."));
+        }
         List<Object> presentationOverrides = new ArrayList<Object>();
         Set<Integer> usedAnimations = new TreeSet<Integer>();
         // Legacy rich providers prove only their declared placed-extension selection.

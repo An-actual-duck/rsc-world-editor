@@ -454,6 +454,18 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 else:
                     self.assertEqual([],overrides);self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
 
+    def test_existing_simple_mapping_does_not_claim_verified_animation_closure(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-existing-simple-") as temp:
+            base=Path(temp);target,selected=self.fixture(base)
+            npc=definition(2,"Mapped NPC");npc["attack"]=73
+            write_json(target / "server/conf/server/defs/MoreNpcDefs.json",{"npcs":[npc]})
+            write_json(selected.parent / "npc-definitions-v1.json",{
+                "schemaVersion":1,"manifestType":"world-builder-npc-definition-mapping",
+                "npcs":[{"npcId":2,"name":"Mapped NPC","definition":definition(2,"Mapped NPC")}]})
+            custom,report=self.consume(target,selected,base / "stage")
+            self.assertEqual(73,custom["npcs"][1]["attack"])
+            self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
+
     def test_invalid_existing_provider_reports_unresolved_without_replacing_definition(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-existing-invalid-") as temp:
             base=Path(temp);target,selected=self.fixture(base)

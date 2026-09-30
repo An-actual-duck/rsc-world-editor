@@ -187,6 +187,18 @@ class NpcDirectionSheetsTest(unittest.TestCase):
             self.assertNotEqual(0, result.returncode)
             self.assertIn("lossless directional NPC", result.stdout + result.stderr)
 
+    def test_preserved_animation_rejects_changed_masks_despite_matching_frame_hashes(self):
+        with tempfile.TemporaryDirectory(prefix="npc-visual-mask-drift-") as temp:
+            self.fixture(Path(temp));first=self.create();bundle=first / "source/content-bundle/files"
+            registry="server/conf/world-builder/npc-animations-v1.json"
+            row=json.loads((bundle / registry).read_text());row["animations"][0]["charColour"]=7
+            L.write_json(self.target / registry,row)
+            shutil.copyfile(bundle / "client/Cache/video/Authentic_Sprites.orsc",
+                            self.target / "Client_Base/Cache/video/Authentic_Sprites.orsc")
+            self.life.discover(self.target,self.report)
+            result,_=self.life.create_project(self.install,self.runtime,self.target,self.report,"Mask drift",43861)
+            self.assertNotEqual(0,result.returncode);self.assertIn("animation semantics",result.stdout+result.stderr)
+
     def test_existing_base_id_and_active_overlay_preserve_gameplay_and_other_layers(self):
         with tempfile.TemporaryDirectory(prefix="npc-visual-base-") as temp:
             self.fixture(Path(temp))
