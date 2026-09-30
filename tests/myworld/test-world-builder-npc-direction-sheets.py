@@ -125,6 +125,40 @@ class NpcDirectionSheetsTest(unittest.TestCase):
             opened = self.life.run_cli("open-project", "--installation-root", self.install, "--validate-only")
             self.assertEqual(0, opened.returncode, opened.stderr)
 
+    def test_existing_world_fields_and_multiple_visual_slots_share_one_overlay(self):
+        with tempfile.TemporaryDirectory(prefix="npc-world-visual-") as temp:
+            self.fixture(Path(temp))
+            world_path = self.target / "server/conf/server/defs/NpcDefsMyWorld.json"
+            original = {"id": 866, "attack": 73, "description": "Custom dialogue identity",
+                        "sprites3": 9, "camera1": 55}
+            L.write_json(world_path, {"npcs": [original]})
+            descriptor_path = self.target / "npc-visuals-v1.json"
+            descriptor = json.loads(descriptor_path.read_text())
+            second = dict(descriptor["visuals"][0]); second["spriteSlot"] = 2
+            descriptor["visuals"].append(second)
+            L.write_json(descriptor_path, descriptor)
+            before = L.tree_bytes(self.target)
+            project = self.create()
+            bundle = project / "source/content-bundle/files"
+            world = json.loads((bundle / "server/conf/server/defs/NpcDefsMyWorld.json").read_text())["npcs"]
+            self.assertEqual(1, len(world))
+            self.assertEqual((866, 73, "Custom dialogue identity", 9, 240, 1080, 1081),
+                tuple(world[0][key] for key in ("id", "attack", "description", "sprites3", "camera1", "sprites1", "sprites2")))
+            self.assertEqual(before, L.tree_bytes(self.target))
+            shutil.move(self.target, self.root / "offline-target")
+            opened = self.life.run_cli("open-project", "--installation-root", self.install, "--validate-only")
+            self.assertEqual(0, opened.returncode, opened.stderr)
+
+    def test_duplicate_source_world_ids_still_refuse_discovery(self):
+        with tempfile.TemporaryDirectory(prefix="npc-world-duplicates-") as temp:
+            self.fixture(Path(temp))
+            L.write_json(self.target / "server/conf/server/defs/NpcDefsMyWorld.json",
+                         {"npcs": [{"id": 866, "attack": 73}, {"id": 866, "attack": 74}]})
+            result = self.discover()
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("DEFINITION_MISMATCH", result.stdout + result.stderr)
+            self.assertIn("definition.npc.world", result.stdout + result.stderr)
+
     def test_missing_invalid_and_linked_sheets_refuse_discovery(self):
         for kind in ("missing", "wrong-size", "symlink", "oversized"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory(prefix="npc-direction-invalid-") as temp:

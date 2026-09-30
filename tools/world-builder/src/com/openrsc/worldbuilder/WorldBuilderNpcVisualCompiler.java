@@ -31,8 +31,8 @@ final class WorldBuilderNpcVisualCompiler {
 		WorldBuilderDefinitionComposition.Profile composition = WorldBuilderDefinitionComposition.inspect(target, layout);
 		applyOverlay(effective, readRows(WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget,
 		"definition.npc.patch", layout.definitionPath("NpcDefsPatch18.json"))));
-		List<Object> world = readRows(effectiveWorld);
-		applyOverlay(effective, world);
+		PresentationOverlay world = new PresentationOverlay(readRows(effectiveWorld));
+		applyOverlay(effective, world.rows());
 		for (int id=0;id<effective.size();id++) {
 			Map<String, Object> diagnostic = new LinkedHashMap<>();
 			diagnostic.put("npcId", Long.valueOf(id));
@@ -176,7 +176,7 @@ final class WorldBuilderNpcVisualCompiler {
 				if (prior!=null&&!prior.equals(record.get(field))) throw problem(definition, "Conflicting visual camera bounds for one NPC.");
 				presentation.put(field.equals("cameraWidth")?"camera1":"camera2", record.get(field));
 			}
-			world.add(presentation);
+			world.merge(presentation);
 			Map<String, Object> diagnostic=object(diagnostics.get(npc));
 			diagnostic.put("status", "verified-custom-visual-slots");
 			@SuppressWarnings("unchecked") List<Object> resolvedSlots=(List<Object>)diagnostic.get("resolvedSpriteSlots");
@@ -194,8 +194,32 @@ final class WorldBuilderNpcVisualCompiler {
 				zip.closeEntry();
 			}
 		}
-		return new Result(WorldBuilderSupplementalNpcDefinitions.customJson(world), bytes.toByteArray(), animations, diagnostics);
+		return new Result(WorldBuilderSupplementalNpcDefinitions.customJson(world.rows()), bytes.toByteArray(), animations, diagnostics);
 	}
+    /** Existing source rows must be unique; only generated presentation is merged. */
+    static final class PresentationOverlay {
+        private final Map<Integer, Object> byId = new LinkedHashMap<>();
+
+        PresentationOverlay(List<Object> source) throws WorldBuilderContractException {
+            for (Object raw : source) {
+                Map<String, Object> row = object(raw);
+                int id = number(row, "id", 0, 65535);
+                if (byId.put(id, new LinkedHashMap<>(row)) != null)
+                    throw problem("definition.npc.world", "Duplicate source NPC world definition ID: " + id + ".");
+            }
+        }
+
+        void merge(Map<String, Object> generated) throws WorldBuilderContractException {
+            int id = number(generated, "id", 0, 65535);
+            Map<String, Object> merged = byId.containsKey(id)
+                ? object(byId.get(id)) : new LinkedHashMap<String, Object>();
+            merged.putAll(generated);
+            byId.put(id, merged);
+        }
+
+        List<Object> rows() { return new ArrayList<>(byId.values()); }
+    }
+
 	private static String animationKey(Map<String, Object> record) {
 		return "visual-"+WorldBuilderHashes.sha256(WorldBuilderJsonDocuments.pretty(record).getBytes(StandardCharsets.UTF_8)).substring(0, 40);
 	}

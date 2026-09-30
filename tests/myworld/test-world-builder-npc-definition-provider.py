@@ -49,6 +49,15 @@ public final class NpcDefinitionProviderHarness {
             WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
             Files.write(Paths.get(args[3]).resolve("presentation-overrides.json"),
                 WorldBuilderSupplementalNpcDefinitions.customJson(result.presentationOverrides));
+            java.nio.file.Path worldPath = Paths.get(args[0]).resolve("server/conf/server/defs/NpcDefsMyWorld.json");
+            if (Files.isRegularFile(worldPath)) {
+                WorldBuilderNpcVisualCompiler.PresentationOverlay world =
+                    new WorldBuilderNpcVisualCompiler.PresentationOverlay(
+                        WorldBuilderNpcVisualCompiler.readRows(Files.readAllBytes(worldPath)));
+                for (Object raw : result.presentationOverrides) world.merge((Map<String,Object>)raw);
+                Files.write(Paths.get(args[3]).resolve("merged-world.json"),
+                    WorldBuilderSupplementalNpcDefinitions.customJson(world.rows()));
+            }
             Map<String,Object> registry = new LinkedHashMap<String,Object>();
             registry.put("schemaVersion", Long.valueOf(1L));
             registry.put("manifestType", "world-builder-npc-animation-registry");
@@ -438,6 +447,8 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 catalog=target / "server/conf/server/defs/ArbitraryNpcDefs.json"
                 npc=definition(2,"Neutral producer NPC");npc.update({"attack":91,"sprites1":7})
                 write_json(catalog,{"npcs":[npc]})
+                write_json(target / "server/conf/server/defs/NpcDefsMyWorld.json",
+                    {"npcs": [{"id": 2, "attack": 123, "description": "Retained world behavior", "sprites1": 9}]})
                 self.producer_package(target,selected)
                 manifest=selected.parent / "npc-definitions-v1.json"
                 doc=json.loads(manifest.read_text())
@@ -448,6 +459,10 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 self.assertEqual(91,custom["npcs"][1]["attack"])
                 self.assertEqual(7,custom["npcs"][1]["sprites1"])
                 overrides=json.loads((base / "stage/presentation-overrides.json").read_text())["npcs"]
+                merged=json.loads((base / "stage/merged-world.json").read_text())["npcs"]
+                self.assertEqual(1,len(merged))
+                self.assertEqual((123,"Retained world behavior"),(merged[0]["attack"],merged[0]["description"]))
+                self.assertEqual(0 if bound else 9,merged[0]["sprites1"])
                 if bound:
                     self.assertEqual(2,overrides[0]["id"]);self.assertEqual(0,overrides[0]["sprites1"])
                     self.assertNotIn("attack",overrides[0]);self.assertEqual([],report["warnings"])
