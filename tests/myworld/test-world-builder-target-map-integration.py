@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -28,7 +29,10 @@ public final class TargetMapIntegrationProbe {
   } else if ("restore".equals(args[0])) {
    Map<String,Object> action=WorldBuilderTargetMapIntegration.read(Paths.get(args[3]));
    WorldBuilderTargetMapIntegration.restoreAction(action,project,"test-transaction");
-  } else if ("verify".equals(args[0])) WorldBuilderTargetMapIntegration.verifyInstalled(project,target,"client");
+  } else if ("verify".equals(args[0])) WorldBuilderTargetMapIntegration.verifyInstalledPayload(project,target,"client");
+  else if ("anchor".equals(args[0])) System.out.print(WorldBuilderTargetMapIntegration.executableIndex(new String(Files.readAllBytes(project),"UTF-8"),"return 1;"));
+  else if ("floor".equals(args[0])) WorldBuilderInstalledFloorContent.verifyLiteralClientPrefix(new String(Files.readAllBytes(project),"UTF-8"),WorldBuilderTerrainDefinitionCatalog.readTiles(target).tiles);
+  else if ("append".equals(args[0])) WorldBuilderInstalledFloorContent.requireAppendOnly(Files.readAllBytes(project),Files.readAllBytes(target));
  }
 }
 '''
@@ -41,6 +45,10 @@ def sha(data):
 class TargetMapIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        version=subprocess.run(['java','-XshowSettings:properties','-version'],capture_output=True,text=True)
+        match=re.search(r'java.specification.version\s*=\s*([0-9]+)',version.stderr)
+        if not match or int(match.group(1))<17:
+            raise RuntimeError('Targeted map integration tests require Java 17 or newer with javac on PATH; see docs/WORLD-BUILDER-TARGETED-INTEGRATION-TESTS.md')
         subprocess.run([str(ROOT/'scripts/build-tools.sh')], check=True, stdout=subprocess.DEVNULL)
         cls.compiled = tempfile.TemporaryDirectory(prefix='target-map-probe-')
         cls.addClassCleanup(cls.compiled.cleanup)
@@ -157,6 +165,92 @@ class TargetMapIntegrationTest(unittest.TestCase):
         refused=self.probe('prepare',project,target,root/'out',ok=False)
         self.assertIn('Map hook differs or is ambiguous',refused.stderr)
 
+    def test_implicit_archive_classpath_refuses(self):
+        root,target,project,_=self.fixture();archive=target/'server/core.jar'
+        with zipfile.ZipFile(archive) as z:entries={n:z.read(n) for n in z.namelist()}
+        entries['META-INF/MANIFEST.MF']=b'Manifest-Version: 1.0\nClass-Path: hidden.jar\n\n'
+        with zipfile.ZipFile(archive,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        run=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertIn('Implicit archive Class-Path dependencies',run.stderr)
+
+    def test_noncanonical_manifest_cannot_hide_compiler_dependencies(self):
+        root,target,project,_=self.fixture();archive=target/'server/core.jar'
+        with zipfile.ZipFile(archive) as z:entries={n:z.read(n) for n in z.namelist()}
+        entries['meta-inf/manifest.mf']=entries.pop('META-INF/MANIFEST.MF')+b'Class-Path: hidden.jar\n'
+        with zipfile.ZipFile(archive,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        run=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertIn('unique canonical META-INF/MANIFEST.MF',run.stderr)
+
+    def test_hidden_source_helper_cannot_become_active(self):
+        root,target,project,_=self.fixture();p=target/'server/src/fixture/Engine.java'
+        p.write_text(p.read_text()+'class HiddenHelper { static int custom(){return 999;} }')
+        run=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertIn('class inventory differs',run.stderr)
+
+    def test_dependency_class_collision_refuses(self):
+        root,target,project,contract=self.fixture();lib=target/'server/lib';lib.mkdir()
+        with zipfile.ZipFile(target/'server/core.jar') as z:data=z.read('fixture/Engine.class')
+        with zipfile.ZipFile(lib/'custom.jar','w') as z:z.writestr('fixture/Engine.class',data)
+        contract['adapters'][0]['compilation'][0]['dependencyDirectories']=['server/lib']
+        (project/'working/runtime/server/conf/world-builder/target-map-integration-v1.json').write_text(json.dumps(contract))
+        run=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertIn('could shadow custom behavior',run.stderr)
+
+    def test_unrelated_versioned_class_retained_and_changed_overlap_refused(self):
+        root,target,project,_=self.fixture();archive=target/'server/core.jar'
+        with zipfile.ZipFile(archive,'a') as z:z.writestr('META-INF/versions/11/fixture/Unrelated.class',z.read('fixture/Unrelated.class'))
+        self.probe('prepare',project,target,root/'out')
+        with zipfile.ZipFile(archive) as a,zipfile.ZipFile(root/'out/server/core.jar') as b:
+            self.assertEqual(a.read('META-INF/versions/11/fixture/Unrelated.class'),b.read('META-INF/versions/11/fixture/Unrelated.class'))
+        with zipfile.ZipFile(archive,'a') as z:z.writestr('META-INF/versions/11/fixture/Engine.class',z.read('fixture/Engine.class'))
+        run=self.probe('prepare',project,target,root/'refused',ok=False)
+        self.assertIn('versioned target class overlaps',run.stderr)
+
+    def test_versioned_verification_source_refuses(self):
+        root,target,project,contract=self.fixture();archive=target/'server/core.jar'
+        contract['adapters'][0]['compilation'][0]['verificationSources']=['src/fixture/Unrelated.java']
+        (project/'working/runtime/server/conf/world-builder/target-map-integration-v1.json').write_text(json.dumps(contract))
+        with zipfile.ZipFile(archive,'a') as z:z.writestr('META-INF/versions/11/fixture/Unrelated.class',z.read('fixture/Unrelated.class'))
+        run=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertIn('verification source',run.stderr)
+
+    def test_installed_proof_requires_complete_inventory(self):
+        root,target,project,_=self.fixture();out=root/'out';self.probe('prepare',project,target,out)
+        for p in out.rglob('*'):
+            if p.is_file() and p.name!='actions.json':
+                q=target/p.relative_to(out);q.parent.mkdir(parents=True,exist_ok=True);q.write_bytes(p.read_bytes())
+        self.probe('verify',project,target,out)
+        proof=target/'server/conf/world-builder/installed-target-map-integration-v1.json'
+        document=json.loads(proof.read_text());document['sources']=[];proof.write_text(json.dumps(document))
+        run=self.probe('verify',project,target,out,ok=False)
+        self.assertIn('complete paired source and archive inventory',run.stderr)
+
+    def test_unicode_literals_and_structural_escape_refusal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            source=Path(temp)/'Source.java'
+            for literal in [r'"\ue000"',r"'\uffff'",r'"\\u000a"']:
+                source.write_text('class X { String text='+literal+'; int f(){return 1;} }')
+                run=self.probe('anchor',source,source,source);self.assertGreaterEqual(int(run.stdout),0)
+            for content in [r'class X { // hidden \u000a return 1;',r'class X { String s="\u0022"; return 1; }',r'class X { \u0072eturn 1; }']:
+                source.write_text(content);run=self.probe('anchor',source,source,source,ok=False)
+                self.assertIn('Structural Java Unicode escapes',run.stderr)
+
+    def test_floor_prefix_and_append_only_preserve_custom_materials(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);source=root/'EntityHandler.java';tiles=root/'TileDef.xml';before=root/'before.xml'
+            text='class EntityHandler { private static final ClientDefinitionRegistry REGISTRY = new ClientDefinitionRegistry(); private static final ArrayList<TileDef> tiles = REGISTRY.mutableTiles(); static void loadTileDefinitions(){tiles.add(new TileDef(-123,4,1));} }'
+            original='<TileDef-array><TileDef><colour>-123</colour><unknown>4</unknown><objectType>1</objectType></TileDef></TileDef-array>'
+            extended=original.replace('</TileDef-array>','<TileDef><colour>77</colour><unknown>0</unknown><objectType>0</objectType></TileDef></TileDef-array>')
+            before.write_text(original);tiles.write_text(extended);source.write_text(text)
+            self.probe('floor',source,tiles,root);self.probe('append',before,tiles,root)
+            for changed in [text.replace('-123','-124'),text.replace('-123','012'),text.replace('tiles.add','if (custom()) tiles.add'),text.replace('REGISTRY.mutableTiles()','customTiles()')]:
+                source.write_text(changed);run=self.probe('floor',source,tiles,root,ok=False)
+                self.assertIn('not proven compatible',run.stderr)
+            tiles.write_text(extended.replace('-123','-124'))
+            run=self.probe('append',before,tiles,root,ok=False);self.assertIn('only append-only',run.stderr)
+
     def test_exact_generated_outputs_survive_recovery_without_compiling(self):
         root,target,project,_=self.fixture();out=root/'out';self.probe('prepare',project,target,out)
         actions=json.loads((out/'actions.json').read_text())['actions']
@@ -170,6 +264,54 @@ class TargetMapIntegrationTest(unittest.TestCase):
             self.assertIn('Persisted targeted output differs',refused.stderr)
 
 
+def replace_method(text, signature, replacement):
+    start = text.index(signature)
+    brace = text.index('{', start)
+    depth, end = 1, brace + 1
+    while depth:
+        if text[end] == '{': depth += 1
+        elif text[end] == '}': depth -= 1
+        end += 1
+    return text[:start] + replacement + text[end:]
+
+
+def reconstruct_sector_helpers(host):
+    io = host / 'server/src/com/openrsc/server/io'
+    chunk = io / 'NativeLayeredTerrainChunk.java'
+    text = chunk.read_text()
+    assert text.count('public static boolean isWideEncoding(String encoding)') == 1
+    assert 'static int writeWireTile(' not in text
+    # Derive the helper body from the provider's existing field writer, retaining
+    # the exact provider-owned order and signed-byte casts.
+    loop_start = text.index('\t\tfor (NativeLayeredTerrainTile tile : tiles) {', text.index('public byte[] copyWireBytes()'))
+    body_start = text.index('\n', loop_start) + 1
+    body_end = text.index('\n\t\t}\n\t\treturn result;', body_start)
+    body = text[body_start:body_end]
+    body = '\n'.join(line[1:] if line.startswith('\t') else line for line in body.splitlines())
+    helpers = '''
+\tpublic static int wireBytesForEncoding(String encoding) {
+\t\treturn isWideEncoding(encoding) ? WIDE_TILE_WIRE_BYTES : LEGACY_TILE_WIRE_BYTES;
+\t}
+
+\tstatic int writeWireTile(byte[] result, int offset, NativeLayeredTerrainTile tile, boolean wide) {
+''' + body + '''
+\t\treturn offset;
+\t}
+'''
+    end = text.rfind('}')
+    chunk.write_text(text[:end] + helpers + text[end:])
+    sector = io / 'NativeLayeredTerrainSector.java'
+    sector.write_text(replace_method(sector.read_text(), '\tpublic byte[] copyWireBytes()', '''\tpublic byte[] copyWireBytes() {
+\t\tboolean wide = NativeLayeredTerrainChunk.isWideEncoding(sourceEncoding);
+\t\tbyte[] result = new byte[TILE_COUNT * NativeLayeredTerrainChunk.wireBytesForEncoding(sourceEncoding)];
+\t\tint offset = 0;
+\t\tfor (NativeLayeredTerrainTile tile : tiles) {
+\t\t\toffset = NativeLayeredTerrainChunk.writeWireTile(result, offset, tile, wide);
+\t\t}
+\t\treturn result;
+\t}'''))
+
+
 class TargetMapProviderConsumerTest(unittest.TestCase):
     setUpClass = classmethod(TargetMapIntegrationTest.setUpClass.__func__)
     probe = TargetMapIntegrationTest.probe
@@ -181,6 +323,12 @@ class TargetMapProviderConsumerTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix='target-map-provider-consumer-') as temporary:
             root=Path(temporary);contract=json.loads((provider/'server/conf/world-builder/target-map-integration-v1.json').read_text());adapter=contract['adapters'][0]
             host=fixture.reconstruct(root/'target',adapter)
+            reconstruct_sector_helpers(host)
+            # This newly added server activation helper was absent in the old host.
+            added_profile='com/openrsc/server/io/WorldBuilderInstalledServerProfile'
+            (host/'server/src'/f'{added_profile}.java').unlink()
+            configuration=host/'server/src/com/openrsc/server/ServerConfiguration.java'
+            configuration.write_text(configuration.read_text().replace('import com.openrsc.server.io.WorldBuilderInstalledServerProfile;',''))
             shutil.copytree(provider/'server/plugins',host/'server/plugins',dirs_exist_ok=True)
             for scope,base in [('server','server'),('client','Client_Base')]:
                 destination=host/base/'lib';destination.mkdir(parents=True,exist_ok=True)
@@ -200,6 +348,8 @@ class TargetMapProviderConsumerTest(unittest.TestCase):
             for base,archive,compiled,original in [('server','core.jar',root/'before-server',library),('server','plugins.jar',root/'before-plugins',provider/'server/plugins.jar'),('Client_Base','Open_RSC_Client.jar',root/'before-client',clientlib)]:
                 with zipfile.ZipFile(original) as z:entries={n:z.read(n) for n in z.namelist() if not n.endswith('/')}
                 for f in compiled.rglob('*.class'):entries[f.relative_to(compiled).as_posix()]=f.read_bytes()
+                if base=='server' and archive=='core.jar':
+                    entries={n:b for n,b in entries.items() if n!=added_profile+'.class' and not n.startswith(added_profile+'$')}
                 entries['synthetic/preserved-content.bin']=b'target-owned-art-and-dialogue'
                 with zipfile.ZipFile(host/base/archive,'w') as z:
                     for name,data in entries.items():z.writestr(name,data)

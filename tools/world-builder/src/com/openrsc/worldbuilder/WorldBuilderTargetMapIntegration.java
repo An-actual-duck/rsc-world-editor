@@ -199,20 +199,24 @@ final class WorldBuilderTargetMapIntegration {
                         baselineSources, inputHashes, Collections.<String,byte[]>emptyMap(), stage.resolve("baseline-dependencies"));
                 Set<String> checkedOwners = new TreeSet<String>(owners);
                 for (String path : roleSources.keySet()) if (verificationSources.containsKey(path)) checkedOwners.addAll(owners(Collections.singletonMap(path, roleSources.get(path))));
+                for (String path : beforeEntries.keySet()) if (path.startsWith("META-INF/versions/")
+                    && owned(path.replaceFirst("^META-INF/versions/[0-9]+/", ""), checkedOwners))
+                    throw failure(path, "A versioned target class overlaps an updated map owner or verification source; it requires a reviewed multi-release integration.");
                 Set<String> originalOwnerClasses = new TreeSet<String>(), baselineOwnerClasses = new TreeSet<String>();
                 for (String path : beforeEntries.keySet()) if (owned(path, checkedOwners)) originalOwnerClasses.add(path);
                 for (String path : baseline.keySet()) if (owned(path, checkedOwners)) baselineOwnerClasses.add(path);
                 if (!originalOwnerClasses.equals(baselineOwnerClasses)) throw failure(destination,
                     "Target source class inventory differs from active bytecode; newly discovered source classes cannot replace or shadow custom code.");
+                refuseDependencyShadows(target, compilation, destination, originalOwnerClasses);
                 for (Map.Entry<String,byte[]> old : beforeEntries.entrySet()) if (owned(old.getKey(), checkedOwners)) {
                     byte[] rebuilt = baseline.get(old.getKey());
-                    if (rebuilt == null || !WorldBuilderClassSemantics.equivalent(old.getValue(), rebuilt))
+                    if (rebuilt == null || !equivalentClass(old.getKey(), old.getValue(), rebuilt))
                         throw failure(old.getKey(), "Active target bytecode differs from its source; rebuilding it could discard custom behavior.");
                 }
                 TreeMap<String,byte[]> selectedClasses = new TreeMap<String,byte[]>();
                 for (Map.Entry<String,byte[]> entry : classes.entrySet()) if (owned(entry.getKey(), owners)) {
                     byte[] old = beforeEntries.get(entry.getKey());
-                    selectedClasses.put(entry.getKey(), old != null && WorldBuilderClassSemantics.equivalent(old, entry.getValue()) ? old : entry.getValue());
+                    selectedClasses.put(entry.getKey(), old != null && equivalentClass(entry.getKey(), old, entry.getValue()) ? old : entry.getValue());
                 }
                 classes = selectedClasses;
                 refuseDependencyShadows(target, compilation, destination, classes.keySet());
@@ -485,6 +489,16 @@ final class WorldBuilderTargetMapIntegration {
                 entries(jar, false); inputs.put(relative, WorldBuilderHashes.sha256(jar)); classpath.add(jar.toString());
             }
         }
+        for (String dependency : classpath) {
+            try (JarFile jar = new JarFile(dependency, false)) {
+                Manifest manifest = jar.getManifest();
+                if (manifest != null) {
+                    String implicit = manifest.getMainAttributes().getValue(Attributes.Name.CLASS_PATH);
+                    if (implicit != null && !implicit.trim().isEmpty()) throw failure(dependency,
+                        "Implicit archive Class-Path dependencies need a reviewed explicit compiler adapter.");
+                }
+            }
+        }
         List<String> options = new ArrayList<String>(Arrays.asList("-proc:none", "-implicit:none", "-encoding", "UTF-8",
             "-source", level, "-target", level, "-classpath", String.join(File.pathSeparator, classpath), "-sourcepath", empty.toString(), "-d", out.toString()));
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<JavaFileObject>();
@@ -710,6 +724,11 @@ final class WorldBuilderTargetMapIntegration {
         }
     }
 
+    private static boolean equivalentClass(String path, byte[] original, byte[] recompiled) throws WorldBuilderContractException {
+        try { return WorldBuilderClassSemantics.equivalent(original, recompiled); }
+        catch (IOException unsupported) { throw failure(path, "Target class is malformed or outside the reviewed bytecode comparison: " + unsupported.getMessage()); }
+    }
+
     private static boolean owned(String name, Set<String> owners) {
         if (!name.endsWith(".class")) return false;
         for (String owner : owners) if (name.equals(owner + ".class") || name.startsWith(owner + "$")) return true;
@@ -726,6 +745,8 @@ final class WorldBuilderTargetMapIntegration {
                 ZipEntry entry = items.nextElement(); String name = entry.getName();
                 if (entry.isDirectory()) continue;
                 WorldBuilderPortablePath.require(name, "target-map-integration");
+                if (name.equalsIgnoreCase("META-INF/MANIFEST.MF") && !name.equals("META-INF/MANIFEST.MF"))
+                    throw failure(name, "Target archive manifest must use the unique canonical META-INF/MANIFEST.MF entry.");
                 if (changing && name.toUpperCase(Locale.ROOT).matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)"))
                     throw failure(name, "Signed target archives require a separate reviewed adapter.");
                 if (result.size() >= 100000 || entry.getSize() > MAX_ENTRY) throw failure(name, "Target archive inventory exceeds its bound.");
@@ -734,6 +755,8 @@ final class WorldBuilderTargetMapIntegration {
                 total += bytes.length;
                 if (total > MAX_ARCHIVE || result.put(name, bytes) != null) throw failure(name, "Target archive is oversized or repeats an entry.");
             }
+        } catch (ZipException malformed) {
+            throw failure(archive.toString(), "Target archive is malformed or unsupported: " + malformed.getMessage());
         }
         return result;
     }

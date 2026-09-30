@@ -63,8 +63,10 @@ no terminal interaction is required.
 
 Development main presents Detect Server Map, Continue Working on Selected
 Project, Upgrade Target Runtime, Import Map Changes, and Restore Project Backup.
-For an admitted native Base project, the upgrade action uses the selected
-Current Base catalog and the project's recorded target. With no recognized adjacent server, Detect
+The upgrade action uses the project's recorded target and a reviewed targeted
+map adapter supplied with this application. Targets outside the supported
+native layered source row receive a compatibility report before mutation.
+With no recognized adjacent server, Detect
 Server Map offers a labelled New Empty World. Select Another Supported Source
 and project-folder browsing remain under Advanced / Recovery. Closing or
 cancelling a screen changes nothing. The advanced launch-adaptive command
