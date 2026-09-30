@@ -19,13 +19,22 @@ final class WorldBuilderNpcVisualSourceAdapter {
 		WorldBuilderPackedSourceLayout layout, List<WorldBuilderReadOnlyTarget.FileState> evidence,
 		Set<String> explicitlyBound) throws WorldBuilderContractException {
 		try {
-			List<Source> sources = sources(target);
 			List<Definition> definitions = definitions(target, layout);
+			boolean allExplicit=true;for(Definition definition:definitions)if(!explicitlyBound.contains(definition.path+"#"+definition.index))allExplicit=false;
+			if(allExplicit)return new ArrayList<Map<String,Object>>();
+			List<Source> sources = sources(target);
 			List<Map<String,Object>> result = new ArrayList<>();
 			for (Source table : sources) {
+				if(!table.isEnum)continue;
 				List<Entry> entries;
-				try { entries = tableEntries(table); } catch (IllegalArgumentException unrelated) { continue; }
-				if (entries.isEmpty()) continue;
+				try { entries = tableEntries(table); } catch (IllegalArgumentException malformed) {
+					if(hasCaller(sources,table.name))throw problem(table.path,"Unsupported source table metadata: "+malformed.getMessage());
+					continue;
+				}
+				if (entries.isEmpty()) {
+					if(table.tokens.contains("enum")&&hasCaller(sources,table.name))throw problem(table.path,"Unsupported declarative source table shape.");
+					continue;
+				}
 				List<Definition> selected = new ArrayList<>();
 				for (Definition definition : definitions) for (Entry entry : entries)
 					if (definition.id == entry.id && definition.name.equals(entry.name)
@@ -50,6 +59,10 @@ final class WorldBuilderNpcVisualSourceAdapter {
 						"NPCDef $npc = getNpcDef($row.$id); if ($npc == null || !$row.$name.equals($npc.getName())) return; $npc.sprites[$slot] = $getter($row);");
 					if (activation == null || !activation.get("getter").equals(binding.get("animationGetter"))) throw new IllegalArgumentException("Unsupported NPC activation semantics");
 					Map<String,String> animation = animation(handler, table.name, binding);
+					Method getter=method(handler.methods,binding.get("animationGetter"));
+					Map<String,String> getterBody=match(getter.body,"Integer $id = $map.get($row); if ($id == null) throw new IllegalStateException($message + $row); return $id;");
+					if(getterBody==null||!animation.get("map").equals(getterBody.get("map"))||!sameBindings(getterBody,match(getter.params,table.name+" $row")))throw new IllegalArgumentException("Unproven animation registry lookup");
+
 					int beats = Integer.parseInt(binding.get("beats"));
 					if (beats != 3) throw new IllegalArgumentException("Only three-beat directional source layouts are supported");
 					Map<String,String> widths = match(method(table.methods,binding.get("columnWidths")).body,"return $columns.clone();");
@@ -100,14 +113,27 @@ final class WorldBuilderNpcVisualSourceAdapter {
 		catch (Exception failure) { throw problem("npc-visual-source", "Cannot inspect bounded source metadata: " + failure.getMessage()); }
 	}
 	private static void camera(Source handler,Source table,Entry entry,Map<String,Object> row) {
-		// Camera metadata is only adopted when the constructor uses the table's pure methods.
-		String text=WorldBuilderNpcVisualJava.text(handler.tokens);
-		Pattern p=Pattern.compile("0 , 0 , 0 , 0 , ([A-Za-z_$][\\w$]*) \\. ([A-Za-z_$][\\w$]*) \\( \\) , \\1 \\. ([A-Za-z_$][\\w$]*) \\( \\) , [0-9]+ , [0-9]+ , [0-9]+ , \\1 \\. [A-Za-z_$][\\w$]* \\) \\)");
-		Matcher m=p.matcher(text);String width=null,height=null;
-		while(m.find()){if(width!=null)throw new IllegalArgumentException("Ambiguous source camera constructors");width=m.group(2);height=m.group(3);}
+		String width=null,height=null;
+		for(Method method:handler.methods)for(int i=0;i<method.body.size();i++)if(method.body.get(i).equals("for")&&i+1<method.body.size()&&method.body.get(i+1).equals("(")){
+			int close=end(method.body,i+1);if(close+1>=method.body.size()||!method.body.get(close+1).equals("{"))continue;
+			Map<String,String> loop=match(method.body.subList(i,close+1),"for ($table $row : $table.values())");if(loop==null||!table.name.equals(loop.get("table")))continue;
+			int finish=end(method.body,close+1);
+			for(int n=close+2;n+2<finish;n++)if(method.body.get(n).equals("new")&&method.body.get(n+1).equals("NPCDef")&&method.body.get(n+2).equals("(")){
+				int end=end(method.body,n+2);List<List<String>> args=arguments(method.body.subList(n+3,end));if(args.size()!=19)throw new IllegalArgumentException("Unsupported NPC constructor shape");
+				Map<String,String> w=match(args.get(13),"$row.$method()"),h=match(args.get(14),"$row.$method()"),id=match(args.get(18),"$row.$field");
+				if(w==null||h==null||id==null||!loop.get("row").equals(w.get("row"))||!loop.get("row").equals(h.get("row"))||!loop.get("row").equals(id.get("row"))||!Long.valueOf(entry.id).equals(entry.fields.get(id.get("field"))))throw new IllegalArgumentException("Unproven source camera association");
+				if(width!=null)throw new IllegalArgumentException("Ambiguous source camera constructors");width=w.get("method");height=h.get("method");
+			}
+		}
 		if(width==null)throw new IllegalArgumentException("Camera constructor cannot be proven");
 		row.put("cameraWidth",evaluateMethod(table,entry,width));row.put("cameraHeight",evaluateMethod(table,entry,height));
 	}
+	private static List<List<String>> arguments(List<String> tokens){
+		List<List<String>> result=new ArrayList<>();int start=0;
+		for(int i=0;i<tokens.size();i++){String token=tokens.get(i);if(token.equals("(")||token.equals("[")||token.equals("{"))i=end(tokens,i);else if(token.equals(",")){result.add(tokens.subList(start,i));start=i+1;}}
+		result.add(tokens.subList(start,tokens.size()));return result;
+	}
+
 	private static Map<String,String> animation(Source handler,String table,Map<String,String> caller) {
 		for(Method m:handler.methods)for(int i=0;i<m.body.size();i++)if("for".equals(m.body.get(i))) {
 			int open=i+1;if(open>=m.body.size()||!"(".equals(m.body.get(open)))continue;int close=end(m.body,open);if(close+1>=m.body.size()||!"{".equals(m.body.get(close+1)))continue;int finish=end(m.body,close+1);
@@ -150,6 +176,7 @@ final class WorldBuilderNpcVisualSourceAdapter {
 	}
 	private static boolean sameBindings(Map<String,String> body,Map<String,String> params){if(body==null||params==null)return false;for(Map.Entry<String,String> e:params.entrySet())if(!e.getValue().equals(body.get(e.getKey())))return false;return true;}
 
+	private static boolean hasCaller(List<Source> sources,String table){for(Source source:sources)for(Method method:source.methods)if(method.body.contains(table)&&method.body.contains("loadExternalNpcDirectionSheet"))return true;return false;}
 	private static Caller caller(List<Source> sources,Source table) {
 		Caller result=null;boolean candidate=false;
 		for(Source s:sources)for(Method m:s.methods)if(m.body.contains(table.name)&&m.body.contains("loadExternalNpcDirectionSheet")) {
@@ -208,12 +235,12 @@ final class WorldBuilderNpcVisualSourceAdapter {
 
 	private static WorldBuilderContractException problem(String path,String message){return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,"npc-visual-source",path,false,message,"Provide an explicit neutral NPC visual descriptor for this definition, or restore matching source metadata and assets.");}
 	private static final class Source {
-		final String path,name;final List<String> tokens;final List<Method> methods;
+		final String path,name;final boolean isEnum;final List<String> tokens;final List<Method> methods;
 		Source(String path,String source){
 			this.path=path;
-			List<String> raw=WorldBuilderNpcVisualJava.tokens(source);String declared="";
-			for(int i=0;i+1<raw.size();i++)if(raw.get(i).equals("class")||raw.get(i).equals("enum")){declared=raw.get(i+1);break;}
-			name=declared;tokens=new ArrayList<>();
+			List<String> raw=WorldBuilderNpcVisualJava.tokens(source);String declared="";boolean enumDeclaration=false;
+			for(int i=0;i+1<raw.size();i++)if(raw.get(i).equals("class")||raw.get(i).equals("enum")){declared=raw.get(i+1);enumDeclaration=raw.get(i).equals("enum");break;}
+			name=declared;isEnum=enumDeclaration;tokens=new ArrayList<>();
 			// Strip qualified package names only in token sequences, never literals.
 			for(int i=0;i<raw.size();i++){
 				int end=i;
