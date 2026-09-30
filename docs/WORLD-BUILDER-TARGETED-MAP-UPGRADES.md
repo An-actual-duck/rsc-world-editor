@@ -2,9 +2,11 @@
 
 Owner direction, 2026-09-30. This supersedes broader game-composition adoption
 requirements where they conflict with preserving the target's custom game.
-Status: implementation started after the owner accepted alpha.5 custom visual
-discovery. Target upgrade compliance is not yet established. Visual acceptance
-does not certify the return-to-server path.
+Status: the first targeted source integration is implemented for the reviewed
+older native layered lineage. Original Preservation still needs a separate
+adapter. Alpha.5 visual acceptance does not certify the return-to-server path;
+the targeted implementation has separate synthetic integration and transaction
+coverage described below.
 
 ## Boundary
 
@@ -102,3 +104,26 @@ The implementation must retain the current offline/preview/exact-confirmation/
 backup/verification/rollback/recovery contracts. Existing project edits must
 survive adoption of a newer upgrade payload. No target mutation is authorized by
 this implementation assignment.
+
+## Implemented boundary
+
+The current application embeds the exact locked provider's source descriptor.
+It compiles bounded map edits against the target's own dependencies, checks
+original source against active bytecode, and rebuilds affected plugin consumers.
+Unrelated archive entries retain their exact bytes. Unknown hooks, stale source,
+class shadowing, and binary-only map dependencies cause a pre-mutation refusal.
+The previous whole-game composition upgrade is disabled at public entry points;
+historical recovery and existing compatible map-only imports remain available.
+
+Generated source and archive bytes are included in transaction evidence, so
+recovery uses the exact reviewed output without recompiling. Input inventories
+and hashes bind preview to apply. Floor additions preserve the existing server
+definition bytes and must agree with the client's existing floor prefix.
+
+The provider adapter and the Editor consumer have been tested on disposable
+reconstructed and synthetic hosts, including v5 maps, elevation 65535, retained
+custom callbacks/resources/content IDs, plugin linkage, map-only import, failure
+rollback, and interrupted recovery. This is not an execution test of the owner's
+server, a native Windows acceptance, or a production release gate. See
+[targeted integration verification](WORLD-BUILDER-TARGETED-INTEGRATION-TESTS.md)
+for commands and fixture limits. No owner target was changed or launched.
