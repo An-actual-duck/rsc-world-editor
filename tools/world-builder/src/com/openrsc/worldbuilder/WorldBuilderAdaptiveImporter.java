@@ -482,6 +482,8 @@ final class WorldBuilderAdaptiveImporter {
 		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
 			targetBytes = safeAdd(targetBytes, action.after.size);
 			backupBytes = safeAdd(backupBytes, action.before.size);
+			if (action.role.startsWith(WorldBuilderTargetMapIntegration.ROLE))
+				backupBytes = safeAdd(backupBytes, action.after.size);
 		}
 		FileStore targetStore = Files.getFileStore(plan.targetRoot);
 		FileStore projectStore = Files.getFileStore(plan.project.projectRoot);

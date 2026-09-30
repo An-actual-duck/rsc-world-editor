@@ -475,6 +475,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		for (Action action : actions) {
 			result = safeAdd(result, action.before.size);
 			result = safeAdd(result, action.after.size);
+			if (action.role.startsWith(WorldBuilderTargetMapIntegration.ROLE))
+				result = safeAdd(result, action.after.size);
 		}
 		return result;
 	}

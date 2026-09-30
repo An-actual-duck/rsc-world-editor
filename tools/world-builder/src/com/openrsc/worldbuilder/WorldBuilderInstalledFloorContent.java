@@ -158,7 +158,12 @@ final class WorldBuilderInstalledFloorContent {
 
     static void verifyTargetClientPrefix(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target,
         WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {
-        if (!required(project.projectRoot)) return;
+        if (!required(project.projectRoot)) {
+            Path root = target.resolve(clientRoot(configuration));
+            if (Files.exists(root.resolve(CLIENT_TILES), LinkOption.NOFOLLOW_LINKS) || Files.exists(root.resolve(CLIENT_DESCRIPTOR), LinkOption.NOFOLLOW_LINKS))
+                throw refusal("Existing installed client floor overrides need a captured compatible floor catalog before targeted upgrade.");
+            return;
+        }
         Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(clientRoot(configuration)
             + "/src/com/openrsc/client/entityhandling/EntityHandler.java");
         if (Files.size(source) > 4L * 1024 * 1024) throw refusal("Client floor initializer source is oversized.");
@@ -182,7 +187,7 @@ final class WorldBuilderInstalledFloorContent {
                 int[] fields = new int[3];
                 for (int index = 0; index < 3; index++) {
                     boolean negative = at < body.size() && "-".equals(body.get(at)); if (negative) at++;
-                    if (at >= body.size() || !body.get(at).matches("[0-9]+")) throw new IllegalArgumentException("Nonliteral floor field");
+                    if (at >= body.size() || !body.get(at).matches("0|[1-9][0-9]*")) throw new IllegalArgumentException("Nonliteral floor field");
                     fields[index] = Integer.parseInt((negative ? "-" : "") + body.get(at++));
                     if (index < 2 && (at >= body.size() || !",".equals(body.get(at++)))) throw new IllegalArgumentException("Invalid floor tuple");
                 }

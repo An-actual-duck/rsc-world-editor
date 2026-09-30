@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -167,6 +168,65 @@ class TargetMapIntegrationTest(unittest.TestCase):
             evidence.write_bytes(b'tampered')
             refused=self.probe('restore',project,target,record,ok=False)
             self.assertIn('Persisted targeted output differs',refused.stderr)
+
+
+class TargetMapProviderConsumerTest(unittest.TestCase):
+    setUpClass = classmethod(TargetMapIntegrationTest.setUpClass.__func__)
+    probe = TargetMapIntegrationTest.probe
+    @unittest.skipUnless(os.environ.get('WORLD_BUILDER_TARGET_MAP_PROVIDER'), 'exact provider source/build fixture not selected')
+    def test_shipped_adapter_compiles_real_reconstructed_host(self):
+        provider=Path(os.environ['WORLD_BUILDER_TARGET_MAP_PROVIDER']).resolve()
+        spec=importlib.util.spec_from_file_location('provider_target_map_fixture',provider/'tests/myworld/test-target-map-adapter-compilation.py')
+        fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+        with tempfile.TemporaryDirectory(prefix='target-map-provider-consumer-') as temporary:
+            root=Path(temporary);contract=json.loads((provider/'server/conf/world-builder/target-map-integration-v1.json').read_text());adapter=contract['adapters'][0]
+            host=fixture.reconstruct(root/'target',adapter)
+            shutil.copytree(provider/'server/plugins',host/'server/plugins',dirs_exist_ok=True)
+            for scope,base in [('server','server'),('client','Client_Base')]:
+                destination=host/base/'lib';destination.mkdir(parents=True,exist_ok=True)
+            shutil.copytree(provider/'server/lib',host/'server/lib',dirs_exist_ok=True)
+            library=provider/'server/core.jar';clientlib=provider/'Client_Base/Open_RSC_Client.jar'
+            fixture.compile_sources(host/'server/src',root/'before-server',[library])
+            fixture.compile_sources(host/'server/plugins',root/'before-plugins',[root/'before-server',library])
+            selected=root/'selected-client'
+            client_sources=set()
+            for row in adapter['sources']+adapter['transforms']+adapter['requirements']:
+                if row['scope']=='client':client_sources.add(row['targetRelativePath'])
+            for row in adapter['compilation']:
+                if row['scope']=='client':client_sources.update(row.get('verificationSources',[]))
+            for relative in client_sources:
+                path=selected/relative;path.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(host/'Client_Base'/relative,path)
+            fixture.compile_sources(selected,root/'before-client',[clientlib,library])
+            for base,archive,compiled,original in [('server','core.jar',root/'before-server',library),('server','plugins.jar',root/'before-plugins',provider/'server/plugins.jar'),('Client_Base','Open_RSC_Client.jar',root/'before-client',clientlib)]:
+                with zipfile.ZipFile(original) as z:entries={n:z.read(n) for n in z.namelist() if not n.endswith('/')}
+                for f in compiled.rglob('*.class'):entries[f.relative_to(compiled).as_posix()]=f.read_bytes()
+                entries['synthetic/preserved-content.bin']=b'target-owned-art-and-dialogue'
+                with zipfile.ZipFile(host/base/archive,'w') as z:
+                    for name,data in entries.items():z.writestr(name,data)
+            project=root/'project';payload=project/'working/runtime';payload.mkdir(parents=True)
+            for row in adapter['sources']:
+                source=provider/('server' if row['scope']=='server' else 'Client_Base')/row['targetRelativePath']
+                target=payload/row['payloadRelativePath'];target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(source.read_bytes())
+                before=host/('server' if row['scope']=='server' else 'Client_Base')/row['targetRelativePath']
+                if row['policy']=='replace-reviewed-map-source':row['acceptedBeforeSha256'].append(sha(before.read_bytes()))
+            for row in adapter['requirements']:
+                if 'acceptedSourceSha256' in row:row['acceptedSourceSha256'].append(sha((host/('server' if row['scope']=='server' else 'Client_Base')/row['targetRelativePath']).read_bytes()))
+            path=payload/'server/conf/world-builder/target-map-integration-v1.json';path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(contract))
+            # Probe uses conventional client root. Rename only this disposable fixture.
+            (host/'Client_Base').rename(host/'client')
+            out=root/'out';self.probe('prepare',project,host,out)
+            # Exercise the runtime provider's real v5/wide map and custom callback harness.
+            spec=importlib.util.spec_from_file_location('provider_map_package_fixture',provider/'tests/myworld/test-native-blocked-void-npc-roam.py')
+            map_fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(map_fixture)
+            package=root/'map';placements=map_fixture.package(package,5);placements['npcs'][0]['npcId']=1907;map_fixture.update(package,placements)
+            terrain=dict(schemaVersion=2,encoding='uniform-layered-sector-v2-u16',size=48,tile=dict(elevation=65535,texture=0,overlay=0,roof=0,verticalWall=0,horizontalWall=0,diagonalWall=0))
+            digest=map_fixture.write_json(package/'terrain.json',terrain);manifest=json.loads((package/'manifest.json').read_text());manifest['terrainSectors'][0].update(encoding=terrain['encoding'],path='terrain.json',sha256=digest);map_fixture.write_json(package/'manifest.json',manifest)
+            fixture.write(root/'harness/TargetBehavior.java',fixture.HARNESS)
+            fixture.compile_sources(root/'harness',root/'harness-classes',[out/'server/core.jar',out/'server/plugins.jar'])
+            run=subprocess.run(['java','-cp',os.pathsep.join(map(str,[root/'harness-classes',out/'server/core.jar',out/'server/plugins.jar'])),'TargetBehavior','after',str(package)],capture_output=True,text=True)
+            self.assertEqual(0,run.returncode,run.stderr)
+            for base,archive in [('server','core.jar'),('server','plugins.jar'),('client','Open_RSC_Client.jar')]:
+                with zipfile.ZipFile(out/base/archive) as z:self.assertEqual(b'target-owned-art-and-dialogue',z.read('synthetic/preserved-content.bin'))
 
 
 class TargetMapTransactionTest(unittest.TestCase):

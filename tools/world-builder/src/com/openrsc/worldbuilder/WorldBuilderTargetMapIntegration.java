@@ -63,7 +63,7 @@ final class WorldBuilderTargetMapIntegration {
                 throw new AdapterMismatch("Map source requirement differs from reviewed implementations at " + path);
             for (Object fragment : array(requirement.get("requiredFragments")))
                 if (!(fragment instanceof String) || !executableContains(content, (String)fragment))
-                    throw new AdapterMismatch("Required map hook is absent or ambiguous at " + path);
+                    throw new AdapterMismatch("Required map hook is absent at " + path);
             inputHashes.put(path, hash(content.getBytes(StandardCharsets.UTF_8)));
             verificationSources.put(path, content.getBytes(StandardCharsets.UTF_8));
         }
@@ -387,32 +387,51 @@ final class WorldBuilderTargetMapIntegration {
     }
 
     private static boolean executableContains(String source, String fragment) throws WorldBuilderContractException {
-        return executableIndex(source, fragment) >= 0;
+        return !executableIndexes(source, fragment).isEmpty();
     }
 
     private static boolean[] executablePositions(String source) throws WorldBuilderContractException {
         if (source.length() > MAX_SOURCE) throw failure("source", "Map source exceeds its size bound.");
-        for (int at = 0; at < source.length();) {
-            if (source.charAt(at) != '\\') { at++; continue; }
-            int start = at; while (at < source.length() && source.charAt(at) == '\\') at++;
-            if ((at - start) % 2 == 1 && at < source.length() && source.charAt(at) == 'u')
-                throw failure("source", "Eligible Java Unicode escapes require a reviewed lexical source adapter.");
-        }
         boolean[] values = new boolean[source.length()];
         for (int at = 0; at < source.length();) {
-            if (source.startsWith("//", at)) { int end = source.indexOf('\n', at + 2); at = end < 0 ? source.length() : end + 1; continue; }
-            if (source.startsWith("/*", at)) { int end = source.indexOf("*/", at + 2); if (end < 0) throw failure("source", "Unterminated Java comment."); at = end + 2; continue; }
+            if (source.startsWith("//", at)) { int end = source.indexOf('\n', at + 2); int next = end < 0 ? source.length() : end + 1; rejectUnicodeOutsideLiteral(source.substring(at, next)); at = next; continue; }
+            if (source.startsWith("/*", at)) { int end = source.indexOf("*/", at + 2); if (end < 0) throw failure("source", "Unterminated Java comment."); rejectUnicodeOutsideLiteral(source.substring(at, end + 2)); at = end + 2; continue; }
             char ch = source.charAt(at);
             if (ch == '"' || ch == '\'') {
                 if (source.startsWith("\"\"\"", at)) throw failure("source", "Text blocks are outside this Java source adapter.");
                 at++; boolean closed = false;
-                while (at < source.length()) { char next = source.charAt(at++); if (next == '\\') at++; else if (next == ch) { closed = true; break; } }
+                while (at < source.length()) {
+                    char next = source.charAt(at++);
+                    if (next == '\\') {
+                        if (at < source.length() && source.charAt(at) == 'u') {
+                            while (at < source.length() && source.charAt(at) == 'u') at++;
+                            if (at + 4 > source.length()) throw failure("source", "Malformed Java Unicode literal.");
+                            int decoded;
+                            try { decoded = Integer.parseInt(source.substring(at, at + 4), 16); }
+                            catch (NumberFormatException invalid) { throw failure("source", "Malformed Java Unicode literal."); }
+                            if (decoded == 34 || decoded == 39 || decoded == 92 || decoded == 10 || decoded == 13)
+                                throw failure("source", "Structural Java Unicode escapes require a reviewed lexical adapter.");
+                            at += 4;
+                        } else at++;
+                    } else if (next == ch) { closed = true; break; }
+                }
                 if (!closed) throw failure("source", "Unterminated Java literal.");
                 continue;
             }
+            if (ch == '\\' && at + 1 < source.length() && source.charAt(at + 1) == 'u')
+                throw failure("source", "Structural Java Unicode escapes require a reviewed lexical adapter.");
             values[at++] = true;
         }
         return values;
+    }
+
+    private static void rejectUnicodeOutsideLiteral(String source) throws WorldBuilderContractException {
+        for (int at = 0; at < source.length();) {
+            if (source.charAt(at) != '\\') { at++; continue; }
+            int start = at; while (at < source.length() && source.charAt(at) == '\\') at++;
+            if ((at - start) % 2 == 1 && at < source.length() && source.charAt(at) == 'u')
+                throw failure("source", "Structural Java Unicode escapes require a reviewed lexical adapter.");
+        }
     }
 
     private static Map<String,byte[]> compile(Path target, Path stage, Path archive, Map<String,Object> spec,
