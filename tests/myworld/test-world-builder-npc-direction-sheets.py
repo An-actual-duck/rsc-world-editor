@@ -215,6 +215,62 @@ class NpcDirectionSheetsTest(unittest.TestCase):
                 project=self.create();npc=self.effective_npcs(project / "source/content-bundle/files")[npc_id]
                 self.assertEqual(name,npc["name"]);self.assertEqual(1080,npc["sprites1"])
 
+    def test_alternate_definition_root_preserves_original_bindings_and_supplemental_aliases(self):
+        with tempfile.TemporaryDirectory(prefix="npc-visual-alt-layout-") as temp:
+            self.fixture(Path(temp))
+            original=self.target / "server/conf/server/defs";alternate=self.target / "server/data/definitions"
+            alternate.parent.mkdir(parents=True,exist_ok=True);original.rename(alternate)
+            relative="server/data/definitions/SlayerMovementPreviewNpcDefs.json"
+            self.write_visual_descriptor(866,relative,0)
+            # Descriptor discovery also follows the selected noncanonical definition root.
+            (self.target / "npc-visuals-v1.json").rename(alternate / "npc-visuals-v1.json")
+            before=L.tree_bytes(self.target);project=self.create()
+            self.assertEqual(before,L.tree_bytes(self.target))
+            self.assertEqual(1080,self.effective_npcs(project / "source/content-bundle/files")[866]["sprites1"])
+            self.assertEqual((self.target / relative).read_bytes(),(project / "source/original" / relative).read_bytes())
+
+    def test_generic_metadata_refuses_bad_identity_camera_conflicts_and_excessive_reused_frames(self):
+        for case in ("identity", "hash", "offset", "camera", "budget"):
+            with self.subTest(case=case),tempfile.TemporaryDirectory(prefix="npc-visual-invalid-") as temp:
+                self.fixture(Path(temp));path=self.target / "npc-visuals-v1.json";doc=json.loads(path.read_text());record=doc["visuals"][0]
+                if case=="identity":record["npcId"]=865
+                elif case=="hash":record["definitionSha256"]="0"*64
+                elif case=="offset":record["frames"][0]["offsetX"]=4097
+                elif case=="camera":
+                    other=json.loads(json.dumps(record));other["spriteSlot"]=2;other["cameraWidth"]=120;doc["visuals"].append(other)
+                else:
+                    records=[]
+                    for slot in range(1,13):
+                        other=json.loads(json.dumps(record));other["spriteSlot"]=slot;other["hasSpecialCombatFrames"]=True
+                        frame=other["frames"][0];frame.update({"x":0,"y":0,"width":728,"height":300,"boundWidth":728,"boundHeight":300})
+                        other["frames"]=[frame.copy() for _ in range(27)];records.append(other)
+                    doc["visuals"]=records
+                L.write_json(path,doc);before=L.tree_bytes(self.target)
+                discovered=self.discover()
+                if case in ("identity","camera"):
+                    self.assertEqual(0,discovered.returncode,discovered.stderr);self.report.write_text(discovered.stdout)
+                    result,_=self.life.create_project(self.install,self.runtime,self.target,self.report,"Invalid metadata",43861)
+                else:result=discovered
+                self.assertNotEqual(0,result.returncode)
+                if case=="budget":self.assertIn("256 MiB",result.stdout+result.stderr)
+                self.assertEqual(before,L.tree_bytes(self.target))
+
+    def test_automatic_reference_source_capture_fixture(self):
+        source=os.environ.get("WORLD_BUILDER_NPC_SOURCE_FIXTURE")
+        destination=os.environ.get("WORLD_BUILDER_NPC_SOURCE_OUTPUT")
+        if not source or not destination:self.skipTest("Optional explicitly exported source metadata fixture")
+        root=Path(destination);root.mkdir(parents=True,exist_ok=False);self.fixture(root)
+        (self.target / "npc-visuals-v1.json").unlink();(self.target / SHEET).unlink()
+        for path in Path(source).rglob("*"):
+            if path.is_file():
+                target=self.target / path.relative_to(source);target.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(path,target)
+        project=self.create();bundle=project / "source/content-bundle/files"
+        registry=json.loads((bundle / "server/conf/world-builder/npc-animations-v1.json").read_text())["animations"]
+        self.assertEqual(8,len(registry));naga=self.effective_npcs(bundle)[866]
+        self.assertGreaterEqual(naga["sprites1"],1080)
+        (root / "captured-project-path.txt").write_text(str(project))
+        print("AUTOMATIC_SOURCE_PROJECT="+str(project),flush=True)
+
     def test_reference_asset_capture_fixture(self):
         source = os.environ.get("WORLD_BUILDER_DIRECTION_NPC_PNG")
         destination = os.environ.get("WORLD_BUILDER_DIRECTION_FIXTURE_OUTPUT")

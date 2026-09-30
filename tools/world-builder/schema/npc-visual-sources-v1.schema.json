@@ -1,0 +1,199 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Source-bound NPC visual evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "manifestType",
+    "visuals"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "manifestType": {
+      "const": "world-builder-npc-visual-sources"
+    },
+    "visuals": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {
+        "$ref": "#/$defs/visual"
+      }
+    }
+  },
+  "$defs": {
+    "frame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "imagePath",
+        "imageSha256",
+        "x",
+        "y",
+        "width",
+        "height",
+        "offsetX",
+        "offsetY",
+        "boundWidth",
+        "boundHeight"
+      ],
+      "properties": {
+        "imagePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "imageSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "x": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "y": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4095
+        },
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2048
+        },
+        "offsetX": {
+          "type": "integer",
+          "minimum": -4096,
+          "maximum": 4096
+        },
+        "offsetY": {
+          "type": "integer",
+          "minimum": -4096,
+          "maximum": 4096
+        },
+        "boundWidth": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        },
+        "boundHeight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4096
+        }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "npcId",
+        "definitionPath",
+        "definitionIndex",
+        "definitionSha256",
+        "spriteSlot",
+        "frames",
+        "alphaThreshold",
+        "cameraWidth",
+        "cameraHeight",
+        "charColour",
+        "blueMask",
+        "genderModel",
+        "hasCombatFrames",
+        "hasSpecialCombatFrames"
+      ],
+      "properties": {
+        "npcId": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "definitionPath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "definitionIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "definitionSha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "spriteSlot": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "frames": {
+          "type": "array",
+          "minItems": 15,
+          "maxItems": 27,
+          "items": {
+            "$ref": "#/$defs/frame"
+          }
+        },
+        "alphaThreshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "cameraWidth": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cameraHeight": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "charColour": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "blueMask": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "genderModel": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 2147483647
+        },
+        "hasCombatFrames": {
+          "type": "boolean"
+        },
+        "hasSpecialCombatFrames": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

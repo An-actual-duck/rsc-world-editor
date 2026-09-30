@@ -205,9 +205,16 @@ final class WorldBuilderProjectContentBundle {
 
 	static Bundle capture(Path projectStage, Path copiedTarget,
 		WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path explicitMappings,
-		Set<Integer> effectiveNpcIds)
-		throws IOException, WorldBuilderContractException {
-		Path sourceRoot = projectStage.resolve(SOURCE_DIRECTORY).normalize();
+        Set<Integer> effectiveNpcIds)
+        throws IOException, WorldBuilderContractException {
+        return capture(projectStage, copiedTarget, runtime, explicitMappings, effectiveNpcIds, null);
+    }
+
+    static Bundle capture(Path projectStage, Path copiedTarget,
+        WorldBuilderAdaptiveRuntimePreparer.SourceRuntime runtime, Path explicitMappings,
+        Set<Integer> effectiveNpcIds, WorldBuilderPackedSourceLayout originalLayout)
+        throws IOException, WorldBuilderContractException {
+        Path sourceRoot = projectStage.resolve(SOURCE_DIRECTORY).normalize();
 		if (!sourceRoot.startsWith(projectStage.toAbsolutePath().normalize())
 			|| Files.exists(sourceRoot, LinkOption.NOFOLLOW_LINKS)) {
 			throw problem(WorldBuilderErrorCodes.UNSAFE_PATH, SOURCE_DIRECTORY,
@@ -277,7 +284,7 @@ final class WorldBuilderProjectContentBundle {
             WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json")));
         effectiveNpcWorld.addAll(npcMigration.presentationOverrides);
 		WorldBuilderNpcVisualCompiler.Result directionMigration = WorldBuilderNpcVisualCompiler.normalize(
-			copiedTarget, sourceLayout, npcRegistry, normalizedNpcRows, animationRows,
+			copiedTarget, sourceLayout, originalLayout == null ? sourceLayout : originalLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
 			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld),
 			runtime.verifiedSourcePath("client/Open_RSC_Client.jar"), runtime.verifiedSourcePath("server/core.jar"));
