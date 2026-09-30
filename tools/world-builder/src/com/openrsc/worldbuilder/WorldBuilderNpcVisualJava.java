@@ -5,15 +5,27 @@ import java.util.regex.*;
 
 /** Bounded lexical and constant-expression subset; never compiles or executes target Java. */
 final class WorldBuilderNpcVisualJava {
-	static final Pattern TOKEN = Pattern.compile("\\s+|/\\*.*?\\*/|//[^\\r\\n]*|\"(?:\\\\.|[^\"\\\\])*\"|[A-Za-z_$][A-Za-z0-9_$]*|0[xX][0-9a-fA-F]+|[0-9]+|>>>|>>|==|!=|<=|>=|&&|\\|\\||\\+\\+|\\+=|\\.\\.\\.|.", Pattern.DOTALL);
 	static List<String> tokens(String source) {
 		if (source.length() > 4 * 1024 * 1024) throw new IllegalArgumentException("Source exceeds 4 MiB");
-		List<String> result = new ArrayList<>(); Matcher m = TOKEN.matcher(source);
-		while (m.find()) {
-			String t = m.group();
-			if (t.trim().isEmpty() || t.startsWith("//") || t.startsWith("/*")) continue;
-			result.add(t);
-			if (result.size() > 500000) throw new IllegalArgumentException("Source token budget exceeded");
+		List<String> result = new ArrayList<>();
+		for (int at=0;at<source.length();) {
+			char c=source.charAt(at);if(Character.isWhitespace(c)){at++;continue;}
+			if(source.startsWith("//",at)){int next=source.indexOf('\n',at+2);at=next<0?source.length():next+1;continue;}
+			if(source.startsWith("/*",at)){int next=source.indexOf("*/",at+2);if(next<0)throw new IllegalArgumentException("Unclosed source comment");at=next+2;continue;}
+			int start=at++;
+			if(c=='"'||c=='\'') {
+				boolean closed=false;
+				while(at<source.length()) {char next=source.charAt(at++);if(next=='\\'){if(at>=source.length())break;at++;}else if(next==c){closed=true;break;}else if(next=='\n'||next=='\r')throw new IllegalArgumentException("Multiline source literal is unsupported");}
+				if(!closed)throw new IllegalArgumentException("Unclosed source literal");
+			} else if(Character.isJavaIdentifierStart(c)) {
+				while(at<source.length()&&Character.isJavaIdentifierPart(source.charAt(at)))at++;
+			} else if(Character.isDigit(c)) {
+				while(at<source.length()&&Character.isLetterOrDigit(source.charAt(at)))at++;
+			} else {
+				for(String operator:Arrays.asList(">>>","...",">>","==","!=","<=",">=","&&","||","++","+=","--","-=","<<"))if(source.startsWith(operator,start)){at=start+operator.length();break;}
+			}
+			result.add(source.substring(start,at));
+			if(result.size()>500000)throw new IllegalArgumentException("Source token budget exceeded");
 		}
 		return result;
 	}
@@ -53,10 +65,11 @@ final class WorldBuilderNpcVisualJava {
 	static List<Method> methods(List<String> ts) {
 		List<Method> result = new ArrayList<>();
 		for (int i = 1; i + 1 < ts.size(); i++) if ("(".equals(ts.get(i)) && identifier(ts.get(i-1))) {
-			int close = end(ts, i);
-			if (close + 1 < ts.size() && "{".equals(ts.get(close+1)) && !Arrays.asList("if","for","while","switch","catch","synchronized").contains(ts.get(i-1))) {
-				int bodyEnd = end(ts, close+1);
-				result.add(new Method(ts.get(i-1), new ArrayList<>(ts.subList(i+1,close)), new ArrayList<>(ts.subList(close+2,bodyEnd))));
+			int close = end(ts, i), body = close + 1;
+			if (body < ts.size() && "throws".equals(ts.get(body))) { body++; while (body < ts.size() && (identifier(ts.get(body)) || ts.get(body).equals(",") || ts.get(body).equals("."))) body++; }
+			if (body < ts.size() && "{".equals(ts.get(body)) && !Arrays.asList("if","for","while","switch","catch","synchronized").contains(ts.get(i-1))) {
+				int bodyEnd = end(ts, body);
+				result.add(new Method(ts.get(i-1), new ArrayList<>(ts.subList(i+1,close)), new ArrayList<>(ts.subList(body+1,bodyEnd))));
 			}
 		}
 		return result;
