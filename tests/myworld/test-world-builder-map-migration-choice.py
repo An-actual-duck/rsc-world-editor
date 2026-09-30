@@ -14,6 +14,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import xml.etree.ElementTree as ET
 
 import adaptive_project_test_support as project_support
 
@@ -88,6 +89,26 @@ public final class mudclient {
     )
     (source / "NativeLayeredTerrainSnapshot.java").write_bytes(
         project_support.LEGACY_NATIVE_SNAPSHOT_SOURCE
+    )
+
+    # Preserve a valid floor-prefix proof, while this opaque legacy fixture has
+    # no reviewed native map bootstrap. Upgrade must report that exact mismatch.
+    rows = ET.parse(client_root.parent / "server/conf/server/defs/TileDef.xml").getroot()
+    statements = "".join(
+        "tiles.add(new TileDef(" + ",".join(
+            row.findtext(field, "0") for field in ("colour", "unknown", "objectType")
+        ) + "));" for row in rows
+    )
+    entity = client_root / "src/com/openrsc/client/entityhandling/EntityHandler.java"
+    entity.parent.mkdir(parents=True, exist_ok=True)
+    entity.write_text(
+        "class EntityHandler { private static final ClientDefinitionRegistry REGISTRY = new ClientDefinitionRegistry(); "
+        "private static final ArrayList<TileDef> tiles = REGISTRY.mutableTiles(); "
+        "private static void loadTileDefinitions(){" + statements + "} }", encoding="utf-8"
+    )
+    (source / "WorldBuilderTerrainBootstrap.java").write_text(
+        'package orsc; public class WorldBuilderTerrainBootstrap { public static String custom(){return "target-owned map hooks";} }',
+        encoding="utf-8",
     )
 
 
@@ -255,7 +276,6 @@ public final class LauncherMigrationTransactionHarness {
             if (entry.projectId.equals(arguments[3])) selected = entry;
         }
         if (selected == null) throw new AssertionError("project not found");
-        if (arguments.length < 7 || !"import-only".equals(arguments[6])) {
         Path floor = Paths.get(arguments[2]).resolve("server/conf/server/defs/TileDef.xml");
         byte[] originalFloor = Files.readAllBytes(floor);
         Files.write(floor, (new String(originalFloor, StandardCharsets.UTF_8) + "\n").getBytes(StandardCharsets.UTF_8));
@@ -265,34 +285,20 @@ public final class LauncherMigrationTransactionHarness {
         } catch (WorldBuilderContractException expected) {
             if (!expected.getMessage().contains("floor definitions changed")) throw expected;
         } finally { Files.write(floor, originalFloor); }
-        System.out.println(model.applyServerRuntimeUpgrade(model.prepareServerRuntimeUpgrade(selected)));
-        }
-        WorldBuilderLauncherModel.PreparedImport prepared =
-            model.prepareServerImport(selected);
-        Files.write(Paths.get(arguments[5]),
-            prepared.preview.toJson().getBytes(StandardCharsets.UTF_8));
-        boolean retirementSummary = prepared.summary().contains(
-            "Legacy Custom_Landscape retirement: 2 exact files");
-        if (retirementSummary) throw new AssertionError(prepared.summary());
-        System.out.println(model.applyServerImport(prepared));
-        Path target = Paths.get(arguments[2]);
-        boolean serverLegacyPresent = Files.isRegularFile(target.resolve(
-            "server/conf/server/data/Custom_Landscape.orsc"));
-        boolean clientLegacyPresent = Files.isRegularFile(target.resolve(
-            "Client_Base/Cache/video/Custom_Landscape.orsc"));
-        if (!serverLegacyPresent || !clientLegacyPresent) throw new AssertionError(
-            "legacy landscape was not preserved");
-        if (!Files.isRegularFile(target.resolve(
-                "client/world-builder-configs/installed-client.json"))) {
-            throw new AssertionError("client activation profile was not installed");
-        }
-        if (!Files.isRegularFile(target.resolve(
-                "server/world-builder-configs/installed-server.json"))) {
-            throw new AssertionError("server activation profile was not installed");
+        try {
+            model.prepareServerRuntimeUpgrade(selected);
+            throw new AssertionError("Opaque legacy runtime was accepted for replacement");
+        } catch (WorldBuilderContractException expected) {
+            if (!WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED.equals(expected.code())
+                || !expected.getMessage().contains("Map source requirement differs from reviewed implementations")
+                || !expected.getMessage().contains("WorldBuilderTerrainBootstrap.java")
+                || expected.mutationOccurred()) throw expected;
+            System.out.println(expected.code() + "|" + expected.getMessage());
         }
     }
 }
 """
+
 
 LAYERED_BASE_DISCOVERY_HARNESS = r"""
 package com.openrsc.worldbuilder;
@@ -374,6 +380,11 @@ class MapMigrationChoiceTest(unittest.TestCase):
             check=True,
             cwd=ROOT,
             capture_output=True,
+        )
+        subprocess.run(
+            ["python3", str(ROOT / "scripts/embed-target-map-integration.py"),
+             str(ROOT), str(ROOT / ".runtime-provider"), str(cls.classes)],
+            check=True, cwd=ROOT, capture_output=True,
         )
         layered_base_harness = (
             cls.classes
@@ -1064,9 +1075,6 @@ class MapMigrationChoiceTest(unittest.TestCase):
             LIFECYCLE.tree_bytes(source_content),
             LIFECYCLE.tree_bytes(working_content),
         )
-        project_id = json.loads((project / "project.json").read_text(
-            encoding="utf-8"
-        ))["projectId"]
         target_after_creation = LIFECYCLE.tree_bytes(target)
         self.assertEqual(target_before, target_after_creation)
 
@@ -1083,87 +1091,21 @@ class MapMigrationChoiceTest(unittest.TestCase):
             "upgrade-target-runtime", "--project", project,
             "--export", export_root, "--target-root", target,
         )
-        self.assertEqual(0, upgrade_preview.returncode, upgrade_preview.stderr)
-        upgrade_plan = json.loads(upgrade_preview.stdout)
-        upgraded = self.run_cli(
-            "upgrade-target-runtime", "--project", project,
-            "--export", export_root, "--target-root", target,
-            "--confirm", "UPGRADE",
-            "--transaction-id", upgrade_plan["transactionId"],
-            "--plan-sha256", upgrade_plan["planFingerprintSha256"],
-        )
-        self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-        target_after_upgrade = LIFECYCLE.tree_bytes(target)
-        preview = self.run_cli(
-            "import-adaptive", "--project", project,
-            "--export", export_root,
-            "--target-root", target,
-        )
-        self.assertEqual(preview.returncode, 0, preview.stderr)
-        preview_plan = json.loads(preview.stdout)
-        self.assertEqual(
-            {
-                "runtime-compatibility-client-profile",
-                "runtime-compatibility-server-profile",
-            },
-            {
-                action["role"] for action in preview_plan["actions"]
-                if action["role"].startswith("runtime-compatibility-")
-            },
-        )
-        self.assertFalse(any(
-            action["role"].startswith("retire-legacy-landscape-")
-            for action in preview_plan["actions"]
-        ))
-        self.assertEqual(target_after_upgrade, LIFECYCLE.tree_bytes(target))
-
-        plan_path = self.root / "primary-packed-retirement-plan.json"
-        target_server_runtime = (target / "server/core.jar").read_bytes()
-        target_client_runtime = (target / "client/Open_RSC_Client.jar").read_bytes()
-        transaction = subprocess.run(
-            [
-                "java", "-cp", str(self.classes),
-                "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
-                str(installation), str(runtime), str(target), project_id,
-                "43904", str(plan_path), "import-only",
-            ],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
-        )
-        self.assertEqual(transaction.returncode, 0, transaction.stderr)
-        self.assertNotEqual(target_after_upgrade, LIFECYCLE.tree_bytes(target))
-        self.assertEqual(
-            target_server_runtime,
-            (target / "server/core.jar").read_bytes(),
-        )
-        self.assertEqual(
-            target_client_runtime,
-            (target / "client/Open_RSC_Client.jar").read_bytes(),
-        )
-        self.assertFalse((
-            target / "server/conf/world-builder/installed-runtime-capability-v1.json"
-        ).is_file())
-        self.assertFalse((
-            target / "server/conf/world-builder/installed-runtime-capability-v2.json"
-        ).exists())
+        self.assertEqual(3, upgrade_preview.returncode, upgrade_preview.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", upgrade_preview.stderr)
+        self.assertIn("Map source requirement differs from reviewed implementations", upgrade_preview.stderr)
+        self.assertIn("WorldBuilderTerrainBootstrap.java", upgrade_preview.stderr)
+        self.assertEqual(target_before, LIFECYCLE.tree_bytes(target))
+        self.assertTrue((target / "server/conf/world-builder/installed-runtime-capability-v1.json").is_file())
         self.assertTrue(server_legacy.is_file())
         self.assertTrue(client_legacy.is_file())
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        self.assertEqual(0, len([
-            action for action in plan["actions"]
-            if action["role"].startswith("retire-legacy-landscape-")
-        ]))
-        self.assertEqual(
-            {
-                "runtime-compatibility-client-profile",
-                "runtime-compatibility-server-profile",
-            },
-            {
-                action["role"] for action in plan["actions"]
-                if action["role"].startswith("runtime-compatibility-")
-            },
+        self.assertEqual({}, LIFECYCLE.tree_bytes(project / "backups"))
+        reopened = self.run_cli(
+            "open-project", "--installation-root", installation,
+            "--target-root", target, "--validate-only",
         )
+        self.assertEqual(0, reopened.returncode, reopened.stderr)
+
 
     def test_reports_must_name_same_target(self) -> None:
         selected, legacy = reports()
@@ -1488,35 +1430,27 @@ class MapMigrationChoiceTest(unittest.TestCase):
         ).read_text(encoding="utf-8"))
         self.assertTrue(scripted_choice["retirementRequested"])
 
-        # Ordinary Import installs and selects the layered package but keeps legacy
-        # rollback assets even when the earlier migration choice requested retirement.
-        target_bytes_before_import = LIFECYCLE.tree_bytes(target)
-        project_id = manifest["projectId"]
-        plan_path = self.root / "launcher-import-plan.json"
+        # Conversion/attachment succeeds independently of an unsupported target
+        # runtime. A targeted upgrade may not replace this fixture's opaque game.
+        target_bytes_before_upgrade = LIFECYCLE.tree_bytes(target)
+        project_bytes_before_upgrade = LIFECYCLE.tree_bytes(project / "source")
         transaction = subprocess.run(
             [
                 "java", "-cp", str(self.classes),
                 "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
-                str(installation), str(runtime), str(target), project_id,
-                "43902", str(plan_path),
+                str(installation), str(runtime), str(target), manifest["projectId"],
+                "43902",
             ],
-            cwd=ROOT,
-            text=True,
-            capture_output=True,
+            cwd=ROOT, text=True, capture_output=True,
         )
-        self.assertEqual(transaction.returncode, 0, transaction.stderr)
-        self.assertIn("Map changes were imported successfully", transaction.stdout)
-        plan = json.loads(plan_path.read_text(encoding="utf-8"))
-        retirements = [
-            action for action in plan["actions"]
-            if action["role"].startswith("retire-legacy-landscape-")
-        ]
-        self.assertEqual(len(retirements), 0)
+        self.assertEqual(0, transaction.returncode, transaction.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", transaction.stdout)
+        self.assertIn("WorldBuilderTerrainBootstrap.java", transaction.stdout)
+        self.assertEqual(target_bytes_before_upgrade, LIFECYCLE.tree_bytes(target))
+        self.assertEqual(project_bytes_before_upgrade, LIFECYCLE.tree_bytes(project / "source"))
         self.assertTrue(server_terrain.is_file())
-        self.assertTrue((
-            target / "Client_Base/Cache/video/Custom_Landscape.orsc"
-        ).is_file())
-        self.assertNotEqual(target_bytes_before_import, LIFECYCLE.tree_bytes(target))
+        self.assertTrue((target / "Client_Base/Cache/video/Custom_Landscape.orsc").is_file())
+        self.assertEqual({}, LIFECYCLE.tree_bytes(project / "backups"))
 
 
 if __name__ == "__main__":
