@@ -1,5 +1,11 @@
 # World Builder 2 current-runtime upgrade review
 
+> Scope update, 2026-09-30: the owner now requires targeted map-loader
+> compatibility while preserving unrelated target gameplay and custom content.
+> The [targeted upgrade contract](WORLD-BUILDER-TARGETED-MAP-UPGRADES.md)
+> supersedes broader composition-adoption requirements in this historical review.
+
+
 ## Document status
 
 | Field | Value |

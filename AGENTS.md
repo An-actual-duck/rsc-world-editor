@@ -7,57 +7,44 @@ routing, scope changes, delegation, integration, dependency adoption,
 verification, publication, and releases for the product while preserving the
 repository boundary.
 
-## Product direction: upgrade the server
+## Product direction: targeted map compatibility
 
-The product objective is to **upgrade the server**, not preserve an old runtime
-indefinitely. World Builder, its runtime provider, the target server, and the
-matching player client may be changed at a fundamental level when that produces
-the best version of the owner's game and an adaptable public tool. Existing
-architecture, file formats, loader versions, profiles, and historical
-implementation choices are inputs to understand; they are not permanent design
-constraints.
+Owner clarification (2026-09-30): **Upgrade Target Runtime makes the target
+compatible with World Builder's map loader and world-building features.** It
+must preserve unrelated custom content and gameplay. This supersedes earlier
+instructions to adopt a complete Current Base/Advanced game composition merely
+to obtain map compatibility.
 
-- Prefer one current managed runtime generation and release train over a
-  growing matrix of active legacy runtime versions. One generation may publish
-  a small explicit set of provider-owned current variants/modules from the same
-  platform contract; it does not require identical gameplay, assets, or client
-  UI for every server.
-- Treat Preservation-like servers with no map upgrades and light customization
-  as the normal public intake. They should upgrade to the conservative Current
-  Base composition. The owner's advanced Core lineage should exercise Current
-  Advanced and reusable modules without becoming mandatory public behavior.
-- Keep input adapters, current variants, and optional modules separate. A new
-  historical layout adds a bounded migration adapter, portable behavior adds a
-  current module, and a named first-party composition adds a reviewed variant;
-  none creates a permanent old-runtime branch.
-- **Upgrade Target Runtime** is expected to upgrade an older managed target to
-  the current selected server/client composition transactionally when an upgrade
-  is needed, including canonical map conversion when the old target has no World
-  Builder map support. **Import Map Changes** remains a separate map-only
-  transaction after the target ledger proves that the current composition is
-  installed. Do not refuse merely because the target is old when an exact
-  trusted upgrade path can be built.
-- Legacy compatibility is a bounded bridge for retaining user-authored data and
-  reaching the current version. It is not a reason to fossilize an obsolete
-  runtime or make the owner manually avoid new World Builder features.
-- When customization prevents Current Base adoption, classify it as portable
-  state/data, a maintained current module, a reviewed Advanced/platform change,
-  a deliberate retirement, or a pre-mutation blocker. Build or adopt the
-  correct current composition and teach Upgrade Target Runtime to install it.
-  Preserve intended behavior and state, not the obsolete loader or arbitrary
-  target binary.
-- If the present architecture cannot perform the desired upgrade safely, the
-  task is to improve or replace that architecture, including fundamental
-  runtime changes where useful—not to treat the limitation as a product
-  requirement.
-- Preview, offline checks, exact backups, verification, recovery, and rollback
-  remain mandatory. These safeguards exist to make ambitious upgrades safe;
-  they must not be misused as reasons to prevent authorized upgrades.
+- World Builder needs faithful visual representations and placement identities
+  for buildable content. Its private authoring runtime need not reproduce the
+  target's combat, dialogue, quests, item effects, or other custom gameplay.
+- The target retains authority over existing NPC/item/object definitions,
+  assets, scripts, interactions, plugins, and unrelated configuration. Captured
+  or normalized editor presentation data is not authority to replace them.
+- Upgrade only the loader, necessary server/client integration, map protocols,
+  and dependencies demonstrably required for supported map features. Rebuilding
+  a binary is allowed when its unrelated target customizations are retained;
+  substituting a generic whole-game binary is not proof of preservation.
+- Automatically migrate supported map-related data, including placements,
+  coordinates, floors, spawn bounds, and known map references. Preserve content
+  identity. Unknown coordinate consumers require an explicit unresolved report;
+  do not guess at arbitrary custom scripts or claim they were migrated.
+- Import Map Changes is a separate map-only transaction after compatibility is
+  verified. New floor/material definitions or other necessary map metadata must
+  be explicit, collision-safe additions; unrelated content is not overwritten.
+- One maintained map capability contract and bounded input adapters remain
+  desirable. They do not require users to adopt World Builder's gameplay or
+  port unrelated custom content into provider-owned modules.
+- If the architecture cannot perform a targeted upgrade while preserving
+  custom behavior, improve the integration architecture. A preserved backup or
+  unchanged asset file does not prove the active game still uses custom code.
+- Preview, offline checks, exact backups, verification, interrupted recovery,
+  and rollback remain mandatory. Unknown compatibility must be resolved or
+  reported before mutation, without claiming a successful upgrade.
 
-This direction does not weaken the independent-repository or live-target
-boundaries below. It establishes the intended destination within those
-boundaries: a better current product rather than permanent backward-runtime
-support.
+This direction preserves the independent-repository and live-target boundaries
+below. Older composition plans are historical wherever they conflict with this
+scope. See [the targeted upgrade acceptance contract](docs/WORLD-BUILDER-TARGETED-MAP-UPGRADES.md).
 
 Before changing anything, identify the checkout role and run its matching
 preflight.
