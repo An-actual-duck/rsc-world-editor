@@ -19,6 +19,13 @@ final class WorldBuilderNpcVisualSourceAdapter {
 		WorldBuilderPackedSourceLayout layout,
 		List<WorldBuilderReadOnlyTarget.FileState> evidence)
 		throws WorldBuilderContractException {
+		return discover(target, layout, evidence, java.util.Collections.<String>emptySet());
+	}
+
+	static List<Map<String,Object>> discover(WorldBuilderReadOnlyTarget target,
+		WorldBuilderPackedSourceLayout layout,
+		List<WorldBuilderReadOnlyTarget.FileState> evidence, java.util.Set<String> explicitlyBound)
+		throws WorldBuilderContractException {
 		return new ArrayList<Map<String,Object>>();
 	}
 }
