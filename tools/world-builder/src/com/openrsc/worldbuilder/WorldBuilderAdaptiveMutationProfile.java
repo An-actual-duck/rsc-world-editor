@@ -2551,6 +2551,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append("Activation configuration: ")
 				.append(configuration.relativePath).append('\n')
 				.append("Affected files: ").append(actions.size()).append('\n');
+			value.append(WorldBuilderTargetMapIntegration.normalizationSummary(actions));
 			if (managedRuntimeActions > 0) {
 				value.append("Managed runtime: upgrade to the current World Builder "
 					+ "server/client contract (player state stays in place)\n");

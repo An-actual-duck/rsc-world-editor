@@ -27,22 +27,18 @@ visual/edit/save/reopen validation passed for accepted releases; every later
 candidate still requires fresh version-bound native and final release
 validation.
 
-The project-local generic runtime in that paragraph is the current authoring
-runtime, not the accepted destination for every target server. The later
-development-only pinned-core target-upgrade candidate is rejected. The planned
-replacement resolves Preservation-like servers to Current Base, the owner's
-reviewed lineage to Current Advanced, and portable custom behavior to explicit
-current modules on one platform generation. Provider-owned platform, Base,
-Advanced, bundle, module, and resolved-composition contracts now exist, along
-with Editor-owned input-adapter, project-capability, target-ledger, and
-read-only classification contracts. Current Base is now an installable,
-explicitly unreleased runtime release candidate backed by SQLite/MariaDB
-migration and built server/client execution evidence; Current Advanced remains
-foundation-only and non-installable. The Editor's complete transactional
-migration/cutover, installed execution verification, and the product release
-gate still must be built. Until then, `upgrade-target-runtime` must not be
-presented as a supported public migration. See
-[`docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md`](../../docs/WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+The project-local generic runtime is the authoring runtime. **Upgrade Target
+Runtime** instead applies bounded map-loader source integrations to the target's
+own server/client, retaining unrelated custom content and gameplay. The current
+reviewed adapter covers the older native layered-loader source lineage; original
+Preservation intake still needs its own upgrade adapter. **Import Map Changes**
+remains map-only after the installed compatibility proof is verified. Generic
+whole-game composition replacement is blocked by public upgrade actions.
+
+The Current Base/Advanced composition implementation sections below are
+historical development notes, not the current target-upgrade contract. See the
+[current targeted acceptance contract](../../docs/WORLD-BUILDER-TARGETED-MAP-UPGRADES.md)
+and [targeted integration tests](../../docs/WORLD-BUILDER-TARGETED-INTEGRATION-TESTS.md).
 
 Build the standalone tools with:
 
@@ -70,15 +66,28 @@ the complete visible sector only to its initial mutable working draft. The
 generator is invoked locally and no generated sector or sandbox is stored in
 source control or a release archive.
 
+## Targeted runtime archive intake
+
+For the targeted map upgrade adapter, target server/client archives and compiler
+dependency JARs use the following intake policy. Archive refusals identify the
+archive and entry and distinguish compressed size,
+expanded total, entry size, and entry count. Byte-identical `LICENSE`, `NOTICE`,
+or `COPYING` files (also `.txt`, at the root or directly in `META-INF/`) may repeat:
+a rewritten archive retains one exact text copy and the preview records its
+original occurrence count. Different notice texts and duplicate runtime resources
+remain blocked. Exact backups retain the original archive for recovery. This
+does not change provider-content extraction rules described in historical composition
+sections below.
+
 ## Desktop project launcher
 
 The packaged Linux and Windows launchers use `desktop-launch`. Development
 `main` opens a project screen with five primary actions: **Detect Server Map**,
 **Continue Working on Selected Project**, **Upgrade Target Runtime**, **Import
-Map Changes**, and **Restore Project Backup**. The upgrade button still invokes
-the rejected development candidate and must not be treated as a supported
-public migration. **New Empty World** is offered as a labelled outcome when no
-server is recognized; **Select Another Supported Source** and project-folder
+Map Changes**, and **Restore Project Backup**. The upgrade button previews a
+targeted source integration for a reviewed server/client lineage; unsupported
+lineages are refused before mutation. **New Empty World** is offered as a labelled
+outcome when no server is recognized; **Select Another Supported Source** and project-folder
 browsing live under **Advanced / Recovery**. Cancelling any chooser or
 confirmation returns without creating a project or starting child processes.
 
@@ -732,19 +741,18 @@ java -jar output/world-builder-tools/world-builder-tools.jar import-adaptive \
 The apply call independently recompiles that exact identity before creating
 transaction artifacts and emits exactly one result JSON document. The desktop
 now separates **Upgrade Target Runtime** from **Import Map Changes** so a
-runtime/variant/module transition and a map-only transaction have distinct
-preview and consent. The packaged `Import Map Changes` scripts retain literal,
+targeted map-loader upgrade and a map-only transaction have distinct preview
+and consent. The packaged `Import Map Changes` scripts retain literal,
 untrimmed `IMPORT` input for command-line and recovery use.
 
-Import reacquires the project and all target offline evidence, rediscovers the
-same adapter/capability/source lineage, and rejects drift. Under the replacement
-contract it first requires a trusted current target ledger, then writes verified
-project-owned backups and a pending map receipt, stages the content-addressed
-map package, and activates World-Builder-owned configuration last. The current
-development implementation still carries the rejected pinned-core package/
-receipt assumptions and is not release evidence for this replacement. Later
-detection must recognize the exact installed current composition and layered
-map without restoring or reconverting the retired packed source.
+Import reacquires the project and target offline evidence, verifies the installed
+map compatibility and the recorded source lineage, and rejects unexplained
+drift. It writes exact backups and a pending map receipt, stages the
+content-addressed map package, and activates World-Builder-owned configuration
+last. Ordinary import does not replace gameplay archives or content definitions.
+Necessary floor additions are a separate explicit upgrade operation. Retired
+class-shadowing runtime overlays require maintainer consolidation; repeatedly
+retrying Upgrade Target Runtime cannot safely resolve them.
 
 Back up and verify the complete target server before importing. There is no
 end-user action to reverse a completed import.
