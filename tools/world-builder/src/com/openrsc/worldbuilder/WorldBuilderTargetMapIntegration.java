@@ -72,7 +72,7 @@ final class WorldBuilderTargetMapIntegration {
             exactKeys(probe, "scope", "entry", "markers");
             String scope = scope(probe);
             String archivePath = root(scope, clientRoot) + "/" + ("server".equals(scope) ? "core.jar" : "Open_RSC_Client.jar");
-            Map<String,byte[]> archive = entries(file(target, archivePath));
+            Map<String,byte[]> archive = entries(file(target, archivePath), archivePath, true);
             String entry = string(probe, "entry");
             byte[] bytes = archive.get(entry);
             if (bytes == null) throw new AdapterMismatch("Required prior map integration is missing from " + archivePath + ": " + entry);
@@ -120,7 +120,7 @@ final class WorldBuilderTargetMapIntegration {
         Set<String> abiClosure = abiClosure(target, clientRoot, adapter);
         TreeMap<String,byte[]> outputs = new TreeMap<String,byte[]>(sources);
         for (String shadow : Arrays.asList("server/core-gameplay-overlay.jar", "server/world-builder-runtime/world-builder-managed-runtime.jar", "server/lib/world-builder-managed-runtime.jar"))
-            if (Files.exists(safe(target, shadow), LinkOption.NOFOLLOW_LINKS)) throw new AdapterMismatch("Existing class-shadowing runtime needs reviewed preservation at " + shadow);
+            if (Files.exists(safe(target, shadow), LinkOption.NOFOLLOW_LINKS)) throw retiredShadowRuntime(shadow);
         Path build = safe(target, "server/build.xml");
         if (Files.exists(build, LinkOption.NOFOLLOW_LINKS)) {
             byte[] before = bounded(file(target, "server/build.xml"), MAX_SOURCE);
@@ -145,9 +145,10 @@ final class WorldBuilderTargetMapIntegration {
                 String destination = root(scope, clientRoot) + "/" + name;
                 if (!compiledArchives.add(destination)) throw failure(DESCRIPTOR, "Duplicate map compilation archive.");
                 Path archive = file(target, destination);
+                Map<String,Integer> normalizedNotices = new TreeMap<String,Integer>();
+                Map<String,byte[]> beforeEntries = WorldBuilderTargetArchive.read(archive, destination, true, normalizedNotices);
                 byte[] beforeBytes = bounded(archive, MAX_ARCHIVE);
                 inputHashes.put(destination, hash(beforeBytes));
-                Map<String,byte[]> beforeEntries = entries(archive);
                 TreeMap<String,byte[]> roleSources = new TreeMap<String,byte[]>();
                 List<?> roots = array(compilation.get("sourceRoots"));
                 if (compilation.containsKey("verificationSources")) for (Object rawSource : array(compilation.get("verificationSources"))) {
@@ -229,6 +230,7 @@ final class WorldBuilderTargetMapIntegration {
                 evidence.put("relativePath", destination); evidence.put("beforeSha256", hash(beforeBytes));
                 evidence.put("sha256", hash(merged)); evidence.put("changedClassOwners", new ArrayList<String>(owners));
                 evidence.put("retainedEntriesSha256", retainedFingerprint(beforeEntries, owners));
+                if (!Arrays.equals(beforeBytes, merged) && !normalizedNotices.isEmpty()) evidence.put("normalizedIdenticalLegalNotices", normalizedNotices);
                 archiveEvidence.add(evidence);
             }
         } finally { deleteOwnedStage(stage); }
@@ -486,7 +488,7 @@ final class WorldBuilderTargetMapIntegration {
             }
             for (String name : names) {
                 String relative = raw + "/" + name; Path jar = file(target, relative);
-                entries(jar, false); inputs.put(relative, WorldBuilderHashes.sha256(jar)); classpath.add(jar.toString());
+                entries(jar, relative, false); inputs.put(relative, WorldBuilderHashes.sha256(jar)); classpath.add(jar.toString());
             }
         }
         for (String dependency : classpath) {
@@ -609,7 +611,7 @@ final class WorldBuilderTargetMapIntegration {
             }
         }
         dependencies.remove(destination);
-        for (String dependency : dependencies) for (String name : entries(file(target, dependency), false).keySet()) {
+        for (String dependency : dependencies) for (String name : entries(file(target, dependency), dependency, false).keySet()) {
             String base = name.replaceFirst("^META-INF/versions/[0-9]+/", "");
             if (emitted.contains(base)) throw failure(base, "A rebuilt map class also exists in target dependency " + dependency + "; replacing it could shadow custom behavior.");
         }
@@ -638,7 +640,7 @@ final class WorldBuilderTargetMapIntegration {
         if (affected.isEmpty()) return affected;
         if (archives.size() > 512) throw failure(DESCRIPTOR, "ABI dependency inventory exceeds its bound.");
         Map<String,Set<String>> users = new HashMap<String,Set<String>>(); Map<String,Set<String>> locations = new HashMap<String,Set<String>>(); Set<String> versioned = new HashSet<String>(); int count = 0;
-        for (String path : archives) for (Map.Entry<String,byte[]> entry : entries(file(target, path), targetArchives.contains(path)).entrySet()) {
+        for (String path : archives) for (Map.Entry<String,byte[]> entry : entries(file(target, path), path, targetArchives.contains(path)).entrySet()) {
             if (!entry.getKey().endsWith(".class")) continue;
             String name = entry.getKey().replaceFirst("^META-INF/versions/[0-9]+/", "");
             String owner = name.substring(0, name.length() - 6);
@@ -735,30 +737,31 @@ final class WorldBuilderTargetMapIntegration {
         return false;
     }
 
-    static Map<String,byte[]> entries(Path archive) throws IOException, WorldBuilderContractException { return entries(archive, true); }
-    private static Map<String,byte[]> entries(Path archive, boolean changing) throws IOException, WorldBuilderContractException {
-        if (Files.size(archive) > MAX_ARCHIVE) throw failure(archive.toString(), "Target archive exceeds its size bound.");
-        TreeMap<String,byte[]> result = new TreeMap<String,byte[]>(); long total = 0;
-        try (ZipFile zip = new ZipFile(archive.toFile())) {
-            Enumeration<? extends ZipEntry> items = zip.entries();
-            while (items.hasMoreElements()) {
-                ZipEntry entry = items.nextElement(); String name = entry.getName();
-                if (entry.isDirectory()) continue;
-                WorldBuilderPortablePath.require(name, "target-map-integration");
-                if (name.equalsIgnoreCase("META-INF/MANIFEST.MF") && !name.equals("META-INF/MANIFEST.MF"))
-                    throw failure(name, "Target archive manifest must use the unique canonical META-INF/MANIFEST.MF entry.");
-                if (changing && name.toUpperCase(Locale.ROOT).matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)"))
-                    throw failure(name, "Signed target archives require a separate reviewed adapter.");
-                if (result.size() >= 100000 || entry.getSize() > MAX_ENTRY) throw failure(name, "Target archive inventory exceeds its bound.");
-                byte[] bytes;
-                try (InputStream input = zip.getInputStream(entry)) { bytes = bounded(input, MAX_ENTRY); }
-                total += bytes.length;
-                if (total > MAX_ARCHIVE || result.put(name, bytes) != null) throw failure(name, "Target archive is oversized or repeats an entry.");
+    static Map<String,byte[]> entries(Path archive) throws IOException, WorldBuilderContractException {
+        return entries(archive, archive.toString(), true);
+    }
+    private static Map<String,byte[]> entries(Path archive, String relative, boolean changing) throws IOException, WorldBuilderContractException {
+        return WorldBuilderTargetArchive.read(archive, relative, changing, new TreeMap<String,Integer>());
+    }
+
+    static String normalizationSummary(List<WorldBuilderAdaptiveMutationProfile.Action> actions) {
+        StringBuilder summary = new StringBuilder();
+        for (WorldBuilderAdaptiveMutationProfile.Action action : actions) if (INSTALLED.equals(action.destinationRelativePath)
+            && action.generatedContent != null && action.role.startsWith(ROLE)) {
+            try {
+                Map<String,Object> evidence = WorldBuilderJsonDocuments.readObject(action.generatedContent, INSTALLED);
+                for (Object raw : array(evidence.get("archives"))) {
+                    Map<String,Object> archive = object(raw);
+                    if (!archive.containsKey("normalizedIdenticalLegalNotices")) continue;
+                    for (Map.Entry<String,Object> notice : object(archive.get("normalizedIdenticalLegalNotices")).entrySet())
+                        summary.append("Identical legal notice: ").append(archive.get("relativePath")).append("!/").append(notice.getKey())
+                            .append(" — ").append(notice.getValue()).append(" occurrences become one; complete text bytes retained\n");
+                }
+            } catch (WorldBuilderDiscoveryException | WorldBuilderContractException invalid) {
+                throw new IllegalStateException("Generated targeted integration evidence is invalid", invalid);
             }
-        } catch (ZipException malformed) {
-            throw failure(archive.toString(), "Target archive is malformed or unsupported: " + malformed.getMessage());
         }
-        return result;
+        return summary.toString();
     }
 
     static List<Integer> verifyInstalled(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
@@ -875,6 +878,12 @@ final class WorldBuilderTargetMapIntegration {
     static List<?> array(Object value) throws WorldBuilderContractException { return WorldBuilderAdaptiveExporter.array(value, DESCRIPTOR); }
     static String string(Map<String,Object> value, String key) throws WorldBuilderContractException { return WorldBuilderAdaptiveExporter.string(value, key); }
     private static String hash(byte[] bytes) { return WorldBuilderHashes.sha256(bytes); }
+    static WorldBuilderContractException retiredShadowRuntime(String path) {
+        return new WorldBuilderContractException(WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "target-map-integration", path, false,
+            "Target still contains retired class-shadowing runtime content at " + path
+                + ". It can replace target-owned Player, Skills, Inventory, World, Mob, Npc, ActionSender, and OpcodeOut classes. Automatic targeted upgrade cannot consolidate this overlay.",
+            "Keep the target offline and have its maintainer integrate intended overlay behavior into the maintained server sources and launch configuration, then verify the rebuilt server/client against the map contract. Do not merely delete the archive or repeatedly retry Upgrade Target Runtime.");
+    }
     static WorldBuilderContractException failure(String path, String message) { return new WorldBuilderContractException(WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "target-map-integration", path, false, message, "Keep the target offline and use the exact reviewed integration and transaction evidence; do not force the operation."); }
     static final class AdapterMismatch extends Exception { AdapterMismatch(String message) { super(message); } }
     static final class Result {

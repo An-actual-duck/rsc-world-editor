@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import warnings
 
 ROOT = Path(__file__).resolve().parents[2]
 HARNESS = r'''
@@ -19,12 +20,18 @@ import java.nio.file.*; import java.util.*;
 public final class TargetMapIntegrationProbe {
  public static void main(String[] args) throws Exception {
   Path project=Paths.get(args[1]), target=Paths.get(args[2]);
-  if ("prepare".equals(args[0])) {
+  try {
+  if ("archive".equals(args[0])) {
+   String[] limits=args[3].split(","); Map<String,Integer> normalized=new TreeMap<>();
+   WorldBuilderTargetArchive.read(project,args[2],true,normalized,Integer.parseInt(limits[0]),Integer.parseInt(limits[1]),Integer.parseInt(limits[2]));
+   System.out.print(normalized);
+  } else if ("prepare".equals(args[0])) {
    WorldBuilderTargetMapIntegration.Result result=WorldBuilderTargetMapIntegration.preparePayload(project,target,"client");
    Path out=Paths.get(args[3]); Files.createDirectories(out);
    for(Map.Entry<String,byte[]> e:result.outputs.entrySet()){Path p=out.resolve(e.getKey());Files.createDirectories(p.getParent());Files.write(p,e.getValue());}
    List<Object> actions=new ArrayList<>();int n=0;
    for(WorldBuilderAdaptiveMutationProfile.Action action:WorldBuilderTargetMapIntegration.actions(target,result)) actions.add(action.toJson(n++));
+   System.out.print(WorldBuilderTargetMapIntegration.normalizationSummary(WorldBuilderTargetMapIntegration.actions(target,result)));
    Files.write(out.resolve("actions.json"),WorldBuilderJsonDocuments.pretty(Collections.singletonMap("actions",actions)).getBytes("UTF-8"));
   } else if ("restore".equals(args[0])) {
    Map<String,Object> action=WorldBuilderTargetMapIntegration.read(Paths.get(args[3]));
@@ -33,6 +40,7 @@ public final class TargetMapIntegrationProbe {
   else if ("anchor".equals(args[0])) System.out.print(WorldBuilderTargetMapIntegration.executableIndex(new String(Files.readAllBytes(project),"UTF-8"),"return 1;"));
   else if ("floor".equals(args[0])) WorldBuilderInstalledFloorContent.verifyLiteralClientPrefix(new String(Files.readAllBytes(project),"UTF-8"),WorldBuilderTerrainDefinitionCatalog.readTiles(target).tiles);
   else if ("append".equals(args[0])) WorldBuilderInstalledFloorContent.requireAppendOnly(Files.readAllBytes(project),Files.readAllBytes(target));
+  } catch(WorldBuilderContractException failure) {System.err.println("Source: "+failure.relativePath()+"\nNext step: "+failure.nextStep()); throw failure;}
  }
 }
 '''
@@ -58,7 +66,7 @@ class TargetMapIntegrationTest(unittest.TestCase):
         cls.addClassCleanup(cls.compiled.cleanup)
         source = Path(cls.compiled.name)/'TargetMapIntegrationProbe.java'
         source.write_text(HARNESS)
-        subprocess.run(['javac','-cp',str(ROOT/'output/world-builder-tools/classes'),'-d',cls.compiled.name,str(source)],check=True,capture_output=True)
+        subprocess.run(['javac','--release','8','-cp',str(ROOT/'output/world-builder-tools/classes'),'-d',cls.compiled.name,str(source)],check=True,capture_output=True)
 
     def fixture(self):
         temp = tempfile.TemporaryDirectory(prefix='target-map-fixture-'); self.addCleanup(temp.cleanup)
@@ -88,8 +96,8 @@ class TargetMapIntegrationTest(unittest.TestCase):
         (contract_root/'target-map-integration-v1.json').write_text(json.dumps(contract))
         return root,target,project,contract
 
-    def probe(self,operation,project,target,extra,ok=True):
-        run=subprocess.run(['java','-cp',f'{ROOT}/output/world-builder-tools/classes:{self.compiled.name}','com.openrsc.worldbuilder.TargetMapIntegrationProbe',operation,str(project),str(target),str(extra)],capture_output=True,text=True)
+    def probe(self,operation,project,target,extra,ok=True,runtime="java"):
+        run=subprocess.run([runtime,'-cp',f'{ROOT}/output/world-builder-tools/classes:{self.compiled.name}','com.openrsc.worldbuilder.TargetMapIntegrationProbe',operation,str(project),str(target),str(extra)],capture_output=True,text=True)
         self.assertEqual(ok,run.returncode==0,run.stderr)
         return run
 
@@ -108,6 +116,102 @@ class TargetMapIntegrationTest(unittest.TestCase):
         actions=json.loads((out/'actions.json').read_text())['actions']
         self.assertTrue(all('content-bundle' not in a['destinationRelativePath'] for a in actions))
         self.assertFalse(any(a['destinationRelativePath'].endswith('build.xml') for a in actions))
+
+    def test_identical_notices_are_normalized_with_evidence_and_preview(self):
+        root,target,project,_=self.fixture(); archive=target/'server/core.jar'
+        notice=b'Full target-owned notice\nAll terms retained.\x00\xff'
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore',UserWarning)
+            with zipfile.ZipFile(archive,'a') as z:
+                for _ in range(3):z.writestr('META-INF/LICENSE.txt',notice)
+        before=archive.read_bytes()
+        run=self.probe('prepare',project,target,root/'out')
+        self.assertEqual(before,archive.read_bytes())
+        self.assertIn('server/core.jar!/META-INF/LICENSE.txt',run.stdout)
+        self.assertIn('3 occurrences become one',run.stdout)
+        with zipfile.ZipFile(root/'out/server/core.jar') as z:
+            self.assertEqual(1,z.namelist().count('META-INF/LICENSE.txt'))
+            self.assertEqual(notice,z.read('META-INF/LICENSE.txt'))
+        evidence=json.loads((root/'out/server/conf/world-builder/installed-target-map-integration-v1.json').read_text())
+        server=next(a for a in evidence['archives'] if a['relativePath']=='server/core.jar')
+        self.assertEqual({'META-INF/LICENSE.txt':3},server['normalizedIdenticalLegalNotices'])
+
+    def test_dependency_duplicate_notices_remain_byte_exact_and_unreported(self):
+        root,target,project,contract=self.fixture();archive=target/'server/lib/dependency.jar';archive.parent.mkdir()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore',UserWarning)
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('NOTICE',b'dependency notice');z.writestr('NOTICE',b'dependency notice')
+        contract['adapters'][0]['compilation'][0]['dependencyDirectories']=['server/lib']
+        (project/'working/runtime/server/conf/world-builder/target-map-integration-v1.json').write_text(json.dumps(contract))
+        before=archive.read_bytes();run=self.probe('prepare',project,target,root/'out')
+        self.assertEqual(before,archive.read_bytes())
+        self.assertNotIn('Identical legal notice:',run.stdout)
+        self.assertFalse((root/'out/server/lib/dependency.jar').exists())
+
+    def test_archive_refusals_distinguish_all_bounds(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive=Path(temp)/'bounded.jar'
+            with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
+                z.writestr('one',b'a'*700);z.writestr('two',b'b'*700)
+            cases=[('100,1000,10','compressed file bytes',str(archive.stat().st_size),'limit 100'),
+                   ('1000,500,10','declared expanded entry bytes','700','limit 500'),
+                   ('1000,1000,10','total expanded bytes read','1400','limit 1000'),
+                   ('10000,1000,1','entry count','2','limit 1')]
+            before=archive.read_bytes()
+            for limits,*messages in cases:
+                with self.subTest(limits=limits):
+                    run=self.probe('archive',archive,'server/lib/example.jar',limits,ok=False)
+                    self.assertIn('Source: server/lib/example.jar',run.stderr)
+                    for message in messages:self.assertIn(message,run.stderr)
+                    self.assertEqual(before,archive.read_bytes())
+
+    def test_real_duplicate_occurrences_on_java17_and_optional_java8(self):
+        runtimes=['java']
+        java8=os.environ.get('WORLD_BUILDER_JAVA8')
+        if java8:runtimes.append(java8)
+        with tempfile.TemporaryDirectory() as temp:
+            archive=Path(temp)/'duplicates.jar'
+            cases=[('LICENSE',b'same',b'same',True),('META-INF/NOTICE.txt',b'first notice',b'other notice',False),
+                   ('fixture/Engine.class',b'same',b'same',False),('META-INF/MANIFEST.MF',b'same',b'same',False),
+                   ('META-INF/services/example',b'same',b'same',False),('custom/config.txt',b'same',b'same',False),
+                   ('META-INF/X.SF',b'signature',b'signature',False)]
+            for runtime in runtimes:
+                for name,first,second,ok in cases:
+                    with self.subTest(runtime=runtime,name=name):
+                        with warnings.catch_warnings():
+                            warnings.simplefilter('ignore',UserWarning)
+                            with zipfile.ZipFile(archive,'w') as z:z.writestr(name,first);z.writestr(name,second)
+                        before=archive.read_bytes()
+                        run=subprocess.run([runtime,'-cp',f'{ROOT}/output/world-builder-tools/classes:{self.compiled.name}',
+                            'com.openrsc.worldbuilder.TargetMapIntegrationProbe','archive',str(archive),'server/lib/duplicate.jar','100000,10000,100'],capture_output=True,text=True)
+                        self.assertEqual(ok,run.returncode==0,run.stderr)
+                        if ok:self.assertIn('LICENSE=2',run.stdout)
+                        else:
+                            self.assertIn(f'Source: server/lib/duplicate.jar!/{name}',run.stderr)
+                            if name=='META-INF/NOTICE.txt':self.assertIn('differing bytes (occurrence 2)',run.stderr)
+                        self.assertEqual(before,archive.read_bytes())
+
+    def test_central_directory_disagreement_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive=Path(temp)/'disagreement.jar'
+            with zipfile.ZipFile(archive,'w') as z:z.writestr('LICENSE',b'terms')
+            data=archive.read_bytes(); central=data.index(b'PK\x01\x02')
+            archive.write_bytes(data[:central]+data[central:].replace(b'LICENSE',b'NOTICE_',1))
+            run=self.probe('archive',archive,'server/core.jar','100000,10000,100',ok=False)
+            self.assertIn('local entries disagree',run.stderr)
+
+    def test_central_offset_cannot_change_jvm_lookup_bytes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            archive=Path(temp)/'offset.jar'
+            with zipfile.ZipFile(archive,'w') as z:
+                z.writestr('one.txt',b'plumless');z.writestr('two.txt',b'buckeroo')
+            data=bytearray(archive.read_bytes());first=data.index(b'PK\x01\x02');second=data.index(b'PK\x01\x02',first+4)
+            data[first+42:first+46]=data[second+42:second+46]
+            archive.write_bytes(data)
+            for runtime in ['java']+([os.environ['WORLD_BUILDER_JAVA8']] if os.environ.get('WORLD_BUILDER_JAVA8') else []):
+                run=self.probe('archive',archive,'server/core.jar','100000,10000,100',ok=False,runtime=runtime)
+                self.assertIn('JVM lookup bytes disagree',run.stderr)
 
     def abi_fixture(self):
         root,target,project,contract=self.fixture()
@@ -425,6 +529,10 @@ class TargetMapTransactionTest(unittest.TestCase):
                 subprocess.run(['javac','-source','8','-target','8','-d',str(classes),str(source)],check=True,capture_output=True)
                 helper.rewrite_runtime_entry(target/role/archive,'fixture/Engine.class',(classes/'fixture/Engine.class').read_bytes())
                 helper.rewrite_runtime_entry(target/role/archive,'custom-art.bin',b'custom-art')
+                with warnings.catch_warnings():
+                    warnings.simplefilter('ignore',UserWarning)
+                    with zipfile.ZipFile(target/role/archive,'a') as z:
+                        for _ in range(2):z.writestr('META-INF/LICENSE.txt',b'complete custom license')
         target,installation,project,export=helper.target_project(root,target_mutator=customize)
         compilation=[];transforms=[]
         for role,archive in [('server','core.jar'),('client','Open_RSC_Client.jar')]:
@@ -449,6 +557,20 @@ class TargetMapTransactionTest(unittest.TestCase):
             self.assertEqual(after_upgrade[f'{role}/{archive}'],self.legacy.project_support.tree_bytes(target,installation)[f'{role}/{archive}'])
         for path,data in before.items():
             if '/defs/' in path or path.endswith('plugins.jar'):self.assertEqual(data,self.legacy.project_support.tree_bytes(target,installation)[path])
+
+    def test_installed_proof_does_not_bypass_later_shadow_runtime(self):
+        helper,target,installation,project,export=self.fixture()
+        upgraded=helper.run_reviewed_apply('upgrade-target-runtime','UPGRADE','--project',project,'--export',export,'--target-root',target)
+        self.assertEqual(0,upgraded.returncode,upgraded.stderr)
+        shadow=target/'server/world-builder-runtime/world-builder-managed-runtime.jar';shadow.parent.mkdir(parents=True,exist_ok=True)
+        with zipfile.ZipFile(shadow,'w') as z:z.writestr('fixture/Engine.class',b'shadow')
+        before=self.legacy.project_support.tree_bytes(target,installation)
+        refused=helper.run_cli('import-adaptive','--project',project,'--export',export,'--target-root',target)
+        self.assertEqual(3,refused.returncode,refused.stderr)
+        self.assertIn('Automatic targeted upgrade cannot consolidate',refused.stderr)
+        self.assertIn('Do not merely delete',refused.stderr)
+        self.assertNotIn('run Upgrade Target Runtime for this exact project',refused.stderr)
+        self.assertEqual(before,self.legacy.project_support.tree_bytes(target,installation))
 
     def test_failure_rolls_back_exact_target(self):
         helper,target,installation,project,export=self.fixture()

@@ -65,3 +65,41 @@ overlay-255 cases were rerun successfully. All three public composition/refusal
 and historical-recovery dispatch checks passed. There were no skips in these
 selected files. This is focused affected-area verification, not a full release
 gate; the historical full-tested baseline is recorded in TESTING-POLICY.md.
+
+## Archive intake and legal notices
+
+Target archives and compiler dependencies are bounded separately by compressed
+file size (256 MiB), expanded total (256 MiB), individual expanded entry (16 MiB),
+and occurrence count (100,000, including repeated names and directories).
+Refusals identify the target-relative archive and entry, measured quantity, and
+limit. The reader compares the central-directory inventory to sequential local
+entry reads so duplicate names cannot hide differing bytes on Java 8 or 17.
+
+Only exact names `LICENSE`, `NOTICE`, `COPYING`, and their `.txt` forms, at the
+archive root or directly under `META-INF/`, may repeat when every occurrence is
+byte-identical. A rewritten archive contains one copy with the complete original
+text bytes; the preview and installed integration evidence record the original
+occurrence count. Unchanged archives and dependencies retain their exact bytes.
+Differing notice texts require the server maintainer to correct packaging while
+preserving every notice. Duplicate classes, manifests, service registrations,
+arbitrary resources and signed target archives remain refused. No notices are
+renamed or silently combined. Backups and recovery retain the original complete
+archive, including its duplicate occurrences.
+
+`WORLD_BUILDER_JAVA8=/path/to/java8/bin/java` additionally runs real duplicate
+occurrence fixtures on Java 8; normal compiler/transaction checks still require
+Java 17. This does not enable upgrades on Java 8. Retired shadow runtimes are
+refused even after a targeted proof was installed, with maintainer consolidation
+guidance rather than an upgrade retry loop.
+
+The archive-intake change was checked on Temurin 17.0.20+8 with 29 unique
+focused cases passing across resumed runs: the initial 27-case run had 25
+passes, the optional provider case skipped, and a Python fixture typo in the
+new bounds test. The corrected bounds case, the added central-offset/CRC
+collision case, and the reconstructed provider consumer then passed; the added
+unchanged dependency-notice case also passed. Duplicate occurrence and
+central-offset checks additionally passed on Temurin Java 8u482. Five selected
+adaptive transaction cases covered retired shadow import/upgrade refusal and
+standard-floor repeated import, rollback, and interrupted recovery. This is
+focused archive/transaction evidence, not a full production release gate or
+native Windows acceptance.

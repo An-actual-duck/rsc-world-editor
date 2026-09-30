@@ -172,6 +172,7 @@ final class WorldBuilderRuntimeCompatibility {
 		WorldBuilderTargetCapability targetCapability,
 		WorldBuilderGenericLayeredPackage packageValue)
 		throws IOException, WorldBuilderContractException {
+		rejectRetiredShadowRuntime(target);
         if (Files.exists(target.resolve(WorldBuilderTargetMapIntegration.INSTALLED), LinkOption.NOFOLLOW_LINKS)) {
             List<Integer> supported = WorldBuilderTargetMapIntegration.verifyInstalled(project.projectRoot, target, compiledClientRoot(configuration));
             WorldBuilderInstalledFloorContent.verifyInstalled(project, target, configuration);
@@ -182,7 +183,6 @@ final class WorldBuilderRuntimeCompatibility {
         }
 		String clientDestination = compiledClientRoot(configuration)
 			+ "/Open_RSC_Client.jar";
-		rejectRetiredShadowRuntime(target);
 		requireTargetArchive(target, SERVER_DESTINATION, "server runtime",
 			"com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
 			"com/openrsc/server/io/NativeLayeredWorldPackage.class");
@@ -283,10 +283,8 @@ final class WorldBuilderRuntimeCompatibility {
 			GAMEPLAY_OVERLAY_DESTINATION
 		}) {
 			Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);
-			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) throw runtimeUpgradeRequired(
-				"Target still contains retired class-shadowing runtime content at "
-				+ relative + ". It can replace target-owned Player, Skills, Inventory, "
-				+ "World, Mob, Npc, ActionSender, and OpcodeOut classes.");
+			if (Files.exists(path, LinkOption.NOFOLLOW_LINKS))
+				throw WorldBuilderTargetMapIntegration.retiredShadowRuntime(relative);
 		}
 	}
 

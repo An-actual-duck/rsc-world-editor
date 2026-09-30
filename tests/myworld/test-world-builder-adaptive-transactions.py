@@ -1520,6 +1520,9 @@ public final class InstalledFloorFixture {
             self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
             self.assertIn("retired class-shadowing runtime", refused.stderr)
             self.assertIn("Player, Skills, Inventory, World", refused.stderr)
+            self.assertIn("Automatic targeted upgrade cannot consolidate", refused.stderr)
+            self.assertIn("Do not merely delete", refused.stderr)
+            self.assertNotIn("run Upgrade Target Runtime for this exact project", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
     def add_targeted_floor_fixture(self, base, target):
