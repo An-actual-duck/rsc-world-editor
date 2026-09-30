@@ -47,10 +47,13 @@ final class WorldBuilderNpcVisualInventory {
                 throw problem(path, "Unknown NPC visual descriptor contract.");
             for (Object raw : list(document.get("visuals"), MAX_RECORDS)) records.add(object(raw));
         }
-        List<Map<String,Object>> inferred = WorldBuilderNpcVisualSourceAdapter.discover(target, layout, evidence);
+        Set<String> explicit = new HashSet<>(), explicitlyBoundDefinitions = new HashSet<>();
+        for (Map<String,Object> record : records) {
+            explicit.add(identity(record));
+            explicitlyBoundDefinitions.add(record.get("definitionPath") + "#" + record.get("definitionIndex"));
+        }
+        List<Map<String,Object>> inferred = WorldBuilderNpcVisualSourceAdapter.discover(target, layout, evidence, explicitlyBoundDefinitions);
         // Explicit neutral declarations take precedence for the same definition layer and slot.
-        Set<String> explicit = new HashSet<>();
-        for (Map<String,Object> record : records) explicit.add(identity(record));
         for (Map<String,Object> record : inferred) if (!explicit.contains(identity(record))) records.add(record);
         if (records.size() > MAX_RECORDS) throw problem(FILE, "NPC visual inventory exceeds 4096 records.");
         Set<String> identities = new HashSet<>();
@@ -59,6 +62,12 @@ final class WorldBuilderNpcVisualInventory {
         for (Map<String,Object> record : records) {
             validate(target, record, evidence, images, decodedPixels);
             if (!identities.add(identity(record))) throw problem(FILE, "Duplicate NPC visual binding for one definition and sprite slot.");
+        }
+        long frameBytes = 0;
+        for (Map<String,Object> record : records) for (Object raw : list(record.get("frames"),27)) {
+            Map<String,Object> frame = object(raw);
+            frameBytes += 25L + 4L * number(frame,"width",1,2048) * number(frame,"height",1,2048);
+            if(frameBytes > 256L*1024*1024) throw problem(FILE,"NPC visual frames exceed the 256 MiB decoded payload budget.");
         }
         TreeMap<String,WorldBuilderReadOnlyTarget.FileState> unique = new TreeMap<>();
         for (WorldBuilderReadOnlyTarget.FileState state : evidence) {
@@ -89,12 +98,12 @@ final class WorldBuilderNpcVisualInventory {
             exact(frame, "imagePath", "imageSha256", "x", "y", "width", "height", "offsetX", "offsetY", "boundWidth", "boundHeight");
             int x = number(frame,"x",0,4095), y = number(frame,"y",0,4095);
             int width = number(frame,"width",1,2048), height = number(frame,"height",1,2048);
-            number(frame,"offsetX",-32768,32767); number(frame,"offsetY",-32768,32767);
+            number(frame,"offsetX",-4096,4096); number(frame,"offsetY",-4096,4096);
             number(frame,"boundWidth",1,4096); number(frame,"boundHeight",1,4096);
             String path = text(frame,"imagePath");
             if (!images.containsKey(path)) {
                 bound(target, path, text(frame,"imageSha256"), "npc-visual-image", evidence);
-                BufferedImage image = image(target.requiredFile(path), path);
+                BufferedImage image = image(target.requiredFile(path), path, 16L * 1024 * 1024 - decodedPixels[0]);
                 decodedPixels[0] += (long)image.getWidth() * image.getHeight();
                 if (decodedPixels[0] > 16L * 1024 * 1024) throw problem(path, "NPC image inventory exceeds 16 million decoded pixels.");
                 images.put(path, image);
@@ -105,6 +114,9 @@ final class WorldBuilderNpcVisualInventory {
         }
     }
     static BufferedImage image(Path path, String label) throws WorldBuilderContractException {
+        return image(path,label,16L*1024*1024);
+    }
+    private static BufferedImage image(Path path,String label,long pixelBudget) throws WorldBuilderContractException {
         try {
             if (Files.size(path) > 16L * 1024 * 1024) throw new IOException("PNG exceeds 16 MiB");
             try (ImageInputStream input = ImageIO.createImageInputStream(path.toFile())) {
@@ -116,7 +128,7 @@ final class WorldBuilderNpcVisualInventory {
                     reader.setInput(input, true, true);
                     int width = reader.getWidth(0), height = reader.getHeight(0);
                     if (!"png".equalsIgnoreCase(reader.getFormatName()) || width < 1 || height < 1
-                        || width > 4096 || height > 4096 || (long)width * height > 16L*1024*1024) throw new IOException("unsupported PNG bounds");
+                        || width > 4096 || height > 4096 || (long)width * height > pixelBudget) throw new IOException("unsupported PNG bounds");
                     return reader.read(0);
                 } finally { reader.dispose(); }
             }

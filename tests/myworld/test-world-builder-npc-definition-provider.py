@@ -47,6 +47,8 @@ public final class NpcDefinitionProviderHarness {
                     Paths.get(args[1]), Paths.get(args[0]), catalog, effectiveNpcIds);
             Files.write(Paths.get(args[2]), result.customDefinitions);
             WorldBuilderNpcDefinitionProvider.writeReport(Paths.get(args[3]), result);
+            Files.write(Paths.get(args[3]).resolve("presentation-overrides.json"),
+                WorldBuilderSupplementalNpcDefinitions.customJson(result.presentationOverrides));
             Map<String,Object> registry = new LinkedHashMap<String,Object>();
             registry.put("schemaVersion", Long.valueOf(1L));
             registry.put("manifestType", "world-builder-npc-animation-registry");
@@ -428,6 +430,29 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             custom, report = self.consume(target, selected, base / "drift-stage")
             self.assertEqual("[Missing NPC 2]", custom["npcs"][1]["name"])
             self.assertEqual([2], [row["npcId"] for row in report["warnings"]])
+
+    def test_rich_provider_enriches_existing_supplemental_visuals_only_with_exact_source_binding(self):
+        for bound in (True, False):
+            with self.subTest(bound=bound), tempfile.TemporaryDirectory(prefix="npc-provider-existing-") as temp:
+                base=Path(temp);target,selected=self.fixture(base)
+                catalog=target / "server/conf/server/defs/ArbitraryNpcDefs.json"
+                npc=definition(2,"Neutral producer NPC");npc.update({"attack":91,"sprites1":7})
+                write_json(catalog,{"npcs":[npc]})
+                self.producer_package(target,selected)
+                manifest=selected.parent / "npc-definitions-v1.json"
+                doc=json.loads(manifest.read_text())
+                if bound: doc["provider"]["sources"].append({"role":"extension-npc-definitions","identity":catalog.name,
+                    "sha256":hashlib.sha256(catalog.read_bytes()).hexdigest()})
+                write_json(manifest,doc);self.bind_producer_package(selected)
+                custom,report=self.consume(target,selected,base / "stage")
+                self.assertEqual(91,custom["npcs"][1]["attack"])
+                self.assertEqual(7,custom["npcs"][1]["sprites1"])
+                overrides=json.loads((base / "stage/presentation-overrides.json").read_text())["npcs"]
+                if bound:
+                    self.assertEqual(2,overrides[0]["id"]);self.assertEqual(0,overrides[0]["sprites1"])
+                    self.assertNotIn("attack",overrides[0]);self.assertEqual([],report["warnings"])
+                else:
+                    self.assertEqual([],overrides);self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
 
     def test_rich_neutral_producer_contract_normalizes_authoritative_visuals(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-producer-") as temp:

@@ -124,7 +124,15 @@ final class WorldBuilderProjectContentBundle {
 			result.add(target.requiredState(
 				"server-definition.npc.supplemental." + (++supplementalIndex), relative));
 		}
-		result.addAll(WorldBuilderNpcDirectionSheets.inspect(target, layout));
+		for (WorldBuilderReadOnlyTarget.FileState visual : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
+            boolean inventoried = false;
+            for (WorldBuilderReadOnlyTarget.FileState existing : result) if (existing.relativePath.equals(visual.relativePath)) {
+                if (!existing.sha256.equals(visual.sha256)) throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, visual.relativePath,
+                    "NPC visual evidence changed during discovery.", "Rediscover from stable target files.");
+                inventoried = true; break;
+            }
+            if (!inventoried) result.add(visual);
+        }
 		for (String selectedPatch : composition.selectedPatchPaths()) {
 			boolean alreadyInventoried = false;
 			for (WorldBuilderReadOnlyTarget.FileState state : result) {
@@ -265,9 +273,13 @@ final class WorldBuilderProjectContentBundle {
 					npcMigration.customDefinitions, "normalized NPC definitions").get("npcs"));
 			} catch (WorldBuilderDiscoveryException malformed) { throw new IOException(malformed); }
 		}
-		WorldBuilderNpcDirectionSheets.Result directionMigration = WorldBuilderNpcDirectionSheets.normalize(
+        List<Object> effectiveNpcWorld = WorldBuilderNpcVisualCompiler.readRows(
+            WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json")));
+        effectiveNpcWorld.addAll(npcMigration.presentationOverrides);
+		WorldBuilderNpcVisualCompiler.Result directionMigration = WorldBuilderNpcVisualCompiler.normalize(
 			copiedTarget, sourceLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
+			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld),
 			runtime.verifiedSourcePath("client/Open_RSC_Client.jar"), runtime.verifiedSourcePath("server/core.jar"));
 		animationRows = directionMigration.animations;
 		int version = preservedAnimationRegistry || !animationRows.isEmpty() ? 3 : itemSuccessor ? 2 : 1;
@@ -323,8 +335,9 @@ final class WorldBuilderProjectContentBundle {
 				&& "definition.scenery".equals(spec.role)) {
 				Files.write(destination, sceneryMigration.definitionsOverride);
 				overridden = true;
-			} else if (directionMigration.changed() && "definition.npc.custom".equals(spec.role)) {
-				Files.write(destination, directionMigration.customDefinitions);
+			} else if ((directionMigration.changed() || !npcMigration.presentationOverrides.isEmpty()) && "definition.npc.world".equals(spec.role)) {
+				Files.write(destination, directionMigration.changed() ? directionMigration.worldDefinitions
+                    : WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld));
 				overridden = true;
 			} else if (directionMigration.changed() && "asset.sprite.authentic".equals(spec.role)) {
 				Files.write(destination, directionMigration.authenticArchive);
@@ -365,6 +378,7 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
+		WorldBuilderNpcVisualCompiler.writeReport(projectStage, directionMigration);
 		WorldBuilderNpcDefinitionReconciliation.writeReport(
 			projectStage, copiedTarget, sourceLayout, npcRegistry);
 		WorldBuilderSceneryModelProvider.writeReport(projectStage, sceneryMigration);

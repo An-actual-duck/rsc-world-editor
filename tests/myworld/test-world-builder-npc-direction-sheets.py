@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Directional NPC intake through discovery, sealed capture, and reopen."""
+"""Generic source-bound NPC visuals through discovery, sealed capture, and reopen."""
 import hashlib
 import importlib.util
 import json
@@ -17,7 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("npc_lifecycle", ROOT / "tests/myworld/test-world-builder-adaptive-project-lifecycle.py")
 L = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(L)
-SHEET = "dev/myworld/assets/sprites/npcs/slayer-movement-preview/naga.png"
+SHEET = "assets/creatures/arbitrary-presentation.png"
 
 def pixel(x, y):
     # More than 256 colors, with real alpha and opaque black edge cases.
@@ -59,7 +59,30 @@ class NpcDirectionSheetsTest(unittest.TestCase):
         shutil.copyfile(ROOT / "tests/fixtures/project-content-bundle-v2/bundle/files/client/Cache/video/Authentic_Sprites.orsc",
                         self.target / "Client_Base/Cache/video/Authentic_Sprites.orsc")
         png(self.target / SHEET)
+        self.write_visual_descriptor(866, "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json", 0)
         self.report = root / "report.json"
+
+    def write_visual_descriptor(self, npc_id, definition_path, definition_index, slot=1):
+        record = {
+            "npcId": npc_id, "definitionPath": definition_path, "definitionIndex": definition_index,
+            "definitionSha256": hashlib.sha256((self.target / definition_path).read_bytes()).hexdigest(),
+            "spriteSlot": slot, "alphaThreshold": 64, "cameraWidth": 240, "cameraHeight": 240,
+            "charColour": 0, "blueMask": 0, "genderModel": 0,
+            "hasCombatFrames": True, "hasSpecialCombatFrames": False,
+            "frames": [{"imagePath": SHEET,
+                "imageSha256": hashlib.sha256((self.target / SHEET).read_bytes()).hexdigest(),
+                "x": frame // 3 * 100, "y": frame % 3 * 100, "width": 100, "height": 100,
+                "offsetX": 0, "offsetY": 0, "boundWidth": 100, "boundHeight": 100} for frame in range(18)],
+        }
+        L.write_json(self.target / "npc-visuals-v1.json", {
+            "schemaVersion": 1, "manifestType": "world-builder-npc-visual-sources", "visuals": [record]})
+
+    def effective_npcs(self, bundle):
+        root = bundle / "server/conf/server/defs"
+        rows = json.loads((root / "NpcDefs.json").read_text())["npcs"] + json.loads((root / "NpcDefsCustom.json").read_text())["npcs"]
+        for name in ("NpcDefsPatch18.json", "NpcDefsMyWorld.json"):
+            for overlay in json.loads((root / name).read_text())["npcs"]: rows[overlay["id"]].update(overlay)
+        return rows
 
     def discover(self):
         result = self.life.run_cli("discover-adaptive", "--target-root", self.target)
@@ -79,7 +102,7 @@ class NpcDirectionSheetsTest(unittest.TestCase):
             self.assertEqual((self.target / SHEET).read_bytes(), (project / "source/original" / SHEET).read_bytes())
             bundle = project / "source/content-bundle/files"
             custom = json.loads((bundle / "server/conf/server/defs/NpcDefsCustom.json").read_text())["npcs"]
-            naga = next(row for row in custom if row["id"] == 866)
+            naga = self.effective_npcs(bundle)[866]
             self.assertEqual((19, 47, 1.25), (naga["attack"], naga["hits"], naga["meleeDefenseMultiplier"]))
             registry = json.loads((bundle / "server/conf/world-builder/npc-animations-v1.json").read_text())["animations"]
             self.assertEqual(1, len(registry)); animation = registry[0]
@@ -113,7 +136,7 @@ class NpcDirectionSheetsTest(unittest.TestCase):
                     alternate = self.root / "outside.png"; sheet.rename(alternate); sheet.symlink_to(alternate)
                 result = self.discover()
                 self.assertNotEqual(0, result.returncode, result.stdout)
-                self.assertIn("naga.png", result.stdout + result.stderr)
+                self.assertIn("arbitrary-presentation.png", result.stdout + result.stderr)
 
     def test_discovery_to_capture_detects_sheet_drift(self):
         with tempfile.TemporaryDirectory(prefix="npc-direction-drift-") as temp:
@@ -152,28 +175,45 @@ class NpcDirectionSheetsTest(unittest.TestCase):
                              (copied / "client/Cache/video/Authentic_Sprites.orsc").read_bytes())
             definitions = json.loads((copied / "server/conf/server/defs/NpcDefsCustom.json").read_text())["npcs"]
             self.assertEqual(custom["npcs"][0].get("sprites1"), definitions[0].get("sprites1"))
-            self.assertEqual(1080, next(row for row in definitions if row["id"] == 866)["sprites1"])
+            self.assertEqual(1080, self.effective_npcs(copied)[866]["sprites1"])
             # A registry copied from an upgraded server still needs the runtime
             # handshake even if the historical source sheets are no longer there.
             (self.target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json").unlink()
             (self.target / SHEET).unlink()
+            (self.target / "npc-visuals-v1.json").unlink()
             self.runtime = self.life.make_runtime(self.root / "old-preserved-runtime")
             self.life.discover(self.target, self.report)
             result, _ = self.life.create_project(self.install, self.runtime, self.target, self.report, "Old preserved", 43861)
             self.assertNotEqual(0, result.returncode)
             self.assertIn("lossless directional NPC", result.stdout + result.stderr)
 
-    def test_customized_layers_refuse_instead_of_overwriting(self):
-        with tempfile.TemporaryDirectory(prefix="npc-direction-layers-") as temp:
+    def test_existing_base_id_and_active_overlay_preserve_gameplay_and_other_layers(self):
+        with tempfile.TemporaryDirectory(prefix="npc-visual-base-") as temp:
             self.fixture(Path(temp))
-            catalog = self.target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json"
-            doc = json.loads(catalog.read_text()); doc["npcs"][0]["sprites2"] = 8; L.write_json(catalog, doc)
-            self.life.discover(self.target, self.report)
-            before = L.tree_bytes(self.target)
-            result, _ = self.life.create_project(self.install, self.runtime, self.target, self.report, "Custom layers", 43861)
-            self.assertNotEqual(0, result.returncode)
-            self.assertIn("recognized source layout", result.stdout + result.stderr)
-            self.assertEqual(before, L.tree_bytes(self.target))
+            catalog = self.target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json"; catalog.unlink()
+            base_path = self.target / "server/conf/server/defs/NpcDefs.json"
+            doc = json.loads(base_path.read_text()); doc["npcs"][1].update({"name":"Unrelated baseline reuse", "sprites1":7,"sprites2":8,"attack":29})
+            L.write_json(base_path,doc)
+            patch = self.target / "server/conf/server/defs/NpcDefsPatch18.json"
+            L.write_json(patch,{"npcs":[{"id":1,"sprites1":9,"hits":87}]})
+            self.write_visual_descriptor(1,"server/conf/server/defs/NpcDefs.json",1)
+            before=L.tree_bytes(self.target);project=self.create();bundle=project / "source/content-bundle/files"
+            npc=self.effective_npcs(bundle)[1]
+            self.assertEqual((1080,8,29,87),(npc["sprites1"],npc["sprites2"],npc["attack"],npc["hits"]))
+            self.assertEqual(before,L.tree_bytes(self.target))
+            diagnostic=json.loads((project / "diagnostics/npc-visual-resolution-v1.json").read_text())["npcs"][1]
+            self.assertEqual([1],diagnostic["resolvedSpriteSlots"])
+
+    def test_arbitrary_id_name_and_descriptor_binding(self):
+        for npc_id,name in ((43,"Moss kite"),(43,"Clockwork otter"),(172,"Blue tin creature")):
+            with self.subTest(npc_id=npc_id,name=name),tempfile.TemporaryDirectory(prefix="npc-visual-arbitrary-") as temp:
+                self.fixture(Path(temp))
+                old=self.target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json"
+                doc=json.loads(old.read_text());old.unlink();doc["npcs"][0].update({"id":npc_id,"name":name})
+                relative="server/conf/server/defs/UnrelatedNpcDefs.json";L.write_json(self.target / relative,doc)
+                self.write_visual_descriptor(npc_id,relative,0)
+                project=self.create();npc=self.effective_npcs(project / "source/content-bundle/files")[npc_id]
+                self.assertEqual(name,npc["name"]);self.assertEqual(1080,npc["sprites1"])
 
     def test_reference_asset_capture_fixture(self):
         source = os.environ.get("WORLD_BUILDER_DIRECTION_NPC_PNG")
@@ -181,6 +221,7 @@ class NpcDirectionSheetsTest(unittest.TestCase):
         if not source or not destination: self.skipTest("Optional explicitly exported reference PNG fixture")
         root = Path(destination); root.mkdir(parents=True, exist_ok=False)
         self.fixture(root); shutil.copyfile(source, self.target / SHEET)
+        self.write_visual_descriptor(866,"server/conf/server/defs/SlayerMovementPreviewNpcDefs.json",0)
         project = self.create()
         (root / "captured-project-path.txt").write_text(str(project))
         print("CAPTURED_NAGA_PROJECT=" + str(project), flush=True)
