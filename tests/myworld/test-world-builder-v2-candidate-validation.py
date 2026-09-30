@@ -16,6 +16,7 @@ import unittest
 import zipfile
 from pathlib import Path
 from base_catalog_packaging_fixture import prepare_base_catalog
+from compiler_runtime_fixture import PROBE_SHELL, MODULE_INVENTORY, JIMAGE_SHELL
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -412,12 +413,18 @@ class CandidateFixture:
             }
             java = "bin/java.exe" if platform == "windows" else "bin/java"
             runtime_files[java] = b"bundled java\n"
+            runtime_files["lib/modules"] = MODULE_INVENTORY
+            if platform == "linux":
+                runtime_files[java] = ("#!/usr/bin/env bash\n" + PROBE_SHELL).encode()
+                runtime_files["bin/jimage"] = JIMAGE_SHELL
             for relative, data in runtime_files.items():
                 path = runtime / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(data)
                 path.chmod(0o644)
             (runtime / java).chmod(0o644 if platform == "windows" else 0o755)
+            if platform == "linux":
+                (runtime / "bin/jimage").chmod(0o755)
             for directory in (runtime, *(path for path in runtime.rglob("*") if path.is_dir())):
                 directory.chmod(0o755)
             (runtime / "lib/runtime-payload-link.dat").symlink_to(
@@ -533,7 +540,11 @@ class CandidateFixture:
             }
         )
         java = "runtime/bin/java.exe" if platform == "windows" else "runtime/bin/java"
-        files[java] = (b"bundled java\n", 0o644 if platform == "windows" else 0o755)
+        files[java] = ((self.jres[platform] / java.removeprefix("runtime/")).read_bytes(),
+                       0o644 if platform == "windows" else 0o755)
+        files["runtime/lib/modules"] = (MODULE_INVENTORY, 0o644)
+        if platform == "linux":
+            files["runtime/bin/jimage"] = (JIMAGE_SHELL, 0o755)
         for raw in self.allowlist.decode("utf-8").splitlines():
             if not raw or raw.startswith("#"):
                 continue
@@ -635,10 +646,22 @@ class WorldBuilderV2CandidateValidationTest(unittest.TestCase):
             evidence["assertions"],
         )
         self.assertIn("linux-production-launcher-modes", evidence["assertions"])
+        self.assertIn("linux-toolprovider-java17-compilation", evidence["assertions"])
+        self.assertIn("windows-offline-compiler-module-inventory", evidence["assertions"])
+        self.assertIn("windows-native-toolprovider-compilation", evidence["pendingEvidence"])
         for artifact in evidence["artifacts"]:
             self.assertRegex(artifact["reviewedJreInventorySha256"], r"^[0-9a-f]{64}$")
             self.assertGreater(artifact["reviewedJreFileCount"], 3)
         self.assertIn("owner-software-and-opengl-visual-review", evidence["pendingEvidence"])
+
+    def test_compiler_metadata_cannot_substitute_for_windows_implementation(self) -> None:
+        runtime = self.fixture.jres["windows"]
+        with (runtime / "release").open("a") as stream:
+            stream.write('MODULES="java.compiler jdk.compiler"\n')
+        (runtime / "lib/modules").write_bytes(MODULE_INVENTORY.split(b"Module: jdk.compiler")[0])
+        result = self.fixture.run()
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("lacks required compiler module contents: jdk.compiler", result.stderr)
 
     def test_selected_base_requires_exact_payload_identity_modes_and_closure(self) -> None:
         fixture = self.fixture

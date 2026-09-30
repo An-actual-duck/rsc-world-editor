@@ -41,8 +41,8 @@ Usage:
   ./scripts/package-world-builder-v2-release.sh \
     --version v0.1.0-alpha.1 \
     --runtime-provider /path/to/rsc-world-editor-runtime \
-    --linux-jre /path/to/temurin-17-linux-x64-jre \
-    --windows-jre /path/to/temurin-17-windows-x64-jre \
+    --linux-jre /path/to/temurin-17-linux-x64-jdk \
+    --windows-jre /path/to/temurin-17-windows-x64-jdk \
     --assets-cleared
 
 Options:
@@ -300,6 +300,8 @@ PY
 validate_runtime "Linux" "$LINUX_JRE" "bin/java" "Linux"
 [[ -x "$LINUX_JRE/bin/java" ]] || fail "Linux JRE bin/java must be executable"
 validate_runtime "Windows" "$WINDOWS_JRE" "bin/java.exe" "Windows"
+python3 "$SCRIPT_ROOT/scripts/world_builder_compiler_runtime.py" \
+	--linux-jre "$LINUX_JRE" --windows-jre "$WINDOWS_JRE"
 
 PACKAGE_ASSETS="$ROOT_DIR/release/world-builder-v2"
 UPDATE_ASSETS="$ROOT_DIR/release/updater-v2"
