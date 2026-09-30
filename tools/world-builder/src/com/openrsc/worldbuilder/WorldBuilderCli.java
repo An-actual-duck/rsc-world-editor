@@ -1763,6 +1763,7 @@ public final class WorldBuilderCli {
 				System.out.print(transaction.recover(target, transactionRoot, transactionId).toJson());
 				return 0;
 			}
+            WorldBuilderTargetMapIntegration.refuseCompositionReplacement();
 			WorldBuilderCurrentRuntimeUpgradeTransaction.Preview preview =
 				transaction.previewPreservation(target, transactionRoot,
 					Paths.get(options.get("--provider-catalog-root")),

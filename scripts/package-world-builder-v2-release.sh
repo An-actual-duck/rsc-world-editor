@@ -326,7 +326,7 @@ if [[ "$SKIP_BUILD" != true ]]; then
 	"$RUNTIME_PROVIDER_ROOT/scripts/build-server.sh"
 	SPOILED_MILK_RELEASE_BUILD=1 "$RUNTIME_PROVIDER_ROOT/scripts/build-client.sh"
 	python3 "$RUNTIME_PROVIDER_ROOT/scripts/build-current-base.py"
-	"$ROOT_DIR/scripts/build-tools.sh"
+	"$ROOT_DIR/scripts/build-tools.sh" "$RUNTIME_PROVIDER_ROOT"
 fi
 require_release_git_state "$SOURCE_COMMIT"
 require_runtime_provider_state "$RUNTIME_PROVIDER_COMMIT"

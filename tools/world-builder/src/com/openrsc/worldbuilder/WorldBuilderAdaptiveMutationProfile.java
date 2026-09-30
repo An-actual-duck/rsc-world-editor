@@ -475,6 +475,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 		for (Action action : actions) {
 			result = safeAdd(result, action.before.size);
 			result = safeAdd(result, action.after.size);
+			if (action.role.startsWith(WorldBuilderTargetMapIntegration.ROLE))
+				result = safeAdd(result, action.after.size);
 		}
 		return result;
 	}
@@ -490,6 +492,10 @@ final class WorldBuilderAdaptiveMutationProfile {
 			Map<String,Object> value = WorldBuilderAdaptiveExporter.object(raw, "action");
 			String role = WorldBuilderAdaptiveExporter.string(value, "role");
 			if (!role.startsWith("runtime-compatibility-")) continue;
+            if (role.startsWith(WorldBuilderTargetMapIntegration.ROLE)) {
+                actions.add(WorldBuilderTargetMapIntegration.restoreAction(value, project.projectRoot, transactionId));
+                continue;
+            }
 			if (WorldBuilderInstalledFloorContent.isRole(role)) {
 				String destination = WorldBuilderInstalledFloorContent.destination(project, configuration, role);
 				String contentPath = WorldBuilderInstalledFloorContent.contentPath(role);
