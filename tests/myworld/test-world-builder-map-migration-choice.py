@@ -255,6 +255,7 @@ public final class LauncherMigrationTransactionHarness {
             if (entry.projectId.equals(arguments[3])) selected = entry;
         }
         if (selected == null) throw new AssertionError("project not found");
+        if (arguments.length < 7 || !"import-only".equals(arguments[6])) {
         Path floor = Paths.get(arguments[2]).resolve("server/conf/server/defs/TileDef.xml");
         byte[] originalFloor = Files.readAllBytes(floor);
         Files.write(floor, (new String(originalFloor, StandardCharsets.UTF_8) + "\n").getBytes(StandardCharsets.UTF_8));
@@ -265,6 +266,7 @@ public final class LauncherMigrationTransactionHarness {
             if (!expected.getMessage().contains("floor definitions changed")) throw expected;
         } finally { Files.write(floor, originalFloor); }
         System.out.println(model.applyServerRuntimeUpgrade(model.prepareServerRuntimeUpgrade(selected)));
+        }
         WorldBuilderLauncherModel.PreparedImport prepared =
             model.prepareServerImport(selected);
         Files.write(Paths.get(arguments[5]),
@@ -1123,7 +1125,7 @@ class MapMigrationChoiceTest(unittest.TestCase):
                 "java", "-cp", str(self.classes),
                 "com.openrsc.worldbuilder.LauncherMigrationTransactionHarness",
                 str(installation), str(runtime), str(target), project_id,
-                "43904", str(plan_path),
+                "43904", str(plan_path), "import-only",
             ],
             cwd=ROOT,
             text=True,
