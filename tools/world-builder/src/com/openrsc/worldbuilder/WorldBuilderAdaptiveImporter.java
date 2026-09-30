@@ -298,6 +298,7 @@ final class WorldBuilderAdaptiveImporter {
 				"Adaptive export changed after preview and before mutation.",
 				"Create and review a fresh complete export.");
 			verifyBeforeState(plan);
+            WorldBuilderTargetMapIntegration.verifyInputs(plan);
 			WorldBuilderAdaptiveMutationProfile.requireInstallRootsAbsent(plan);
 			verifyPlannedDirectoriesAbsent(plan);
 			observe("before-first-target-mutation", target);
@@ -523,6 +524,7 @@ final class WorldBuilderAdaptiveImporter {
 	private static void writeTransactionEvidence(
 		WorldBuilderAdaptiveMutationProfile.Plan plan, Path backupRoot)
 		throws IOException, WorldBuilderContractException {
+        WorldBuilderTargetMapIntegration.writeEvidence(plan, backupRoot);
 		Path planPath = backupRoot.resolve("mutation-plan.json");
 		writeBytes(planPath, plan.toJson().getBytes(StandardCharsets.UTF_8));
 		WorldBuilderAdaptiveContracts.Document read = WorldBuilderAdaptiveContracts.read(

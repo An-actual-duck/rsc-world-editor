@@ -56,6 +56,7 @@ final class WorldBuilderCurrentRuntimeUserActions {
     static WorldBuilderCurrentRuntimeUpgradeTransaction.Preview previewUpgrade(
         Path installation, WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
         throws IOException, WorldBuilderContractException {
+        WorldBuilderTargetMapIntegration.refuseCompositionReplacement();
         Path target = target(project);
         return new WorldBuilderCurrentRuntimeUpgradeTransaction().previewPreservation(
             target, workspace(target), installation.resolve("current-platform"),

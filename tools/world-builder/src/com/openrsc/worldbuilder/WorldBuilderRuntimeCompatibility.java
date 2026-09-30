@@ -98,68 +98,18 @@ final class WorldBuilderRuntimeCompatibility {
 		Path target, WorldBuilderAdaptiveConfiguration configuration,
 		WorldBuilderGenericLayeredPackage packageValue)
 		throws IOException, WorldBuilderContractException {
-		String clientDestination = compiledClientRoot(configuration)
-			+ "/Open_RSC_Client.jar";
-		requireProjectArchive(project, "working/runtime/server/core.jar",
-			"current host-integrated server runtime",
-			"com/openrsc/server/io/WorldBuilderInstalledServerProfile.class",
-			"com/openrsc/server/io/NativeLayeredWorldPackage.class");
-		requireProjectArchive(project, "working/runtime/client/Open_RSC_Client.jar",
-			"current host-integrated client runtime",
-			"orsc/WorldBuilderInstalledClientProfile.class",
-			"orsc/WorldBuilderTerrainBootstrap.class");
-		Path capabilitySource = WorldBuilderAdaptiveExporter.requireFile(
-			project.projectRoot, HOST_CAPABILITY_SOURCE,
-			"project host runtime capability");
-		Map<String,Object> capability;
-		try {
-			capability = WorldBuilderJsonDocuments.readObject(capabilitySource);
-		} catch (WorldBuilderDiscoveryException invalid) {
-			throw problem(HOST_CAPABILITY_SOURCE,
-				"Project host runtime capability is malformed.",
-				"Restore the exact verified project runtime.");
-		}
-		HostIntegration hostIntegration = requireHostIntegration(capability);
-		verifyProjectHostIntegration(project, hostIntegration,
-			packageValue.requiredEncodingVersions);
-		List<Integer> encodingVersions = integerList(
-			capability.get("encodingVersions"), HOST_CAPABILITY_SOURCE);
-
-		List<WorldBuilderAdaptiveMutationProfile.Action> actions =
-			new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
-		appendHostSourceIntegration(project, target, hostIntegration, actions);
-		appendPinnedServerBuildIntegration(target, hostIntegration, actions);
-		appendReplacement(project, target, "runtime-compatibility-server",
-			SERVER_DESTINATION, "working/runtime/server/core.jar",
-			transactionContent("server", ".jar"), actions);
-		appendReplacement(project, target, "runtime-compatibility-client",
-			clientDestination, "working/runtime/client/Open_RSC_Client.jar",
-			transactionContent("client", ".jar"), actions);
-		appendReplacement(project, target, "runtime-compatibility-host-capability",
-			HOST_CAPABILITY_DESTINATION, HOST_CAPABILITY_SOURCE,
-			transactionContent("host-capability", ".json"), actions);
-		appendRetiredRuntimeRemoval(target, MANAGED_SERVER_DESTINATION,
-			"runtime-compatibility-retired-shadow-retirement", actions);
-		appendRetiredRuntimeRemoval(target, LEGACY_MANAGED_SERVER_DESTINATION,
-			"runtime-compatibility-legacy-overlay-retirement", actions);
-		appendRetiredRuntimeRemoval(target, GAMEPLAY_OVERLAY_DESTINATION,
-			"runtime-compatibility-gameplay-overlay-retirement", actions);
-		for (int index = 0; index < hostIntegration.retiredReceiptPaths.size(); index++) {
-			appendRetiredRuntimeRemoval(target,
-				hostIntegration.retiredReceiptPaths.get(index),
-				index == 0
-					? "runtime-compatibility-legacy-capability-retirement"
-					: "runtime-compatibility-superseded-capability-retirement",
-				actions);
-		}
-		WorldBuilderInstalledFloorContent.appendUpgrade(project, target, configuration, actions);
-		if (actions.isEmpty()) throw new WorldBuilderContractException(
-			WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID,
-			"upgrade-target-runtime", HOST_CAPABILITY_DESTINATION, false,
-			"The exact current host-integrated runtime is already installed and no retired runtime remains.",
-			"Run Import Map Changes for the selected project.");
-		return new Upgrade(encodingVersions, actions, true);
-	}
+        String clientRoot = compiledClientRoot(configuration);
+        WorldBuilderTargetMapIntegration.Result integrated = WorldBuilderTargetMapIntegration.prepare(
+            project.projectRoot, target, clientRoot);
+        List<WorldBuilderAdaptiveMutationProfile.Action> actions =
+            WorldBuilderTargetMapIntegration.actions(target, integrated);
+        WorldBuilderInstalledFloorContent.appendUpgrade(project, target, configuration, actions);
+        if (actions.isEmpty()) throw new WorldBuilderContractException(
+            WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "upgrade-target-runtime",
+            WorldBuilderTargetMapIntegration.INSTALLED, false,
+            "The reviewed targeted map integration is already installed.", "Run Import Map Changes for the selected project.");
+        return new Upgrade(integrated.encodingVersions, actions, true);
+    }
 
 	static void verifyTargetUpgrade(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
@@ -221,6 +171,14 @@ final class WorldBuilderRuntimeCompatibility {
 		WorldBuilderTargetCapability targetCapability,
 		WorldBuilderGenericLayeredPackage packageValue)
 		throws IOException, WorldBuilderContractException {
+        if (Files.exists(target.resolve(WorldBuilderTargetMapIntegration.INSTALLED), LinkOption.NOFOLLOW_LINKS)) {
+            List<Integer> supported = WorldBuilderTargetMapIntegration.verifyInstalled(project.projectRoot, target, compiledClientRoot(configuration));
+            WorldBuilderInstalledFloorContent.verifyInstalled(project, target, configuration);
+            List<WorldBuilderAdaptiveMutationProfile.Action> actions = new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
+            appendServerProfile(target, targetCapability, packageValue, actions);
+            appendClientProfile(target, compiledClientRoot(configuration) + "/Open_RSC_Client.jar", targetCapability, packageValue, actions);
+            return new Upgrade(supported, actions, false);
+        }
 		String clientDestination = compiledClientRoot(configuration)
 			+ "/Open_RSC_Client.jar";
 		rejectRetiredShadowRuntime(target);

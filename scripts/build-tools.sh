@@ -43,6 +43,10 @@ cp "$RUNTIME_ALLOWLIST" "$RUNTIME_ALLOWLIST_RESOURCE"
 	exit 1
 }
 cp -R "$RESOURCE_DIR"/. "$CLASSES_DIR"/
+# Upgrade payloads belong to the current application, independently of a saved
+# project's frozen authoring runtime. Read exact Git objects from the lock.
+python3 "$ROOT_DIR/scripts/embed-target-map-integration.py" "$ROOT_DIR" \
+    "${1:-$ROOT_DIR/.runtime-provider}" "$CLASSES_DIR"
 jar cfe "$JAR_PATH" com.openrsc.worldbuilder.WorldBuilderCli -C "$CLASSES_DIR" .
 
 printf 'Built %s\n' "$JAR_PATH"
