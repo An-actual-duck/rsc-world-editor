@@ -42,13 +42,17 @@ def sha(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def require_compiler_runtime():
+    version=subprocess.run(['java','-XshowSettings:properties','-version'],capture_output=True,text=True)
+    match=re.search(r'java.specification.version\s*=\s*([0-9]+)',version.stderr)
+    if not match or int(match.group(1))<17:
+        raise RuntimeError('Targeted map integration tests require Java 17 or newer with javac on PATH; see docs/WORLD-BUILDER-TARGETED-INTEGRATION-TESTS.md')
+
+
 class TargetMapIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        version=subprocess.run(['java','-XshowSettings:properties','-version'],capture_output=True,text=True)
-        match=re.search(r'java.specification.version\s*=\s*([0-9]+)',version.stderr)
-        if not match or int(match.group(1))<17:
-            raise RuntimeError('Targeted map integration tests require Java 17 or newer with javac on PATH; see docs/WORLD-BUILDER-TARGETED-INTEGRATION-TESTS.md')
+        require_compiler_runtime()
         subprocess.run([str(ROOT/'scripts/build-tools.sh')], check=True, stdout=subprocess.DEVNULL)
         cls.compiled = tempfile.TemporaryDirectory(prefix='target-map-probe-')
         cls.addClassCleanup(cls.compiled.cleanup)
@@ -379,9 +383,32 @@ class TargetMapProviderConsumerTest(unittest.TestCase):
                 with zipfile.ZipFile(out/base/archive) as z:self.assertEqual(b'target-owned-art-and-dialogue',z.read('synthetic/preserved-content.bin'))
 
 
+class TargetMapEmbeddingTest(unittest.TestCase):
+    def test_exact_locked_objects_embed_complete_payload(self):
+        provider=ROOT/'.runtime-provider'
+        with tempfile.TemporaryDirectory() as temp:
+            output=Path(temp)/'classes'
+            subprocess.run(['python3',str(ROOT/'scripts/embed-target-map-integration.py'),str(ROOT),str(provider),str(output)],check=True,capture_output=True)
+            payload=output/'com/openrsc/worldbuilder/target-map-integration'
+            contract=json.loads((payload/'target-map-integration-v1.json').read_text())
+            self.assertEqual('world-builder-target-map-integration',contract['manifestType'])
+            for adapter in contract['adapters']:
+                for source in adapter['sources']:
+                    self.assertEqual(source['sha256'],sha((payload/source['payloadRelativePath']).read_bytes()))
+
+    def test_unavailable_locked_provider_refuses_without_downgrade(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);editor=root/'editor';editor.mkdir()
+            (editor/'runtime-provider.lock').write_text('RUNTIME_PROVIDER_COMMIT='+'0'*40+'\n')
+            run=subprocess.run(['python3',str(ROOT/'scripts/embed-target-map-integration.py'),str(editor),str(ROOT/'.runtime-provider'),str(root/'classes')],capture_output=True,text=True)
+            self.assertNotEqual(0,run.returncode);self.assertIn('Locked runtime provider commit is unavailable',run.stderr)
+            self.assertFalse((root/'classes').exists())
+
+
 class TargetMapTransactionTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        require_compiler_runtime()
         spec=importlib.util.spec_from_file_location('targeted_existing_transactions',ROOT/'tests/myworld/test-world-builder-adaptive-transactions.py')
         cls.legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(cls.legacy)
         cls.legacy.AdaptiveTransactionTest.setUpClass()
