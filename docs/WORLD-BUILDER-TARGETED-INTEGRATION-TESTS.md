@@ -46,3 +46,22 @@ editor's captured presentation bundle or replace target NPC/item/object data.
 Floor additions must preserve the original server XML bytes and match the
 client's existing literal floor prefix. Dynamic floor initialization and
 unresolved prior floor overrides require an explicit compatibility refusal.
+
+## Integration evidence, 2026-09-30
+
+Provider: `deb55301702dc80f49497ac722341895145363e1`.
+Editor implementation handoff: `c836fdab5654138b25d1ad8a32d3b6bb158fce51`.
+Preservation regression handoff: `61ab39917a547409971e8027c57c30ab2eaae693`.
+
+On the reviewed Temurin 17.0.20+8 Linux compiler, manager integration passed
+all 22 targeted tests (including exact embedding and the provider adapter)
+and all eight standard-floor tests in 64 seconds. The migration-choice file
+passed all 19 tests on the implementation handoff.
+
+All 68 adaptive transaction cases have passing evidence: 50 unchanged cases
+from the initial staged run, then 18 affected cases against the final production
+consumer. Four strengthened callback, archive-preservation, metadata, and
+overlay-255 cases were rerun successfully. All three public composition/refusal
+and historical-recovery dispatch checks passed. There were no skips in these
+selected files. This is focused affected-area verification, not a full release
+gate; the historical full-tested baseline is recorded in TESTING-POLICY.md.
