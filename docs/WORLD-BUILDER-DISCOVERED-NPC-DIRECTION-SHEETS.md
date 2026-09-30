@@ -11,6 +11,23 @@ IDs with custom presentations. No custom NPC name or ID is built into this
 inventory. Structural source adapters and neutral metadata produce the same
 records; the resulting portable RGB animations work in both rendering modes.
 
+## Automatic source discovery
+
+The structural adapter reads bounded client source trees without compiling or
+executing them. It follows a supported declarative enum table through its
+animation registration, NPC activation, and external image loader. It verifies
+that the loader's frame ordering, alpha handling, and geometry match the
+interpreted records, then checks the selected images against adjacent provenance
+metadata. NPC IDs, names, symbols, image roots, column widths, camera expressions,
+and pose reuse come from those inputs rather than a product-maintained catalog.
+
+Only source files needed to prove the selected associations are sealed into the
+project. Unsupported expressions or ambiguous associations produce a specific
+visual-source diagnostic. Complete explicit metadata can resolve those records
+without requiring source inference. A binary-only distribution can supply the
+same neutral metadata or a verified provider; its arbitrary executable behavior
+is not inferred from an NPC name or a coincidental baseline animation number.
+
 ## Neutral metadata
 
 A target may supply `npc-visuals-v1.json` at its root, beside its selected
