@@ -1,8 +1,9 @@
 # Custom NPC visual discovery: corrective investigation
 
-Status: investigation complete; the generic correction below is not implemented.
-The alpha.3 identity-specific direction-sheet adapter is a workaround, not
-completion of the custom-content discovery objective. It must be replaced.
+Status: generic correction integrated on 2026-09-30 for the alpha.4 owner
+candidate. The alpha.3 identity-specific adapter has been removed. Supported
+source structures and explicit neutral metadata now supply visual associations;
+arbitrary executable loaders still require a descriptor or verified provider.
 
 ## Product requirement
 
@@ -74,3 +75,27 @@ sprite modes. Passing that example alone is insufficient.
 
 No replacement owner candidate should be described as completing this objective
 until the generic discovery path and these acceptance cases pass.
+
+## Implementation and verification
+
+Reviewed Editor tips `febd74cf9c4bff144fc03a3eae81f39e91f2eace` and
+`e3deb8a891cc75ccf1ac58d9ff32102140e418fa` implement the inventory,
+source adapter, compiler, provider enrichment, evidence sealing, and diagnostics.
+The runtime remains pinned to `64d41ecd7b9961f6cf9ecb4fc36d8522bc1dbd28`.
+See [supported source structures](NPC-VISUAL-SOURCE-ADAPTER.md) and
+[the intake contract](WORLD-BUILDER-DISCOVERED-NPC-DIRECTION-SHEETS.md).
+
+Focused verification passed: 13 generic visual lifecycle tests, 15 provider
+tests, 11 content-bundle tests, 42 adaptive-discovery tests, and seven source
+adapter tests. Both optional reference captures ran without skips. The complete
+229-file tracked reference input produced eight target-derived associations.
+Independent fresh-capture rendering showed the test NPC's full body across
+48 poses in both sprite modes; client and server accepted the sealed bundle.
+This is software-rendered acceptance, not networked gameplay or native Windows
+acceptance. Manager integration passed 23 contract, four runtime-preparation,
+and seven packed-conversion tests plus exact runtime parity.
+
+The alpha.4 candidate requires a fresh capture to obtain formerly omitted
+visuals. Existing projects and map edits must be retained. No live target was
+changed. Broader content refresh and unsupported custom loader interpretation
+remain outside this bounded discovery implementation.

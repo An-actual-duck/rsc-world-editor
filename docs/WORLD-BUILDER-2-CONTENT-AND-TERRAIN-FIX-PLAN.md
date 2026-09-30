@@ -313,5 +313,15 @@ historical and newly painted tiles together.
   placement-limited provider, and export occurring before external visual
   activation. The [corrective investigation and replacement plan](CUSTOM-CONTENT-DISCOVERY-GAP.md)
   supersedes the identity-specific adapter as the active direction. The generic
-  RGB runtime remains reusable; the generic discovery correction is not yet
-  implemented.
+  RGB runtime remains reusable. The generic discovery correction was subsequently
+  implemented as recorded below.
+
+- Generic correction integrated on 2026-09-30 from reviewed Editor tips
+  `febd74cf9c4bff144fc03a3eae81f39e91f2eace` and
+  `e3deb8a891cc75ccf1ac58d9ff32102140e418fa`. Custom identities, asset paths,
+  geometry, and associations now come from verified target evidence; the fixed
+  NPC table is removed. Supported static source structures and neutral metadata
+  cover existing and unplaced definitions without changing gameplay fields.
+  The corrective investigation records focused tests and independent full-body
+  rendering. Replacement owner candidate: `v0.8.1-alpha.4`, with unchanged pinned
+  runtime. Fresh capture is required; retain existing projects and their edits.
