@@ -454,6 +454,17 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 else:
                     self.assertEqual([],overrides);self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
 
+    def test_invalid_existing_provider_reports_unresolved_without_replacing_definition(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-existing-invalid-") as temp:
+            base=Path(temp);target,selected=self.fixture(base)
+            npc=definition(2,"Neutral producer NPC");npc["attack"]=91
+            write_json(target / "server/conf/server/defs/AnyNpcDefs.json",{"npcs":[npc]})
+            self.producer_package(target,selected,unresolved_animation=True)
+            custom,report=self.consume(target,selected,base / "stage")
+            self.assertEqual(91,custom["npcs"][1]["attack"])
+            self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
+            self.assertEqual([],json.loads((base / "stage/presentation-overrides.json").read_text())["npcs"])
+
     def test_rich_neutral_producer_contract_normalizes_authoritative_visuals(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-producer-") as temp:
             base = Path(temp)

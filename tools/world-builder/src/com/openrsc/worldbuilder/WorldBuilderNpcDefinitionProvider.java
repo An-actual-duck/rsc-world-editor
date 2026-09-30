@@ -137,6 +137,15 @@ final class WorldBuilderNpcDefinitionProvider {
 		List<Object> rewritten = new ArrayList<Object>(customRows);
 		List<Item> items = new ArrayList<Item>();
 		List<Warning> warnings = new ArrayList<Warning>();
+        if (provider.definitions.isEmpty() && selectedProviderManifest != null
+            && selectedProviderManifest.getParent() != null
+            && Files.isRegularFile(selectedProviderManifest.getParent().resolve(FILE_NAME), LinkOption.NOFOLLOW_LINKS)) {
+            for (Integer id : required) if (id.intValue() >= originalCount && id.intValue() < appendedCount) {
+                warnings.add(new Warning(id.intValue(), "NPC_VISUAL_UNRESOLVED",
+                    "The selected NPC provider could not verify this existing definition's presentation: "
+                    + (provider.animationFailure != null ? provider.animationFailure : provider.unavailableReason)));
+            }
+        }
         List<Object> presentationOverrides = new ArrayList<Object>();
         Set<Integer> usedAnimations = new TreeSet<Integer>();
         // Legacy rich providers prove only their declared placed-extension selection.
