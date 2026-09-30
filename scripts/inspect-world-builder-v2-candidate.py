@@ -26,6 +26,7 @@ import zipfile
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
 from world_builder_base_catalog import selected_base_files
+from world_builder_compiler_runtime import verify_compiler_runtimes
 
 
 PACKAGE_ROOT = "World Builder 2"
@@ -1534,6 +1535,10 @@ def main(arguments: Iterable[str]) -> int:
             fail("Candidate artifacts and checksums must be outside reviewed JRE trees")
     linux_jre_inventory = inventory_runtime_tree(linux_jre, "Linux")
     windows_jre_inventory = inventory_runtime_tree(windows_jre, "Windows")
+    try:
+        compiler_evidence = verify_compiler_runtimes(linux_jre, windows_jre)
+    except (ValueError, OSError) as error:
+        fail(str(error))
     linux_data, linux_identity = read_stable_external(linux, MAX_ARCHIVE_BYTES)
     windows_data, windows_identity = read_stable_external(windows, MAX_ARCHIVE_BYTES)
     checksum_data, checksum_identity = read_stable_external(
@@ -1645,6 +1650,7 @@ def main(arguments: Iterable[str]) -> int:
         "checksumsSha256": digest(checksum_data),
         "inspectorSha256": digest(Path(__file__).resolve().read_bytes()),
         "artifacts": artifacts,
+        "compilerRuntimeEvidence": compiler_evidence,
         "assertions": [
             "clean-published-source",
             "clean-exact-locked-runtime",
@@ -1657,11 +1663,14 @@ def main(arguments: Iterable[str]) -> int:
             "content-neutral-world-and-creator-scan",
             "empty-builder-database-seed",
             "dual-platform-jre17-metadata",
+            "linux-toolprovider-java17-compilation",
+            "windows-offline-compiler-module-inventory",
             "exact-reviewed-dual-platform-jre-inventory-bytes-and-modes",
             "linux-production-launcher-modes",
             "production-runtime-marker-and-capabilities",
         ],
         "pendingEvidence": [
+            "windows-native-toolprovider-compilation",
             "owner-native-layered-edit-save-reopen",
             "owner-native-standalone-edit-save-reopen",
             "owner-software-and-opengl-visual-review",
