@@ -149,6 +149,9 @@ public final class WorldBuilderClassSemantics {
                         stream.writeShort(length);
                         stream.write(utf);
                         pool[i] = new DataInputStream(new ByteArrayInputStream(encoded.toByteArray())).readUTF();
+                        ByteArrayOutputStream canonicalUtf = new ByteArrayOutputStream();
+                        new DataOutputStream(canonicalUtf).writeUTF((String) pool[i]);
+                        require(Arrays.equals(encoded.toByteArray(), canonicalUtf.toByteArray()), "Noncanonical modified UTF constant");
                         break;
                     case 3: case 4: pool[i] = node(tag, input.i4()); break;
                     case 5: case 6:
