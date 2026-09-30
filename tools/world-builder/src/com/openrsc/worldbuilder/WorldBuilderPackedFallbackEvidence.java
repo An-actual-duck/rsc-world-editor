@@ -83,7 +83,8 @@ final class WorldBuilderPackedFallbackEvidence {
 			sourceLayout.materializeCanonicalAliases(original, legacy.basedMapData);
 		WorldBuilderProjectContentBundle.Bundle content =
 			WorldBuilderProjectContentBundle.capture(
-				projectStage, original, runtime, itemVisualMappings);
+				projectStage, original, runtime, itemVisualMappings,
+                java.util.Collections.<Integer>emptySet(), sourceLayout);
 		Map<String,Object> catalog = content.compatibilityCatalog();
 		String catalogId = (String)catalog.get("catalogId");
 		writeJson(original, SERVER_DEFINITIONS, catalog);

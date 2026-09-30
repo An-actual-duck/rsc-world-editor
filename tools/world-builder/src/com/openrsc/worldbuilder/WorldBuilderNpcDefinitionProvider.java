@@ -125,16 +125,52 @@ final class WorldBuilderNpcDefinitionProvider {
 		Set<Integer> providerPlacements = effectiveNpcIds.isEmpty()
 			? placements : new TreeSet<Integer>(effectiveNpcIds);
 		int maximum = required.isEmpty() ? -1 : Collections.max(required).intValue();
-		if (maximum < appendedCount) return Result.unchanged();
+		if (maximum < appendedCount && selectedProviderManifest == null) return Result.unchanged();
 		if (maximum > MAX_ID) throw problem("npc placements",
 			"Required NPC ID exceeds the runtime domain 0..65535.");
 
+		int originalCount = baseRows.size() + array(definitionDocument(copiedTarget,
+			"server/conf/server/defs/NpcDefsCustom.json", "npcs").get("npcs"), "NpcDefsCustom.json").size();
 		Provider provider = readProvider(selectedProviderManifest, copiedTarget,
-			appendedCount - 1, providerPlacements);
+			originalCount - 1, providerPlacements);
 		Map<String,Object> template = object(baseRows.get(0), "NpcDefs.json#record=0");
 		List<Object> rewritten = new ArrayList<Object>(customRows);
 		List<Item> items = new ArrayList<Item>();
 		List<Warning> warnings = new ArrayList<Warning>();
+        if (provider.definitions.isEmpty() && selectedProviderManifest != null
+            && selectedProviderManifest.getParent() != null
+            && Files.isRegularFile(selectedProviderManifest.getParent().resolve(FILE_NAME), LinkOption.NOFOLLOW_LINKS)) {
+            for (Integer id : required) if (id.intValue() >= originalCount && id.intValue() < appendedCount) {
+                warnings.add(new Warning(id.intValue(), "NPC_VISUAL_UNRESOLVED",
+                    "The selected NPC provider could not verify this existing definition's presentation: "
+                    + (provider.animationFailure != null ? provider.animationFailure : provider.unavailableReason)));
+            }
+        }
+        if (provider.animations.isEmpty()) for (Integer id : provider.definitions.keySet()) {
+            if (id.intValue() >= originalCount && id.intValue() < appendedCount) warnings.add(new Warning(
+                id.intValue(), "NPC_VISUAL_UNRESOLVED", "The selected NPC record lacks source-bound animation evidence; existing server presentation references were retained."));
+        }
+        List<Object> presentationOverrides = new ArrayList<Object>();
+        Set<Integer> usedAnimations = new TreeSet<Integer>();
+        // Legacy rich providers prove only their declared placed-extension selection.
+        // Reuse verified appearance for now-declarative extensions without replacing server stats.
+        if (!provider.animations.isEmpty()) for (Map.Entry<Integer,Map<String,Object>> entry : provider.definitions.entrySet()) {
+            int id = entry.getKey().intValue();
+            if (id < originalCount || id >= appendedCount) continue;
+            Map<String,Object> existing = object(customRows.get(id - baseRows.size()), "existing NPC");
+            if (!entry.getValue().get("name").equals(existing.get("name"))
+                || !verifiedExistingIdentity(selectedProviderManifest, copiedTarget, id)) {
+                warnings.add(new Warning(id, "NPC_VISUAL_UNRESOLVED", "Verified provider NPC identity does not match the effective server definition."));
+                continue;
+            }
+            Map<String,Object> visual = new LinkedHashMap<String,Object>();
+            visual.put("id", Long.valueOf(id));
+            for (int slot=1;slot<=12;slot++) visual.put("sprites"+slot, entry.getValue().get("sprites"+slot));
+            for (String field : Arrays.asList("hairColour", "topColour", "bottomColour", "skinColour", "camera1", "camera2", "walkModel", "combatModel", "combatSprite")) visual.put(field, entry.getValue().get(field));
+            presentationOverrides.add(visual);
+            collectAnimationIds(visual, usedAnimations);
+            items.add(new Item(id, "resolved-existing-visual"));
+        }
 		for (int id = appendedCount; id <= maximum; id++) {
 			Map<String,Object> definition = provider.definitions.get(Integer.valueOf(id));
 			boolean requiredId = required.contains(Integer.valueOf(id));
@@ -154,15 +190,48 @@ final class WorldBuilderNpcDefinitionProvider {
 				items.add(new Item(id, requiredId ? "placeholder" : "gap-placeholder"));
 			} else {
 				items.add(new Item(id, "resolved"));
+                collectAnimationIds(definition, usedAnimations);
 			}
 			rewritten.add(definition);
 		}
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
 		document.put("npcs", rewritten);
-		return new Result(WorldBuilderJsonDocuments.pretty(document)
-			.getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings,
-			provider.animations);
+        List<Animation> selectedAnimations = new ArrayList<Animation>();
+        for (Animation animation : provider.animations) if (usedAnimations.contains(animation.animationId)) selectedAnimations.add(animation);
+        Result result = new Result(WorldBuilderJsonDocuments.pretty(document)
+            .getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings, selectedAnimations);
+        result.presentationOverrides.addAll(presentationOverrides);
+        return result;
 	}
+
+    private static void collectAnimationIds(Map<String,Object> definition, Set<Integer> ids) {
+        for (int slot=1;slot<=12;slot++) {
+            Object raw=definition.get("sprites"+slot);
+            if(raw instanceof Long && (Long)raw>=0)ids.add(((Long)raw).intValue());
+        }
+    }
+
+    private static boolean verifiedExistingIdentity(Path selected, Path copiedTarget, int id) {
+        try {
+            Map<String,Object> document = WorldBuilderJsonDocuments.readTargetDefinitionObject(selected.getParent().resolve(FILE_NAME));
+            Map<String,Object> metadata = object(document.get("provider"), "provider");
+            WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(copiedTarget);
+            WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
+            WorldBuilderSupplementalNpcDefinitions.Result normalized = WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, layout);
+            for (Object raw : array(metadata.get("sources"), "provider sources")) {
+                Map<String,Object> source = object(raw, "provider source");
+                if (!"extension-npc-definitions".equals(source.get("role"))) continue;
+                for (String path : normalized.catalogs) {
+                    if (!path.endsWith("/" + source.get("identity"))
+                        || !WorldBuilderHashes.sha256(target.requiredFile(path)).equals(source.get("sha256"))) continue;
+                    List<Object> rows = array(definitionDocument(copiedTarget,path,"npcs").get("npcs"),path);
+                    for (int index=0;index<rows.size();index++) if (Integer.valueOf(id).equals(normalized.sourceIds.get(path+"#"+index))
+                        && Long.valueOf(id).equals(object(rows.get(index),path).get("id"))) return true;
+                }
+            }
+        } catch (Exception invalid) { return false; }
+        return false;
+    }
 
 	static void writeReport(Path projectStage, Result result)
 		throws IOException {
@@ -209,7 +278,8 @@ final class WorldBuilderNpcDefinitionProvider {
 				Map<?,?> warning = (Map<?,?>)raw;
 				if (!(warning.get("code") instanceof String)
 					|| !((String)warning.get("code")).startsWith("NPC_")
-					|| !((String)warning.get("code")).endsWith("_PLACEHOLDER")) continue;
+					|| (!((String)warning.get("code")).endsWith("_PLACEHOLDER")
+                        && !"NPC_VISUAL_UNRESOLVED".equals(warning.get("code")))) continue;
 				Object id = warning.get("npcId");
 				if (id instanceof Number) ids.add(Integer.valueOf(((Number)id).intValue()));
 				if (firstReason == null && warning.get("message") instanceof String) {
@@ -218,8 +288,7 @@ final class WorldBuilderNpcDefinitionProvider {
 			}
 			if (ids.isEmpty()) return null;
 			return "\n\nNPC provider warning: complete definitions and animation visuals were not "
-				+ "available for NPC IDs " + ids + ". They will appear as clearly named placeholders "
-				+ "using NPC 0's visuals. Install a complete provider containing "
+				+ "available for NPC IDs " + ids + ". Missing definitions use clearly named NPC-0 placeholders; existing definitions retain their server presentation references. Install a complete provider containing "
 				+ FILE_NAME + " and recreate this project for faithful NPC visuals.\n"
 				+ (firstReason == null ? "" : "Reason: " + firstReason + "\n")
 				+ "Details: " + report;
@@ -1087,6 +1156,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	}
 
 	static final class Result {
+		final List<Object> presentationOverrides = new ArrayList<Object>();
 		final byte[] customDefinitions;
 		final String providerSha256;
 		final List<Item> items;

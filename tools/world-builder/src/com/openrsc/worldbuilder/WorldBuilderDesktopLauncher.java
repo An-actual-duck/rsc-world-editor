@@ -1527,6 +1527,8 @@ final class WorldBuilderDesktopLauncher {
 						String warnings = (reconciliationWarning == null
 							? "" : reconciliationWarning)
 							+ (npcWarning == null ? "" : npcWarning)
+                            + (WorldBuilderNpcVisualCompiler.projectWarningSummary(created.projectRoot) == null ? ""
+                                : WorldBuilderNpcVisualCompiler.projectWarningSummary(created.projectRoot))
 							+ (sceneryWarning == null ? "" : sceneryWarning)
 							+ (materialWarning == null ? "" : materialWarning);
 						status.setText(warnings.isEmpty()

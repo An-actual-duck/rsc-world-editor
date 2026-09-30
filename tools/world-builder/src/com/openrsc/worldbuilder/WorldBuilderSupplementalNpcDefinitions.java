@@ -158,7 +158,14 @@ final class WorldBuilderSupplementalNpcDefinitions {
 			}
 		}
 		if (baseRows.size() + merged.size() > MAX_DEFINITIONS) throw tooMany(custom);
-		return new Result(merged, catalogs, definitions.size(), gapCount, conflicts);
+		Map<String,Integer> sourceIds = new TreeMap<String,Integer>();
+		for (int index = 0; index < baseRows.size(); index++) sourceIds.put(base + "#" + index, index);
+		for (int index = 0; index < ordinaryCustom.size(); index++) sourceIds.put(custom + "#" + index, baseRows.size() + index);
+		for (Map.Entry<Integer,Definition> entry : assigned.entrySet()) {
+			Definition source = entry.getValue();
+			sourceIds.put(source.relative + "#" + source.index, entry.getKey());
+		}
+		return new Result(merged, catalogs, definitions.size(), gapCount, conflicts, sourceIds);
 	}
 
 	static byte[] customJson(List<Object> rows) {
@@ -280,13 +287,15 @@ final class WorldBuilderSupplementalNpcDefinitions {
 		final int discoveredDefinitionCount;
 		final int gapCount;
 		final List<Conflict> conflicts;
+		final Map<String,Integer> sourceIds;
 		Result(List<Object> customRows, List<String> catalogs,
-			int discoveredDefinitionCount, int gapCount, List<Conflict> conflicts) {
+			int discoveredDefinitionCount, int gapCount, List<Conflict> conflicts, Map<String,Integer> sourceIds) {
 			this.customRows = Collections.unmodifiableList(new ArrayList<Object>(customRows));
 			this.catalogs = Collections.unmodifiableList(new ArrayList<String>(catalogs));
 			this.discoveredDefinitionCount = discoveredDefinitionCount;
 			this.gapCount = gapCount;
 			this.conflicts = Collections.unmodifiableList(new ArrayList<Conflict>(conflicts));
+			this.sourceIds = Collections.unmodifiableMap(new TreeMap<String,Integer>(sourceIds));
 		}
 		boolean changed() { return !catalogs.isEmpty(); }
 	}
