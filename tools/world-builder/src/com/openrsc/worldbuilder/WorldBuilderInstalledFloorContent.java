@@ -147,12 +147,74 @@ final class WorldBuilderInstalledFloorContent {
 				before = WorldBuilderAdaptiveMutationProfile.FileState.present(Files.size(path), WorldBuilderHashes.sha256(path));
 			}
 			byte[] bytes = content(project.projectRoot, role);
+            if (SERVER_ROLE.equals(role) && before.present)
+                requireAppendOnly(Files.readAllBytes(path), bytes);
 			WorldBuilderAdaptiveMutationProfile.FileState after = WorldBuilderAdaptiveMutationProfile.FileState.present(bytes.length, WorldBuilderHashes.sha256(bytes));
 			if (before.present && before.size == after.size && before.sha256.equals(after.sha256)) continue;
 			actions.add(new WorldBuilderAdaptiveMutationProfile.Action(role, destination, before, after,
 				contentPath(role), before.present ? "backups/{transaction}/before/" + destination : "", true, bytes));
 		}
 	}
+
+    static void verifyTargetClientPrefix(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target,
+        WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {
+        if (!required(project.projectRoot)) return;
+        Path source = WorldBuilderReadOnlyTarget.open(target).requiredFile(clientRoot(configuration)
+            + "/src/com/openrsc/client/entityhandling/EntityHandler.java");
+        if (Files.size(source) > 4L * 1024 * 1024) throw refusal("Client floor initializer source is oversized.");
+        verifyLiteralClientPrefix(new String(Files.readAllBytes(source), StandardCharsets.UTF_8),
+            WorldBuilderTerrainDefinitionCatalog.readTiles(project.projectRoot.resolve(SOURCE)).tiles);
+    }
+
+    static void verifyLiteralClientPrefix(String source, List<WorldBuilderTerrainDefinitionCatalog.TileDefinition> planned)
+        throws WorldBuilderContractException {
+        try {
+            List<String> tokens = WorldBuilderNpcVisualJava.tokens(source);
+            requireTokensOnce(tokens, "private static final ClientDefinitionRegistry REGISTRY = new ClientDefinitionRegistry();");
+            requireTokensOnce(tokens, "private static final ArrayList<TileDef> tiles = REGISTRY.mutableTiles();");
+            WorldBuilderNpcVisualJava.Method method = WorldBuilderNpcVisualJava.method(WorldBuilderNpcVisualJava.methods(tokens), "loadTileDefinitions");
+            if (!method.params.isEmpty()) throw new IllegalArgumentException("Floor initializer has parameters");
+            List<String> body = method.body;
+            int at = 0, row = 0;
+            List<String> begin = WorldBuilderNpcVisualJava.tokens("tiles.add(new TileDef(");
+            while (at < body.size()) {
+                for (String token : begin) if (at >= body.size() || !token.equals(body.get(at++))) throw new IllegalArgumentException("Floor initializer is not a literal tile sequence");
+                int[] fields = new int[3];
+                for (int index = 0; index < 3; index++) {
+                    boolean negative = at < body.size() && "-".equals(body.get(at)); if (negative) at++;
+                    if (at >= body.size() || !body.get(at).matches("[0-9]+")) throw new IllegalArgumentException("Nonliteral floor field");
+                    fields[index] = Integer.parseInt((negative ? "-" : "") + body.get(at++));
+                    if (index < 2 && (at >= body.size() || !",".equals(body.get(at++)))) throw new IllegalArgumentException("Invalid floor tuple");
+                }
+                for (String token : Arrays.asList(")", ")", ";")) if (at >= body.size() || !token.equals(body.get(at++))) throw new IllegalArgumentException("Invalid floor statement");
+                if (row >= planned.size()) throw new IllegalArgumentException("Installed floors would remove client definitions");
+                WorldBuilderTerrainDefinitionCatalog.TileDefinition tile = planned.get(row++);
+                if (fields[0] != tile.colour || fields[1] != tile.unknown || fields[2] != tile.objectType
+                    || !tile.worldBuilderMaterial.isEmpty() || tile.worldBuilderSourceOverlay != 0)
+                    throw new IllegalArgumentException("Client and server floor prefix differ at tile " + row);
+            }
+            if (row == 0) throw new IllegalArgumentException("Client floor prefix is empty");
+        } catch (IllegalArgumentException invalid) {
+            throw refusal("Client floor initialization is not proven compatible: " + invalid.getMessage());
+        }
+    }
+    private static void requireTokensOnce(List<String> tokens, String source) {
+        List<String> expected = WorldBuilderNpcVisualJava.tokens(source); int count = 0;
+        for (int at = 0; at + expected.size() <= tokens.size(); at++) if (tokens.subList(at, at + expected.size()).equals(expected)) count++;
+        if (count != 1) throw new IllegalArgumentException("Client floor collection does not use the reviewed empty registry initializer");
+    }
+
+    static void requireAppendOnly(byte[] before, byte[] after) throws WorldBuilderContractException {
+        if (Arrays.equals(before, after)) return;
+        String original = new String(before, StandardCharsets.UTF_8), updated = new String(after, StandardCharsets.UTF_8);
+        String closing = "</TileDef-array>";
+        int end = original.indexOf(closing);
+        if (end < 0 || end != original.lastIndexOf(closing)
+            || !Arrays.equals(before, original.getBytes(StandardCharsets.UTF_8))
+            || !Arrays.equals(after, updated.getBytes(StandardCharsets.UTF_8))
+            || !updated.startsWith(original.substring(0, end)) || !updated.endsWith(original.substring(end)))
+            throw refusal("Standard floor installation would change existing tile definitions; only append-only material additions are supported.");
+    }
 
 	static void verifyInstalled(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target,
 		WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {

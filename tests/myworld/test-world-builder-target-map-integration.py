@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Target-owned compilation, bounded map edits, active custom behavior and proofs."""
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 import shutil
@@ -95,6 +96,47 @@ class TargetMapIntegrationTest(unittest.TestCase):
         self.assertTrue(all('content-bundle' not in a['destinationRelativePath'] for a in actions))
         self.assertFalse(any(a['destinationRelativePath'].endswith('build.xml') for a in actions))
 
+    def abi_fixture(self):
+        root,target,project,contract=self.fixture()
+        src=target/'server/src/fixture'
+        (src/'TileValue.java').write_text('package fixture; public class TileValue { public byte elevation=7; }')
+        (src/'CustomTile.java').write_text('package fixture; public class CustomTile extends TileValue { public String custom(){return "retained";} }')
+        classes=root/'abi-core';classes.mkdir()
+        subprocess.run(['javac','-source','8','-target','8','-d',str(classes),*map(str,src.glob('*.java'))],check=True,capture_output=True)
+        archive=target/'server/core.jar'
+        with zipfile.ZipFile(archive) as z: entries={n:z.read(n) for n in z.namelist()}
+        for f in classes.rglob('*.class'):entries[f.relative_to(classes).as_posix()]=f.read_bytes()
+        with zipfile.ZipFile(archive,'w') as z:
+            for name,data in entries.items():z.writestr(name,data)
+        plugin=target/'server/plugins/fixture/Plugin.java';plugin.parent.mkdir(parents=True)
+        plugin.write_text('package fixture; public final class Plugin { public static void main(String[] a){System.out.print(new CustomTile().elevation+"|"+new CustomTile().custom());} }')
+        classes=root/'abi-plugins';classes.mkdir()
+        subprocess.run(['javac','-source','8','-target','8','-classpath',str(archive),'-d',str(classes),str(plugin)],check=True,capture_output=True)
+        with zipfile.ZipFile(target/'server/plugins.jar','w') as z:
+            z.writestr('plugin-registration.txt','fixture.Plugin')
+            for f in classes.rglob('*.class'):z.writestr(f.relative_to(classes).as_posix(),f.read_bytes())
+        adapter=contract['adapters'][0]
+        adapter['transforms'].append({'scope':'server','targetRelativePath':'src/fixture/TileValue.java','transformId':'wide-map-elevation','edits':[{'before':'public byte elevation=7;','after':'public int elevation=700;','occurrences':1}]})
+        adapter['compilation'][0]['abiChangedClasses']=['fixture/TileValue']
+        adapter['compilation'].insert(1,{'scope':'server','archiveRelativePath':'plugins.jar','sourceRoots':['plugins'],'dependencyDirectories':[],'dependencyArchives':['server/core.jar'],'sourceLevel':'8','targetLevel':'8','runtimeLevel':17,'compileAllSources':True,'manifestAttributes':{}})
+        (project/'working/runtime/server/conf/world-builder/target-map-integration-v1.json').write_text(json.dumps(contract))
+        return root,target,project,contract
+
+    def test_inherited_field_abi_recompiles_plugin_consumer_across_archives(self):
+        root,target,project,_=self.abi_fixture();out=root/'out'
+        self.probe('prepare',project,target,out)
+        run=subprocess.run(['java','-cp',f'{out}/server/core.jar:{out}/server/plugins.jar','fixture.Plugin'],check=True,capture_output=True,text=True)
+        self.assertEqual('700|retained',run.stdout)
+        with zipfile.ZipFile(target/'server/core.jar') as a,zipfile.ZipFile(out/'server/core.jar') as b:
+            self.assertEqual(a.read('fixture/Unrelated.class'),b.read('fixture/Unrelated.class'))
+        with zipfile.ZipFile(out/'server/plugins.jar') as z:self.assertEqual(b'fixture.Plugin',z.read('plugin-registration.txt'))
+
+    def test_binary_only_inherited_abi_consumer_refuses(self):
+        root,target,project,_=self.abi_fixture()
+        (target/'server/plugins/fixture/Plugin.java').unlink()
+        refused=self.probe('prepare',project,target,root/'out',ok=False)
+        self.assertTrue('no source for recompilation' in refused.stderr or 'requires reviewed sources' in refused.stderr,refused.stderr)
+
     def test_stale_source_cannot_erase_active_binary_customization(self):
         root,target,project,_=self.fixture()
         p=target/'server/src/fixture/Engine.java';p.write_text(p.read_text().replace('custom dialogue','old dialogue'))
@@ -125,6 +167,70 @@ class TargetMapIntegrationTest(unittest.TestCase):
             evidence.write_bytes(b'tampered')
             refused=self.probe('restore',project,target,record,ok=False)
             self.assertIn('Persisted targeted output differs',refused.stderr)
+
+
+class TargetMapTransactionTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        spec=importlib.util.spec_from_file_location('targeted_existing_transactions',ROOT/'tests/myworld/test-world-builder-adaptive-transactions.py')
+        cls.legacy=importlib.util.module_from_spec(spec);spec.loader.exec_module(cls.legacy)
+        cls.legacy.AdaptiveTransactionTest.setUpClass()
+        cls.addClassCleanup(cls.legacy.AdaptiveTransactionTest.tearDownClass)
+
+    def fixture(self):
+        temporary=tempfile.TemporaryDirectory(prefix='target-map-transaction-');self.addCleanup(temporary.cleanup);root=Path(temporary.name)
+        helper=self.legacy.AdaptiveTransactionTest('runTest')
+        def customize(target):
+            for role,archive in [('server','core.jar'),('client','Open_RSC_Client.jar')]:
+                source=target/role/'src/fixture/Engine.java';source.parent.mkdir(parents=True,exist_ok=True)
+                source.write_text('package fixture; public class Engine { public static int mapVersion(){return 1;} public static String talk(){return "custom-dialogue";} public static void main(String[] args){System.out.print(mapVersion()+"|"+talk());} }')
+                classes=root/(role+'-classes');classes.mkdir()
+                subprocess.run(['javac','-source','8','-target','8','-d',str(classes),str(source)],check=True,capture_output=True)
+                helper.rewrite_runtime_entry(target/role/archive,'fixture/Engine.class',(classes/'fixture/Engine.class').read_bytes())
+                helper.rewrite_runtime_entry(target/role/archive,'custom-art.bin',b'custom-art')
+        target,installation,project,export=helper.target_project(root,target_mutator=customize)
+        compilation=[];transforms=[]
+        for role,archive in [('server','core.jar'),('client','Open_RSC_Client.jar')]:
+            transforms.append({'scope':role,'targetRelativePath':'src/fixture/Engine.java','transformId':'fixture-map-v2','edits':[{'before':'public static int mapVersion(){return 1;}','after':'public static int mapVersion(){return 2;}','occurrences':1}]})
+            compilation.append({'scope':role,'archiveRelativePath':archive,'sourceRoots':['src'],'dependencyDirectories':[],'sourceLevel':'8','targetLevel':'8','runtimeLevel':17,'compileAllSources':False,'manifestAttributes':{}})
+        contract={'schemaVersion':1,'manifestType':'world-builder-target-map-integration','integrationId':'target-owned-layered-map-v1','loaderId':'generic-signed-layered-loader-v7-blocking-base-color','protocolId':'world-builder-native-layered-protocol-v2-u16-elevation','encodingVersions':[1,2,3,4,5],'adapters':[{'adapterId':'fixture-targeted','sources':[],'transforms':transforms,'requirements':[],'requiredEntryProbes':[],'compilation':compilation}]}
+        resource=helper.classes/'com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json';resource.parent.mkdir(parents=True,exist_ok=True);resource.write_text(json.dumps(contract))
+        return helper,target,installation,project,export
+
+    def test_upgrade_import_and_restart_retains_custom_content(self):
+        helper,target,installation,project,export=self.fixture()
+        before=self.legacy.project_support.tree_bytes(target,installation)
+        upgraded=helper.run_reviewed_apply('upgrade-target-runtime','UPGRADE','--project',project,'--export',export,'--target-root',target)
+        self.assertEqual(0,upgraded.returncode,upgraded.stderr)
+        self.assertNotIn(b'world.builder.pinned.host.runtime',(target/'server/build.xml').read_bytes())
+        after_upgrade=self.legacy.project_support.tree_bytes(target,installation)
+        imported=helper.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
+        self.assertEqual(0,imported.returncode,imported.stderr)
+        for role,archive in [('server','core.jar'),('client','Open_RSC_Client.jar')]:
+            result=subprocess.run(['java','-cp',str(target/role/archive),'fixture.Engine'],check=True,capture_output=True,text=True)
+            self.assertEqual('2|custom-dialogue',result.stdout)
+            self.assertEqual(after_upgrade[f'{role}/{archive}'],self.legacy.project_support.tree_bytes(target,installation)[f'{role}/{archive}'])
+        for path,data in before.items():
+            if '/defs/' in path or path.endswith('plugins.jar'):self.assertEqual(data,self.legacy.project_support.tree_bytes(target,installation)[path])
+
+    def test_failure_rolls_back_exact_target(self):
+        helper,target,installation,project,export=self.fixture()
+        before=self.legacy.project_support.tree_bytes(target,installation)
+        failed=helper.run_failure('runtime-upgrade','before-success-receipt',project,target,export)
+        self.assertEqual(3,failed.returncode,failed.stderr)
+        self.assertEqual(before,self.legacy.project_support.tree_bytes(target,installation))
+        receipts=[json.loads(p.read_text())['status'] for p in (project/'receipts').glob('*.json')]
+        self.assertEqual(['rolled-back'],receipts)
+
+    def test_interrupted_failure_recovers_exact_target(self):
+        helper,target,installation,project,export=self.fixture()
+        before=self.legacy.project_support.tree_bytes(target,installation)
+        failed=helper.run_failure('runtime-upgrade','before-success-receipt,rollback-before-0000',project,target,export)
+        self.assertEqual(3,failed.returncode,failed.stderr)
+        self.assertIn('RECOVERY_REQUIRED',failed.stderr)
+        recovered=helper.run_reviewed_apply('recover-adaptive','RECOVER','--project',project,'--target-root',target)
+        self.assertEqual(0,recovered.returncode,recovered.stderr)
+        self.assertEqual(before,self.legacy.project_support.tree_bytes(target,installation))
 
 
 if __name__=='__main__': unittest.main()

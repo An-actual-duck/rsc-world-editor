@@ -15,6 +15,9 @@ def main():
     if not match:
         raise ValueError("Invalid exact runtime provider lock")
     commit = match.group(1)
+    verified = subprocess.run(["git", "-C", str(provider), "cat-file", "-t", commit], capture_output=True)
+    if verified.returncode or verified.stdout.strip() != b"commit":
+        raise ValueError("Locked runtime provider commit is unavailable")
     descriptor = "server/conf/world-builder/target-map-integration-v1.json"
     def read(path, optional=False):
         parts = PurePosixPath(path).parts
@@ -23,7 +26,9 @@ def main():
         result = subprocess.run(["git", "-C", str(provider), "show", f"{commit}:{path}"], capture_output=True)
         if result.returncode:
             if optional:
-                return None
+                exists = subprocess.run(["git", "-C", str(provider), "ls-tree", "-z", commit, "--", path], capture_output=True)
+                if exists.returncode == 0 and not exists.stdout:
+                    return None
             raise ValueError(f"Missing locked runtime source: {path}")
         if len(result.stdout) > 4 * 1024 * 1024:
             raise ValueError("Targeted source exceeds size bound")
@@ -43,7 +48,11 @@ def main():
             path = source["payloadRelativePath"]
             if not path.startswith("server/conf/world-builder/target-map-source/"):
                 raise ValueError("Source outside targeted integration payload")
-            content = read(path)
+            scope = source["scope"]
+            relative = source["targetRelativePath"]
+            if scope not in ("server", "client") or path != f"server/conf/world-builder/target-map-source/{scope}/{relative}":
+                raise ValueError("Source payload path does not match its reviewed source scope")
+            content = read(("server/" if scope == "server" else "Client_Base/") + relative)
             digest = hashlib.sha256(content).hexdigest()
             if digest != source["sha256"] or path in copied and copied[path] != digest:
                 raise ValueError("Targeted map payload hash differs")

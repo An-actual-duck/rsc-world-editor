@@ -21,7 +21,8 @@ final class WorldBuilderTargetMapIntegration {
 
     static Result prepare(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
         Path current = embeddedPayload();
-        try { return preparePayload(current == null ? project : current, target, clientRoot); }
+        if (current == null) throw failure(DESCRIPTOR, "This application has no trusted targeted map integration payload.");
+        try { return preparePayload(current, target, clientRoot); }
         finally { if (current != null) deleteOwnedStage(current); }
     }
 
@@ -46,13 +47,16 @@ final class WorldBuilderTargetMapIntegration {
 
     private static Result prepareAdapter(Path project, Path target, String clientRoot, Map<String,Object> descriptor,
         Map<String,Object> adapter, Path descriptorPath) throws IOException, WorldBuilderContractException, AdapterMismatch {
+        exactKeys(adapter, "adapterId", "sources", "transforms", "requirements", "requiredEntryProbes", "compilation");
         String adapterId = string(adapter, "adapterId");
         TreeMap<String,byte[]> sources = new TreeMap<String,byte[]>();
         TreeMap<String,String> scopes = new TreeMap<String,String>();
+        TreeMap<String,byte[]> verificationSources = new TreeMap<String,byte[]>();
         TreeMap<String,String> inputHashes = new TreeMap<String,String>();
         List<Object> inputInventories = new ArrayList<Object>();
         for (Object raw : array(adapter.get("requirements"))) {
             Map<String,Object> requirement = object(raw);
+            allowedKeys(requirement, Arrays.asList("acceptedSourceSha256"), "scope", "targetRelativePath", "requiredFragments");
             String path = targetPath(requirement, clientRoot);
             String content = source(target, path);
             if (requirement.containsKey("acceptedSourceSha256") && !array(requirement.get("acceptedSourceSha256")).contains(hash(content.getBytes(StandardCharsets.UTF_8))))
@@ -61,9 +65,11 @@ final class WorldBuilderTargetMapIntegration {
                 if (!(fragment instanceof String) || !executableContains(content, (String)fragment))
                     throw new AdapterMismatch("Required map hook is absent or ambiguous at " + path);
             inputHashes.put(path, hash(content.getBytes(StandardCharsets.UTF_8)));
+            verificationSources.put(path, content.getBytes(StandardCharsets.UTF_8));
         }
         for (Object raw : array(adapter.get("requiredEntryProbes"))) {
             Map<String,Object> probe = object(raw);
+            exactKeys(probe, "scope", "entry", "markers");
             String scope = scope(probe);
             String archivePath = root(scope, clientRoot) + "/" + ("server".equals(scope) ? "core.jar" : "Open_RSC_Client.jar");
             Map<String,byte[]> archive = entries(file(target, archivePath));
@@ -76,6 +82,9 @@ final class WorldBuilderTargetMapIntegration {
         }
         for (Object raw : array(adapter.get("sources"))) {
             Map<String,Object> spec = object(raw);
+            exactKeys(spec, "scope", "targetRelativePath", "payloadRelativePath", "sha256", "policy", "acceptedBeforeSha256");
+            if (!string(spec, "sha256").matches("[0-9a-f]{64}") || array(spec.get("acceptedBeforeSha256")).size() > 32) throw failure(DESCRIPTOR, "Invalid source hash evidence.");
+            for (Object beforeHash : array(spec.get("acceptedBeforeSha256"))) if (!(beforeHash instanceof String) || !((String)beforeHash).matches("[0-9a-f]{64}")) throw failure(DESCRIPTOR, "Invalid source preimage hash.");
             String destination = targetPath(spec, clientRoot);
             String payloadPath = string(spec, "payloadRelativePath");
             if (!payloadPath.startsWith("server/conf/world-builder/target-map-source/"))
@@ -99,6 +108,7 @@ final class WorldBuilderTargetMapIntegration {
         }
         for (Object raw : array(adapter.get("transforms"))) {
             Map<String,Object> spec = object(raw);
+            exactKeys(spec, "scope", "targetRelativePath", "transformId", "edits");
             String destination = targetPath(spec, clientRoot);
             if (sources.containsKey(destination)) throw failure(DESCRIPTOR, "A source cannot be both replaced and transformed.");
             String before = source(target, destination);
@@ -107,7 +117,17 @@ final class WorldBuilderTargetMapIntegration {
             putSource(sources, scopes, destination, scope(spec), after.getBytes(StandardCharsets.UTF_8));
         }
         if (sources.isEmpty() || sources.size() > 128) throw failure(DESCRIPTOR, "Map source set is empty or exceeds its bound.");
+        Set<String> abiClosure = abiClosure(target, clientRoot, adapter);
         TreeMap<String,byte[]> outputs = new TreeMap<String,byte[]>(sources);
+        for (String shadow : Arrays.asList("server/core-gameplay-overlay.jar", "server/world-builder-runtime/world-builder-managed-runtime.jar", "server/lib/world-builder-managed-runtime.jar"))
+            if (Files.exists(safe(target, shadow), LinkOption.NOFOLLOW_LINKS)) throw new AdapterMismatch("Existing class-shadowing runtime needs reviewed preservation at " + shadow);
+        Path build = safe(target, "server/build.xml");
+        if (Files.exists(build, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] before = bounded(file(target, "server/build.xml"), MAX_SOURCE);
+            String corrected = removeOwnedBuildGuard(utf8(before, "server/build.xml"));
+            inputHashes.put("server/build.xml", hash(before));
+            if (!Arrays.equals(before, corrected.getBytes(StandardCharsets.UTF_8))) outputs.put("server/build.xml", corrected.getBytes(StandardCharsets.UTF_8));
+        }
         Set<String> compiledScopes = new HashSet<String>();
         Set<String> compiledArchives = new HashSet<String>();
         List<Object> archiveEvidence = new ArrayList<Object>();
@@ -115,6 +135,8 @@ final class WorldBuilderTargetMapIntegration {
         try {
             for (Object raw : array(adapter.get("compilation"))) {
                 Map<String,Object> compilation = object(raw);
+                allowedKeys(compilation, Arrays.asList("dependencyArchives", "abiChangedClasses", "verificationSources"), "scope", "archiveRelativePath", "sourceRoots", "dependencyDirectories", "sourceLevel", "targetLevel", "manifestAttributes", "compileAllSources", "runtimeLevel");
+                if (!(compilation.get("compileAllSources") instanceof Boolean) || !Long.valueOf(17).equals(compilation.get("runtimeLevel"))) throw failure(DESCRIPTOR, "Unsupported Java runtime or compilation scope contract.");
                 String scope = scope(compilation);
                 compiledScopes.add(scope);
                 String name = string(compilation, "archiveRelativePath");
@@ -128,9 +150,15 @@ final class WorldBuilderTargetMapIntegration {
                 Map<String,byte[]> beforeEntries = entries(archive);
                 TreeMap<String,byte[]> roleSources = new TreeMap<String,byte[]>();
                 List<?> roots = array(compilation.get("sourceRoots"));
+                if (compilation.containsKey("verificationSources")) for (Object rawSource : array(compilation.get("verificationSources"))) {
+                    if (!(rawSource instanceof String) || !((String)rawSource).startsWith("src/") || !((String)rawSource).endsWith(".java")) throw failure(DESCRIPTOR, "Invalid verification source path.");
+                    String path = root(scope, clientRoot) + "/" + rawSource; byte[] bytes = bounded(file(target, path), MAX_SOURCE);
+                    inputHashes.put(path, hash(bytes)); verificationSources.put(path, bytes);
+                }
                 for (Object rawRoot : roots) {
                     if (!(rawRoot instanceof String) || !Arrays.asList("src", "plugins").contains(rawRoot)) throw failure(DESCRIPTOR, "Unsupported compiler source root.");
                     String relativeRoot = root(scope, clientRoot) + "/" + rawRoot;
+                    for (String path : verificationSources.keySet()) if (path.startsWith(relativeRoot + "/")) roleSources.put(path, verificationSources.get(path));
                     for (String path : sources.keySet()) if (scope.equals(scopes.get(path)) && path.startsWith(relativeRoot + "/")) roleSources.put(path, sources.get(path));
                     if (!Boolean.TRUE.equals(compilation.get("compileAllSources"))) continue;
                     Path sourceRoot = fileRoot(target, relativeRoot);
@@ -159,34 +187,39 @@ final class WorldBuilderTargetMapIntegration {
                 Set<String> owners = new TreeSet<String>();
                 for (String path : roleSources.keySet()) if (sources.containsKey(path))
                     owners.addAll(owners(Collections.singletonMap(path, roleSources.get(path))));
-                if (compilation.containsKey("abiChangedClasses")) for (Object changed : array(compilation.get("abiChangedClasses")))
-                    for (Map.Entry<String,byte[]> entry : beforeEntries.entrySet())
-                        if (entry.getKey().endsWith(".class") && new String(entry.getValue(), StandardCharsets.ISO_8859_1).contains((String)changed)) {
-                            String owner = ownerOf(entry.getKey(), allOwners);
-                            if (owner != null) owners.add(owner);
-                        }
+                for (String affected : abiClosure) {
+                    String owner = ownerOf(affected + ".class", allOwners);
+                    if (owner != null) owners.add(owner);
+                }
                 TreeMap<String,byte[]> baselineSources = new TreeMap<String,byte[]>();
                 for (String path : roleSources.keySet()) if (Files.exists(safe(target, path), LinkOption.NOFOLLOW_LINKS))
                     baselineSources.put(path, bounded(file(target, path), MAX_SOURCE));
                 Map<String,byte[]> baseline = baselineSources.isEmpty() ? Collections.<String,byte[]>emptyMap()
                     : compile(target, stage.resolve("baseline-" + scope + "-" + name.replace('.', '-')), archive, compilation,
                         baselineSources, inputHashes, Collections.<String,byte[]>emptyMap(), stage.resolve("baseline-dependencies"));
-                for (Map.Entry<String,byte[]> old : beforeEntries.entrySet()) if (owned(old.getKey(), owners)) {
+                Set<String> checkedOwners = new TreeSet<String>(owners);
+                for (String path : roleSources.keySet()) if (verificationSources.containsKey(path)) checkedOwners.addAll(owners(Collections.singletonMap(path, roleSources.get(path))));
+                Set<String> originalOwnerClasses = new TreeSet<String>(), baselineOwnerClasses = new TreeSet<String>();
+                for (String path : beforeEntries.keySet()) if (owned(path, checkedOwners)) originalOwnerClasses.add(path);
+                for (String path : baseline.keySet()) if (owned(path, checkedOwners)) baselineOwnerClasses.add(path);
+                if (!originalOwnerClasses.equals(baselineOwnerClasses)) throw failure(destination,
+                    "Target source class inventory differs from active bytecode; newly discovered source classes cannot replace or shadow custom code.");
+                for (Map.Entry<String,byte[]> old : beforeEntries.entrySet()) if (owned(old.getKey(), checkedOwners)) {
                     byte[] rebuilt = baseline.get(old.getKey());
                     if (rebuilt == null || !WorldBuilderClassSemantics.equivalent(old.getValue(), rebuilt))
                         throw failure(old.getKey(), "Active target bytecode differs from its source; rebuilding it could discard custom behavior.");
                 }
                 TreeMap<String,byte[]> selectedClasses = new TreeMap<String,byte[]>();
-                for (Map.Entry<String,byte[]> entry : classes.entrySet()) if (owned(entry.getKey(), owners)) selectedClasses.put(entry.getKey(), entry.getValue());
-                classes = selectedClasses;
-                if (compilation.containsKey("abiChangedClasses")) for (Object changed : array(compilation.get("abiChangedClasses"))) {
-                    if (!(changed instanceof String) || !((String)changed).matches("[A-Za-z0-9_$/]+")) throw failure(DESCRIPTOR, "Invalid ABI class name.");
-                    for (Map.Entry<String,byte[]> old : beforeEntries.entrySet())
-                        if (old.getKey().endsWith(".class") && !owned(old.getKey(), owners)
-                            && new String(old.getValue(), StandardCharsets.ISO_8859_1).contains((String)changed))
-                            throw failure(old.getKey(), "Prebuilt target code depends on changed map fields but has no source for recompilation.");
+                for (Map.Entry<String,byte[]> entry : classes.entrySet()) if (owned(entry.getKey(), owners)) {
+                    byte[] old = beforeEntries.get(entry.getKey());
+                    selectedClasses.put(entry.getKey(), old != null && WorldBuilderClassSemantics.equivalent(old, entry.getValue()) ? old : entry.getValue());
                 }
-                byte[] merged = merge(beforeEntries, classes, owners, object(compilation.get("manifestAttributes")));
+                classes = selectedClasses;
+                refuseDependencyShadows(target, compilation, destination, classes.keySet());
+                for (String affected : abiClosure) if (beforeEntries.containsKey(affected + ".class") && ownerOf(affected + ".class", allOwners) == null)
+                    throw failure(affected, "Prebuilt target code depends on changed map fields but has no source for recompilation.");
+                byte[] merged = classes.isEmpty() && object(compilation.get("manifestAttributes")).isEmpty()
+                    ? beforeBytes : merge(beforeEntries, classes, owners, object(compilation.get("manifestAttributes")));
                 outputs.put(destination, merged);
                 Map<String,Object> evidence = new LinkedHashMap<String,Object>();
                 evidence.put("relativePath", destination); evidence.put("beforeSha256", hash(beforeBytes));
@@ -197,6 +230,8 @@ final class WorldBuilderTargetMapIntegration {
         } finally { deleteOwnedStage(stage); }
         if (!compiledScopes.equals(new HashSet<String>(Arrays.asList("server", "client"))))
             throw failure(DESCRIPTOR, "Map integration must compile and verify both server and client.");
+        for (Object raw : inputInventories) for (Object path : array(object(raw).get("paths")))
+            if (!inputHashes.containsKey(path)) throw failure((String)path, "Compilation input appeared while the source inventory was collected.");
         for (Map.Entry<String,String> input : inputHashes.entrySet())
             if (!input.getValue().equals(WorldBuilderHashes.sha256(file(target, input.getKey()))))
                 throw failure(input.getKey(), "Target source or dependency changed during map compilation.");
@@ -208,7 +243,8 @@ final class WorldBuilderTargetMapIntegration {
         installed.put("encodingVersions", descriptor.get("encodingVersions"));
         installed.put("archives", archiveEvidence);
         List<Object> sourceEvidence = new ArrayList<Object>();
-        for (Map.Entry<String,byte[]> entry : sources.entrySet()) {
+        verificationSources.putAll(sources);
+        for (Map.Entry<String,byte[]> entry : verificationSources.entrySet()) {
             Map<String,Object> value = new LinkedHashMap<String,Object>();
             value.put("relativePath", entry.getKey()); value.put("sha256", hash(entry.getValue())); sourceEvidence.add(value);
         }
@@ -219,6 +255,29 @@ final class WorldBuilderTargetMapIntegration {
         outputs.put(INSTALLED, WorldBuilderJsonDocuments.pretty(installed).getBytes(StandardCharsets.UTF_8));
         return new Result(adapterId, outputs, inputHashes, encodings(descriptor));
     }
+
+    static String removeOwnedBuildGuard(String source) throws WorldBuilderContractException {
+        String property = "world.builder.pinned.host.runtime";
+        if (!source.contains(property)) {
+            if (source.contains("world.builder.installed.runtime") || source.contains("world.builder.installed.client"))
+                throw failure("server/build.xml", "An older runtime build guard needs a reviewed migration before target recompilation.");
+            return source;
+        }
+        String attr = " unless=\"" + property + "\"";
+        String declaration = "<available file=\"conf/world-builder/installed-runtime-capability-v3.json\" property=\"" + property + "\"/>";
+        if (count(source, attr) != 1 || count(source, declaration) != 1 || count(source, property) != 2)
+            throw failure("server/build.xml", "The installed runtime build guard differs from the exact World Builder form.");
+        Matcher targets = Pattern.compile("<target\\b[^>]*>").matcher(source); boolean found = false;
+        while (targets.find()) if (targets.group().contains(attr)) {
+            if (!Pattern.compile("\\bname\\s*=\\s*['\"]compile_core['\"]").matcher(targets.group()).find())
+                throw failure("server/build.xml", "Runtime build guard is attached to an unrecognized target.");
+            found = true;
+        }
+        if (!found) throw failure("server/build.xml", "Runtime build guard does not identify compile_core.");
+        return source.replace(attr, "").replace(declaration, "")
+            .replace("<!-- Preserve the verified World Builder core.jar during target launches. -->", "");
+    }
+    private static int count(String source, String text) { int result = 0; for (int at = source.indexOf(text); at >= 0; at = source.indexOf(text, at + text.length())) result++; return result; }
 
     static List<WorldBuilderAdaptiveMutationProfile.Action> actions(Path target, Result result) throws IOException, WorldBuilderContractException {
         List<WorldBuilderAdaptiveMutationProfile.Action> actions = new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
@@ -265,7 +324,7 @@ final class WorldBuilderTargetMapIntegration {
         throws IOException, WorldBuilderContractException {
         String destination = string(value, "destinationRelativePath"), suppliedRole = string(value, "role");
         WorldBuilderPortablePath.require(destination, "target-map-integration");
-        boolean allowed = destination.equals(INSTALLED) || destination.equals("server/core.jar") || destination.equals("server/plugins.jar")
+        boolean allowed = destination.equals(INSTALLED) || destination.equals("server/build.xml") || destination.equals("server/core.jar") || destination.equals("server/plugins.jar")
             || destination.equals("Client_Base/Open_RSC_Client.jar") || destination.equals("client/Open_RSC_Client.jar")
             || destination.matches("(?:server|Client_Base|client)/src/[A-Za-z0-9_$/]+\\.java");
         if (!allowed || !role(destination).equals(suppliedRole)
@@ -294,6 +353,7 @@ final class WorldBuilderTargetMapIntegration {
         if (edits.isEmpty() || edits.size() > 128) throw failure(path, "Unbounded or empty map source transform.");
         for (Object raw : edits) {
             Map<String,Object> edit = object(raw);
+            exactKeys(edit, "before", "after", "occurrences");
             String before = string(edit, "before"), after = string(edit, "after");
             if (!(edit.get("occurrences") instanceof Long) || ((Long)edit.get("occurrences")) < 1L || ((Long)edit.get("occurrences")) > 32L || before.isEmpty() || after.isEmpty() || before.equals(after))
                 throw failure(path, "Map source edits must have one distinct nonempty executable anchor.");
@@ -332,6 +392,12 @@ final class WorldBuilderTargetMapIntegration {
 
     private static boolean[] executablePositions(String source) throws WorldBuilderContractException {
         if (source.length() > MAX_SOURCE) throw failure("source", "Map source exceeds its size bound.");
+        for (int at = 0; at < source.length();) {
+            if (source.charAt(at) != '\\') { at++; continue; }
+            int start = at; while (at < source.length() && source.charAt(at) == '\\') at++;
+            if ((at - start) % 2 == 1 && at < source.length() && source.charAt(at) == 'u')
+                throw failure("source", "Eligible Java Unicode escapes require a reviewed lexical source adapter.");
+        }
         boolean[] values = new boolean[source.length()];
         for (int at = 0; at < source.length();) {
             if (source.startsWith("//", at)) { int end = source.indexOf('\n', at + 2); at = end < 0 ? source.length() : end + 1; continue; }
@@ -352,6 +418,12 @@ final class WorldBuilderTargetMapIntegration {
     private static Map<String,byte[]> compile(Path target, Path stage, Path archive, Map<String,Object> spec,
         Map<String,byte[]> sources, Map<String,String> inputs, Map<String,byte[]> outputs, Path rootStage) throws IOException, WorldBuilderContractException {
         if (sources.isEmpty()) throw failure(DESCRIPTOR, "Each map compilation requires reviewed sources.");
+        long totalSourceBytes = 0;
+        for (byte[] bytes : sources.values()) totalSourceBytes += bytes.length;
+        if (totalSourceBytes > 128L * 1024 * 1024) throw failure(DESCRIPTOR, "Target compiler source set exceeds 128 MiB.");
+        String runtimeLevel = System.getProperty("java.specification.version", "0");
+        try { if (Integer.parseInt(runtimeLevel) < 17) throw failure("java", "Targeted integration requires the application Java 17 compiler runtime."); }
+        catch (NumberFormatException invalid) { throw failure("java", "Targeted integration requires the application Java 17 compiler runtime."); }
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         if (compiler == null) throw failure("java", "This World Builder runtime has no Java compiler for a targeted upgrade.");
 
@@ -452,7 +524,11 @@ final class WorldBuilderTargetMapIntegration {
     static byte[] merge(Map<String,byte[]> original, Map<String,byte[]> classes, Set<String> owners,
         Map<String,Object> attributes) throws IOException, WorldBuilderContractException {
         TreeMap<String,byte[]> merged = new TreeMap<String,byte[]>(original);
-        for (String name : original.keySet()) if (owned(name, owners)) merged.remove(name);
+        for (String name : original.keySet()) {
+            if (name.startsWith("META-INF/versions/") && owned(name.replaceFirst("^META-INF/versions/[0-9]+/", ""), owners))
+                throw failure(name, "A versioned target class overlaps an updated map owner; it requires a reviewed multi-release integration.");
+            if (owned(name, owners)) merged.remove(name);
+        }
         for (Map.Entry<String,byte[]> entry : classes.entrySet()) {
             if (!owned(entry.getKey(), owners)) throw failure(entry.getKey(), "Compiler emitted a class outside the reviewed map sources.");
             merged.put(entry.getKey(), entry.getValue());
@@ -486,6 +562,101 @@ final class WorldBuilderTargetMapIntegration {
             WorldBuilderHashes.updateText(digest, entry.getKey()); WorldBuilderHashes.updateText(digest, hash(entry.getValue()));
         }
         return WorldBuilderHashes.hex(digest.digest());
+    }
+
+    private static void refuseDependencyShadows(Path target, Map<String,Object> compilation, String destination, Set<String> emitted)
+        throws IOException, WorldBuilderContractException {
+        Set<String> dependencies = new TreeSet<String>();
+        if (compilation.containsKey("dependencyArchives")) for (Object raw : array(compilation.get("dependencyArchives"))) dependencies.add((String)raw);
+        for (Object raw : array(compilation.get("dependencyDirectories"))) {
+            Path directory = safe(target, (String)raw); if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) continue;
+            fileRoot(target, (String)raw);
+            try (DirectoryStream<Path> files = Files.newDirectoryStream(directory)) {
+                for (Path path : files) if (path.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar")) dependencies.add(raw + "/" + path.getFileName());
+            }
+        }
+        dependencies.remove(destination);
+        for (String dependency : dependencies) for (String name : entries(file(target, dependency), false).keySet()) {
+            String base = name.replaceFirst("^META-INF/versions/[0-9]+/", "");
+            if (emitted.contains(base)) throw failure(base, "A rebuilt map class also exists in target dependency " + dependency + "; replacing it could shadow custom behavior.");
+        }
+    }
+
+    /** Conservative transitive class linkage closure, including inherited field owners across JARs. */
+    private static Set<String> abiClosure(Path target, String clientRoot, Map<String,Object> adapter)
+        throws IOException, WorldBuilderContractException {
+        Set<String> affected = new TreeSet<String>(); Set<String> targetArchives = new TreeSet<String>(); Set<String> archives = new TreeSet<String>();
+        for (Object raw : array(adapter.get("compilation"))) {
+            Map<String,Object> row = object(raw);
+            if (row.containsKey("abiChangedClasses")) for (Object value : array(row.get("abiChangedClasses"))) {
+                if (!(value instanceof String) || !((String)value).matches("[A-Za-z0-9_$/]+")) throw failure(DESCRIPTOR, "Invalid ABI class name."); affected.add((String)value);
+            }
+            String archive = root(scope(row), clientRoot) + "/" + string(row, "archiveRelativePath"); targetArchives.add(archive); archives.add(archive);
+            for (Object directory : array(row.get("dependencyDirectories"))) {
+                if (!(directory instanceof String)) throw failure(DESCRIPTOR, "Invalid dependency directory.");
+                Path path = safe(target, (String)directory); if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) continue;
+                fileRoot(target, (String)directory);
+                try (DirectoryStream<Path> children = Files.newDirectoryStream(path)) {
+                    for (Path child : children) if (child.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".jar"))
+                        archives.add(directory + "/" + child.getFileName());
+                }
+            }
+        }
+        if (affected.isEmpty()) return affected;
+        if (archives.size() > 512) throw failure(DESCRIPTOR, "ABI dependency inventory exceeds its bound.");
+        Map<String,Set<String>> users = new HashMap<String,Set<String>>(); Map<String,Set<String>> locations = new HashMap<String,Set<String>>(); Set<String> versioned = new HashSet<String>(); int count = 0;
+        for (String path : archives) for (Map.Entry<String,byte[]> entry : entries(file(target, path), targetArchives.contains(path)).entrySet()) {
+            if (!entry.getKey().endsWith(".class")) continue;
+            String name = entry.getKey().replaceFirst("^META-INF/versions/[0-9]+/", "");
+            String owner = name.substring(0, name.length() - 6);
+            if (!name.equals(entry.getKey())) versioned.add(owner);
+            if (++count > 150000) throw failure(path, "ABI class inventory exceeds its bound.");
+            locations.computeIfAbsent(owner, key -> new TreeSet<String>()).add(path);
+            for (String reference : classReferences(entry.getValue())) users.computeIfAbsent(reference, key -> new TreeSet<String>()).add(owner);
+        }
+        ArrayDeque<String> pending = new ArrayDeque<String>(affected);
+        while (!pending.isEmpty()) {
+            Set<String> dependents = users.get(pending.remove()); if (dependents == null) continue;
+            for (String dependent : dependents) if (affected.add(dependent)) pending.add(dependent);
+        }
+        for (String owner : affected) {
+            if (versioned.contains(owner)) throw failure(owner, "Changed map ABI reaches a versioned class requiring a reviewed multi-release integration.");
+            Set<String> paths = locations.get(owner); if (paths == null) continue;
+            if (paths.size() != 1 || !targetArchives.contains(paths.iterator().next()))
+                throw failure(owner, "Changed map ABI reaches ambiguous or prebuilt dependency code without a reviewed source rebuild.");
+        }
+        return affected;
+    }
+    private static Set<String> classReferences(byte[] bytes) throws IOException, WorldBuilderContractException {
+        DataInputStream in = new DataInputStream(new ByteArrayInputStream(bytes));
+        if (in.readInt() != 0xcafebabe) throw failure("target-class", "Invalid classfile in target ABI closure.");
+        in.readUnsignedShort(); in.readUnsignedShort(); int count = in.readUnsignedShort();
+        String[] utf = new String[count]; int[] classNames = new int[count]; List<Integer> descriptors = new ArrayList<Integer>();
+        for (int i = 1; i < count; i++) {
+            int tag = in.readUnsignedByte();
+            switch (tag) {
+                case 1: utf[i] = in.readUTF(); break;
+                case 3: case 4: in.readInt(); break;
+                case 5: case 6: in.readLong(); i++; break;
+                case 7: classNames[i] = in.readUnsignedShort(); break;
+                case 8: case 19: case 20: in.readUnsignedShort(); break;
+                case 9: case 10: case 11: case 17: case 18: in.readUnsignedShort(); in.readUnsignedShort(); break;
+                case 12: in.readUnsignedShort(); descriptors.add(in.readUnsignedShort()); break;
+                case 15: in.readUnsignedByte(); in.readUnsignedShort(); break;
+                case 16: descriptors.add(in.readUnsignedShort()); break;
+                default: throw failure("target-class", "Unsupported constant-pool entry in ABI closure.");
+            }
+        }
+        Set<String> result = new TreeSet<String>();
+        for (int name : classNames) if (name != 0) {
+            if (name >= count || utf[name] == null) throw failure("target-class", "Invalid class reference.");
+            if (utf[name].startsWith("[")) descriptorClasses(utf[name], result); else result.add(utf[name]);
+        }
+        for (Integer index : descriptors) { if (index < 1 || index >= count || utf[index] == null) throw failure("target-class", "Invalid type descriptor."); descriptorClasses(utf[index], result); }
+        return result;
+    }
+    private static void descriptorClasses(String descriptor, Set<String> result) {
+        Matcher matcher = Pattern.compile("L([^;]+);").matcher(descriptor); while (matcher.find()) result.add(matcher.group(1));
     }
 
     private static String ownerOf(String name, Set<String> owners) {
@@ -536,8 +707,8 @@ final class WorldBuilderTargetMapIntegration {
                 ZipEntry entry = items.nextElement(); String name = entry.getName();
                 if (entry.isDirectory()) continue;
                 WorldBuilderPortablePath.require(name, "target-map-integration");
-                if (changing && (name.startsWith("META-INF/versions/") || name.toUpperCase(Locale.ROOT).matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)")))
-                    throw failure(name, "Signed or multi-release target archives require a separate reviewed adapter.");
+                if (changing && name.toUpperCase(Locale.ROOT).matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)"))
+                    throw failure(name, "Signed target archives require a separate reviewed adapter.");
                 if (result.size() >= 100000 || entry.getSize() > MAX_ENTRY) throw failure(name, "Target archive inventory exceeds its bound.");
                 byte[] bytes;
                 try (InputStream input = zip.getInputStream(entry)) { bytes = bounded(input, MAX_ENTRY); }
@@ -550,10 +721,11 @@ final class WorldBuilderTargetMapIntegration {
 
     static List<Integer> verifyInstalled(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
         Path current = embeddedPayload();
-        try { return verifyInstalledPayload(current == null ? project : current, target, clientRoot); }
+        if (current == null) throw failure(DESCRIPTOR, "This application has no trusted targeted map integration payload.");
+        try { return verifyInstalledPayload(current, target, clientRoot); }
         finally { if (current != null) deleteOwnedStage(current); }
     }
-    private static List<Integer> verifyInstalledPayload(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
+    static List<Integer> verifyInstalledPayload(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
         Map<String,Object> descriptor = read(file(project, "working/runtime/" + DESCRIPTOR)); requireDescriptor(descriptor);
         Map<String,Object> installed = read(file(target, INSTALLED));
         if (!"world-builder-installed-target-map-integration".equals(installed.get("manifestType"))
@@ -561,14 +733,25 @@ final class WorldBuilderTargetMapIntegration {
             || !descriptor.get("integrationId").equals(installed.get("integrationId"))
             || !WorldBuilderHashes.sha256(file(project, "working/runtime/" + DESCRIPTOR)).equals(installed.get("descriptorSha256")))
             throw failure(INSTALLED, "Installed targeted map integration differs from this project's reviewed contract.");
-        boolean matched = false;
-        for (Object raw : array(descriptor.get("adapters"))) if (object(raw).get("adapterId").equals(installed.get("adapterId"))) matched = true;
-        if (!matched) throw failure(INSTALLED, "Installed target adapter is not reviewed by this runtime.");
+        Map<String,Object> matched = null;
+        for (Object raw : array(descriptor.get("adapters"))) if (object(raw).get("adapterId").equals(installed.get("adapterId"))) matched = object(raw);
+        if (matched == null) throw failure(INSTALLED, "Installed target adapter is not reviewed by this runtime.");
+        Set<String> expectedSources = new TreeSet<String>(); Set<String> expectedArchives = new TreeSet<String>();
+        for (String field : Arrays.asList("sources", "transforms", "requirements")) for (Object raw : array(matched.get(field))) expectedSources.add(targetPath(object(raw), clientRoot));
+        for (Object raw : array(matched.get("compilation"))) {
+            Map<String,Object> row = object(raw);
+            if (row.containsKey("verificationSources")) for (Object path : array(row.get("verificationSources"))) expectedSources.add(root(scope(row), clientRoot) + "/" + path);
+        }
+        for (Object raw : array(matched.get("compilation"))) { Map<String,Object> row = object(raw); expectedArchives.add(root(scope(row), clientRoot) + "/" + string(row, "archiveRelativePath")); }
+        Set<String> actualSources = new TreeSet<String>(); Set<String> actualArchives = new TreeSet<String>();
         for (String group : Arrays.asList("sources", "archives")) for (Object raw : array(installed.get(group))) {
             Map<String,Object> record = object(raw); String path = string(record, "relativePath");
+            if (!("sources".equals(group) ? actualSources : actualArchives).add(path)) throw failure(INSTALLED, "Installed proof repeats a source or archive.");
             if (!string(record, "sha256").equals(WorldBuilderHashes.sha256(file(target, path))))
                 throw failure(path, "Installed map integration changed; recapture and review a targeted upgrade before importing.");
         }
+        if (!expectedSources.equals(actualSources) || !expectedArchives.equals(actualArchives))
+            throw failure(INSTALLED, "Installed proof does not cover the complete paired source and archive inventory.");
         return encodings(descriptor);
     }
 
@@ -603,12 +786,23 @@ final class WorldBuilderTargetMapIntegration {
         return WorldBuilderAdaptiveExporter.requireDirectory(root, relative, "target source root");
     }
 
+    private static void exactKeys(Map<String,Object> value, String... required) throws WorldBuilderContractException {
+        allowedKeys(value, Collections.<String>emptyList(), required);
+    }
+    private static void allowedKeys(Map<String,Object> value, List<String> optional, String... required) throws WorldBuilderContractException {
+        Set<String> keys = new HashSet<String>(Arrays.asList(required));
+        if (!value.keySet().containsAll(keys)) throw failure(DESCRIPTOR, "Target map contract omits required fields.");
+        keys.addAll(optional);
+        if (!keys.containsAll(value.keySet())) throw failure(DESCRIPTOR, "Target map contract contains unsupported fields.");
+    }
+
     private static List<Integer> encodings(Map<String,Object> descriptor) throws WorldBuilderContractException {
         List<Integer> result = new ArrayList<Integer>();
         for (Object value : array(descriptor.get("encodingVersions"))) result.add(((Long)value).intValue());
         return Collections.unmodifiableList(result);
     }
     private static void requireDescriptor(Map<String,Object> descriptor) throws WorldBuilderContractException {
+        exactKeys(descriptor, "schemaVersion", "manifestType", "integrationId", "loaderId", "protocolId", "encodingVersions", "adapters");
         if (!Long.valueOf(1).equals(descriptor.get("schemaVersion")) || !"world-builder-target-map-integration".equals(descriptor.get("manifestType"))
             || !"target-owned-layered-map-v1".equals(descriptor.get("integrationId"))
             || !"generic-signed-layered-loader-v7-blocking-base-color".equals(descriptor.get("loaderId"))
@@ -639,7 +833,7 @@ final class WorldBuilderTargetMapIntegration {
     static List<?> array(Object value) throws WorldBuilderContractException { return WorldBuilderAdaptiveExporter.array(value, DESCRIPTOR); }
     static String string(Map<String,Object> value, String key) throws WorldBuilderContractException { return WorldBuilderAdaptiveExporter.string(value, key); }
     private static String hash(byte[] bytes) { return WorldBuilderHashes.sha256(bytes); }
-    static WorldBuilderContractException failure(String path, String message) { return new WorldBuilderContractException(WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "target-map-integration", path, false, message, "Use a compiler-enabled World Builder build with a reviewed adapter for this target; no target files were replaced."); }
+    static WorldBuilderContractException failure(String path, String message) { return new WorldBuilderContractException(WorldBuilderErrorCodes.RUNTIME_UPGRADE_REQUIRED, "target-map-integration", path, false, message, "Keep the target offline and use the exact reviewed integration and transaction evidence; do not force the operation."); }
     static final class AdapterMismatch extends Exception { AdapterMismatch(String message) { super(message); } }
     static final class Result {
         final String adapterId; final Map<String,byte[]> outputs; final Map<String,String> inputs; final List<Integer> encodingVersions;

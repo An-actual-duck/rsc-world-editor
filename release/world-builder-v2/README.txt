@@ -29,14 +29,15 @@ client presentation options, and remembered Builder position after the initial
 120,648 spawn. Exact archive, packaged-runtime, transaction, and owner-run
 native validation are required for every accepted release candidate.
 
-Current development implements the conservative Current Base upgrade for
-explicitly admitted Preservation SQLite inputs, followed by separate map-only
-imports and interrupted-transaction recovery. Linux is the initial validated
-workflow; packaging Windows files does not establish Windows server-upgrade
-acceptance. Current Advanced, optional modules, and unknown custom behavior are
-not silently mapped to Base. Managed-version upgrade proof, consolidated
-verification, and fresh packaged acceptance remain candidate gates. The rejected
-old package-driven v3 pinned-core upgrade is not an alternative migration path.
+Target runtime upgrades now have a targeted map-compatibility boundary. A
+reviewed native layered source adapter rebuilds the target's map integration
+while retaining its custom content, scripts, definitions, assets, and unrelated
+classes. It does not substitute the editor's private server/client binaries.
+The older whole-game Current Base migration is not an upgrade fallback.
+Preservation targets without a supported source adapter remain a reported
+pre-mutation blocker. Existing installed Base map/recovery workflows remain
+available. Linux is the initial validated workflow; Windows packaging alone
+does not establish Windows target-upgrade acceptance.
 
 INSTALLATION
 ------------
@@ -185,36 +186,44 @@ The packaged Import Map Changes scripts provide the equivalent command-line
 path and require typing IMPORT exactly.
 
 If Import reports RUNTIME_UPGRADE_REQUIRED, keep the target offline and review
-Upgrade Target Runtime. For an admitted native Base project, this is a separate
-transaction with its own exact preview and confirmation. Unknown or unported
-custom behavior remains a pre-mutation blocker; there is no force override.
+Upgrade Target Runtime. It is a separate transaction with its own exact preview
+and confirmation. Unsupported map integration is reported before mutation;
+there is no force override or generic whole-game replacement fallback.
 
-CURRENT BASE TARGET-RUNTIME UPGRADE
-----------------------------------
+TARGETED MAP-COMPATIBILITY UPGRADE
+---------------------------------
 
-For native Base projects, Import proceeds only as a map-only action
-when the target ledger proves that its selected current runtime composition is
-installed.
+The first reviewed adapter covers an older native layered server/client source
+layout. It adds the current loader, map wire support, wide elevations, and
+standard-floor integration using reviewed source edits. Original custom NPC,
+item, and object definitions and their gameplay handlers remain target-owned.
+Custom game behavior is not copied out of the editor's presentation bundle.
 
-Upgrade Target Runtime identifies an admitted historical input and validates
-the selected Base destination. The broader product policy remains:
+The application uses its current reviewed integration payload even when a saved
+project uses an older private authoring runtime. Saved maps need not be discarded
+merely to obtain the current upgrader. The target must still match the project's
+verified source lineage.
 
-- Preservation-like targets with no map upgrade default to Current Base;
-- supported local/configuration/data changes are translated and retained;
-- maintained portable behavior needs a reviewed current module (not shipped in
-  this Base-only catalog);
-- plugin behavior without a registered port blocks before mutation;
-- the owner's reviewed lineage needs Current Advanced, not forced Base adoption; and
-- unknown executable/client/core/build changes block before mutation until a
-  current provider port exists.
+Upgrade compiles contained target sources with the bundled Java 17 compiler;
+it does not run target build scripts or annotation processors. Before replacing
+an affected class, it checks that the active binary matches the original source.
+Map ABI changes also rebuild supported dependent consumers and plugins. Unrelated
+class/resource bytes remain unchanged. Unknown source hooks, binary-only map
+dependencies, ambiguous class providers, source/binary differences, or unsupported
+coordinate consumers require a reviewed adapter before a successful upgrade can
+be claimed. Existing World Builder build-skip guards are removed only in their
+exact recognized form so ordinary target rebuilds retain the installed source.
 
-Its reviewed preview names retained, retired, mapped, and blocking behavior
-as well as matching-client, canonical map-conversion, configuration, database,
-and target-ledger changes. A variant/module-set change requires explicit
-consent. The complete current composition and migrated state will be verified
-side-by-side before guarded activation. Exact predecessor evidence and backups
-are retained for failure rollback and interrupted recovery. Historical source
-is not built or run as the installed server.
+New floor/material definitions are append-only additions that preserve existing
+IDs and definition bytes. Import Map Changes then publishes only map packages
+and map activation metadata. Existing installed Base targets retain their
+separate map-only ledger verification and recovery path; they are not a reason
+to replace another target's custom game.
+
+Preview, offline checks, exact confirmation, generated output evidence, backups,
+post-write verification, failure rollback and interrupted Recovery remain
+mandatory. Keep the target offline until verification completes, and distribute
+the updated matching player client after a successful targeted upgrade.
 
 EXISTING MAP TRANSACTION SAFETY
 -------------------------------

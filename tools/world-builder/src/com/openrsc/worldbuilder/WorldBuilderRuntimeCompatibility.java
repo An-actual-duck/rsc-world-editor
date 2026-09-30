@@ -99,6 +99,7 @@ final class WorldBuilderRuntimeCompatibility {
 		WorldBuilderGenericLayeredPackage packageValue)
 		throws IOException, WorldBuilderContractException {
         String clientRoot = compiledClientRoot(configuration);
+        WorldBuilderInstalledFloorContent.verifyTargetClientPrefix(project, target, configuration);
         WorldBuilderTargetMapIntegration.Result integrated = WorldBuilderTargetMapIntegration.prepare(
             project.projectRoot, target, clientRoot);
         List<WorldBuilderAdaptiveMutationProfile.Action> actions =
