@@ -1,31 +1,184 @@
 package com.openrsc.worldbuilder;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.*;
+import java.util.regex.*;
+import static com.openrsc.worldbuilder.WorldBuilderNpcVisualJava.*;
 
-/** Static source bridge into neutral, definition-bound NPC visual records. */
+/** Reads a deliberately bounded source format; never compiles or executes target Java. */
 final class WorldBuilderNpcVisualSourceAdapter {
 	private WorldBuilderNpcVisualSourceAdapter() { }
-
-	/**
-	 * Returns neutral records with npcId, definitionPath/Index/Sha256, spriteSlot,
-	 * frames, alphaThreshold, nullable cameraWidth/Height, charColour, blueMask,
-	 * genderModel, hasCombatFrames and hasSpecialCombatFrames. Each frame binds
-	 * imagePath/Sha256, x/y/width/height, offsetX/Y and boundWidth/Height.
-	 * All interpreted source and image files are added to immutable evidence.
-	 */
 	static List<Map<String,Object>> discover(WorldBuilderReadOnlyTarget target,
-		WorldBuilderPackedSourceLayout layout,
-		List<WorldBuilderReadOnlyTarget.FileState> evidence)
+		WorldBuilderPackedSourceLayout layout, List<WorldBuilderReadOnlyTarget.FileState> evidence)
 		throws WorldBuilderContractException {
-		return discover(target, layout, evidence, java.util.Collections.<String>emptySet());
+		return discover(target, layout, evidence, Collections.<String>emptySet());
 	}
-
 	static List<Map<String,Object>> discover(WorldBuilderReadOnlyTarget target,
-		WorldBuilderPackedSourceLayout layout,
-		List<WorldBuilderReadOnlyTarget.FileState> evidence, java.util.Set<String> explicitlyBound)
-		throws WorldBuilderContractException {
-		return new ArrayList<Map<String,Object>>();
+		WorldBuilderPackedSourceLayout layout, List<WorldBuilderReadOnlyTarget.FileState> evidence,
+		Set<String> explicitlyBound) throws WorldBuilderContractException {
+		try {
+			List<Source> sources = sources(target);
+			List<Definition> definitions = definitions(target, layout);
+			List<Map<String,Object>> result = new ArrayList<>();
+			for (Source table : sources) {
+				List<Entry> entries = tableEntries(table);
+				if (entries.isEmpty()) continue;
+				List<Definition> selected = new ArrayList<>();
+				for (Definition definition : definitions) for (Entry entry : entries)
+					if (definition.id == entry.id && definition.name.equals(entry.name)
+						&& !explicitlyBound.contains(definition.path + "#" + definition.index)) selected.add(definition);
+				if (selected.isEmpty()) continue;
+				Caller caller = caller(sources, table);
+				// Enum tables alone do not establish a visual association.
+				if (caller == null) continue;
+				try {
+					Map<String,String> binding = caller.binding;
+					String root = string(binding.get("root"));
+					String provenance = root + "/provenance.json";
+					if (!target.exists(provenance)) throw new IllegalArgumentException("Missing provenance.json beside source-selected images");
+					Map<String,Object> metadata = WorldBuilderJsonDocuments.readObject(target.requiredFile(provenance));
+					Object raw = metadata.get("entries");
+					if (!(raw instanceof List) || ((List<?>)raw).size() > 65536) throw new IllegalArgumentException("Invalid provenance entries");
+					Source handler = find(sources, binding.get("EntityHandler"));
+					Source loader = loader(sources);
+					int alpha = verifyLoader(loader);
+					Map<String,String> activation = match(method(handler.methods, binding.get("activate")).body,
+						"NPCDef $npc = getNpcDef($row.$id); if ($npc == null || !$row.$name.equals($npc.getName())) return; $npc.sprites[$slot] = $getter($row);");
+					if (activation == null || !activation.get("getter").equals(binding.get("animationGetter"))) throw new IllegalArgumentException("Unsupported NPC activation semantics");
+					Map<String,String> animation = animation(handler, table.name, binding);
+					int beats = Integer.parseInt(binding.get("beats"));
+					if (beats != 3) throw new IllegalArgumentException("Only three-beat directional source layouts are supported");
+					Map<String,String> widths = match(method(table.methods,binding.get("columnWidths")).body,"return $columns.clone();");
+					if (widths == null) throw new IllegalArgumentException("Unsupported column layout method");
+					Map<String,String> combat = match(method(table.methods,binding.get("withCombatFrames")).body,WorldBuilderNpcVisualSourceTemplates.COMBAT);
+					if (combat == null) throw new IllegalArgumentException("Unsupported combat frame remapping");
+					for (Definition definition : selected) {
+						Entry entry = entry(entries,definition.id,definition.name);
+						if (!entry.fields.get(activation.get("id")).equals(Long.valueOf(entry.id))
+							|| !entry.fields.get(activation.get("name")).equals(entry.name)) throw new IllegalArgumentException("Activation identity fields differ from table");
+						String asset = (String)entry.fields.get(binding.get("assetName"));
+						List<Long> columns = integers(entry.fields.get(widths.get("columns")));
+						Map<?,?> proof = provenance((List<?>)raw,entry.id,asset);
+						if (!columns.equals(integers(proof.get("columns")))) throw new IllegalArgumentException("Provenance columns differ from source table");
+						long height = number(proof.get("height"));
+						if (height < 3 || height > 6144 || height % beats != 0) throw new IllegalArgumentException("Unsupported sheet height");
+						String image = root + "/" + asset + ".png";
+						String imageHash = WorldBuilderHashes.sha256(target.requiredFile(image));
+						if (!imageHash.equals(proof.get("sha256"))) throw new IllegalArgumentException("Image hash differs from provenance");
+						boolean hasCombat = bool(evaluateMethod(table,entry,animation.get("combat")));
+						int required = 15 + (hasCombat ? 3 : 0);
+						List<Map<String,Object>> frames = new ArrayList<>(); int x = 0;
+						for (Long width : columns) {
+							if (width < 1 || width > 2048) throw new IllegalArgumentException("Column width exceeds neutral frame bound");
+							for (int beat=0;beat<beats;beat++) frames.add(frame(image,imageHash,x,beat*(height/beats),width,height/beats));
+							x = Math.addExact(x,Math.toIntExact(width));
+						}
+						if (entry.symbol.equals(combat.get("reuseConstant")) && frames.size()==Integer.parseInt(combat.get("sourceCount"))) {
+							int count=Integer.parseInt(combat.get("targetCount")),offset=Integer.parseInt(combat.get("reuseOffset"));
+							if(count>27||count<frames.size()||offset<1)throw new IllegalArgumentException("Unsupported reuse bounds");
+							for(int i=frames.size();i<count;i++){int from=i-offset;if(from<0||from>=frames.size())throw new IllegalArgumentException("Invalid combat reuse");frames.add(new LinkedHashMap<>(frames.get(from)));}
+						}
+						if(frames.size()<required)throw new IllegalArgumentException("Source lacks required movement/combat frames");
+						Map<String,Object> row=new LinkedHashMap<>();row.put("npcId",Long.valueOf(entry.id));row.put("definitionPath",definition.path);row.put("definitionIndex",Long.valueOf(definition.index));row.put("definitionSha256",WorldBuilderHashes.sha256(target.requiredFile(definition.path)));row.put("spriteSlot",Long.valueOf(Integer.parseInt(activation.get("slot"))+1));
+						row.put("frames",new ArrayList<>(frames.subList(0,required)));row.put("alphaThreshold",Long.valueOf(alpha));
+						camera(handler,table,entry,row);
+						row.put("charColour",Long.valueOf(animation.get("colour")));row.put("blueMask",Long.valueOf(0));row.put("genderModel",Long.valueOf(animation.get("gender")));row.put("hasCombatFrames",hasCombat);row.put("hasSpecialCombatFrames",false);result.add(row);
+						evidence.add(target.requiredState("npc-visual-image",image));evidence.add(target.requiredState("npc-visual-source",definition.path));
+					}
+					for(Source source:Arrays.asList(table,caller.source,handler,loader))evidence.add(target.requiredState("npc-visual-source",source.path));
+					evidence.add(target.requiredState("npc-visual-source",provenance));
+				} catch (Exception failure) {
+					throw problem(table.path,"Source visual association is unresolved: " + failure.getMessage());
+				}
+			}
+			return result;
+		} catch (WorldBuilderContractException refusal) { throw refusal; }
+		catch (Exception failure) { throw problem("npc-visual-source", "Cannot inspect bounded source metadata: " + failure.getMessage()); }
 	}
+	private static void camera(Source handler,Source table,Entry entry,Map<String,Object> row) {
+		// Camera metadata is only adopted when the constructor uses the table's pure methods.
+		String text=WorldBuilderNpcVisualJava.text(handler.tokens);
+		Pattern p=Pattern.compile("0 , 0 , 0 , 0 , ([A-Za-z_$][\\w$]*) \\. ([A-Za-z_$][\\w$]*) \\( \\) , \\1 \\. ([A-Za-z_$][\\w$]*) \\( \\) , [0-9]+ , [0-9]+ , [0-9]+ , \\1 \\. [A-Za-z_$][\\w$]* \\) \\)");
+		Matcher m=p.matcher(text);String width=null,height=null;
+		while(m.find()){if(width!=null)throw new IllegalArgumentException("Ambiguous source camera constructors");width=m.group(2);height=m.group(3);}
+		if(width==null)throw new IllegalArgumentException("Camera constructor cannot be proven");
+		row.put("cameraWidth",evaluateMethod(table,entry,width));row.put("cameraHeight",evaluateMethod(table,entry,height));
+	}
+	private static Map<String,String> animation(Source handler,String table,Map<String,String> caller) {
+		for(Method m:handler.methods)for(int i=0;i<m.body.size();i++)if("for".equals(m.body.get(i))) {
+			int open=i+1;if(open>=m.body.size()||!"(".equals(m.body.get(open)))continue;int close=end(m.body,open);if(close+1>=m.body.size()||!"{".equals(m.body.get(close+1)))continue;int finish=end(m.body,close+1);
+			Map<String,String> map=match(m.body.subList(i,finish+1),"for ($table $row : $table.values()) { $map.put($row, animations.size()); animations.add(new AnimationDef($row.$name(), \"npc\", $colour, $gender, $row.$combat(), false, 0)); }");
+			if(map!=null&&table.equals(map.get("table"))&&caller.get("animationName").equals(map.get("name")))return map;
+		}
+		throw new IllegalArgumentException("Missing source animation registration");
+	}
+	private static Object evaluateMethod(Source source,Entry entry,String name) {
+		Method m=method(source.methods,name);
+		if(!m.params.isEmpty()||m.body.size()<3||!m.body.get(0).equals("return")||!m.body.get(m.body.size()-1).equals(";"))throw new IllegalArgumentException("Unsupported pure method "+name);
+		return evaluate(m.body.subList(1,m.body.size()-1),entry.symbol,entry.fields,source.methods,0);
+	}
+	private static Map<String,Object> frame(String path,String hash,long x,long y,long width,long height) {
+		Map<String,Object> f=new LinkedHashMap<>();f.put("imagePath",path);f.put("imageSha256",hash);f.put("x",x);f.put("y",y);f.put("width",width);f.put("height",height);f.put("offsetX",0L);f.put("offsetY",0L);f.put("boundWidth",width);f.put("boundHeight",height);return f;
+	}
+	private static Map<?,?> provenance(List<?> rows,int id,String key) {
+		Map<?,?> found=null;for(Object raw:rows)if(raw instanceof Map){Map<?,?> row=(Map<?,?>)raw;if(Long.valueOf(id).equals(row.get("id"))&&key.equals(row.get("key"))){if(found!=null)throw new IllegalArgumentException("Ambiguous provenance identity");found=row;}}
+		if(found==null)throw new IllegalArgumentException("No matching provenance identity");return found;
+	}
+	private static List<Long> integers(Object raw){if(!(raw instanceof List))throw new IllegalArgumentException("Expected integer columns");List<Long> result=new ArrayList<>();for(Object n:(List<?>)raw)result.add(number(n));return result;}
+	private static Entry entry(List<Entry> entries,int id,String name){for(Entry e:entries)if(e.id==id&&e.name.equals(name))return e;throw new IllegalArgumentException("Ambiguous table");}
+	private static Source find(List<Source> sources,String name){Source result=null;for(Source s:sources)if(s.name.equals(name)){if(result!=null)throw new IllegalArgumentException("Ambiguous source class "+name);result=s;}if(result==null)throw new IllegalArgumentException("Missing source class "+name);return result;}
+	private static Source loader(List<Source> sources){Source found=null;for(Source s:sources)for(Method m:s.methods)if(m.name.equals("loadExternalNpcDirectionSheet")&&m.params.contains("[")){if(found!=null&&found!=s)throw new IllegalArgumentException("Ambiguous direction-sheet loader");found=s;}if(found==null)throw new IllegalArgumentException("Missing direction-sheet loader");return found;}
+	private static int verifyLoader(Source s) {
+		Map<String,String> selected=null;
+		for(Method m:s.methods)if(m.name.equals("loadExternalNpcDirectionSheet")){Map<String,String> b=match(m.body,WorldBuilderNpcVisualSourceTemplates.LOADER);if(b!=null)selected=b;}
+		if(selected==null||match(method(s.methods,"normalizePixels").body,WorldBuilderNpcVisualSourceTemplates.NORMALIZE)==null||match(method(s.methods,"getExternalSpritePixel").body,WorldBuilderNpcVisualSourceTemplates.PIXEL)==null)throw new IllegalArgumentException("Unsupported crop/alpha/black-pixel semantics");
+		return Integer.parseInt(selected.get("alpha"));
+	}
+	private static Caller caller(List<Source> sources,Source table) {
+		Caller result=null;boolean candidate=false;
+		for(Source s:sources)for(Method m:s.methods)if(m.body.contains(table.name)&&m.body.contains("loadExternalNpcDirectionSheet")) {
+			candidate=true;Map<String,String> b=match(m.body,WorldBuilderNpcVisualSourceTemplates.CALLER);
+			if(b!=null&&table.name.equals(b.get("table"))){if(result!=null)throw new IllegalArgumentException("Ambiguous visual loader callers");result=new Caller(s,b);}
+		}
+		if(candidate&&result==null)throw new IllegalArgumentException("Unsupported source loader/activation body for "+table.path);
+		return result;
+	}
+	private static List<Entry> tableEntries(Source s) {
+		List<Entry> result=new ArrayList<>();int start=s.tokens.indexOf("enum");if(start<0||start+2>=s.tokens.size())return result;
+		int open=s.tokens.indexOf("{");if(open<0)return result;
+		Method ctor=null;for(Method m:s.methods)if(m.name.equals(s.name)&&m.params.contains("..."))ctor=m;if(ctor==null)return result;
+		List<String> params=new ArrayList<>();for(int i=0;i<ctor.params.size();i++)if(i+1==ctor.params.size()||ctor.params.get(i+1).equals(","))params.add(ctor.params.get(i));
+		if(params.size()!=4)return result;Map<String,String> fields=new LinkedHashMap<>();
+		for(int i=0;i<ctor.body.size();i+=6){if(i+6>ctor.body.size())return result;Map<String,String> b=match(ctor.body.subList(i,i+6),"this.$field = $parameter;");if(b==null)return result;fields.put(b.get("parameter"),b.get("field"));}
+		if(fields.size()!=4)return result;
+		for(int i=open+1;i<s.tokens.size()&&!s.tokens.get(i).equals(";");){String symbol=s.tokens.get(i++);if(!identifier(symbol)||!s.tokens.get(i).equals("("))return Collections.emptyList();int close=end(s.tokens,i);List<String> args=new ArrayList<>();for(String t:s.tokens.subList(i+1,close))if(!t.equals(","))args.add(t);if(args.size()<8||!args.get(0).matches("[0-9]+"))return Collections.emptyList();
+			Map<String,Object> values=new LinkedHashMap<>();values.put(fields.get(params.get(0)),Long.valueOf(args.get(0)));values.put(fields.get(params.get(1)),string(args.get(1)));values.put(fields.get(params.get(2)),string(args.get(2)));List<Long> widths=new ArrayList<>();for(String t:args.subList(3,args.size()))widths.add(Long.valueOf(t));values.put(fields.get(params.get(3)),widths);result.add(new Entry(symbol,Math.toIntExact(Long.parseLong(args.get(0))),string(args.get(1)),values));i=close+1;if(s.tokens.get(i).equals(","))i++;
+		}
+		Set<String> symbols=new HashSet<>();for(Entry e:result)symbols.add(e.symbol);for(Entry e:result)for(String symbol:symbols)e.fields.put(symbol,symbol);
+		return result;
+	}
+	private static List<Source> sources(WorldBuilderReadOnlyTarget target)throws Exception {
+		List<Source> sources=new ArrayList<>();long bytes=0;int visits=0;
+		for(String root:Arrays.asList("Client_Base/src","client/src","src"))if(target.exists(root)) {
+			target.requiredDirectory(root);
+			try(java.util.stream.Stream<Path> walk=Files.walk(target.root.resolve(root),16)) {
+				Iterator<Path> it=walk.iterator();while(it.hasNext()){Path p=it.next();if(++visits>12000)throw new IllegalArgumentException("Source inventory exceeds 12000 entries");if(Files.isSymbolicLink(p))throw new IllegalArgumentException("Source inventory contains a link");if(!p.toString().endsWith(".java")||!Files.isRegularFile(p,LinkOption.NOFOLLOW_LINKS))continue;String relative=target.relative(p);Path file=target.requiredFile(relative);long size=Files.size(file);bytes+=size;if(size>4*1024*1024||bytes>32*1024*1024)throw new IllegalArgumentException("Source inventory exceeds bounded byte budget");String text=new String(Files.readAllBytes(file),StandardCharsets.UTF_8);sources.add(new Source(relative,text));}
+			}
+		}
+		return sources;
+	}
+	private static List<Definition> definitions(WorldBuilderReadOnlyTarget target,WorldBuilderPackedSourceLayout layout)throws Exception {
+		List<Definition> result=new ArrayList<>();List<String> files=new ArrayList<>(WorldBuilderSupplementalNpcDefinitions.inspect(target,layout));for(String file:Arrays.asList("NpcDefs.json","NpcDefsCustom.json","NpcDefsPatch18.json","NpcDefsMyWorld.json"))if(target.exists(layout.definitionPath(file)))files.add(layout.definitionPath(file));
+		for(String file:files){Map<String,Object> doc=WorldBuilderJsonDocuments.readTargetDefinitionObject(target.requiredFile(file));Object raw=doc.get("npcs");if(!(raw instanceof List))continue;int index=0;for(Object r:(List<?>)raw){if(!(r instanceof Map))throw new IllegalArgumentException("Invalid NPC definition row");Map<?,?> row=(Map<?,?>)r;if(row.get("id") instanceof Long&&row.get("name") instanceof String)result.add(new Definition(file,index,Math.toIntExact((Long)row.get("id")),(String)row.get("name")));index++;}}return result;
+	}
+	private static WorldBuilderContractException problem(String path,String message){return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,"npc-visual-source",path,false,message,"Provide an explicit neutral NPC visual descriptor for this definition, or restore matching source metadata and assets.");}
+	private static final class Source {
+		final String path,name;final List<String> tokens;final List<Method> methods;
+		Source(String path,String source){this.path=path;Matcher n=Pattern.compile("\\b(?:class|enum)\\s+([A-Za-z_$][\\w$]*)").matcher(source.replaceAll("(?s)/\\*.*?\\*/|//[^\\r\\n]*",""));name=n.find()?n.group(1):"";String normalized=source.replace("orsc.graphics.two.SpriteArchive.Entry","Entry");normalized=normalized.replaceAll("\\b(?:[a-z][A-Za-z0-9_]*\\.)+([A-Z][A-Za-z0-9_$]*)\\b","$1");tokens=WorldBuilderNpcVisualJava.tokens(normalized);methods=WorldBuilderNpcVisualJava.methods(tokens);}
+	}
+	private static final class Entry {final String symbol,name;final int id;final Map<String,Object> fields;Entry(String s,int i,String n,Map<String,Object> f){symbol=s;id=i;name=n;fields=f;}}
+	private static final class Definition {final String path,name;final int index,id;Definition(String p,int i,int id,String n){path=p;index=i;this.id=id;name=n;}}
+	private static final class Caller {final Source source;final Map<String,String> binding;Caller(Source s,Map<String,String>b){source=s;binding=b;}}
 }
