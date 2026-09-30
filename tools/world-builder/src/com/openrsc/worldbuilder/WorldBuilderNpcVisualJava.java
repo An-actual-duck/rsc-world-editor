@@ -13,7 +13,11 @@ final class WorldBuilderNpcVisualJava {
 			if(source.startsWith("//",at)){int next=source.indexOf('\n',at+2);at=next<0?source.length():next+1;continue;}
 			if(source.startsWith("/*",at)){int next=source.indexOf("*/",at+2);if(next<0)throw new IllegalArgumentException("Unclosed source comment");at=next+2;continue;}
 			int start=at++;
-			if(c=='"'||c=='\'') {
+			if(source.startsWith("\"\"\"",start)) {
+				int close=start+3;
+				while(true){close=source.indexOf("\"\"\"",close);if(close<0)throw new IllegalArgumentException("Unclosed text block");int slashes=0;for(int p=close-1;p>=start&&source.charAt(p)=='\\';p--)slashes++;if(slashes%2==0)break;close+=3;}
+				at=close+3;
+			} else if(c=='"'||c=='\'') {
 				boolean closed=false;
 				while(at<source.length()) {char next=source.charAt(at++);if(next=='\\'){if(at>=source.length())break;at++;}else if(next==c){closed=true;break;}else if(next=='\n'||next=='\r')throw new IllegalArgumentException("Multiline source literal is unsupported");}
 				if(!closed)throw new IllegalArgumentException("Unclosed source literal");
