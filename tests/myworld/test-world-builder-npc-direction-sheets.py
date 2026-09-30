@@ -255,6 +255,18 @@ class NpcDirectionSheetsTest(unittest.TestCase):
                 if case=="budget":self.assertIn("256 MiB",result.stdout+result.stderr)
                 self.assertEqual(before,L.tree_bytes(self.target))
 
+    def test_neutral_frame_canvas_and_offsets_are_preserved(self):
+        with tempfile.TemporaryDirectory(prefix="npc-visual-canvas-") as temp:
+            self.fixture(Path(temp));path=self.target / "npc-visuals-v1.json";doc=json.loads(path.read_text())
+            doc["visuals"][0]["frames"][0].update({"offsetX":0,"offsetY":0,"boundWidth":128,"boundHeight":112})
+            doc["visuals"][0]["frames"][1].update({"offsetX":-3,"offsetY":7,"boundWidth":128,"boundHeight":112})
+            L.write_json(path,doc);project=self.create();bundle=project / "source/content-bundle/files"
+            registry=json.loads((bundle / "server/conf/world-builder/npc-animations-v1.json").read_text())["animations"][0]
+            with zipfile.ZipFile(bundle / "client/Cache/video/Authentic_Sprites.orsc") as archive:
+                for frame,offset in ((0,(0,0)),(1,(-3,7))):
+                    raw=archive.read("sprites/"+str(registry["authenticBaseSpriteId"]+frame)+".dat")
+                    self.assertEqual((100,100,1,*offset,128,112),struct.unpack(">IIBiiii",raw[:25]))
+
     def test_automatic_reference_source_capture_fixture(self):
         source=os.environ.get("WORLD_BUILDER_NPC_SOURCE_FIXTURE")
         destination=os.environ.get("WORLD_BUILDER_NPC_SOURCE_OUTPUT")

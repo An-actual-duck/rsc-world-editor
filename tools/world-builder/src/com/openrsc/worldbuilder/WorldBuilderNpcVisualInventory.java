@@ -58,9 +58,10 @@ final class WorldBuilderNpcVisualInventory {
 		if (records.size() > MAX_RECORDS) throw problem(FILE, "NPC visual inventory exceeds 4096 records.");
 		Set<String> identities = new HashSet<>();
 		Map<String,BufferedImage> images = new HashMap<>();
+		Map<String,String> imageHashes = new HashMap<>();
 		long[] decodedPixels = {0};
 		for (Map<String,Object> record : records) {
-			validate(target, record, evidence, images, decodedPixels);
+			validate(target, record, evidence, images, imageHashes, decodedPixels);
 			if (!identities.add(identity(record))) throw problem(FILE, "Duplicate NPC visual binding for one definition and sprite slot.");
 		}
 		long frameBytes = 0;
@@ -80,6 +81,7 @@ final class WorldBuilderNpcVisualInventory {
 	}
 	private static void validate(WorldBuilderReadOnlyTarget target, Map<String,Object> record,
 		List<WorldBuilderReadOnlyTarget.FileState> evidence, Map<String,BufferedImage> images,
+		Map<String,String> imageHashes,
 		long[] decodedPixels) throws WorldBuilderContractException {
 		exact(record, "npcId", "definitionPath", "definitionIndex", "definitionSha256", "spriteSlot", "frames",
 			"alphaThreshold", "cameraWidth", "cameraHeight", "charColour", "blueMask", "genderModel",
@@ -107,7 +109,8 @@ final class WorldBuilderNpcVisualInventory {
 				decodedPixels[0] += (long)image.getWidth() * image.getHeight();
 				if (decodedPixels[0] > 16L * 1024 * 1024) throw problem(path, "NPC image inventory exceeds 16 million decoded pixels.");
 				images.put(path, image);
-			} else if (!WorldBuilderHashesSafe.hash(target.requiredFile(path)).equals(text(frame,"imageSha256")))
+				imageHashes.put(path, text(frame,"imageSha256"));
+			} else if (!imageHashes.get(path).equals(text(frame,"imageSha256")))
 				throw problem(path, "Image hash bindings disagree.");
 			BufferedImage image = images.get(path);
 			if ((long)x + width > image.getWidth() || (long)y + height > image.getHeight()) throw problem(path, "NPC frame rectangle exceeds its source image.");
@@ -175,11 +178,5 @@ final class WorldBuilderNpcVisualInventory {
 	static WorldBuilderContractException problem(String path, String message) {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,"npc-visual-discovery",path,false,
 			message,"Correct the selected visual metadata or supply complete neutral visual evidence, then rediscover.");
-	}
-	// Keeps checked I/O failures in the same data-only diagnostic boundary.
-	private static final class WorldBuilderHashesSafe {
-		static String hash(Path path) throws WorldBuilderContractException {
-			try { return WorldBuilderHashes.sha256(path); } catch (IOException e) { throw problem(path.toString(),"Visual source changed while hashing."); }
-		}
 	}
 }

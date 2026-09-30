@@ -219,13 +219,15 @@ final class WorldBuilderNpcVisualCompiler {
 		ByteArrayOutputStream bytes=new ByteArrayOutputStream();
 		DataOutputStream out=new DataOutputStream(bytes);
 		int ox=number(frame, "offsetX", -4096, 4096), oy=number(frame, "offsetY", -4096, 4096);
+		int boundWidth = number(frame, "boundWidth", 1, 4096);
+		int boundHeight = number(frame, "boundHeight", 1, 4096);
 		out.writeInt(width);
 		out.writeInt(height);
-		out.writeByte(ox!=0||oy!=0?1:0);
+		out.writeByte(ox != 0 || oy != 0 || width != boundWidth || height != boundHeight ? 1 : 0);
 		out.writeInt(ox);
 		out.writeInt(oy);
-		out.writeInt(number(frame, "boundWidth", 1, 4096));
-		out.writeInt(number(frame, "boundHeight", 1, 4096));
+		out.writeInt(boundWidth);
+		out.writeInt(boundHeight);
 		for (int row=0;row<height;row++)for (int col=0;col<width;col++){
 			int argb=image.getRGB(x+col, y+row), rgb=argb&0xffffff;
 			out.writeInt((argb>>>24)<alpha?0:rgb==0?0x010101:rgb);
@@ -309,6 +311,6 @@ final class WorldBuilderNpcVisualCompiler {
 	private static Integer spriteId(String name) {
 		String leaf = name.substring(name.lastIndexOf('/') + 1);
 		if (leaf.endsWith(".dat")) leaf = leaf.substring(0, leaf.length() - 4);
-		return leaf.matches("[0-9]{1, 5}") ? Integer.valueOf(leaf) : null;
+		return leaf.matches("[0-9]{1,5}") ? Integer.valueOf(leaf) : null;
 	}
 }
