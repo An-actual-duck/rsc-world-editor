@@ -16,6 +16,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from compiler_runtime_fixture import PROBE_SHELL, MODULE_INVENTORY, JIMAGE_SHELL
 from base_catalog_packaging_fixture import prepare_base_catalog, tools_jar
 
 
@@ -392,10 +393,14 @@ def make_fixture(
     write(
         linux_runtime / "bin/java",
         "#!/usr/bin/env bash\n"
+        + PROBE_SHELL +
         "if [[ \"${1:-}\" == -version ]]; then exit 0; fi\n"
         "printf '%s\\n' \"$@\" > \"$FAKE_JAVA_CALLS\"\n",
     )
     (linux_runtime / "bin/java").chmod(0o755)
+    (linux_runtime / "bin/jimage").write_bytes(JIMAGE_SHELL)
+    (linux_runtime / "bin/jimage").chmod(0o755)
+    write(linux_runtime / "lib/modules", "fixture module image\n")
     write(
         linux_runtime / "release",
         f'JAVA_VERSION="17.0.13"\nOS_NAME="{linux_os}"\nOS_ARCH="x86_64"\n',
@@ -408,6 +413,8 @@ def make_fixture(
     )
     windows_runtime = base / "temurin-windows-jre"
     write(windows_runtime / "bin/java.exe", "runtime")
+    (windows_runtime / "lib").mkdir()
+    (windows_runtime / "lib/modules").write_bytes(MODULE_INVENTORY)
     write(
         windows_runtime / "release",
         'JAVA_VERSION="17.0.13"\nOS_NAME="Windows"\nOS_ARCH="x86_64"\n',
@@ -460,6 +467,17 @@ def run_packager(
 
 
 class WorldBuilderV2ReleaseTest(unittest.TestCase):
+    def test_packager_refuses_runtime_without_compiler_implementation(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="world-builder-compiler-package-") as temp:
+            fixture = make_fixture(Path(temp))
+            windows = fixture[4]
+            with (windows / "release").open("a") as stream:
+                stream.write('MODULES="java.compiler jdk.compiler"\n')
+            (windows / "lib/modules").write_bytes(MODULE_INVENTORY.split(b"Module: jdk.compiler")[0])
+            result = run_packager(*fixture)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("lacks required compiler module contents: jdk.compiler", result.stderr)
+
     def test_linux_desktop_start_invokes_gui_without_terminal_relaunch(self) -> None:
         with tempfile.TemporaryDirectory(
             prefix="world-builder-v2-desktop-start-"

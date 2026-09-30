@@ -2,8 +2,9 @@
 
 Owner direction, 2026-09-30. This supersedes broader game-composition adoption
 requirements where they conflict with preserving the target's custom game.
-Status: scope and initial code audit recorded; implementation compliance is not
-yet established. Alpha.4 verifies visual discovery, not this upgrade contract.
+Status: implementation started after the owner accepted alpha.5 custom visual
+discovery. Target upgrade compliance is not yet established. Visual acceptance
+does not certify the return-to-server path.
 
 ## Boundary
 
@@ -64,3 +65,40 @@ not evidence that every current upgrade necessarily breaks custom content.
 The acceptance example is straightforward: moving a custom NPC changes its map
 location; its appearance and dialogue still come from the target's original
 custom implementation. Visual-discovery tests alone cannot establish that result.
+
+## Active implementation (2026-09-30)
+
+The product manager assigned paired work in the independent Editor and runtime
+repositories. The chosen mechanism is a provider-owned, versioned map-source
+integration descriptor with bounded source edits, accepted preimages for whole
+map-only source replacements, and explicit integration requirements. Mixed
+gameplay/map classes retain unrelated target code. Changes are compiled in
+isolation against target dependencies without executing target build scripts or
+annotation processors. Map ABI changes require coherent consumer/plugin rebuilds;
+unknown binary-only consumers must not be silently treated as compatible.
+
+The first adapter covers an older native layered loader. Preservation needs its
+own reviewed source integration adapter; the old complete-composition migration
+is not an acceptable fallback. Runtime and Editor remain separate repositories.
+Target copies are evidence inputs only, never development or live test targets.
+
+Known critical details from the audit:
+
+- Old upgrade code disables normal target core rebuilding and substitutes the
+  editor binaries. That behavior must leave the targeted upgrade route.
+- Custom projectile and enemy-fence collision logic exists inside map-related
+  classes. A map-related filename does not justify replacing the whole class.
+- Wide elevation affects field consumers and cannot be fixed by quietly
+  truncating values to preserve an old byte field.
+- Map-only adaptive export already excludes captured NPC appearance overrides;
+  regression coverage must retain that separation.
+- Appended floor materials must preserve the complete existing floor prefix.
+- Bundled authoring JREs lack the actual Java compiler despite listing it in
+  release metadata. Upgrades need verified compiler-capable runtimes on both
+  shipped platforms, with native Windows acceptance distinguished from offline
+  inventory checks.
+
+The implementation must retain the current offline/preview/exact-confirmation/
+backup/verification/rollback/recovery contracts. Existing project edits must
+survive adoption of a newer upgrade payload. No target mutation is authorized by
+this implementation assignment.

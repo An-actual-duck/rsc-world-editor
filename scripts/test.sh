@@ -179,6 +179,7 @@ add_group() {
 			;;
 		packaging)
 			members=(
+				test-world-builder-compiler-runtime.py
 				test-world-builder-product-generations.py
 				test-world-builder-project-independence.py
 				test-world-builder-v2-candidate-validation.py
@@ -191,6 +192,7 @@ add_group() {
 			;;
 		candidate)
 			members=(
+				test-world-builder-compiler-runtime.py
 				test-world-builder-v2-candidate-validation.py
 				test-world-builder-native-runtime-integration.py
 				test-world-builder-adaptive-contracts.py
