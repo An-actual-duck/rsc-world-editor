@@ -1419,11 +1419,26 @@ public final class InstalledFloorFixture {
                 [row["name"] for row in custom[:2]],
             )
 
+            definitions = target / "server/conf/server/defs"
+            before_definitions = {path.name: path.read_bytes() for path in definitions.iterdir() if path.is_file()}
             imported = self.run_reviewed_apply(
                 "import-adaptive", "IMPORT", "--project", project,
                 "--export", export, "--target-root", target,
             )
             self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(before_definitions, {path.name: path.read_bytes() for path in definitions.iterdir() if path.is_file()})
+            receipt = json.loads(imported.stdout)
+            plan = json.loads((project / "backups" / receipt["transactionId"] / "mutation-plan.json").read_text())
+            for action in plan["actions"]:
+                path = action["destinationRelativePath"]
+                self.assertNotIn("content-bundle", path)
+                self.assertNotIn("/defs/", path)
+                self.assertNotIn("npc-visual", path)
+            self.assertNotEqual(
+                (project / "source/content-bundle/files/server/conf/server/defs/NpcDefsCustom.json").read_bytes(),
+                (definitions / "NpcDefsCustom.json").read_bytes(),
+                "Editor-normalized NPC catalog leaked into target",
+            )
 
     def test_import_mutates_only_map_and_owned_activation_state(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-narrow-import-") as temp:
@@ -1460,6 +1475,9 @@ public final class InstalledFloorFixture {
                     or destination.startswith("Client_Base/world-builder/packages/"),
                     destination,
                 )
+            for path, data in before.items():
+                if "/defs/" in path or "/sprites/" in path:
+                    self.assertEqual(data, project_support.tree_bytes(target, installation)[path], path)
             self.assertEqual(before["server/core.jar"], project_support.tree_bytes(
                 target, installation
             )["server/core.jar"])
@@ -1504,7 +1522,59 @@ public final class InstalledFloorFixture {
             self.assertIn("Player, Skills, Inventory, World", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
-    def floor_target_project(self, base):
+    def add_targeted_floor_fixture(self, base, target):
+        """Real target-owned class paired with a bounded test-only source adapter."""
+        configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+        client = Path(configuration["clientRuntimeRelativePath"]).parts[0]
+        compilation, transforms = [], []
+        for role, directory, archive in (("server", "server", "core.jar"), ("client", client, "Open_RSC_Client.jar")):
+            source = target / directory / "src/fixture/MapEngine.java"
+            source.parent.mkdir(parents=True, exist_ok=True)
+            source.write_text('package fixture; public class MapEngine { public static int mapVersion(){return 1;} public static String dialogue(){return "custom dialogue retained";} }')
+            classes = base / (role + "-target-map-classes")
+            classes.mkdir()
+            subprocess.run(["javac", "-source", "8", "-target", "8", "-d", str(classes), str(source)], check=True, capture_output=True)
+            self.rewrite_runtime_entry(target / directory / archive, "fixture/MapEngine.class", (classes / "fixture/MapEngine.class").read_bytes())
+            if role == "client":
+                self.rewrite_runtime_entry(target / directory / archive, "orsc/WorldBuilderInstalledFloorDefinitions.class", b"installed-floor-fixture")
+            transforms.append({"scope": role, "targetRelativePath": "src/fixture/MapEngine.java", "transformId": "fixture-map-v2", "edits": [{"before": "public static int mapVersion(){return 1;}", "after": "public static int mapVersion(){return 2;}", "occurrences": 1}]})
+            compilation.append({"scope": role, "archiveRelativePath": archive, "sourceRoots": ["src"], "dependencyDirectories": [], "sourceLevel": "8", "targetLevel": "8", "runtimeLevel": 17, "compileAllSources": False, "manifestAttributes": {"World-Builder-Floor-Semantics": "standard-floors-v1", "World-Builder-Installed-Floors": "installed-floors-v1"}})
+        contract = {"schemaVersion": 1, "manifestType": "world-builder-target-map-integration", "integrationId": "target-owned-layered-map-v1", "loaderId": "generic-signed-layered-loader-v7-blocking-base-color", "protocolId": "world-builder-native-layered-protocol-v2-u16-elevation", "encodingVersions": [1, 2, 3, 4, 5], "adapters": [{"adapterId": "fixture-targeted-floor", "sources": [], "transforms": transforms, "requirements": [], "requiredEntryProbes": [], "compilation": compilation}]}
+        tiles = target / "server/conf/server/defs/TileDef.xml"
+        if tiles.exists():
+            rows = ET.fromstring(tiles.read_bytes()).findall("TileDef")
+            statements = "".join("tiles.add(new TileDef(%s,%s,%s));" % tuple(row.findtext(key, "0") for key in ("colour", "unknown", "objectType")) for row in rows)
+            handler = target / client / "src/com/openrsc/client/entityhandling/EntityHandler.java"
+            handler.parent.mkdir(parents=True, exist_ok=True)
+            handler.write_text("class EntityHandler { private static final ClientDefinitionRegistry REGISTRY = new ClientDefinitionRegistry(); private static final ArrayList<TileDef> tiles = REGISTRY.mutableTiles(); private static void loadTileDefinitions(){" + statements + "} }")
+        self.use_targeted_fixture_descriptor(contract)
+
+    def use_targeted_fixture_descriptor(self, contract):
+        resource = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
+        resource.parent.mkdir(parents=True, exist_ok=True)
+        previous = resource.read_bytes() if resource.exists() else None
+        resource.write_text(json.dumps(contract))
+        def restore():
+            if previous is None:
+                resource.unlink(missing_ok=True)
+            else:
+                resource.write_bytes(previous)
+        self.addCleanup(restore)
+
+    def assert_runtime_upgrade_refused_unchanged(self, target, installation, project, export, reason):
+        before = project_support.tree_bytes(target, installation)
+        project_before = project_support.tree_bytes(project)
+        refused = self.run_cli("upgrade-target-runtime", "--project", project,
+                               "--export", export, "--target-root", target)
+        self.assertEqual(3, refused.returncode, refused.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
+        self.assertIn(reason, refused.stderr)
+        self.assertEqual(before, project_support.tree_bytes(target, installation))
+        self.assertEqual(project_before, project_support.tree_bytes(project))
+        self.assert_no_transaction_stage(target)
+        return refused
+
+    def floor_target_project(self, base, target_mutator=None):
         def runtime_floors(runtime):
             for jar in (runtime / "server/core.jar", runtime / "Client_Base/Open_RSC_Client.jar"):
                 with zipfile.ZipFile(jar) as archive:
@@ -1527,7 +1597,37 @@ public final class InstalledFloorFixture {
                 encoding="utf-8",
             )
 
-        return self.target_project(base, representation="packed", runtime_mutator=runtime_floors, target_mutator=water)
+        def customize(target):
+            water(target)
+            self.add_targeted_floor_fixture(base, target)
+            if target_mutator is not None:
+                target_mutator(target)
+        return self.target_project(base, representation="packed", runtime_mutator=runtime_floors, target_mutator=customize)
+
+    def test_targeted_upgrade_refuses_stale_source_without_overwriting_custom_dialogue(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-stale-custom-source-") as temp:
+            def stale(target):
+                source = target / "server/src/fixture/MapEngine.java"
+                source.write_text(source.read_text().replace("custom dialogue retained", "obsolete dialogue"))
+            target, installation, project, export = self.floor_target_project(Path(temp), stale)
+            before = project_support.tree_bytes(target, installation)
+            refused = self.run_cli("upgrade-target-runtime", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("Active target bytecode differs from its source", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertEqual([], list((project / "receipts").glob("*.json")))
+
+    def test_targeted_upgrade_refuses_binary_only_custom_implementation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-binary-only-custom-") as temp:
+            def binary_only(target):
+                (target / "server/src/fixture/MapEngine.java").unlink()
+            target, installation, project, export = self.floor_target_project(Path(temp), binary_only)
+            before = project_support.tree_bytes(target, installation)
+            refused = self.run_cli("upgrade-target-runtime", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("No reviewed targeted map integration matches", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertEqual([], list((project / "receipts").glob("*.json")))
 
     def test_standard_floors_upgrade_then_repeated_map_only_import(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-standard-floors-") as temp:
@@ -1779,189 +1879,28 @@ public final class SuccessorProofProbe {
             self.assertEqual(before, project_support.tree_bytes(target, installation))
             self.assert_no_transaction_stage(target)
 
-    def test_explicit_runtime_upgrade_repairs_affected_backup_then_imports_map(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-explicit-runtime-upgrade-") as temp:
-            def make_affected(target):
-                retired = (
-                    target
-                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-                )
-                retired.parent.mkdir(parents=True)
-                with zipfile.ZipFile(retired, "w") as archive:
-                    for name in (
-                        "Player", "Skills", "Inventory", "World", "Mob", "Npc",
-                        "ActionSender", "OpcodeOut",
-                    ):
-                        archive.writestr(f"com/openrsc/server/{name}.class", b"stale")
-                (target / "server/core.jar").write_bytes(b"affected-old-core\n")
-                (target / (
-                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
-                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
-                (target / "server/plugins.jar").write_bytes(
-                    b"affected-target-plugins\n"
-                )
-                selected = json.loads((
-                    target / "server/world-builder-configs/primary.json"
-                ).read_text(encoding="utf-8"))
-                client_root = target / Path(
-                    selected["clientRuntimeRelativePath"]
-                ).parts[0]
-                (client_root / "Open_RSC_Client.jar").write_bytes(
-                    b"affected-old-client\n"
-                )
-                (target / "server/plugins/custom-game-content.jar").parent.mkdir(
-                    parents=True, exist_ok=True
-                )
-                (target / "server/plugins/custom-game-content.jar").write_bytes(
-                    b"target-authored-plugin\n"
-                )
-                (target / "server/inc/sqlite/live.db").parent.mkdir(
-                    parents=True, exist_ok=True
-                )
-                (target / "server/inc/sqlite/live.db").write_bytes(
-                    b"target-player-data\n"
-                )
-                (target / "server/src/TargetCustomization.java").parent.mkdir(
-                    parents=True, exist_ok=True
-                )
-                (target / "server/src/TargetCustomization.java").write_text(
-                    "final class TargetCustomization {}\n", encoding="utf-8"
-                )
-                (target / "server/build.xml").write_text(
-                    "<project name=\"affected-target-build\">\n"
-                    "    <target name=\"compile_core\"></target>\n"
-                    "</project>\n",
-                    encoding="utf-8",
-                )
+    def test_explicit_upgrade_refuses_opaque_affected_archives_before_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-opaque-runtime-") as temp:
+            def opaque(target):
+                self.add_targeted_floor_fixture(Path(temp), target)
+                (target / "server/core.jar").write_bytes(b"custom opaque server runtime")
+                (target / "server/plugins.jar").write_bytes(b"custom plugin implementation")
+            target, installation, project, export = self.target_project(Path(temp), target_mutator=opaque)
+            self.assert_runtime_upgrade_refused_unchanged(target, installation, project, export, "archive")
 
-            target, installation, project, export = self.target_project(
-                Path(temp), target_mutator=make_affected,
-            )
-            selected = json.loads((
-                target / "server/world-builder-configs/primary.json"
-            ).read_text(encoding="utf-8"))
-            client_root = target / Path(
-                selected["clientRuntimeRelativePath"]
-            ).parts[0]
-            preserved = {
-                relative: (target / relative).read_bytes()
-                for relative in (
-                    "server/plugins/custom-game-content.jar",
-                    "server/plugins.jar",
-                    "server/inc/sqlite/live.db",
-                    "server/src/TargetCustomization.java",
-                )
-            }
-
-            refused = self.run_cli(
-                "import-adaptive", "--project", project,
-                "--export", export, "--target-root", target,
-            )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target,
-            )
-            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            result = json.loads(upgraded.stdout)
-            plan = json.loads((
-                project / "backups" / result["transactionId"] / "mutation-plan.json"
-            ).read_text(encoding="utf-8"))
-            self.assertEqual([], plan["configurationChanges"])
-            self.assertTrue(all(
-                action["role"].startswith("runtime-compatibility-")
-                for action in plan["actions"]
-            ))
-            self.assertFalse((
-                target
-                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-            ).exists())
-            self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
-                (target / "server/core.jar").read_bytes(),
-            )
-            self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
-                (client_root / "Open_RSC_Client.jar").read_bytes(),
-            )
-            self.assertEqual(
-                project_support.FIXTURE_HOST_DECODER_SOURCE,
-                (target / (
-                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
-                )).read_bytes(),
-            )
-            for relative, expected in preserved.items():
-                self.assertEqual(expected, (target / relative).read_bytes(), relative)
-            self.assertIn(
-                'unless="world.builder.pinned.host.runtime"',
-                (target / "server/build.xml").read_text(encoding="utf-8"),
-            )
-
-            imported = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export, "--target-root", target,
-            )
-            self.assertEqual(0, imported.returncode, imported.stderr)
-            for relative, expected in preserved.items():
-                self.assertEqual(expected, (target / relative).read_bytes(), relative)
-            self.assert_no_transaction_stage(target)
-
-    def test_explicit_runtime_upgrade_failure_restores_affected_backup(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-upgrade-rollback-") as temp:
-            def make_affected(target):
-                retired = (
-                    target
-                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-                )
-                retired.parent.mkdir(parents=True)
-                retired.write_bytes(b"affected-shadow-runtime\n")
-                (target / "server/core.jar").write_bytes(b"affected-core\n")
-                (target / (
-                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
-                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
-                selected = json.loads((
-                    target / "server/world-builder-configs/primary.json"
-                ).read_text(encoding="utf-8"))
-                client = target / Path(
-                    selected["clientRuntimeRelativePath"]
-                ).parts[0] / "Open_RSC_Client.jar"
-                client.write_bytes(b"affected-client\n")
-
-            target, installation, project, export = self.target_project(
-                Path(temp), target_mutator=make_affected,
-            )
-            before = project_support.tree_bytes(target, installation)
-            failed = self.run_failure(
-                "runtime-upgrade", "before-success-receipt",
-                project, target, export,
-            )
-            self.assertEqual(3, failed.returncode, failed.stderr)
-            self.assertEqual(before, project_support.tree_bytes(target, installation))
-            receipts = [
-                json.loads(path.read_text(encoding="utf-8"))
-                for path in (project / "receipts").glob("*.json")
-            ]
-            self.assertEqual(["rolled-back"], [item["status"] for item in receipts])
-            self.assert_no_transaction_stage(target)
+    def test_explicit_upgrade_refuses_unknown_shadow_implementation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-shadow-upgrade-") as temp:
+            def shadow(target):
+                self.add_targeted_floor_fixture(Path(temp), target)
+                path = target / "server/world-builder-runtime/world-builder-managed-runtime.jar"
+                path.parent.mkdir(parents=True)
+                path.write_bytes(b"owner-authored shadow implementation")
+            target, installation, project, export = self.target_project(Path(temp), target_mutator=shadow)
+            self.assert_runtime_upgrade_refused_unchanged(target, installation, project, export, "class-shadowing runtime")
 
     def test_import_refuses_recompiled_login_decoder_regression(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-login-rebuild-repair-") as temp:
-            def make_affected(target):
-                retired = (
-                    target
-                    / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-                )
-                retired.parent.mkdir(parents=True)
-                retired.write_bytes(b"retired-shadow\n")
-                (target / (
-                    "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
-                )).write_bytes(project_support.FIXTURE_HOST_DECODER_LEGACY_SOURCE)
-
-            target, installation, project, export = self.target_project(
-                Path(temp), target_mutator=make_affected,
-            )
+            target, installation, project, export = self.floor_target_project(Path(temp))
             upgraded = self.run_reviewed_apply(
                 "upgrade-target-runtime", "UPGRADE", "--project", project,
                 "--export", export, "--target-root", target,
@@ -1997,9 +1936,14 @@ public final class SuccessorProofProbe {
                 before_refusal, project_support.tree_bytes(target, installation)
             )
 
-    def test_runtime_upgrade_preserves_custom_login_decoder_source(self):
+    def test_runtime_upgrade_refuses_unreviewed_custom_login_decoder_source(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-login-source-conflict-") as temp:
             def customize_decoder(target):
+                self.add_targeted_floor_fixture(Path(temp), target)
+                resource = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
+                contract = json.loads(resource.read_text())
+                contract["adapters"][0]["requirements"] = [{"scope": "server", "targetRelativePath": "src/com/openrsc/server/net/RSCProtocolDecoder.java", "requiredFragments": [], "acceptedSourceSha256": [hashlib.sha256(project_support.FIXTURE_HOST_DECODER_SOURCE).hexdigest()]}]
+                resource.write_text(json.dumps(contract))
                 (target / (
                     "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
                 )).write_bytes(
@@ -2017,21 +1961,8 @@ public final class SuccessorProofProbe {
                 target / "server/src/com/openrsc/server/net/RSCProtocolDecoder.java"
             )
             custom_source = source.read_bytes()
-            preview = self.run_cli(
-                "upgrade-target-runtime", "--project", project,
-                "--export", export, "--target-root", target,
-            )
-            self.assertEqual(0, preview.returncode, preview.stderr)
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target, preview=preview,
-            )
-            self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+            self.assert_runtime_upgrade_refused_unchanged(target, installation, project, export, "Map source requirement differs")
             self.assertEqual(custom_source, source.read_bytes())
-            self.assertIn(
-                'unless="world.builder.pinned.host.runtime"',
-                (target / "server/build.xml").read_text(encoding="utf-8"),
-            )
 
     def test_import_requires_host_integrated_runtime_before_mutation(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-required-") as temp:
@@ -2078,128 +2009,33 @@ public final class SuccessorProofProbe {
             self.assertIn("differs from the pinned project runtime", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
 
-    def test_runtime_upgrade_retires_v1_metadata_before_repeated_map_updates(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-upgrade-") as temp:
-            target, _, project, export = self.target_project(
-                Path(temp), target_runtime_archives=True,
-                preserved_installed_v1=True,
-                target_build_file=True,
-                target_client_build_file=True,
+    def test_runtime_upgrade_preserves_v1_metadata_after_targeted_upgrade(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-preserve-legacy-runtime-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True, preserved_installed_v1=True, target_build_file=True, target_client_build_file=True,
+                target_mutator=lambda target: self.add_targeted_floor_fixture(Path(temp), target),
             )
-            server = target / "server/core.jar"
-            client = target / "client/Open_RSC_Client.jar"
-            if not client.is_file():
-                client = target / "Client_Base/Open_RSC_Client.jar"
-            before_server = server.read_bytes()
-            before_client = client.read_bytes()
-            capability = (
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v1.json"
-            )
-            unrelated = target / "server/plugins/custom-game-content.jar"
-            unrelated.parent.mkdir(parents=True, exist_ok=True)
-            unrelated.write_bytes(b"target-owned game content\n")
-            client_build_file = client.parent / "build.xml"
-            unguarded_client_build = client_build_file.read_text(encoding="utf-8")
-            guarded_client_build = unguarded_client_build.replace(
-                '<project name="target-client" default="compile-and-run" basedir=".">',
-                '<project name="target-client" default="compile-and-run" basedir=".">\n'
-                '    <!-- Preserve the verified World Builder client runtime during target launches. -->\n'
-                '    <available file="world-builder-configs/installed-client.json" '
-                'property="world.builder.installed.client"/>',
-            ).replace(
-                '<target name="compile">',
-                '<target name="compile" unless="world.builder.installed.client">',
-            )
-            client_build_file.write_text(guarded_client_build, encoding="utf-8")
-
-            refused = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target,
-            )
+            before = project_support.tree_bytes(target, installation)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            self.assertFalse(capability.exists())
-            preview = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(0, preview.returncode, preview.stderr)
-            compatibility_roles = {
-                action["role"] for action in json.loads(preview.stdout)["actions"]
-                if action["role"].startswith("runtime-compatibility-")
-            }
-            self.assertEqual(
-                {
-                    "runtime-compatibility-client-profile",
-                    "runtime-compatibility-server-profile",
-                },
-                compatibility_roles,
-            )
-            imported = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export, "--target-root", target, preview=preview,
-            )
+            after = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path or "/defs/" in path:
+                    self.assertEqual(data, after[path], path)
+            for archive in (target / "server/core.jar", target / "client/Open_RSC_Client.jar"):
+                if not archive.exists():
+                    archive = target / "Client_Base/Open_RSC_Client.jar"
+                with zipfile.ZipFile(archive) as jar:
+                    self.assertIn(b"custom dialogue retained", jar.read("fixture/MapEngine.class"))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                              "--export", export, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
-            upgraded_server = server.read_bytes()
-            upgraded_client = client.read_bytes()
-            self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
-                upgraded_server,
-            )
-            self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
-                upgraded_client,
-            )
-            self.assertFalse(capability.exists())
-            installed_v2 = (
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v2.json"
-            )
-            self.assertFalse(installed_v2.exists())
-            self.assertFalse((
-                target
-                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-            ).exists())
-            guarded_build = (target / "server/build.xml").read_bytes()
-            upgraded_client_build = client_build_file.read_bytes()
-            client_build_root = ET.fromstring(upgraded_client_build)
-            self.assertEqual(
-                "world.builder.installed.client",
-                client_build_root.find("./target[@name='compile']").attrib["unless"],
-            )
-            self.assertIsNotNone(client_build_root.find("./available"))
-            self.assertTrue(
-                (client.parent / "world-builder-configs/installed-client.json").is_file()
-            )
-            self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
+            after_import = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path:
+                    self.assertEqual(data, after_import[path], path)
 
-            project_support.change_working_terrain(project)
-            saved = self.run_cli("save-project", "--project", project)
-            self.assertEqual(0, saved.returncode, saved.stderr)
-            exported = self.run_cli("export-adaptive", "--project", project)
-            self.assertEqual(0, exported.returncode, exported.stderr)
-            second_export = Path(json.loads(exported.stdout)["exportDirectory"])
-            repeated = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", second_export, "--target-root", target,
-            )
-            self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(upgraded_server, server.read_bytes())
-            self.assertEqual(upgraded_client, client.read_bytes())
-            self.assertFalse(capability.exists())
-            self.assertFalse(installed_v2.exists())
-            self.assertEqual(guarded_build, (target / "server/build.xml").read_bytes())
-            self.assertEqual(
-                upgraded_client_build,
-                (client.parent / "build.xml").read_bytes(),
-            )
-            self.assertEqual(b"target-owned game content\n", unrelated.read_bytes())
 
     def test_import_refuses_target_with_missing_client_runtime(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-client-repair-") as temp:
@@ -2278,214 +2114,120 @@ public final class SuccessorProofProbe {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(source, chunk.read_text(encoding="utf-8"))
 
-    def test_host_runtime_imports_blocking_base_color_without_v1_replacement(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-overlay-255-") as temp:
-            target, installation, project, _ = self.target_project(
-                Path(temp), target_runtime_archives=True,
-                preserved_installed_v1=True,
+    def test_host_runtime_retains_v1_content_through_targeted_upgrade(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-preserve-legacy-runtime-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True, preserved_installed_v1=True,
+                target_mutator=lambda target: self.add_targeted_floor_fixture(Path(temp), target),
             )
-            self.set_fixture_ground_overlay(
-                project / "working/layered-world/package", 255
-            )
+            self.set_fixture_ground_overlay(project / "working/layered-world/package", 255)
             saved = self.run_cli("save-project", "--project", project)
             self.assertEqual(0, saved.returncode, saved.stderr)
             exported = self.run_cli("export-adaptive", "--project", project)
             self.assertEqual(0, exported.returncode, exported.stderr)
             export = Path(json.loads(exported.stdout)["exportDirectory"])
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target,
-            )
+            before = project_support.tree_bytes(target, installation)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            imported = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export, "--target-root", target,
-            )
+            after = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path or "/defs/" in path:
+                    self.assertEqual(data, after[path], path)
+            for archive in (target / "server/core.jar", target / "client/Open_RSC_Client.jar"):
+                if not archive.exists():
+                    archive = target / "Client_Base/Open_RSC_Client.jar"
+                with zipfile.ZipFile(archive) as jar:
+                    self.assertIn(b"custom dialogue retained", jar.read("fixture/MapEngine.class"))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                              "--export", export, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertFalse((
-                target
-                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-            ).exists())
-            self.assertFalse((
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v1.json"
-            ).is_file())
-            self.assertFalse((
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v2.json"
-            ).exists())
-            self.assertTrue((
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v3.json"
-            ).is_file())
+            after_import = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path:
+                    self.assertEqual(data, after_import[path], path)
 
-    def test_import_retires_v2_metadata_and_preserves_runtime_archives(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v2-upgrade-") as temp:
-            target, _, project, _ = self.target_project(
-                Path(temp), target_runtime_archives=True,
-                preserved_installed_v1=True,
-                preserved_installed_v2=True,
-            )
-            server = target / "server/core.jar"
-            client = target / "client/Open_RSC_Client.jar"
-            if not client.is_file():
-                client = target / "Client_Base/Open_RSC_Client.jar"
-            capability = (
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v2.json"
-            )
-            before_server = server.read_bytes()
-            before_client = client.read_bytes()
 
-            self.set_fixture_ground_overlay(
-                project / "working/layered-world/package", 255
+    def test_import_preserves_v2_metadata_after_targeted_upgrade(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-preserve-legacy-runtime-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True, preserved_installed_v1=True, preserved_installed_v2=True,
+                target_mutator=lambda target: self.add_targeted_floor_fixture(Path(temp), target),
             )
-            saved = self.run_cli("save-project", "--project", project)
-            self.assertEqual(0, saved.returncode, saved.stderr)
-            exported = self.run_cli("export-adaptive", "--project", project)
-            self.assertEqual(0, exported.returncode, exported.stderr)
-            export = Path(json.loads(exported.stdout)["exportDirectory"])
-
-            refused = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target,
-            )
+            before = project_support.tree_bytes(target, installation)
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            preview = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(0, preview.returncode, preview.stderr)
-            compatibility_roles = {
-                action["role"] for action in json.loads(preview.stdout)["actions"]
-                if action["role"].startswith("runtime-compatibility-")
-            }
-            self.assertEqual(
-                {
-                    "runtime-compatibility-client-profile",
-                    "runtime-compatibility-server-profile",
-                },
-                compatibility_roles,
-            )
-
-            imported = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export, "--target-root", target, preview=preview,
-            )
+            after = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path or "/defs/" in path:
+                    self.assertEqual(data, after[path], path)
+            for archive in (target / "server/core.jar", target / "client/Open_RSC_Client.jar"):
+                if not archive.exists():
+                    archive = target / "Client_Base/Open_RSC_Client.jar"
+                with zipfile.ZipFile(archive) as jar:
+                    self.assertIn(b"custom dialogue retained", jar.read("fixture/MapEngine.class"))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                              "--export", export, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
-            upgraded_server = server.read_bytes()
-            upgraded_client = client.read_bytes()
-            self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
-                upgraded_server,
-            )
-            self.assertFalse((
-                target
-                / "server/world-builder-runtime/world-builder-managed-runtime.jar"
-            ).exists())
-            self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
-                upgraded_client,
-            )
-            self.assertFalse(capability.exists())
+            after_import = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path:
+                    self.assertEqual(data, after_import[path], path)
 
-            project_support.change_working_terrain(project)
-            saved = self.run_cli("save-project", "--project", project)
-            self.assertEqual(0, saved.returncode, saved.stderr)
-            exported = self.run_cli("export-adaptive", "--project", project)
-            self.assertEqual(0, exported.returncode, exported.stderr)
-            second_export = Path(json.loads(exported.stdout)["exportDirectory"])
-            repeated = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", second_export, "--target-root", target,
-            )
-            self.assertEqual(0, repeated.returncode, repeated.stderr)
-            self.assertEqual(upgraded_server, server.read_bytes())
-            self.assertEqual(upgraded_client, client.read_bytes())
 
-    def test_runtime_upgrade_replaces_custom_host_runtime_archives_exactly(self):
-        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-v1-v2-") as temp:
-            target, _, project, _ = self.target_project(
-                Path(temp), target_runtime_archives=True,
-                preserved_installed_v1=True,
+    def test_runtime_upgrade_retains_custom_host_classes_in_target_archives(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-preserve-legacy-runtime-") as temp:
+            target, installation, project, export = self.target_project(
+                Path(temp), target_runtime_archives=True, preserved_installed_v1=True,
+                target_mutator=lambda target: self.add_targeted_floor_fixture(Path(temp), target),
             )
-            server = target / "server/core.jar"
-            client = target / "client/Open_RSC_Client.jar"
-            if not client.is_file():
-                client = target / "Client_Base/Open_RSC_Client.jar"
-            self.write_runtime_jar(
-                server, b"custom target loader-v7 server runtime\n"
-            )
-            self.write_runtime_jar(
-                client, b"custom target loader-v7 client runtime\n"
-            )
-            before_server = server.read_bytes()
-            before_client = client.read_bytes()
-            capability = (
-                target
-                / "server/conf/world-builder/installed-runtime-capability-v2.json"
-            )
-            project_support.write_json(
-                capability, project_support.installed_v2_capability()
-            )
+            before = project_support.tree_bytes(target, installation)
+            selected = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+            client = Path(selected["clientRuntimeRelativePath"]).parts[0]
+            archives = [target / "server/core.jar", target / client / "Open_RSC_Client.jar"]
+            original_entries = {}
+            for path in archives:
+                with zipfile.ZipFile(path) as jar:
+                    original_entries[path] = {name: jar.read(name) for name in jar.namelist()}
 
-            self.set_fixture_ground_overlay(
-                project / "working/layered-world/package", 255
-            )
-            saved = self.run_cli("save-project", "--project", project)
-            self.assertEqual(0, saved.returncode, saved.stderr)
-            exported = self.run_cli("export-adaptive", "--project", project)
-            self.assertEqual(0, exported.returncode, exported.stderr)
-            export = Path(json.loads(exported.stdout)["exportDirectory"])
-
-            refused = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(3, refused.returncode, refused.stderr)
-            self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr)
-            upgraded = self.run_reviewed_apply(
-                "upgrade-target-runtime", "UPGRADE", "--project", project,
-                "--export", export, "--target-root", target,
-            )
+            upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+                                               "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
-            preview = self.run_cli(
-                "import-adaptive", "--project", project, "--export", export,
-                "--target-root", target,
-            )
-            self.assertEqual(0, preview.returncode, preview.stderr)
-            compatibility_roles = {
-                action["role"] for action in json.loads(preview.stdout)["actions"]
-                if action["role"].startswith("runtime-compatibility-")
-            }
-            self.assertEqual(
-                {
-                    "runtime-compatibility-client-profile",
-                    "runtime-compatibility-server-profile",
-                },
-                compatibility_roles,
-            )
-            imported = self.run_reviewed_apply(
-                "import-adaptive", "IMPORT", "--project", project,
-                "--export", export, "--target-root", target, preview=preview,
-            )
+            after = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path or "/defs/" in path:
+                    self.assertEqual(data, after[path], path)
+            for archive in (target / "server/core.jar", target / "client/Open_RSC_Client.jar"):
+                if not archive.exists():
+                    archive = target / "Client_Base/Open_RSC_Client.jar"
+                with zipfile.ZipFile(archive) as jar:
+                    self.assertIn(b"custom dialogue retained", jar.read("fixture/MapEngine.class"))
+            upgraded_archives = {path: path.read_bytes() for path in archives}
+            callback = Path(temp) / "CustomCallbackProbe.java"
+            callback.write_text('public class CustomCallbackProbe { public static void main(String[] args) throws Exception { Class<?> type=Class.forName("fixture.MapEngine"); System.out.print(type.getMethod("mapVersion").invoke(null)+"|"+type.getMethod("dialogue").invoke(null)); } }')
+            classes = Path(temp) / "callback-classes"
+            classes.mkdir()
+            subprocess.run(["javac", "-d", str(classes), str(callback)], check=True, capture_output=True)
+            for path in archives:
+                with zipfile.ZipFile(path) as jar:
+                    self.assertEqual(set(original_entries[path]), set(jar.namelist()))
+                    self.assertNotEqual(original_entries[path]["fixture/MapEngine.class"], jar.read("fixture/MapEngine.class"))
+                    for name, data in original_entries[path].items():
+                        if name not in ("fixture/MapEngine.class", "META-INF/MANIFEST.MF"):
+                            self.assertEqual(data, jar.read(name), name)
+                run = subprocess.run(["java", "-cp", str(classes) + os.pathsep + str(path), "CustomCallbackProbe"], check=True, capture_output=True, text=True)
+                self.assertEqual("2|custom dialogue retained", run.stdout)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                              "--export", export, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
-            self.assertEqual(
-                (project / "working/runtime/server/core.jar").read_bytes(),
-                server.read_bytes(),
-            )
-            self.assertEqual(
-                (project / "working/runtime/client/Open_RSC_Client.jar").read_bytes(),
-                client.read_bytes(),
-            )
-            self.assertNotEqual(before_server, server.read_bytes())
-            self.assertNotEqual(before_client, client.read_bytes())
+            after_import = project_support.tree_bytes(target, installation)
+            for path, data in before.items():
+                if "installed-runtime-capability-v" in path:
+                    self.assertEqual(data, after_import[path], path)
+
+            for path, data in upgraded_archives.items():
+                self.assertEqual(data, path.read_bytes(), "Map-only import rewrote a custom runtime archive")
 
     def test_import_writes_only_host_activation_profiles_before_map_selection(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-bootstrap-") as temp:

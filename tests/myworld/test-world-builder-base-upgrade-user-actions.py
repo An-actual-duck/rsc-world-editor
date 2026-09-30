@@ -1,88 +1,87 @@
 #!/usr/bin/env python3
-"""Existing desktop and active-terminal upgrade controls use the shipped Base catalog."""
-import importlib.util
-import json
+"""Legacy whole-composition UI/CLI entry points refuse before target mutation."""
 import os
 from pathlib import Path
-import shutil
 import subprocess
+import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
 JAR = ROOT / "output/world-builder-tools/world-builder-tools.jar"
 
 
-@unittest.skipUnless(os.environ.get("WORLD_BUILDER_PRESERVATION_SOURCE_GIT"), "explicit public source required")
 class BaseUpgradeUserActionsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        spec = importlib.util.spec_from_file_location("user_native", ROOT / "tests/myworld/test-world-builder-base-project-lifecycle.py")
-        cls.native = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(cls.native)
-        cls.native.LAUNCH = False  # This test previews/cancels only; it does not occupy the GUI lane.
-        cls.native.BaseProjectLifecycleTest.setUpClass()
-        cls.addClassCleanup(cls.native.BaseProjectLifecycleTest.doClassCleanups)
-        cls.fixture = cls.native.BaseProjectLifecycleTest()
-
-    def test_desktop_preview_and_terminal_cancel_preserve_target(self):
-        fixture = self.fixture
-        fixture.test_real_create_reopen_export_and_native_launch_commands_keep_target_private()
-        root = fixture.root
-        installation = root / "installation"
-        target = root / "historical-input"
-        before = self.native.snapshot(target)
-        # Use the exact relocated production catalog layout, not a developer override.
-        shipped = root / "shipped"
-        exported = fixture.invoke("export-current-base-catalog", "--provider-catalog-root",
-            self.native.PROVIDER / "current-platform", "--composition-identity", fixture.identity,
-            "--destination", shipped)
-        self.assertEqual(0, exported.returncode, exported.stderr)
-        shutil.copytree(shipped, installation, dirs_exist_ok=True)
-        source = root / "BaseUpgradeActionsProbe.java"
+        cls.temporary = tempfile.TemporaryDirectory(prefix="targeted-upgrade-user-actions-")
+        cls.addClassCleanup(cls.temporary.cleanup)
+        cls.root = Path(cls.temporary.name)
+        source = cls.root / "BaseUpgradeActionsProbe.java"
         source.write_text('''package com.openrsc.worldbuilder;
 import java.nio.file.*;
 public final class BaseUpgradeActionsProbe {
-  public static void main(String[] args) throws Exception {
-    Path root = Paths.get(args[0]);
-    WorldBuilderLauncherModel model = new WorldBuilderLauncherModel(root.resolve("installation"),
-      root.resolve("application-runtime"), null, 43595, "preservation");
-    WorldBuilderLauncherModel.PreparedImport prepared = model.prepareServerRuntimeUpgrade(model.projects().get(0));
-    if (prepared.upgradePlan == null || prepared.importer != null || prepared.mapPlan != null)
-      throw new AssertionError("Native Base must route to the guarded upgrade transaction");
-    if (!prepared.target.equals(root.resolve("historical-input")))
-      throw new AssertionError("Use the project target, not the installation parent");
-    if (!prepared.summary().contains(prepared.upgradePlan.confirmationIdentity())
-        || !prepared.summary().contains(prepared.upgradePlan.fingerprint()))
-      throw new AssertionError("Display the exact reviewed plan and confirmation");
-    try {
-      model.prepareServerRecovery(model.projects().get(0));
-      throw new AssertionError("An empty current workspace cannot offer recovery");
-    } catch (java.io.IOException expected) {
-      if (!expected.getMessage().contains("No interrupted current transaction")) throw expected;
-    }
-    System.out.print(prepared.upgradePlan.toJson());
+ public static void main(String[] args) throws Exception {
+  try {
+   WorldBuilderCurrentRuntimeUserActions.previewUpgrade(Paths.get(args[0]), null);
+   throw new AssertionError("Generic composition replacement was allowed");
+  } catch (WorldBuilderContractException expected) {
+   if (!expected.getMessage().contains("generic game composition")) throw expected;
+   System.out.println(expected.getMessage());
   }
-}
-''')
-        subprocess.run(["javac", "-cp", str(JAR), "-d", str(fixture.classes), str(source)], check=True, capture_output=True)
-        preview = subprocess.run(["java", "-Xmx1536m", "-cp", str(fixture.classes) + os.pathsep + str(JAR),
-            "com.openrsc.worldbuilder.BaseUpgradeActionsProbe", str(root)], capture_output=True, text=True, timeout=180)
-        self.assertEqual(0, preview.returncode, preview.stderr)
-        plan = json.loads(preview.stdout)
-        self.assertTrue(plan["activationAuthorized"])
-        self.assertEqual("current-base-v1", plan["destination"]["variantId"])
-        self.assertEqual(before, self.native.snapshot(target))
-        cancelled = subprocess.run(["java", "-Xmx1536m", "-jar", str(JAR), "upgrade-active-target-runtime",
-            "--installation-root", str(installation)], input="\n", capture_output=True, text=True, timeout=180)
-        self.assertEqual(0, cancelled.returncode, cancelled.stderr)
-        self.assertIn("Exact confirmation: UPGRADE:", cancelled.stderr)
-        self.assertIn("Runtime upgrade cancelled; no target file was changed.", cancelled.stderr)
-        self.assertEqual(before, self.native.snapshot(target))
-        self.assertFalse((target / ".world-builder/runtime-ledger-v1.json").exists())
-        recovery = fixture.invoke("recover-active-adaptive", "--installation-root", installation)
-        self.assertNotEqual(0, recovery.returncode)
-        self.assertIn("No interrupted current transaction", recovery.stderr)
-        self.assertEqual(before, self.native.snapshot(target))
+ }
+}''')
+        subprocess.run(["javac", "-cp", str(JAR), "-d", str(cls.root), str(source)], check=True, capture_output=True)
+
+    def fixture(self):
+        temporary = tempfile.TemporaryDirectory(prefix="targeted-upgrade-refusal-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        target = root / "target"
+        target.mkdir()
+        (target / "custom-npc-dialogue.txt").write_bytes(b"owner dialogue and content must stay active")
+        (target / "core.jar").write_bytes(b"owner binary must never be replaced by generic composition")
+        return root, target
+
+    def snapshot(self, root):
+        return {str(p.relative_to(root)): p.read_bytes() if p.is_file() else None for p in root.rglob('*')}
+
+    def test_desktop_shared_upgrade_refuses_composition_before_target_access(self):
+        root, target = self.fixture()
+        before = self.snapshot(root)
+        result = subprocess.run(["java", "-cp", str(self.root) + os.pathsep + str(JAR),
+                                 "com.openrsc.worldbuilder.BaseUpgradeActionsProbe", str(root)], capture_output=True, text=True)
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertIn("would not preserve its custom content", result.stdout)
+        self.assertEqual(before, self.snapshot(root))
+        self.assertFalse((target / ".world-builder").exists())
+
+    def test_cli_preview_and_apply_refuse_legacy_whole_composition(self):
+        root, target = self.fixture()
+        before = self.snapshot(root)
+        for operation in ("preview-current-runtime-upgrade", "apply-current-runtime-upgrade"):
+            args = ["java", "-jar", str(JAR), operation, "--target-root", str(target),
+                    "--transaction-root", str(root / "transactions"), "--transaction-id", "fixture-target-upgrade",
+                    "--provider-catalog-root", str(root / "catalog"), "--composition-identity", str(root / "identity.json"),
+                    "--adapter", "preservation-family-v1", "--project-capability", str(root / "project-capability.json")]
+            if operation.startswith("apply"):
+                args += ["--confirmation-identity", "UPGRADE:fixture-target-upgrade"]
+            result = subprocess.run(args, capture_output=True, text=True)
+            self.assertEqual(3, result.returncode, result.stderr)
+            self.assertIn("RUNTIME_UPGRADE_REQUIRED", result.stderr)
+            self.assertIn("generic game composition", result.stderr)
+            self.assertEqual(before, self.snapshot(root))
+            self.assertFalse((root / "transactions").exists())
+
+    def test_historical_recovery_dispatch_remains_available(self):
+        root, target = self.fixture()
+        before = self.snapshot(root)
+        result = subprocess.run(["java", "-jar", str(JAR), "recover-current-runtime-upgrade",
+                                 "--target-root", str(target), "--transaction-root", str(root / "transactions"),
+                                 "--transaction-id", "missing-historical-transaction"], capture_output=True, text=True)
+        self.assertNotEqual(0, result.returncode)
+        self.assertNotIn("generic game composition", result.stderr)
+        self.assertIn("UNSAFE_PATH", result.stderr)
+        self.assertEqual(before, self.snapshot(root))
 
 
 if __name__ == "__main__":
