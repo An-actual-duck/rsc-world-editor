@@ -294,13 +294,17 @@ final class WorldBuilderProjectContentBundle {
 					npcMigration.customDefinitions, "normalized NPC definitions").get("npcs"));
 			} catch (WorldBuilderDiscoveryException malformed) { throw new IOException(malformed); }
 		}
-        List<Object> effectiveNpcWorld = WorldBuilderNpcVisualCompiler.readRows(
-            WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json")));
-        effectiveNpcWorld.addAll(npcMigration.presentationOverrides);
+        WorldBuilderNpcVisualCompiler.PresentationOverlay effectiveNpcWorld =
+            new WorldBuilderNpcVisualCompiler.PresentationOverlay(WorldBuilderNpcVisualCompiler.readRows(
+                WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json"))));
+        for (Object raw : npcMigration.presentationOverrides) {
+            @SuppressWarnings("unchecked") Map<String, Object> generated = (Map<String, Object>)raw;
+            effectiveNpcWorld.merge(generated);
+        }
 		WorldBuilderNpcVisualCompiler.Result directionMigration = WorldBuilderNpcVisualCompiler.normalize(
 			copiedTarget, sourceLayout, originalLayout == null ? sourceLayout : originalLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
-			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld),
+			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
 			runtime.verifiedSourcePath("client/Open_RSC_Client.jar"), runtime.verifiedSourcePath("server/core.jar"));
 		animationRows = directionMigration.animations;
 		int version = preservedAnimationRegistry || !animationRows.isEmpty() ? 3 : itemSuccessor ? 2 : 1;
@@ -358,7 +362,7 @@ final class WorldBuilderProjectContentBundle {
 				overridden = true;
 			} else if ((directionMigration.changed() || !npcMigration.presentationOverrides.isEmpty()) && "definition.npc.world".equals(spec.role)) {
 				Files.write(destination, directionMigration.changed() ? directionMigration.worldDefinitions
-                    : WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld));
+                    : WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()));
 				overridden = true;
 			} else if (directionMigration.changed() && "asset.sprite.authentic".equals(spec.role)) {
 				Files.write(destination, directionMigration.authenticArchive);

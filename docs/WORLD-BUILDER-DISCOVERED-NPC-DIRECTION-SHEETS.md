@@ -52,8 +52,9 @@ error. RGB frames preserve their source pixels (transparent pixels become zero;
 opaque black becomes `0x010101`, following the renderer's transparency rule).
 
 The compiler resolves supplemental ID reassignment through definition provenance
-and appends presentation overrides after the active definition overlays. Server
-stats, commands, and other gameplay fields remain authoritative. Other sprite
+and merges generated presentation fields into one final world-overlay row per
+NPC, after applying the active definition overlays. Server stats, commands, and
+other gameplay fields remain authoritative. Other sprite
 slots remain unchanged. Conflicting camera bounds or multiple sources claiming
 one effective sprite slot are refused. Existing verified derived animations are
 reused after checking all frame hashes and bytes.
@@ -89,3 +90,19 @@ modify the target or original project.
 Focused coverage: `tests/myworld/test-world-builder-npc-direction-sheets.py`
 and the structural source-adapter tests. Optional reference tests consume only
 explicitly exported files; they never build or launch the reference checkout.
+
+## Overlay collision regression (2026-09-30)
+
+Alpha.4 could append duplicate world-overlay IDs when a discovered visual had
+an existing world definition, several verified sprite slots, or an existing
+world row enriched by a legacy provider. Bundle validation then refused the
+editor-generated content with `DEFINITION_MISMATCH`, source
+`definition.npc.world`. This failure is reproduced by synthetic fixtures; it
+has not been confirmed against the owner's exact failing input.
+
+Generated presentation now updates the existing row by ID and preserves all
+unrelated world fields. Multiple verified slots accumulate in that same row.
+Duplicate IDs in the original target definition remain invalid; source
+validation is not relaxed. Regression coverage checks capture, unchanged target
+bytes, offline project reopen, provider enrichment, and malformed-source
+refusal. The change does not modify runtime upgrades or map import behavior.
