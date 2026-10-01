@@ -379,7 +379,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				Collections.<ConfigurationChange>emptyList(), directories,
 				requiredSpace, configuration.sha256);
 			inherit(document, WorldBuilderFloorUpgradeLineage.advance(installed));
-		WorldBuilderRuntimeUpgradeHistory.record(installed, document);
+			WorldBuilderRuntimeUpgradeHistory.record(installed, document);
 			return new Plan(target, project, export, capability, configuration,
 				installed.profileId, installed.serverPackageRelativePath,
 				installed.clientPackageRelativePath, unchangedConfiguration,

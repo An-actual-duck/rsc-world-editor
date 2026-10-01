@@ -58,6 +58,8 @@ final class WorldBuilderRuntimeUpgradeHistory {
         if (boundary != null) for (WorldBuilderAdaptiveReceipt.State receipt : receipts)
             if (!receipt.transactionId().equals(currentId) && receipt.createdAtUtc().equals(boundary.createdAtUtc()))
                 throw refusal("Transaction history order is ambiguous.");
+        Map<String,Object> projectTarget = object(project.manifest.get("target"));
+        Map<String,Object> projectConfiguration = object(project.snapshot.get("selectedConfiguration"));
         History result = new History();
         WorldBuilderReadOnlyTarget evidence = WorldBuilderReadOnlyTarget.open(project.projectRoot);
         for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
@@ -82,20 +84,27 @@ final class WorldBuilderRuntimeUpgradeHistory {
                 || !id.equals(plan.get("transactionId"))) throw refusal("Runtime plan and receipt identities disagree.");
             for (String key : new String[]{"exportFingerprintSha256", "adapterId", "capabilityId", "targetLineageSha256", "selectedConfiguration"})
                 if (!plan.get(key).equals(receipt.document.get(key))) throw refusal("Runtime plan and receipt bindings disagree: " + key);
+            for (String key : new String[]{"adapterId", "capabilityId"})
+                if (!plan.get(key).equals(projectTarget.get(key))) throw refusal("Runtime history belongs to a different project target: " + key);
+            if (!plan.get("mutationProfileId").equals(projectTarget.get("importProfileId")))
+                throw refusal("Runtime history belongs to a different mutation profile.");
             if (plan.containsKey(FIELD) && !result.references.equals(plan.get(FIELD)))
                 throw refusal("Runtime history no longer matches its recorded predecessors.");
             WorldBuilderAdaptiveExporter.VerifiedExport export = WorldBuilderAdaptiveUndo.findExport(project, receipt.exportFingerprint());
             Map<String,Object> selected = object(plan.get("selectedConfiguration"));
             String configurationPath = string(selected, "relativePath");
+            if (!selected.get("role").equals(projectConfiguration.get("role"))
+                || !("source/original/" + configurationPath).equals(projectConfiguration.get("relativePath")))
+                throw refusal("Runtime history selected configuration differs from the project snapshot authority.");
             Path original = evidence.requiredFile("source/original/" + configurationPath);
             byte[] configurationBytes = Files.readAllBytes(original);
-            if (!WorldBuilderHashes.sha256(configurationBytes).equals(selected.get("sha256"))) {
-                // A runtime-only transaction may follow a map import, whose activation
-                // backup retains the selected configuration; never use live target bytes.
-                configurationBytes = retainedConfiguration(evidence, receipts, configurationPath, string(selected,"sha256"));
-            }
+            // Runtime action restoration uses immutable layout/client-root fields,
+            // never the historical active map paths. A sibling floor project can
+            // inherit a parent map configuration without owning its before backup.
             WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.readBytes(
-                configurationBytes, configurationPath, string(selected, "sha256"));
+                configurationBytes, configurationPath, WorldBuilderHashes.sha256(configurationBytes));
+            if (!configuration.configurationId.equals(selected.get("role")))
+                throw refusal("Runtime history selected a different configuration role.");
             List<WorldBuilderAdaptiveMutationProfile.Action> restored = new ArrayList<WorldBuilderAdaptiveMutationProfile.Action>();
             WorldBuilderAdaptiveMutationProfile.appendStoredRuntimeCompatibilityActions(plan, project, export, target, id, configuration, restored);
             int runtimeCount = 0;
@@ -132,19 +141,6 @@ final class WorldBuilderRuntimeUpgradeHistory {
         if (current.containsKey(FIELD) && !result.references.equals(current.get(FIELD)))
             throw refusal("Recorded runtime upgrade authority changed or is unavailable.");
         return result;
-    }
-
-    private static byte[] retainedConfiguration(WorldBuilderReadOnlyTarget evidence,
-        List<WorldBuilderAdaptiveReceipt.State> receipts, String path, String hash)
-        throws IOException, WorldBuilderContractException {
-        for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
-            String relative = "backups/" + receipt.transactionId() + "/before/" + path;
-            Path backup = evidence.root.resolve(relative);
-            if (!Files.exists(backup, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
-            byte[] bytes = Files.readAllBytes(evidence.requiredFile(relative));
-            if (hash.equals(WorldBuilderHashes.sha256(bytes))) return bytes;
-        }
-        throw refusal("Historical runtime configuration evidence is unavailable.");
     }
 
     static void validateShape(Object raw) throws WorldBuilderContractException {

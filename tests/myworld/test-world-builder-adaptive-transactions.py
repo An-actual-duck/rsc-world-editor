@@ -134,7 +134,7 @@ import java.util.HashMap;
 public final class AdaptiveTransactionFailureHarness {
     private static boolean selected(String specification, String milestone) {
         for (String value : specification.split(",")) {
-            if (value.equals(milestone) || (value.equals("any-rollback") && milestone.startsWith("rollback-before-"))) return true;
+            if (value.equals(milestone) || (value.equals("any-rollback") && (milestone.startsWith("rollback-before-") || milestone.startsWith("undo-rollback-before-")))) return true;
         }
         return false;
     }
@@ -338,6 +338,8 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveImporter.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("runtime-history-final-drift".equals(failures) && "plan-confirmed".equals(milestone))
+                                Files.write(target.resolve("server/src/fixture/MapEngine.java"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("stage-collision".equals(failures)
                                 && "before-first-target-mutation".equals(milestone)) {
                                 WorldBuilderAdaptiveReceipt.State receipt = pending(project);
@@ -414,6 +416,8 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveUndo.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("runtime-history-final-drift".equals(failures) && "undo-plan-confirmed".equals(milestone))
+                                Files.write(target.resolve("server/src/fixture/MapEngine.java"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("sibling-after-confirm".equals(failures)
                                 && "undo-plan-confirmed".equals(milestone)) {
                                 for (WorldBuilderAdaptiveReceipt.State receipt :
@@ -501,6 +505,8 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveRecovery.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("runtime-history-final-drift".equals(failures) && "recovery-plan-confirmed".equals(milestone))
+                                Files.write(target.resolve("server/src/fixture/MapEngine.java"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("appeared-recovery".equals(failures)
                                 && milestone.startsWith("recovery-before-action-")
                                 && !Files.exists(path)) {
@@ -1748,6 +1754,54 @@ public final class InstalledFloorFixture {
                     self.assertIn("TARGET_DRIFT", refused.stderr)
                     self.assertEqual(drifted, project_support.tree_bytes(target, installation))
                 path.write_bytes(before)
+
+    def test_runtime_history_interrupted_undo_recovers_then_undo_and_import(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-undo-recovery-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            for _ in range(2):
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+                export = self.next_history_export(project)
+            installed = project_support.tree_bytes(target, installation)
+            saved = project_support.tree_bytes(project / "working")
+            failed = self.run_failure("undo", "undo-after-0000,any-rollback", project, target)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(installed, project_support.tree_bytes(target, installation))
+            undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+
+    def test_runtime_history_confirmation_boundary_drift_import_undo_recovery(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-boundary-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            export = self.next_history_export(project)
+            relative = "server/src/fixture/MapEngine.java"
+            for operation in ("import", "undo", "recovery"):
+                if operation == "recovery":
+                    interrupted = self.run_failure("import", "activation-published,any-rollback", project, target, export)
+                    self.assertIn("RECOVERY_REQUIRED", interrupted.stderr)
+                before = project_support.tree_bytes(target, installation)
+                source_before = (target / relative).read_bytes()
+                refused = self.run_failure(operation, "runtime-history-final-drift", project, target, export)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertIn("TARGET_DRIFT", refused.stderr)
+                expected = dict(before)
+                changed_source = source_before + b"*"
+                expected[relative] = ("file", len(changed_source), hashlib.sha256(changed_source).hexdigest())
+                self.assertEqual(expected, project_support.tree_bytes(target, installation))
+                (target / relative).write_bytes(source_before)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
 
     def test_runtime_history_interrupted_import_recovers_then_accepts_next_import(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-recovery-") as temp:
