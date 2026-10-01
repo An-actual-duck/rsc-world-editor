@@ -28,9 +28,16 @@ capability hashes alone cannot establish transaction-history authority.
 History is a bounded flat list rather than recursive floor-project ancestry.
 Imports which also update runtime activation profiles can add a reference; purely
 map-only transactions without runtime actions do not. Sibling floor-project
-inheritance remains a separate verified contract. Runtime action reconstruction
+inheritance remains a separate verified contract. New floor proofs also bind the
+parent runtime-history references and flatten their after states; proof verification
+re-derives those states from the parent evidence, including snapshot-captured
+upgraded Java sources. Historical floor proofs without that optional field keep
+their existing interpretation. Runtime action reconstruction
 uses the original verified configuration's immutable layout fields, not live
 map activation paths or a guessed configuration backup in a sibling project.
+Older runtime action formats which cannot reconstruct their exact required
+content from retained evidence still refuse; this change does not repair missing
+legacy runtime evidence.
 
 Older successful plans without the optional field are supported by reconstructing
 authority from their retained successful receipts, plans, exports and backups.

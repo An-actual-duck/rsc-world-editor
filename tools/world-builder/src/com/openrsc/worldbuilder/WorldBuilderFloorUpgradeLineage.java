@@ -56,6 +56,12 @@ final class WorldBuilderFloorUpgradeLineage {
 		result.put("receiptSha256", WorldBuilderHashes.sha256(receipt));
 		result.put("mutationPlanSha256", installed.canonicalSha256);
 		Map<String,Object> states = inheritedFiles(installed.document);
+        Map<String,Object> runtime = WorldBuilderRuntimeUpgradeHistory.describePredecessors(
+            installed.project, installed.targetRoot, installed.document);
+        if (!WorldBuilderAdaptiveExporter.array(runtime.get("references"), "references").isEmpty()) {
+            result.put(WorldBuilderRuntimeUpgradeHistory.FIELD, runtime.get("references"));
+            states.putAll(object(runtime.get("states")));
+        }
 		for (WorldBuilderAdaptiveMutationProfile.Action action : installed.actions)
 			states.put(action.destinationRelativePath, action.after.toJson());
 		states.put(installed.configuration.relativePath,
@@ -108,6 +114,13 @@ final class WorldBuilderFloorUpgradeLineage {
 			Map<String,Object> ancestor = verifyProof(previous, plan.get(FIELD));
 			expected.putAll(files(ancestor));
 		}
+        if (proof.containsKey(WorldBuilderRuntimeUpgradeHistory.FIELD)) {
+            Map<String,Object> runtime = WorldBuilderRuntimeUpgradeHistory.describePredecessors(
+                previous, previous.projectRoot.resolve("source/original"), plan);
+            if (!runtime.get("references").equals(proof.get(WorldBuilderRuntimeUpgradeHistory.FIELD)))
+                throw refusal("Inherited runtime history differs from the bound predecessor authority.");
+            expected.putAll(object(runtime.get("states")));
+        }
 		for (Object value : WorldBuilderAdaptiveExporter.array(plan.get("actions"), "actions")) {
 			Map<String,Object> action = object(value);
 			expected.put(string(action, "destinationRelativePath"), action.get("after"));
@@ -273,6 +286,8 @@ final class WorldBuilderFloorUpgradeLineage {
 		Map<String,Object> proof = object(raw);
 		Map<String,Object> shape = new LinkedHashMap<String,Object>(proof);
 		shape.remove("successors");
+        if (shape.containsKey(WorldBuilderRuntimeUpgradeHistory.FIELD))
+            WorldBuilderRuntimeUpgradeHistory.validateShape(shape.remove(WorldBuilderRuntimeUpgradeHistory.FIELD));
 		WorldBuilderBoundedInventory.exactKeys(shape, "floor-upgrade-lineage", "projectId",
 			"projectFingerprintSha256", "transactionId", "receiptSha256", "mutationPlanSha256", "files");
 		uuid(string(proof, "projectId")); uuid(string(proof, "transactionId"));

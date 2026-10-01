@@ -40,6 +40,7 @@
       "type": "object", "additionalProperties": false,
       "required": ["projectId", "projectFingerprintSha256", "transactionId", "receiptSha256", "mutationPlanSha256", "files"],
       "properties": {
+        "runtimeUpgradeHistory": {"$ref": "#/properties/runtimeUpgradeHistory"},
         "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
         "projectFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
         "transactionId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},

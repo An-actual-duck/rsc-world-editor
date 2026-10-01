@@ -1047,8 +1047,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 		String lineage = WorldBuilderAdaptiveExporter.string(
 			projectTarget, "targetFingerprintSha256");
 		boolean chained = !planSelectedHash.equals(originalConfigurationState.sha256)
-			|| WorldBuilderInstalledFloorContent.required(project.projectRoot)
-				&& !lineage.equals(WorldBuilderAdaptiveExporter.string(storedObject, "targetLineageSha256"));
+			|| !lineage.equals(WorldBuilderAdaptiveExporter.string(storedObject, "targetLineageSha256"))
+				&& (WorldBuilderInstalledFloorContent.required(project.projectRoot)
+					|| WorldBuilderRuntimeUpgradeHistory.hasPredecessors(project, target, storedObject));
 		if (chained) {
 			String backupRelative = "backups/" + transactionId + "/before/"
 				+ configurationPath;

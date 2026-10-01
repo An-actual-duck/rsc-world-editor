@@ -44,6 +44,23 @@ final class WorldBuilderRuntimeUpgradeHistory {
         return history.states.keySet();
     }
 
+    static boolean hasPredecessors(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        Path target, Map<String,Object> plan) throws IOException, WorldBuilderContractException {
+        return !read(project, target, plan).references.isEmpty();
+    }
+
+    static Map<String,Object> describePredecessors(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        Path target, Map<String,Object> plan) throws IOException, WorldBuilderContractException {
+        History history = read(project, target, plan);
+        Map<String,Object> result = new LinkedHashMap<String,Object>();
+        result.put("references", history.references);
+        Map<String,Object> states = new TreeMap<String,Object>();
+        for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : history.states.entrySet())
+            states.put(entry.getKey(), entry.getValue().toJson());
+        result.put("states", states);
+        return result;
+    }
+
     private static History read(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
         Path target, Map<String,Object> current) throws IOException, WorldBuilderContractException {
         List<WorldBuilderAdaptiveReceipt.State> receipts = WorldBuilderAdaptiveReceipt.readAll(project.projectRoot);

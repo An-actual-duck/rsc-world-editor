@@ -1569,6 +1569,44 @@ public final class InstalledFloorFixture {
             handler.write_text("class EntityHandler { private static final ClientDefinitionRegistry REGISTRY = new ClientDefinitionRegistry(); private static final ArrayList<TileDef> tiles = REGISTRY.mutableTiles(); private static void loadTileDefinitions(){" + statements + "} }")
         self.use_targeted_fixture_descriptor(contract)
 
+    def add_snapshot_captured_history_source(self, base, target):
+        configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+        client = Path(configuration["clientRuntimeRelativePath"]).parts[0]
+        relative = "src/com/openrsc/client/entityhandling/EntityHandler.java"
+        source = target / client / relative
+        existing = source.read_text()
+        existing = existing.replace("class EntityHandler {", "public class EntityHandler { public static int mapVersion(){return 1;}")
+        source.write_text("package com.openrsc.client.entityhandling; import java.util.ArrayList; " + existing
+                         + " class ClientDefinitionRegistry { ArrayList<TileDef> mutableTiles(){return new ArrayList<TileDef>();} }"
+                         + " class TileDef { TileDef(int a,int b,int c){} }")
+        classes = base / "captured-source-classes"
+        classes.mkdir()
+        subprocess.run(["javac", "-source", "8", "-target", "8", "-d", str(classes), str(source)], check=True, capture_output=True)
+        server_source = target / "server" / relative
+        server_source.parent.mkdir(parents=True, exist_ok=True)
+        server_source.write_bytes(source.read_bytes())
+        for path in classes.rglob("*.class"):
+            for archive in (target / client / "Open_RSC_Client.jar", target / "server/core.jar"):
+                self.rewrite_runtime_entry(archive, path.relative_to(classes).as_posix(), path.read_bytes())
+        # Descriptor fixtures explicitly declare source evidence as a paired asset;
+        # real layout discovery captures this same Java path as definition evidence.
+        configuration["assets"].append({"role": "captured-source", "serverRelativePath": "server/" + relative,
+                                         "clientRelativePath": client + "/" + relative})
+        configuration["assets"].sort(key=lambda item: item["role"])
+        project_support.write_json(target / "server/world-builder-configs/primary.json", configuration)
+        capability_path = target / "server/world-builder-capabilities.json"
+        capability = json.loads(capability_path.read_text())
+        capability["discovery"]["sourceRoles"] = sorted(capability["discovery"]["sourceRoles"] + ["server-asset.captured-source", "client-asset.captured-source"])
+        project_support.write_json(capability_path, capability)
+        descriptor = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
+        contract = json.loads(descriptor.read_text())
+        for scope in ("server", "client"):
+            contract["adapters"][0]["transforms"].append({"scope": scope, "targetRelativePath": relative,
+                "transformId": "fixture-captured-source-v2", "edits": [{"before": "public static int mapVersion(){return 1;}",
+                    "after": "public static int mapVersion(){return 2;}", "occurrences": 1}]})
+        self.use_targeted_fixture_descriptor(contract)
+        return client + "/" + relative
+
     def use_targeted_fixture_descriptor(self, contract):
         resource = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
         resource.parent.mkdir(parents=True, exist_ok=True)
@@ -1888,7 +1926,10 @@ public final class InstalledFloorFixture {
     def test_floor_sibling_inherits_runtime_only_parent_across_repeated_maps(self):
         self.check_floor_sibling_installed_parent(import_parent=False)
 
-    def check_floor_sibling_installed_parent(self, import_parent):
+    def test_floor_sibling_retains_snapshot_captured_runtime_source_history(self):
+        self.check_floor_sibling_installed_parent(import_parent=True, captured_source=True)
+
+    def check_floor_sibling_installed_parent(self, import_parent, captured_source=False):
         with tempfile.TemporaryDirectory(prefix="adaptive-floor-parent-") as temp:
             base = Path(temp)
             legacy = base / "legacy-classes"
@@ -1908,10 +1949,16 @@ final class WorldBuilderStandardFloorDefinitions {
                                        MAIN_CLASS, *map(str, args)], cwd=ROOT, capture_output=True, text=True)
             self.run_cli = legacy_create
             try:
-                target, installation, parent, export = self.floor_target_project(base)
+                capture = (lambda target: self.add_snapshot_captured_history_source(base, target)) if captured_source else None
+                target, installation, parent, export = self.floor_target_project(base, capture)
             finally:
                 self.run_cli = normal_cli
             self.assertNotIn(b"worldBuilderMaterial", (parent / "source/content-bundle/files/server/conf/server/defs/TileDef.xml").read_bytes())
+            if captured_source:
+                configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+                captured_relative = Path(configuration["clientRuntimeRelativePath"]).parts[0] + "/src/com/openrsc/client/entityhandling/EntityHandler.java"
+                captured_original = (target / captured_relative).read_bytes()
+                self.assertEqual(captured_original, (parent / "source/original" / captured_relative).read_bytes())
             upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", parent,
                                                "--export", export, "--target-root", target)
             self.assertEqual(0, upgraded.returncode, upgraded.stderr)
@@ -1919,6 +1966,11 @@ final class WorldBuilderStandardFloorDefinitions {
                 applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
                                                   "--export", export, "--target-root", target)
                 self.assertEqual(0, applied.returncode, applied.stderr)
+                if captured_source:
+                    export = self.next_history_export(parent)
+                    applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
+                                                      "--export", export, "--target-root", target)
+                    self.assertEqual(0, applied.returncode, applied.stderr)
             # A new application runtime generation, without modifying the parent.
             runtime = base / "builder-runtime"
             self.rewrite_runtime_entry(runtime / "server/core.jar", "fixture/generation.txt", b"next-floor-generation")
@@ -1954,10 +2006,24 @@ public final class SiblingFloorProbe {
             self.assertEqual(3, refused.returncode, refused.stderr)
             self.assertEqual(drifted, project_support.tree_bytes(target, installation))
             configuration.write_bytes(original_configuration)
+            if captured_source:
+                path = target / captured_relative
+                upgraded_source = path.read_bytes()
+                self.assertNotEqual(captured_original, upgraded_source)
+                path.write_bytes(upgraded_source + b"\n// external source drift")
+                drifted = project_support.tree_bytes(target, installation)
+                refused = self.run_cli("upgrade-target-runtime", "--project", child, "--export", child_export,
+                                      "--target-root", target)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+                path.write_bytes(upgraded_source)
             before_child_upgrade = project_support.tree_bytes(target, installation)
             failed = self.run_failure("runtime-upgrade", "before-success-receipt,rollback-before-0000",
                                       child, target, child_export)
             self.assertEqual(3, failed.returncode, failed.stderr)
+            if captured_source:
+                self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+                self.assertTrue(list((child / "receipts").glob("*.json")), failed.stderr)
             recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", child,
                                                 "--target-root", target)
             self.assertEqual(0, recovered.returncode, recovered.stderr)
