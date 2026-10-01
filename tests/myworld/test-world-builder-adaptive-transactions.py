@@ -333,11 +333,15 @@ public final class AdaptiveTransactionFailureHarness {
                     };
                 new WorldBuilderAdaptiveExporter(observer).export(project);
             } else if ("import".equals(operation)
-                || "runtime-upgrade".equals(operation)) {
+                || "runtime-upgrade".equals(operation) || "reverify".equals(operation)) {
                 WorldBuilderAdaptiveImporter.Observer observer =
                     new WorldBuilderAdaptiveImporter.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if ("reverify-final-new-source".equals(failures) && "before-first-target-mutation".equals(milestone))
+                                Files.write(target.resolve("server/src/fixture/Unexpected.java"), "package fixture; class Unexpected {}".getBytes("UTF-8"));
+                            if ("reverify-final-archive-drift".equals(failures) && "plan-confirmed".equals(milestone))
+                                Files.write(target.resolve("server/core.jar"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("runtime-history-final-drift".equals(failures) && "plan-confirmed".equals(milestone))
                                 Files.write(target.resolve("server/src/fixture/MapEngine.java"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("stage-collision".equals(failures)
@@ -398,11 +402,12 @@ public final class AdaptiveTransactionFailureHarness {
                 WorldBuilderAdaptiveImporter importer =
                     new WorldBuilderAdaptiveImporter(observer);
                 boolean runtimeUpgrade = "runtime-upgrade".equals(operation);
-                WorldBuilderAdaptiveImporter.Preview preview = runtimeUpgrade
+                WorldBuilderAdaptiveImporter.Preview preview = "reverify".equals(operation)
+                    ? importer.previewRuntimeReverification(project,target) : runtimeUpgrade
                     ? importer.previewRuntimeUpgrade(
                         project, Paths.get(args[4]), target)
                     : importer.preview(project, Paths.get(args[4]), target);
-                importer.apply(preview, runtimeUpgrade ? "UPGRADE" : "IMPORT");
+                importer.apply(preview, "reverify".equals(operation) ? "REVERIFY" : runtimeUpgrade ? "UPGRADE" : "IMPORT");
             } else if ("import-stale".equals(operation)) {
                 WorldBuilderAdaptiveImporter importer =
                     new WorldBuilderAdaptiveImporter();
@@ -1703,6 +1708,145 @@ public final class InstalledFloorFixture {
         exported = self.run_cli("export-adaptive", "--project", project)
         self.assertEqual(0, exported.returncode, exported.stderr)
         return Path(json.loads(exported.stdout)["exportDirectory"])
+
+    def reverification_fixture(self, base):
+        def content(target):
+            self.add_targeted_floor_fixture(base, target)
+            self.add_snapshot_captured_history_source(base, target)
+            descriptor = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
+            contract = json.loads(descriptor.read_text())
+            for row in contract["adapters"][0]["compilation"]:
+                row["compileAllSources"] = True
+                row["dependencyDirectories"] = ["server/lib"] if row["scope"] == "server" else []
+            self.use_targeted_fixture_descriptor(contract)
+        target, installation, project, export = self.target_project(base, target_mutator=content)
+        upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+            "--export", export, "--target-root", target)
+        self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+        imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+            "--export", export, "--target-root", target)
+        self.assertEqual(0, imported.returncode, imported.stderr)
+        return target, installation, project, self.next_history_export(project)
+
+    def rebuild_fixture(self, base, target, debug="none", drop_markers=False):
+        configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+        client = Path(configuration["clientRuntimeRelativePath"]).parts[0]
+        for root, archive in (("server", "core.jar"), (client, "Open_RSC_Client.jar")):
+            classes = base / (root + "-normal-rebuild")
+            classes.mkdir(exist_ok=True)
+            subprocess.run(["javac", "-g:" + debug, "-source", "8", "-target", "8", "-d", str(classes),
+                            *map(str, (target / root / "src").rglob("*.java"))], check=True, capture_output=True)
+            jar = target / root / archive
+            with zipfile.ZipFile(jar) as old:
+                entries = {name: old.read(name) for name in old.namelist()}
+            for file in classes.rglob("*.class"):
+                entries[file.relative_to(classes).as_posix()] = file.read_bytes()
+            if drop_markers:
+                entries["META-INF/MANIFEST.MF"] = b"\r\n".join(line for line in entries["META-INF/MANIFEST.MF"].splitlines()
+                    if not line.startswith(b"World-Builder-")) + b"\r\n\r\n"
+            with zipfile.ZipFile(jar, "w", compression=zipfile.ZIP_DEFLATED) as rebuilt:
+                for name, payload in sorted(entries.items(), reverse=True):
+                    info = zipfile.ZipInfo(name, date_time=(2001, 2, 3, 4, 5, 6))
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    rebuilt.writestr(info, payload)
+        return {str(path.relative_to(target)): path.read_bytes() for path in target.rglob("*.jar")}
+
+    def test_reverification_rebuild_repeated_imports_undo_boundary_preserve_work(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-chain-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            saved = project_support.tree_bytes(project / "working")
+            original = project_support.tree_bytes(project / "source")
+            retained = {str(p.relative_to(project)): p.read_bytes() for group in ("backups", "receipts") for p in (project / group).rglob("*") if p.is_file()}
+            archives = self.rebuild_fixture(base, target, "none", drop_markers=True)
+            result = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", project, "--target-root", target)
+            self.assertEqual(0, result.returncode, result.stderr)
+            transaction = json.loads(result.stdout)["transactionId"]
+            plan = json.loads((project / "backups" / transaction / "mutation-plan.json").read_text())
+            self.assertEqual(["server/conf/world-builder/installed-target-map-integration-v1.json"], [a["destinationRelativePath"] for a in plan["actions"]])
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+            self.assertEqual(original, project_support.tree_bytes(project / "source"))
+            for path, data in retained.items(): self.assertEqual(data, (project / path).read_bytes(), path)
+            for generation in range(3):
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project, "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+                export = self.next_history_export(project)
+            saved = project_support.tree_bytes(project / "working")
+            for _ in range(3):
+                undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+                self.assertEqual(0, undone.returncode, undone.stderr)
+            refused = self.run_failure("undo-preview", "-", project, target, export)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("re-verification boundary", refused.stderr)
+            for path, data in archives.items(): self.assertEqual(data, (target / path).read_bytes(), path)
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+
+    def test_reverification_preview_apply_drift_and_final_source_inventory_refuse(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-drift-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            archives = self.rebuild_fixture(base, target)
+            preview = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            jar = target / "server/core.jar"
+            jar.write_bytes(jar.read_bytes() + b"zip-comment-change")
+            refused = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target,
+                "--confirm", "REVERIFY", "--transaction-id", plan["transactionId"], "--plan-sha256", plan["planFingerprintSha256"])
+            self.assertNotEqual(0, refused.returncode)
+            jar.write_bytes(archives["server/core.jar"])
+            for failure in ("reverify-final-new-source", "reverify-final-archive-drift"):
+                refused = self.run_failure("reverify", failure, project, target, export)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                (target / "server/src/fixture/Unexpected.java").unlink(missing_ok=True)
+                jar.write_bytes(archives["server/core.jar"])
+
+    def test_reverification_interrupted_recovery_keeps_rebuilt_archives(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-recovery-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            archives = self.rebuild_fixture(base, target, "lines,source")
+            before = project_support.tree_bytes(target, installation)
+            saved = project_support.tree_bytes(project / "working")
+            failed = self.run_failure("reverify", "activation-published,any-rollback", project, target, export)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            jar = target / "server/core.jar"
+            jar.write_bytes(jar.read_bytes() + b"drift")
+            refused = self.run_cli("recover-adaptive", "--project", project, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertTrue(jar.read_bytes().endswith(b"drift"))
+            jar.write_bytes(archives["server/core.jar"])
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+            result = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", project, "--target-root", target)
+            self.assertEqual(0, result.returncode, result.stderr)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
+    def test_reverification_unrelated_map_floor_configuration_and_dependency_drift_refuse(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-refusals-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            self.rebuild_fixture(base, target)
+            config = target / "server/world-builder-configs/primary.json"
+            value = json.loads(config.read_text())
+            paths = [config, target / "server/conf/server/defs/TileDef.xml",
+                     target / value["serverMapRelativePath"] / "manifest.json", target / "server/src/fixture/MapEngine.java"]
+            for path in paths:
+                before = path.read_bytes()
+                path.write_bytes(before + b" ")
+                refused = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(before + b" ", path.read_bytes())
+                path.write_bytes(before)
+            dependency = target / "server/lib/unreviewed.jar"
+            dependency.parent.mkdir(exist_ok=True)
+            with zipfile.ZipFile(dependency, "w") as jar: jar.writestr("extra-resource", b"new")
+            refused = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
 
     def test_runtime_history_repeated_imports_and_complete_undo_preserve_saved_edits(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-") as temp:

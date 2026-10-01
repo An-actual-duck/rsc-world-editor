@@ -122,6 +122,34 @@ final class WorldBuilderAdaptiveMutationProfile {
 			generated);
 	}
 
+    static Plan prepareReverification(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        WorldBuilderAdaptiveExporter.VerifiedExport export, Path target, String id,
+        Plan predecessor, WorldBuilderTargetMapIntegration.Result verified, Map<String,Object> evidence)
+        throws IOException, WorldBuilderContractException {
+        WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(WorldBuilderReadOnlyTarget.open(target));
+        WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.select(
+            WorldBuilderReadOnlyTarget.open(target), capability, predecessor.configuration.configurationId).selected;
+        List<Action> actions = new ArrayList<Action>();
+        for (Action raw : WorldBuilderTargetMapIntegration.actions(target, verified)) {
+            if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(raw.destinationRelativePath))
+                throw WorldBuilderRuntimeReverification.refusal("Re-verification may only update compatibility evidence.");
+            actions.add(new Action(raw.role, raw.destinationRelativePath, raw.before, raw.after,
+                raw.contentRelativePath, raw.backupRelativePath.replace("{transaction}", id), true, raw.generatedContent));
+        }
+        if (actions.isEmpty()) throw WorldBuilderRuntimeReverification.refusal("Runtime evidence is already current; no re-verification transaction is needed.");
+        List<String> directories = plannedDirectories(target, actions);
+        Map<String,Object> generated = document(id, project, export, capability, configuration,
+            WorldBuilderAdaptiveExporter.canonicalHash(evidence), actions, Collections.<ConfigurationChange>emptyList(),
+            directories, requiredSpace(actions), configuration.sha256);
+        inherit(generated, WorldBuilderFloorUpgradeLineage.advance(predecessor));
+        WorldBuilderRuntimeUpgradeHistory.record(predecessor, generated);
+        WorldBuilderRuntimeReverification.bind(generated, evidence);
+        return new Plan(target, project, export, capability, configuration, predecessor.profileId,
+            configuration.serverMapRelativePath, configuration.clientMapRelativePath,
+            Files.readAllBytes(safeExistingFile(target, configuration.relativePath, "configuration")),
+            actions, Collections.<ConfigurationChange>emptyList(), directories, generated);
+    }
+
 	static Plan prepare(
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		WorldBuilderAdaptiveExporter.VerifiedExport export,
@@ -938,6 +966,16 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveExporter.VerifiedExport export,
 		Path targetRoot, String transactionId)
 		throws IOException, WorldBuilderContractException {
+        return reconstructInstalled(project, export, targetRoot, transactionId, Collections.<String>emptySet());
+    }
+
+    // Only the re-verification preparer supplies this scope, after independent
+    // retained-archive and maintained-source verification succeeds.
+    static Plan reconstructInstalled(
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        WorldBuilderAdaptiveExporter.VerifiedExport export,
+        Path targetRoot, String transactionId, Set<String> verifiedRebuiltArchives)
+        throws IOException, WorldBuilderContractException {
 		if ("standalone-empty".equals(project.origin)) throw problem(
 			WorldBuilderErrorCodes.NO_TARGET, "target-root",
 			"Standalone projects have no compatible target server.",
@@ -1030,6 +1068,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			installedDestinations.add(WorldBuilderAdaptiveExporter.string(
 				action, "destinationRelativePath"));
 		}
+		installedDestinations.addAll(verifiedRebuiltArchives);
 		verifyUnchangedTargetEvidence(project, target, configurationPath,
 			installedDestinations, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD), storedObject);
 		if (runtimeCompatibilityOnly(storedObject)) {
@@ -1121,6 +1160,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			requiredSpace, planSelectedHash);
 		inherit(generated, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		WorldBuilderRuntimeUpgradeHistory.copy(generated, storedObject);
+        WorldBuilderRuntimeReverification.copy(generated, storedObject);
 		Plan plan = new Plan(target, project, export, capability, configuration,
 			profile, serverPackage, clientPackage, configurationBytes,
 			actions, changes, directories, generated);
@@ -1230,6 +1270,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 			requiredSpace, selectedHash);
 		inherit(generated, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD));
 		WorldBuilderRuntimeUpgradeHistory.copy(generated, storedObject);
+        WorldBuilderRuntimeReverification.copy(generated, storedObject);
 		Plan plan = new Plan(target, project, export, capability, configuration,
 			profile, configuration.serverMapRelativePath,
 			configuration.clientMapRelativePath, configurationBytes, actions,

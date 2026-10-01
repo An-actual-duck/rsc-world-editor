@@ -224,9 +224,7 @@ final class WorldBuilderInstalledFloorContent {
 	static void verifyInstalled(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target,
 		WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {
 		if (!required(project.projectRoot)) return;
-		WorldBuilderStandardFloorRuntime.require(target.resolve("server/core.jar"),
-			target.resolve(clientRoot(configuration) + "/Open_RSC_Client.jar"));
-		requireClient(target.resolve(clientRoot(configuration) + "/Open_RSC_Client.jar"));
+        requireTargetRuntime(project.projectRoot, target, clientRoot(configuration));
 		for (String role : Arrays.asList(SERVER_ROLE, CLIENT_ROLE, DESCRIPTOR_ROLE)) {
 			String destination = destination(project, configuration, role);
 			Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, destination);
@@ -237,6 +235,19 @@ final class WorldBuilderInstalledFloorContent {
 				throw refusal("Installed floor definitions differ from this project at " + destination + ".");
 		}
 	}
+
+    private static void requireTargetRuntime(Path project, Path target, String client) throws IOException, WorldBuilderContractException {
+        try {
+            WorldBuilderStandardFloorRuntime.require(target.resolve("server/core.jar"), target.resolve(client + "/Open_RSC_Client.jar"));
+            requireClient(target.resolve(client + "/Open_RSC_Client.jar"));
+        } catch (WorldBuilderContractException missingManifestMarker) {
+            // Normal builds can omit editor-owned manifest hints. The paired
+            // exact proof is checked against the application's trusted contract;
+            // import authority still comes from the project's retained history.
+            if (!WorldBuilderTargetMapIntegration.verifyInstalled(project, target, client).contains(Integer.valueOf(5)))
+                throw missingManifestMarker;
+        }
+    }
 
 	/** A later map receipt retains the installed floor generation without rewriting it. */
 	static boolean verifyRetainedPath(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
@@ -287,8 +298,7 @@ final class WorldBuilderInstalledFloorContent {
 			if (server == null || Files.size(target.requiredFile(server)) != bytes.length
 				|| !WorldBuilderHashes.sha256(bytes).equals(WorldBuilderHashes.sha256(target.requiredFile(server))))
 				throw refusal("Installed server and player floor definitions differ.");
-			WorldBuilderStandardFloorRuntime.require(target.requiredFile("server/core.jar"), target.requiredFile(client + "/Open_RSC_Client.jar"));
-			requireClient(target.requiredFile(client + "/Open_RSC_Client.jar"));
+            requireTargetRuntime(null, target.root, client);
 			if (count < 1 || count >= 250) throw refusal("Installed floor definitions exceed the supported slot capacity.");
 			java.util.Set<Integer> ids = new java.util.TreeSet<Integer>();
 			for (int id = 0; id < count; id++) ids.add(Integer.valueOf(id));

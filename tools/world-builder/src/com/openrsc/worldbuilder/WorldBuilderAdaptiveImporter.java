@@ -65,7 +65,7 @@ final class WorldBuilderAdaptiveImporter {
 		try {
 			ImportOutcome outcome = operate(
 				requestedProject, requestedExport, requestedTarget, null, null,
-				requestedTransactionId, false);
+				requestedTransactionId, false, false);
 			return new Preview(outcome.plan, requestedProject, requestedExport,
 				requestedTarget, false);
 		} catch (WorldBuilderContractException failure) {
@@ -91,7 +91,7 @@ final class WorldBuilderAdaptiveImporter {
 		throws IOException, WorldBuilderContractException {
 		try {
 			ImportOutcome outcome = operate(requestedProject, requestedExport,
-				requestedTarget, null, null, requestedTransactionId, true);
+				requestedTarget, null, null, requestedTransactionId, true, false);
 			return new Preview(outcome.plan, requestedProject, requestedExport,
 				requestedTarget, true);
 		} catch (WorldBuilderContractException failure) {
@@ -105,6 +105,17 @@ final class WorldBuilderAdaptiveImporter {
 		}
 	}
 
+    Preview previewRuntimeReverification(Path project, Path target) throws IOException, WorldBuilderContractException {
+        return previewRuntimeReverification(project,target,null);
+    }
+    Preview previewRuntimeReverification(Path project, Path target, String id) throws IOException, WorldBuilderContractException {
+        try {
+            ImportOutcome result = operate(project,null,target,null,null,id,false,true);
+            return new Preview(result.plan,project,null,target,false,true);
+        } catch (IOException | WorldBuilderContractException failure) { throw failure; }
+        catch (Exception failure) { throw WorldBuilderRuntimeReverification.refusal("Runtime re-verification was interrupted: " + failure.getMessage()); }
+    }
+
 	ImportResult apply(Preview preview, final String confirmation)
 		throws IOException, WorldBuilderContractException {
 		if (preview == null) throw new IllegalArgumentException("preview");
@@ -116,7 +127,7 @@ final class WorldBuilderAdaptiveImporter {
 						WorldBuilderAdaptiveMutationProfile.Plan plan) {
 						return confirmation;
 					}
-				}, preview, null, preview.runtimeUpgrade);
+				}, preview, null, preview.runtimeUpgrade, preview.runtimeReverification);
 			return outcome.result;
 		} catch (WorldBuilderContractException failure) {
 			throw failure;
@@ -143,12 +154,12 @@ final class WorldBuilderAdaptiveImporter {
 		throws Exception {
 		if (confirmation == null) throw new IllegalArgumentException("confirmation");
 		return operate(requestedProject, requestedExport, requestedTarget,
-			confirmation, null, null, false);
+			confirmation, null, null, false, false);
 	}
 
 	private ImportOutcome operate(Path requestedProject, Path requestedExport,
 		Path requestedTarget, ConfirmationGate confirmation, Preview expectedPreview,
-		String requestedTransactionId, boolean runtimeUpgrade)
+		String requestedTransactionId, boolean runtimeUpgrade, boolean runtimeReverification)
 		throws Exception {
 		/* Verify origin before resolving, opening, or locking any target path. */
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject initial =
@@ -161,6 +172,7 @@ final class WorldBuilderAdaptiveImporter {
 			"Continue editing/exporting the standalone project; Import is unavailable.");
 		WorldBuilderAdaptiveReceipt.State outstanding =
 			latestOutstandingSuccessfulImport(initial.projectRoot);
+        if (runtimeReverification && outstanding == null) throw WorldBuilderRuntimeReverification.refusal("Re-verification requires this project's retained successful runtime integration history.");
 		if (runtimeUpgrade && outstanding != null) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "receipts/"
 				+ outstanding.transactionId() + ".json", false,
@@ -191,7 +203,9 @@ final class WorldBuilderAdaptiveImporter {
 				outstanding = latestOutstandingSuccessfulImport(project);
 				Path target = WorldBuilderAdaptiveMutationProfile.requireTarget(requestedTarget);
 				WorldBuilderAdaptiveExporter.VerifiedExport export =
-					WorldBuilderAdaptiveExporter.validate(requestedExport, verified);
+					runtimeReverification
+                        ? WorldBuilderAdaptiveUndo.findExport(verified, outstanding == null ? "" : outstanding.exportFingerprint())
+                        : WorldBuilderAdaptiveExporter.validate(requestedExport, verified);
 				WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 				WorldBuilderTargetCapability beforeLease =
 					WorldBuilderTargetCapability.read(readOnly);
@@ -211,7 +225,9 @@ final class WorldBuilderAdaptiveImporter {
 						: requestedTransactionId == null
 							? UUID.randomUUID().toString() : requestedTransactionId;
 						WorldBuilderAdaptiveMutationProfile.Plan plan;
-						if (runtimeUpgrade) {
+						if (runtimeReverification) {
+                            plan = WorldBuilderRuntimeReverification.prepare(verified, target, transactionId, outstanding);
+                        } else if (runtimeUpgrade) {
 							plan = WorldBuilderAdaptiveMutationProfile.prepareRuntimeUpgrade(
 								verified, export, target, transactionId);
 						} else if (outstanding == null) {
@@ -241,10 +257,10 @@ final class WorldBuilderAdaptiveImporter {
 					ensureFreeSpace(plan);
 					if (confirmation == null) return new ImportOutcome(plan, null);
 					String supplied = confirmation.confirm(plan);
-					String expectedConfirmation = runtimeUpgrade ? "UPGRADE" : "IMPORT";
+					String expectedConfirmation = runtimeReverification ? "REVERIFY" : runtimeUpgrade ? "UPGRADE" : "IMPORT";
 					if (!expectedConfirmation.equals(supplied)) throw problem(
 						WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "confirmation", false,
-						(runtimeUpgrade ? "Target runtime upgrade" : "Adaptive import")
+						(runtimeReverification ? "Runtime re-verification" : runtimeUpgrade ? "Target runtime upgrade" : "Adaptive import")
 							+ " requires exact " + expectedConfirmation
 							+ " confirmation for this preview.",
 						"Review the complete plan and type " + expectedConfirmation
@@ -299,9 +315,12 @@ final class WorldBuilderAdaptiveImporter {
 				"Create and review a fresh complete export.");
 			verifyBeforeState(plan);
             WorldBuilderTargetMapIntegration.verifyInputs(plan);
+            WorldBuilderRuntimeReverification.verifyInputs(plan);
 			WorldBuilderAdaptiveMutationProfile.requireInstallRootsAbsent(plan);
 			verifyPlannedDirectoriesAbsent(plan);
 			observe("before-first-target-mutation", target);
+            WorldBuilderRuntimeReverification.verifyInputs(plan);
+            if (plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) WorldBuilderTargetMapIntegration.verifyInputs(plan);
 
 			int packageIndex = 0;
 			for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
@@ -611,7 +630,8 @@ final class WorldBuilderAdaptiveImporter {
 	private static void verifyInstalledSemantics(
 		WorldBuilderAdaptiveMutationProfile.Plan plan)
 		throws IOException, WorldBuilderContractException {
-		WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(plan.targetRoot);
+		WorldBuilderRuntimeReverification.verifyInputs(plan);
+        WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(plan.targetRoot);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(target);
 		if (!plan.capability.evidenceSha256.equals(capability.evidenceSha256)
 			|| !plan.capability.capabilityId.equals(capability.capabilityId)
@@ -1046,9 +1066,15 @@ final class WorldBuilderAdaptiveImporter {
 		final Path requestedExport;
 		final Path requestedTarget;
 		final boolean runtimeUpgrade;
+        final boolean runtimeReverification;
 
 		Preview(WorldBuilderAdaptiveMutationProfile.Plan plan, Path requestedProject,
 			Path requestedExport, Path requestedTarget, boolean runtimeUpgrade) {
+            this(plan, requestedProject, requestedExport, requestedTarget, runtimeUpgrade, false);
+        }
+        Preview(WorldBuilderAdaptiveMutationProfile.Plan plan, Path requestedProject,
+            Path requestedExport, Path requestedTarget, boolean runtimeUpgrade, boolean runtimeReverification) {
+            this.runtimeReverification = runtimeReverification;
 			this.plan = plan;
 			this.requestedProject = requestedProject;
 			this.requestedExport = requestedExport;
@@ -1057,7 +1083,7 @@ final class WorldBuilderAdaptiveImporter {
 		}
 
 		String humanSummary() {
-			return plan.humanSummary();
+			return runtimeReverification ? "Re-verify Rebuilt Runtime\n\nVerified rebuilt archives and saved editor work are retained. Only compatibility evidence is updated.\nHistorical undo stops at this rebuild boundary.\n\n" + plan.humanSummary().replace("UPGRADE", "REVERIFY") : plan.humanSummary();
 		}
 
 		String toJson() {

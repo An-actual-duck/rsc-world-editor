@@ -37,6 +37,8 @@ final class WorldBuilderRuntimeUpgradeHistory {
         Path target, Map<String,Object> plan, Set<String> superseded)
         throws IOException, WorldBuilderContractException {
         History history = read(project, target, plan);
+        WorldBuilderRuntimeReverification.replay(project, plan, history.states);
+        WorldBuilderRuntimeReverification.verifyInventories(target, plan);
         for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> item : history.states.entrySet()) {
             if (!superseded.contains(item.getKey()))
                 WorldBuilderAdaptiveImporter.verifyState(target, item.getKey(), item.getValue());
@@ -148,6 +150,8 @@ final class WorldBuilderRuntimeUpgradeHistory {
                 }
                 result.states.put(action.destinationRelativePath, action.after);
             }
+            WorldBuilderRuntimeReverification.replay(project, plan, result.states);
+            WorldBuilderRuntimeReverification.verifyInventories(target, plan);
             Map<String,Object> reference = new LinkedHashMap<String,Object>();
             reference.put("transactionId", id);
             reference.put("receiptSha256", WorldBuilderHashes.sha256(evidence.requiredFile("receipts/" + id + ".json")));
