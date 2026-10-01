@@ -1368,7 +1368,7 @@ class AdaptiveContractTests(unittest.TestCase):
                 self.assertEqual(
                     manifest_type, schema["properties"]["manifestType"]["const"]
                 )
-                optional = ({"inheritedTargetState"}
+                optional = ({"inheritedTargetState", "runtimeUpgradeHistory"}
                             if name == "target-mutation-plan-v1.schema.json" else set())
                 self.assertEqual(set(schema["required"]), set(schema["properties"]) - optional)
                 self.assertTrue(optional.issubset(schema["properties"]))

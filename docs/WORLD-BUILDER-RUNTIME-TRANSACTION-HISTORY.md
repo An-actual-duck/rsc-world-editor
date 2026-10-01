@@ -85,3 +85,14 @@ import and undo recovery, and source drift at all three confirmation boundaries.
 They preserve saved edits and compare exact target inventories. The supplied
 incident artifacts are read-only evidence; manager acceptance uses another
 isolated copy, without building or launching the target game.
+
+Integration verification on 2026-10-01 covered 76 distinct adaptive transaction
+cases across the original suite and focused corrections, with the final 11
+history/ancestry cases passing on implementation tip
+`20414f0430d9519fab62f95ce98032db21174dbc`. All 29 targeted integration cases
+passed. The offline-port case passed in an isolated network namespace, avoiding
+the port held by the simultaneous copied-audit import. The merged contract
+suite covered all 23 cases; its schema inventory assertion was updated to list
+the new optional history field and that case then passed. These are affected-area
+checks, not a production release gate; the historical full baseline remains in
+`TESTING-POLICY.md`.
