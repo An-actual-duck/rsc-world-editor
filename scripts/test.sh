@@ -156,6 +156,7 @@ add_group() {
 		transactions)
 			members=(
 				test-world-builder-target-map-integration.py
+				test-world-builder-runtime-rebuild-verifier.py
 				test-world-builder-class-semantics.py
 				test-world-builder-adaptive-transactions.py
 				test-world-builder-current-runtime-upgrade-transaction.py

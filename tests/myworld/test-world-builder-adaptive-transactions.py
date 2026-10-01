@@ -1712,13 +1712,24 @@ public final class InstalledFloorFixture {
     def reverification_fixture(self, base):
         def content(target):
             self.add_targeted_floor_fixture(base, target)
-            self.add_snapshot_captured_history_source(base, target)
+            configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+            client = Path(configuration["clientRuntimeRelativePath"]).parts[0]
+            if (target / client / "src/com/openrsc/client/entityhandling/EntityHandler.java").exists():
+                self.add_snapshot_captured_history_source(base, target)
             descriptor = self.classes / "com/openrsc/worldbuilder/target-map-integration/target-map-integration-v1.json"
             contract = json.loads(descriptor.read_text())
             for row in contract["adapters"][0]["compilation"]:
                 row["compileAllSources"] = True
-                row["dependencyDirectories"] = ["server/lib"] if row["scope"] == "server" else []
+                row["dependencyDirectories"] = ["server/lib"]  # Shared server/client dependency inventory is legitimate.
             self.use_targeted_fixture_descriptor(contract)
+            # Rebuild tests require real bytecode for every retained source,
+            # unlike the older protocol-marker-only discovery fixtures.
+            classes = base / "reverification-initial-server-classes"
+            classes.mkdir()
+            subprocess.run(["javac", "-source", "8", "-target", "8", "-d", str(classes),
+                            *map(str, (target / "server/src").rglob("*.java"))], check=True, capture_output=True)
+            for file in classes.rglob("*.class"):
+                self.rewrite_runtime_entry(target / "server/core.jar", file.relative_to(classes).as_posix(), file.read_bytes())
         target, installation, project, export = self.target_project(base, target_mutator=content)
         upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
             "--export", export, "--target-root", target)
@@ -1781,6 +1792,30 @@ public final class InstalledFloorFixture {
             for path, data in archives.items(): self.assertEqual(data, (target / path).read_bytes(), path)
             self.assertEqual(saved, project_support.tree_bytes(project / "working"))
 
+    def test_reverification_second_rebuild_after_imports_and_new_undo_boundary(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-twice-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            saved = project_support.tree_bytes(project / "working")
+            for debug in ("none", "lines,source"):
+                archives = self.rebuild_fixture(base, target, debug, drop_markers=True)
+                result = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", project, "--target-root", target)
+                self.assertEqual(0, result.returncode, result.stderr)
+                for _ in range(2):
+                    imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project, "--export", export, "--target-root", target)
+                    self.assertEqual(0, imported.returncode, imported.stderr)
+                    export = self.next_history_export(project)
+                for path, data in archives.items(): self.assertEqual(data, (target / path).read_bytes(), path)
+            saved = project_support.tree_bytes(project / "working")
+            for _ in range(2):
+                undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+                self.assertEqual(0, undone.returncode, undone.stderr)
+            refused = self.run_failure("undo-preview", "-", project, target, export)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("re-verification boundary", refused.stderr)
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+            for path, data in archives.items(): self.assertEqual(data, (target / path).read_bytes(), path)
+
     def test_reverification_preview_apply_drift_and_final_source_inventory_refuse(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-reverify-drift-") as temp:
             base = Path(temp)
@@ -1801,6 +1836,21 @@ public final class InstalledFloorFixture {
                 (target / "server/src/fixture/Unexpected.java").unlink(missing_ok=True)
                 jar.write_bytes(archives["server/core.jar"])
 
+    def test_reverification_later_import_rechecks_runtime_at_final_boundary(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-reverify-later-drift-") as temp:
+            base = Path(temp)
+            target, installation, project, export = self.reverification_fixture(base)
+            archives = self.rebuild_fixture(base, target)
+            result = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", project, "--target-root", target)
+            self.assertEqual(0, result.returncode, result.stderr)
+            for failure in ("reverify-final-new-source", "reverify-final-archive-drift"):
+                refused = self.run_failure("import", failure, project, target, export)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                (target / "server/src/fixture/Unexpected.java").unlink(missing_ok=True)
+                (target / "server/core.jar").write_bytes(archives["server/core.jar"])
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
     def test_reverification_interrupted_recovery_keeps_rebuilt_archives(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-reverify-recovery-") as temp:
             base = Path(temp)
@@ -1808,6 +1858,10 @@ public final class InstalledFloorFixture {
             archives = self.rebuild_fixture(base, target, "lines,source")
             before = project_support.tree_bytes(target, installation)
             saved = project_support.tree_bytes(project / "working")
+            rolled_back = self.run_failure("reverify", "activation-published", project, target, export)
+            self.assertEqual(3, rolled_back.returncode, rolled_back.stderr)
+            self.assertNotIn("RECOVERY_REQUIRED", rolled_back.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
             failed = self.run_failure("reverify", "activation-published,any-rollback", project, target, export)
             self.assertEqual(3, failed.returncode, failed.stderr)
             self.assertIn("RECOVERY_REQUIRED", failed.stderr)
@@ -1833,7 +1887,7 @@ public final class InstalledFloorFixture {
             self.rebuild_fixture(base, target)
             config = target / "server/world-builder-configs/primary.json"
             value = json.loads(config.read_text())
-            paths = [config, target / "server/conf/server/defs/TileDef.xml",
+            paths = [config, target / "server/evidence/definitions.json",
                      target / value["serverMapRelativePath"] / "manifest.json", target / "server/src/fixture/MapEngine.java"]
             for path in paths:
                 before = path.read_bytes()

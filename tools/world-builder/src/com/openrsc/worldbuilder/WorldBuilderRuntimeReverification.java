@@ -96,12 +96,13 @@ final class WorldBuilderRuntimeReverification {
             WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get(key)));
         List<?> inventories = array(value.get("inventories"));
         if (inventories.size() > 128) throw refusal("Runtime inventory is unbounded.");
-        Set<String> roots = new HashSet<String>();
+        Map<String,Object> roots = new HashMap<String,Object>();
         for (Object rawInventory : inventories) {
             Map<String,Object> inventory = object(rawInventory);
             WorldBuilderBoundedInventory.exactKeys(inventory,FIELD,"relativePath","suffix","recursive","paths");
             String root=string(inventory,"relativePath"); WorldBuilderPortablePath.require(root,FIELD);
-            if (!roots.add(root) || !Arrays.asList(".java",".jar").contains(string(inventory,"suffix"))) throw refusal("Invalid or duplicate runtime inventory.");
+            Object existing = roots.put(root, inventory);
+            if ((existing != null && !existing.equals(inventory)) || !Arrays.asList(".java",".jar").contains(string(inventory,"suffix"))) throw refusal("Invalid or conflicting runtime inventory.");
             WorldBuilderAdaptiveExporter.bool(inventory,"recursive");
             List<?> paths=array(inventory.get("paths"));
             if (paths.size()>16000) throw refusal("Runtime inventory exceeds its bound.");
@@ -133,6 +134,26 @@ final class WorldBuilderRuntimeReverification {
             if (!"successful".equals(receipt.status()) || !"import".equals(receipt.transactionType())
                 || !reference(project,receipt).equals(ref)) throw refusal("Re-verification predecessor evidence changed.");
         }
+        List<WorldBuilderAdaptiveReceipt.State> receipts = WorldBuilderAdaptiveReceipt.readAll(project.projectRoot);
+        WorldBuilderAdaptiveReceipt.State boundary = null, latest = null;
+        for (WorldBuilderAdaptiveReceipt.State receipt : receipts)
+            if (receipt.transactionId().equals(plan.get("transactionId"))) boundary = receipt;
+        if (boundary == null) throw refusal("Re-verification has no durable transaction receipt.");
+        Set<String> reverted = new HashSet<String>();
+        for (WorldBuilderAdaptiveReceipt.State receipt : receipts) {
+            if (receipt.compareTo(boundary)>=0) continue;
+            if (receipt.createdAtUtc().equals(boundary.createdAtUtc())) throw refusal("Re-verification history order is ambiguous.");
+            if ("undo".equals(receipt.transactionType()) && "reverted".equals(receipt.status())) reverted.add(receipt.revertsTransactionId());
+        }
+        for (WorldBuilderAdaptiveReceipt.State receipt : receipts)
+            if (receipt.compareTo(boundary)<0 && "import".equals(receipt.transactionType()) && "successful".equals(receipt.status())
+                && !reverted.contains(receipt.transactionId())) latest=receipt;
+        if (latest == null || !latest.transactionId().equals(object(value.get("predecessor")).get("transactionId")))
+            throw refusal("Re-verification predecessor is not the latest retained installed transaction.");
+        Map<String,Object> baseline = readPlan(project,string(object(value.get("baseline")),"transactionId"));
+        if (baseline.containsKey(FIELD) || reverted.contains(baseline.get("transactionId"))) throw refusal("Re-verification baseline is not an original active integration.");
+        WorldBuilderAdaptiveReceipt.State baselineReceipt = WorldBuilderAdaptiveReceipt.read(project.projectRoot.resolve("receipts/"+baseline.get("transactionId")+".json"));
+        if (baselineReceipt.compareTo(latest)>0) throw refusal("Re-verification baseline follows its predecessor.");
         Map<String,Object> predecessor = readPlan(project,string(object(value.get("predecessor")),"transactionId"));
         Map<String,Object> expected = new TreeMap<String,Object>();
         for (Object raw : array(predecessor.get("actions"))) {
@@ -167,6 +188,35 @@ final class WorldBuilderRuntimeReverification {
         for (Map.Entry<String,Object> entry : inputs.entrySet())
             states.put(entry.getKey(),fileState(object(entry.getValue())));
     }
+    static void verifyRetainedInputs(WorldBuilderAdaptiveMutationProfile.Plan plan) throws IOException, WorldBuilderContractException {
+        if (!plan.document.containsKey(WorldBuilderRuntimeUpgradeHistory.FIELD)) return;
+        Set<String> superseded = new HashSet<String>();
+        for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) superseded.add(action.destinationRelativePath);
+        WorldBuilderRuntimeUpgradeHistory.verify(plan.project, plan.targetRoot, plan.document, superseded);
+    }
+
+    static String summary(WorldBuilderAdaptiveMutationProfile.Plan plan) {
+        try {
+            Map<String,Object> evidence = object(plan.document.get(FIELD));
+            Map<String,Object> baseline = readPlan(plan.project, string(object(evidence.get("baseline")), "transactionId"));
+            Map<String,Object> inputs = object(evidence.get("inputs"));
+            StringBuilder out = new StringBuilder("Checked runtime/map inputs: " + inputs.size() + " files; "
+                + array(evidence.get("inventories")).size() + " source/dependency inventories.\n");
+            for (Object raw : array(baseline.get("actions"))) {
+                Map<String,Object> action = object(raw); String path = string(action, "destinationRelativePath");
+                if (!string(action, "role").startsWith(WorldBuilderTargetMapIntegration.ROLE) || !path.endsWith(".jar")) continue;
+                String before = string(object(action.get("after")), "sha256");
+                String after = string(object(inputs.get(path)), "sha256");
+                out.append("Retain ").append(path).append(": ").append(before.substring(0, 12))
+                    .append(" → ").append(after.substring(0, 12)).append(before.equals(after) ? " (unchanged)\n" : " (verified equivalent rebuild)\n");
+            }
+            return out.toString() + "\n";
+        } catch (IOException | WorldBuilderContractException invalid) {
+            // Presentation is not authority; apply revalidates all durable inputs.
+            return "Retained preview evidence is unavailable; apply will require fresh verification.\n\n";
+        }
+    }
+
     static void verifyInputs(WorldBuilderAdaptiveMutationProfile.Plan plan) throws IOException, WorldBuilderContractException {
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> states = new TreeMap<String,WorldBuilderAdaptiveMutationProfile.FileState>();
         replay(plan.project,plan.document,states);

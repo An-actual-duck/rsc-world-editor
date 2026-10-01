@@ -307,7 +307,9 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 			requireSameProject(plan.project, currentProject);
 			WorldBuilderAdaptiveExporter.VerifiedExport currentExport =
-				WorldBuilderAdaptiveExporter.validate(plan.export.root, currentProject);
+				plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)
+                    ? WorldBuilderAdaptiveExporter.validateHistorical(plan.export.root, currentProject)
+                    : WorldBuilderAdaptiveExporter.validate(plan.export.root, currentProject);
 			if (!plan.export.manifestCanonicalSha256.equals(
 				currentExport.manifestCanonicalSha256)) throw problem(
 				WorldBuilderErrorCodes.SOURCE_CORRUPT, "exports", false,
@@ -320,6 +322,7 @@ final class WorldBuilderAdaptiveImporter {
 			verifyPlannedDirectoriesAbsent(plan);
 			observe("before-first-target-mutation", target);
             WorldBuilderRuntimeReverification.verifyInputs(plan);
+            WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
             if (plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) WorldBuilderTargetMapIntegration.verifyInputs(plan);
 
 			int packageIndex = 0;
@@ -631,6 +634,7 @@ final class WorldBuilderAdaptiveImporter {
 		WorldBuilderAdaptiveMutationProfile.Plan plan)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderRuntimeReverification.verifyInputs(plan);
+        WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
         WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(plan.targetRoot);
 		WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(target);
 		if (!plan.capability.evidenceSha256.equals(capability.evidenceSha256)
@@ -1083,7 +1087,7 @@ final class WorldBuilderAdaptiveImporter {
 		}
 
 		String humanSummary() {
-			return runtimeReverification ? "Re-verify Rebuilt Runtime\n\nVerified rebuilt archives and saved editor work are retained. Only compatibility evidence is updated.\nHistorical undo stops at this rebuild boundary.\n\n" + plan.humanSummary().replace("UPGRADE", "REVERIFY") : plan.humanSummary();
+			return runtimeReverification ? "Re-verify Rebuilt Runtime\n\nVerified rebuilt archives and saved editor work are retained. Only compatibility evidence is updated.\nHistorical undo stops at this rebuild boundary.\n\n" + WorldBuilderRuntimeReverification.summary(plan) + plan.humanSummary().replace("Target runtime upgrade preview", "Runtime re-verification preview").replace("UPGRADE", "REVERIFY") : plan.humanSummary();
 		}
 
 		String toJson() {
