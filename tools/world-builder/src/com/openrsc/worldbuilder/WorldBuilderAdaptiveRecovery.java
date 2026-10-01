@@ -141,6 +141,7 @@ final class WorldBuilderAdaptiveRecovery {
 						"Adaptive recovery requires exact RECOVER confirmation.",
 						"Review the plan and type RECOVER exactly, or leave the target offline.");
 					observe("recovery-plan-confirmed", project);
+					validateFailedTransaction(projectState, failed, target);
 					return new Outcome(preview, applyLocked(plan));
 				}
 		}

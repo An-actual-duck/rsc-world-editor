@@ -570,6 +570,9 @@ final class WorldBuilderAdaptiveImporter {
 
 	private static void verifyBeforeState(WorldBuilderAdaptiveMutationProfile.Plan plan)
 		throws IOException, WorldBuilderContractException {
+		Set<String> superseded = new java.util.HashSet<String>();
+		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) superseded.add(action.destinationRelativePath);
+		WorldBuilderRuntimeUpgradeHistory.verify(plan.project, plan.targetRoot, plan.document, superseded);
 		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
 			verifyState(plan.targetRoot, action.destinationRelativePath, action.before);
 		}
@@ -871,7 +874,7 @@ final class WorldBuilderAdaptiveImporter {
 		forceFile(path);
 	}
 
-	private static void verifyState(Path target, String relative,
+	static void verifyState(Path target, String relative,
 		WorldBuilderAdaptiveMutationProfile.FileState expected)
 		throws IOException, WorldBuilderContractException {
 		Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, relative);

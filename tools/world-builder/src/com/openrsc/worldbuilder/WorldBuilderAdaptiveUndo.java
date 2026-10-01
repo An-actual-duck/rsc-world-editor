@@ -464,6 +464,7 @@ final class WorldBuilderAdaptiveUndo {
 				changed.add(action.destinationRelativePath);
 			}
 		}
+		WorldBuilderRuntimeUpgradeHistory.verify(installed.project, installed.targetRoot, installed.document, expected);
 		boolean runtimeOnly = runtimeCompatibilityOnly(installed);
 		if (!runtimeOnly && ownsPackageEntries(
 			installed.serverPackageRelativePath, expected)) {

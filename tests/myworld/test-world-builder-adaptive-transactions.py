@@ -101,6 +101,17 @@ class AdaptiveTransactionTest(unittest.TestCase):
             capture_output=True,
             text=True,
         )
+        # Emit actual successful legacy-format transactions without rewriting evidence.
+        cls.historyless_classes = Path(cls.compile_temp.name) / "historyless-classes"
+        cls.historyless_classes.mkdir()
+        history_source = (SOURCE_ROOT / "com/openrsc/worldbuilder/WorldBuilderRuntimeUpgradeHistory.java").read_text()
+        history_source = history_source.replace(
+            "if (!history.references.isEmpty()) bind(next, history.references);", "// Historical emitter did not record predecessor references.")
+        history_file = Path(cls.compile_temp.name) / "historyless/com/openrsc/worldbuilder/WorldBuilderRuntimeUpgradeHistory.java"
+        history_file.parent.mkdir(parents=True)
+        history_file.write_text(history_source)
+        subprocess.run(["javac", "-source", "8", "-target", "8", "-cp", str(cls.classes),
+                        "-d", str(cls.historyless_classes), str(history_file)], check=True, capture_output=True)
         harness = (
             Path(cls.compile_temp.name)
             / "harness/com/openrsc/worldbuilder/AdaptiveTransactionFailureHarness.java"
@@ -123,7 +134,7 @@ import java.util.HashMap;
 public final class AdaptiveTransactionFailureHarness {
     private static boolean selected(String specification, String milestone) {
         for (String value : specification.split(",")) {
-            if (value.equals(milestone)) return true;
+            if (value.equals(milestone) || (value.equals("any-rollback") && milestone.startsWith("rollback-before-"))) return true;
         }
         return false;
     }
@@ -1631,6 +1642,132 @@ public final class InstalledFloorFixture {
             self.assertIn("No reviewed targeted map integration matches", refused.stderr)
             self.assertEqual(before, project_support.tree_bytes(target, installation))
             self.assertEqual([], list((project / "receipts").glob("*.json")))
+
+    def history_fixture(self, base):
+        target, installation, project, export = self.target_project(
+            base, target_mutator=lambda target: self.add_targeted_floor_fixture(base, target))
+        original = project_support.tree_bytes(target, installation)
+        upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
+            "--export", export, "--target-root", target)
+        self.assertEqual(0, upgraded.returncode, upgraded.stderr)
+        return target, installation, project, export, original
+
+    def next_history_export(self, project):
+        self.promote_fixture_terrain_to_v2(project / "working/layered-world/package", 20 + len(list((project / "exports").iterdir())))
+        saved = self.run_cli("save-project", "--project", project)
+        self.assertEqual(0, saved.returncode, saved.stderr)
+        exported = self.run_cli("export-adaptive", "--project", project)
+        self.assertEqual(0, exported.returncode, exported.stderr)
+        return Path(json.loads(exported.stdout)["exportDirectory"])
+
+    def test_runtime_history_repeated_imports_and_complete_undo_preserve_saved_edits(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-") as temp:
+            target, installation, project, export, original = self.history_fixture(Path(temp))
+            generations = [project_support.tree_bytes(target, installation)]
+            for _ in range(4):
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+                receipt = json.loads(imported.stdout)
+                plan = json.loads((project / "backups" / receipt["transactionId"] / "mutation-plan.json").read_text())
+                self.assertGreaterEqual(len(plan["runtimeUpgradeHistory"]), 1)
+                generations.append(project_support.tree_bytes(target, installation))
+                export = self.next_history_export(project)
+            saved = project_support.tree_bytes(project / "working")
+            for before in reversed([original] + generations[:-1]):
+                undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+                self.assertEqual(0, undone.returncode, undone.stderr)
+                self.assertEqual(before, project_support.tree_bytes(target, installation))
+                self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+
+    def test_runtime_history_legacy_missing_references_resume_without_rewriting_evidence(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-legacy-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            def legacy(*args):
+                return subprocess.run(["java", "-cp", os.pathsep.join((str(self.historyless_classes), str(self.classes))),
+                    MAIN_CLASS, *map(str, args)], cwd=ROOT, text=True, capture_output=True)
+            args = ("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            preview = legacy(*args)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            plan = json.loads(preview.stdout)
+            self.assertNotIn("runtimeUpgradeHistory", plan)
+            imported = legacy(*args, "--confirm", "IMPORT", "--transaction-id", plan["transactionId"],
+                              "--plan-sha256", plan["planFingerprintSha256"])
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            evidence = {path: path.read_bytes() for directory in ("receipts", "backups", "source")
+                        for path in (project / directory).rglob("*") if path.is_file()}
+            for _ in range(2):
+                export = self.next_history_export(project)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+            for path, data in evidence.items():
+                self.assertEqual(data, path.read_bytes(), str(path))
+
+    def test_runtime_history_missing_or_changed_authority_is_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-proof-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            upgrade_receipt = next((project / "receipts").glob("*.json"))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            export = self.next_history_export(project)
+            before = project_support.tree_bytes(target, installation)
+            original = upgrade_receipt.read_bytes()
+            upgrade_receipt.unlink()
+            refused = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            upgrade_receipt.write_bytes(original + b"\n")
+            refused = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("RECOVERY_REQUIRED", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+
+    def test_runtime_history_source_jar_and_preview_drift_refuse_without_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-drift-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            export = self.next_history_export(project)
+            for relative in ("server/src/fixture/MapEngine.java", "server/core.jar"):
+                path = target / relative
+                before = path.read_bytes()
+                preview = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+                self.assertEqual(0, preview.returncode, preview.stderr)
+                plan = json.loads(preview.stdout)
+                path.write_bytes(before + b"drift")
+                drifted = project_support.tree_bytes(target, installation)
+                for args in ([], ["--confirm", "IMPORT", "--transaction-id", plan["transactionId"],
+                                  "--plan-sha256", plan["planFingerprintSha256"]]):
+                    refused = self.run_cli("import-adaptive", "--project", project, "--export", export,
+                                          "--target-root", target, *args)
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("TARGET_DRIFT", refused.stderr)
+                    self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+                path.write_bytes(before)
+
+    def test_runtime_history_interrupted_import_recovers_then_accepts_next_import(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-runtime-history-recovery-") as temp:
+            target, installation, project, export, _ = self.history_fixture(Path(temp))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            installed = project_support.tree_bytes(target, installation)
+            export = self.next_history_export(project)
+            saved = project_support.tree_bytes(project / "working")
+            failed = self.run_failure("import", "activation-published,any-rollback", project, target, export)
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(installed, project_support.tree_bytes(target, installation))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(saved, project_support.tree_bytes(project / "working"))
 
     def test_standard_floors_upgrade_then_repeated_map_only_import(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-standard-floors-") as temp:

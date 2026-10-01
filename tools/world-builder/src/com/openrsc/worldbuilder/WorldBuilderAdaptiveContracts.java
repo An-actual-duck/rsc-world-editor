@@ -1026,6 +1026,8 @@ final class WorldBuilderAdaptiveContracts {
 		throws WorldBuilderContractException {
 		String op = "validate-mutation-plan";
 		Map<String,Object> shape = new LinkedHashMap<String,Object>(root);
+		if (shape.containsKey(WorldBuilderRuntimeUpgradeHistory.FIELD))
+			WorldBuilderRuntimeUpgradeHistory.validateShape(shape.remove(WorldBuilderRuntimeUpgradeHistory.FIELD));
 		if (shape.containsKey(WorldBuilderFloorUpgradeLineage.FIELD)) {
 			WorldBuilderFloorUpgradeLineage.validateShape(shape.remove(WorldBuilderFloorUpgradeLineage.FIELD));
 		}
