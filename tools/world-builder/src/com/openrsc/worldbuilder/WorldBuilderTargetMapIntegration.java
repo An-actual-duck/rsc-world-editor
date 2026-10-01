@@ -72,12 +72,15 @@ final class WorldBuilderTargetMapIntegration {
             Map<String,Object> record = object(raw); String path = string(record, "relativePath");
             if (!archivePaths.add(path)) throw failure(INSTALLED, "Retained archive proof repeats an archive.");
             Path baseline = trustedBaselineOutputs.get(path);
-            if (baseline == null || Files.isSymbolicLink(baseline) || !Files.isRegularFile(baseline, LinkOption.NOFOLLOW_LINKS)
-                || !WorldBuilderHashes.sha256(baseline).equals(string(record, "sha256")))
+            if (baseline == null || Files.isSymbolicLink(baseline) || !Files.isRegularFile(baseline, LinkOption.NOFOLLOW_LINKS))
+                throw failure(path, "Re-verification requires the exact project-retained integrated archive, verified against its transaction.");
+            byte[] baselineBytes = bounded(baseline, MAX_ARCHIVE);
+            if (!hash(baselineBytes).equals(string(record, "sha256")))
                 throw failure(path, "Re-verification requires the exact project-retained integrated archive, verified against its transaction.");
             if (!manifestContracts.containsKey(path)) throw failure(path, "Retained archive is outside the reviewed compilation contract.");
-            requireEquivalentArchive(path, entries(baseline, path, true), entries(file(target, path), path, true), manifestContracts.get(path));
-            expected.put(path, WorldBuilderHashes.sha256(file(target, path)));
+            byte[] currentBytes = bounded(file(target, path), MAX_ARCHIVE);
+            requireEquivalentArchive(path, rebuildEntries(baselineBytes, path), rebuildEntries(currentBytes, path), manifestContracts.get(path));
+            expected.put(path, hash(currentBytes));
         }
         for (Object raw : array(previous.get("sources"))) {
             Map<String,Object> record = object(raw);
@@ -136,6 +139,12 @@ final class WorldBuilderTargetMapIntegration {
         TreeMap<String,byte[]> outputs = new TreeMap<String,byte[]>();
         outputs.put(INSTALLED, WorldBuilderJsonDocuments.pretty(installed).getBytes(StandardCharsets.UTF_8));
         return new Result(checked.adapterId, outputs, checked.inputs, checked.encodingVersions);
+    }
+
+    private static Map<String,byte[]> rebuildEntries(byte[] bytes, String path) throws IOException, WorldBuilderContractException {
+        Path stage = Files.createTempFile("world-builder-rebuild-input-", ".jar");
+        try { Files.write(stage, bytes); return entries(stage, path, true); }
+        finally { Files.deleteIfExists(stage); }
     }
 
     private static void requireEquivalentArchive(String path, Map<String,byte[]> trusted, Map<String,byte[]> rebuilt, Map<String,Object> manifestContract)

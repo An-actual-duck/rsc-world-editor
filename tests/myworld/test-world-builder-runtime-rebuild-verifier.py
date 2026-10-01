@@ -22,6 +22,8 @@ integration.HARNESS = integration.HARNESS.replace('if ("archive".equals(args[0])
    Files.write(baseline.resolveSibling("reverified.json"),checked.outputs.get(WorldBuilderTargetMapIntegration.INSTALLED));
   } else if ("archive".equals(args[0])) {''')
 
+integration.HARNESS = integration.HARNESS.replace('target,"client"', 'target,(Files.isDirectory(target.resolve("Client_Base"))?"Client_Base":"client")')
+
 class RuntimeRebuildVerifierTest(unittest.TestCase):
     setUpClass = classmethod(integration.TargetMapIntegrationTest.setUpClass.__func__)
     fixture = integration.TargetMapIntegrationTest.fixture
@@ -85,11 +87,14 @@ class RuntimeRebuildVerifierTest(unittest.TestCase):
                lambda e:e.__setitem__('fixture/Engine.class',e['fixture/Engine.class'].replace(b'custom dialogue',b'broken dialogue')),
                lambda e:e.__setitem__('META-INF/MANIFEST.MF',e['META-INF/MANIFEST.MF'].replace(b'fixture.Engine',b'fixture.Danger')),
                lambda e:e.__setitem__('new-resource',b'added'),
+               lambda e:e.pop('fixture/Unrelated.class'),
+               lambda e:e.__setitem__('META-INF/MANIFEST.MF',e['META-INF/MANIFEST.MF'].rstrip()+b'\r\nClass-Path: unreviewed.jar\r\n\r\n'),
+               lambda e:e.__setitem__('META-INF/MANIFEST.MF',e['META-INF/MANIFEST.MF'].rstrip()+b'\r\nMulti-Release: true\r\n\r\n'),
                lambda e:e.__setitem__('META-INF/MANIFEST.MF',e['META-INF/MANIFEST.MF'].replace(b'target-owned-layered-map-v1',b'incompatible-map-contract'))]
         for change in cases:
             archive.write_bytes(original);self.rewrite(archive,change)
             before=self.state(target);result=self.probe('reverify',project,target,baseline,ok=False)
-            self.assertIn('Rebuilt archive',result.stderr) if 'incompatible map integration marker' not in result.stderr else None
+            self.assertTrue('Rebuilt archive' in result.stderr or 'incompatible map integration marker' in result.stderr,result.stderr)
             self.assertEqual(before,self.state(target))
 
     def test_rejects_changed_sources_and_dependencies(self):
@@ -106,6 +111,30 @@ class RuntimeRebuildVerifierTest(unittest.TestCase):
         root,target,project,baseline=self.integrated()
         (target/'server/src/fixture/Added.java').write_text('package fixture; public class Added {}')
         self.assertIn('inventory differs',self.probe('reverify',project,target,baseline,ok=False).stderr)
+
+    def test_full_client_and_desktop_companion_source_coherence(self):
+        root,target,project,contract=self.fixture()
+        (target/'client').rename(target/'Client_Base')
+        contract['adapters'][0]['compilation'][1]['compileAllSources']=False
+        (project/'working/runtime/server/conf/world-builder/target-map-integration-v1.json').write_text(json.dumps(contract))
+        desktop=target/'PC_Client/src/desktop/Main.java';desktop.parent.mkdir(parents=True)
+        desktop.write_text('package desktop; public class Main {public static int setting(){return 91;}}')
+        desktop_classes=root/'desktop-classes';desktop_classes.mkdir()
+        subprocess.run(['javac','-source','8','-target','8','-d',str(desktop_classes),str(desktop)],check=True,capture_output=True)
+        with zipfile.ZipFile(target/'Client_Base/Open_RSC_Client.jar','a') as z:
+            z.writestr('desktop/Main.class',(desktop_classes/'desktop/Main.class').read_bytes())
+        baseline=root/'baseline';self.probe('prepare',project,target,baseline)
+        for p in baseline.rglob('*'):
+            if p.is_file() and p.name!='actions.json':
+                dest=target/p.relative_to(baseline);dest.parent.mkdir(parents=True,exist_ok=True);shutil.copyfile(p,dest)
+        self.probe('reverify',project,target,baseline)
+        proof=json.loads((root/'reverified.json').read_text())
+        self.assertIn('PC_Client/src/desktop/Main.java',proof['beforeInputs'])
+        self.assertIn('Client_Base/src/fixture/Unrelated.java',proof['beforeInputs'])
+        for source in [desktop,target/'Client_Base/src/fixture/Unrelated.java']:
+            original=source.read_text();source.write_text(original.replace('return 91','return 92').replace('custom plugin','stale plugin'))
+            self.assertIn('Active target bytecode differs from its source',self.probe('reverify',project,target,baseline,ok=False).stderr)
+            source.write_text(original)
 
     def test_rejects_forged_or_missing_project_archive_baseline(self):
         root,target,project,baseline=self.integrated()
