@@ -1,6 +1,7 @@
 # Runtime verification after server rebuilds
 
-Status: proposed next implementation, not shipped behavior. This follows the
+Status: implemented for the next restricted test candidate. See
+[the supported workflow](WORLD-BUILDER-RUNTIME-REVERIFICATION.md). This follows the
 archive diagnostics and duplicate legal metadata fixes. It applies to supported
 targets generally and does not introduce a Spoiled Milk exception.
 
@@ -12,7 +13,7 @@ without discarding saved editor work. Updating recorded hashes alone is not
 verification. Current source, active bytecode, paired client support, dependencies,
 and map state must be checked before new compatibility evidence is committed.
 
-## Current constraints
+## Original constraints
 
 The targeted proof binds its exact descriptor, source inventory, and archive
 hashes. A rebuilt archive can fail that check because of changed ZIP metadata,
@@ -30,7 +31,7 @@ Relevant implementation points are `WorldBuilderTargetMapIntegration`,
 `WorldBuilderAdaptiveMutationProfile.prepareRuntimeUpgrade`, and
 `WorldBuilderInstalledFloorContent.verifyTargetClientPrefix`.
 
-## Proposed bounded workflow
+## Bounded workflow
 
 1. Resolve the selected project's latest successful transaction and exact
    installed integration evidence. A target-supplied receipt alone must not

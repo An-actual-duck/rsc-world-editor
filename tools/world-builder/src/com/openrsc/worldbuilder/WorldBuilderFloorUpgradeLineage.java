@@ -27,6 +27,8 @@ final class WorldBuilderFloorUpgradeLineage {
 		try {
 			WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent = parent(project, true);
 			if (parent == null) return null;
+            if (WorldBuilderRuntimeReverification.hasSuccessful(parent))
+                throw refusal("A sibling floor upgrade cannot cross a runtime re-verification boundary in this version; continue map editing in the original project.");
 			WorldBuilderAdaptiveReceipt.State receipt =
 				WorldBuilderAdaptiveImporter.latestOutstandingSuccessfulImport(parent.projectRoot);
 			if (receipt == null) return installedParent(parent, target);

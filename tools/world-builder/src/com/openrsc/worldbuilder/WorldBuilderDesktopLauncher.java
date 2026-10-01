@@ -344,6 +344,9 @@ final class WorldBuilderDesktopLauncher {
 			file.add(menu("Upgrade Selected Project Target Runtime…", new Runnable() {
 				@Override public void run() { upgradeSelectedProjectRuntime(); }
 			}));
+            file.add(menu("Re-verify Rebuilt Target Runtime…", new Runnable() {
+                @Override public void run() { reverifySelectedProjectRuntime(); }
+            }));
 			file.add(menu("Import Selected Project Map Changes to Server…", new Runnable() {
 				@Override public void run() { importSelectedProject(); }
 			}));
@@ -617,6 +620,24 @@ final class WorldBuilderDesktopLauncher {
 					}
 				});
 		}
+
+        private void reverifySelectedProjectRuntime() {
+            final WorldBuilderLauncherModel.ProjectEntry entry = selectedForServerAction("re-verify the rebuilt target runtime");
+            if (entry == null) return;
+            runTask("Verifying rebuilt runtime sources, archives and map compatibility…",
+                new Task<WorldBuilderLauncherModel.PreparedImport>() {
+                    @Override public WorldBuilderLauncherModel.PreparedImport run() throws Exception {
+                        return model.prepareServerRuntimeReverification(entry);
+                    }
+                }, new Success<WorldBuilderLauncherModel.PreparedImport>() {
+                    @Override public void accept(final WorldBuilderLauncherModel.PreparedImport prepared) {
+                        if (!confirmTransaction("Re-verify Rebuilt Runtime", "Re-verify", prepared.summary())) return;
+                        runTask("Recording verified runtime compatibility…", new Task<String>() {
+                            @Override public String run() throws Exception { return model.applyServerRuntimeReverification(prepared); }
+                        }, transactionSuccess(entry.projectId, "Runtime Re-verification Complete"));
+                    }
+                });
+        }
 
 		private void exportSelectedProject() {
 			final WorldBuilderLauncherModel.ProjectEntry entry =

@@ -142,6 +142,7 @@ public final class WorldBuilderCli {
 		if ("import-adaptive".equals(args[0])) {
 			return importAdaptive(args);
 		}
+        if ("reverify-target-runtime".equals(args[0])) return upgradeTargetRuntime(args);
 		if ("upgrade-target-runtime".equals(args[0])) {
 			return upgradeTargetRuntime(args);
 		}
@@ -951,6 +952,9 @@ public final class WorldBuilderCli {
 	}
 
 	private static int upgradeTargetRuntime(String[] args) {
+		boolean reverify = "reverify-target-runtime".equals(args[0]);
+        String command = args[0];
+        String confirmWord = reverify ? "REVERIFY" : "UPGRADE";
 		Path project = null;
 		Path export = null;
 		Path target = null;
@@ -995,16 +999,17 @@ public final class WorldBuilderCli {
 				return 2;
 			}
 		}
-		if (project == null || export == null || target == null) {
-			System.err.println("ERROR: upgrade-target-runtime requires --project, "
-				+ "--export, and --target-root.");
+		if (project == null || (!reverify && export == null) || target == null) {
+			System.err.println("ERROR: " + command + " requires --project, "
+				+ (reverify ? "and --target-root." : "--export, and --target-root."));
 			return 2;
 		}
 		if (!validReviewedPlanArguments(confirmation, expectedTransactionId,
-			expectedPlanFingerprint, "UPGRADE", "upgrade-target-runtime")) return 2;
+			expectedPlanFingerprint, confirmWord, command)) return 2;
 		try {
 			WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
-			WorldBuilderAdaptiveImporter.Preview preview = confirmation == null
+			WorldBuilderAdaptiveImporter.Preview preview = reverify
+                ? importer.previewRuntimeReverification(project, target, expectedTransactionId) : confirmation == null
 				? importer.previewRuntimeUpgrade(project, export, target)
 				: importer.previewRuntimeUpgrade(
 					project, export, target, expectedTransactionId);
@@ -1014,9 +1019,9 @@ public final class WorldBuilderCli {
 				return 0;
 			}
 			if (!expectedPlanFingerprint.equals(preview.planFingerprintSha256())) {
-				return reviewedPlanMismatch("upgrade-target-runtime");
+				return reviewedPlanMismatch(command);
 			}
-			System.out.print(importer.applyRuntimeUpgrade(preview, confirmation).toJson());
+			System.out.print(importer.apply(preview, confirmation).toJson());
 			return 0;
 		} catch (WorldBuilderContractException refusal) {
 			return adaptiveRefusal(refusal);
@@ -2338,6 +2343,8 @@ public final class WorldBuilderCli {
 			+ " --export <export-directory> [--target-root <server-root>]"
 			+ " [--confirm IMPORT --transaction-id <preview-uuid>"
 			+ " --plan-sha256 <preview-sha256>]"
+			+ "\n  WorldBuilderCli reverify-target-runtime --project <projects/uuid> --target-root <server-root>"
+            + " [--confirm REVERIFY --transaction-id <preview-id> --plan-sha256 <preview-hash>]"
 			+ "\n  WorldBuilderCli upgrade-target-runtime --project <projects/uuid>"
 			+ " --export <export-directory> --target-root <server-root>"
 			+ " [--confirm UPGRADE --transaction-id <preview-uuid>"

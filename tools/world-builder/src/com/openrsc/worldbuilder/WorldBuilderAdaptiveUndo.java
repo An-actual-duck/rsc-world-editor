@@ -101,6 +101,7 @@ final class WorldBuilderAdaptiveUndo {
 						projectRoot, true);
 				requireSameProject(initial, project);
 				WorldBuilderAdaptiveReceipt.State authority = undoAuthority(projectRoot);
+                WorldBuilderRuntimeReverification.requireUndoAllowed(project, authority);
 				WorldBuilderAdaptiveExporter.VerifiedExport export = findExport(
 					project, authority.exportFingerprint());
 				Path target = WorldBuilderAdaptiveMutationProfile.requireTarget(

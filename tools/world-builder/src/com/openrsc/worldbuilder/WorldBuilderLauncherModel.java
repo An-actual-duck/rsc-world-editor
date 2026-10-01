@@ -608,6 +608,19 @@ final class WorldBuilderLauncherModel {
 		return new PreparedImport(importer, preview, target);
 	}
 
+    PreparedImport prepareServerRuntimeReverification(ProjectEntry entry) throws IOException, WorldBuilderContractException {
+        if (entry == null) throw new IOException("Select a project before runtime re-verification.");
+        Path target = targetFor(entry);
+        WorldBuilderAdaptiveImporter importer = new WorldBuilderAdaptiveImporter();
+        return new PreparedImport(importer, importer.previewRuntimeReverification(entry.projectRoot,target),target);
+    }
+    String applyServerRuntimeReverification(PreparedImport prepared) throws IOException, WorldBuilderContractException {
+        if (prepared == null || !prepared.preview.runtimeReverification) throw new IOException("Re-verification preview was not supplied.");
+        WorldBuilderAdaptiveImporter.ImportResult result = prepared.importer.apply(prepared.preview,"REVERIFY");
+        return "Rebuilt runtime compatibility was verified. Saved editor work and rebuilt archives were retained. "
+            + "Import Map Changes can now resume.\n\nTransaction: " + result.transactionId + "\nReceipt: " + result.receiptPath;
+    }
+
 	Path exportCompleteMap(ProjectEntry entry)
 		throws IOException, WorldBuilderContractException {
 		if (entry == null) throw new IOException("Select one project before exporting.");

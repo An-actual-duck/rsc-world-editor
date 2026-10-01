@@ -815,6 +815,17 @@ final class WorldBuilderAdaptiveRecovery {
 				action.after.present ? action.after.sha256 : "absent"));
 		}
 		if ("import".equals(plan.failed.transactionType())) {
+            WorldBuilderAdaptiveMutationProfile.Plan retained = validateFailedTransaction(plan.project, plan.failed, plan.targetRoot);
+            if (retained.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) {
+                // Restoring old evidence intentionally leaves an independently
+                // rebuilt runtime unaccepted. Its before-state is the verified
+                // input inventory, not the pre-rebuild discovery fingerprint.
+                WorldBuilderRuntimeReverification.verifyInputs(retained);
+                if (!WorldBuilderAdaptiveExporter.canonicalHash(object(retained.document.get(WorldBuilderRuntimeReverification.FIELD), WorldBuilderRuntimeReverification.FIELD))
+                    .equals(string(plan.failed.document, "targetLineageSha256")))
+                    throw WorldBuilderRuntimeReverification.refusal("Recovered re-verification input authority differs from its retained transaction.");
+                return values;
+            }
 			WorldBuilderAdaptiveDiscoveryReport discovery =
 				new WorldBuilderAdaptiveDiscovery().discover(
 					plan.targetRoot,
