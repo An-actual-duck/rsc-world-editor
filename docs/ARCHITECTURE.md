@@ -6,8 +6,8 @@ RSC World Editor is a local, isolated editing appliance. Adaptive World Builder
 2 is designed as a standalone, server-agnostic drop-in folder placed directly
 inside a recognized game/server root. It currently discovers that target's
 active map, definitions, and capabilities, then adopts or converts copies into a
-project owned by World Builder. Target runtime integration is a separate, narrowly reviewed map-compatibility
-transaction. The target retains its gameplay, definitions, and custom code;
+project owned by World Builder. Target runtime integration is a separate,
+narrowly reviewed map-compatibility transaction. The target retains its gameplay, definitions, and custom code;
 World Builder's editing runtime is not a replacement game distribution.
 World Builder never connects to or edits a public server.
 
@@ -20,10 +20,8 @@ The repository is divided into four layers:
 - `release/world-builder-v2/` contains the distinct signed-layered v2
   launchers, runtime profile, instructions, and asset provenance.
 - The independent runtime-provider revision in `runtime-provider.lock`
-  currently supplies a frozen compiled editing runtime, integrated editor
-  implementation, and supported adapter sources. The active replacement design
-  makes it the source of the current runtime platform and provider-owned
-  compositions/modules. It is an external versioned build/runtime dependency,
+  supplies the pinned private editing runtime, integrated editor implementation,
+  map integration contract, and supported adapter sources. It is an external versioned build/runtime dependency,
   not target world/player state and not part of this repository's
   manager/worker system. Public Editor packaging remains
   target-content-neutral. Runtime source is developed in the separate
