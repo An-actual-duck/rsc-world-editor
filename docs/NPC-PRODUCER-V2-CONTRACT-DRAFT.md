@@ -151,9 +151,11 @@ route and cannot silently override conflicting v2 slots.
    walkModel/combatModel/combatSprite) from the semantic hash on both historical
    and fresh bundles. Preserve target ID/name/gameplay semantics. Leave collision
    geometry and other families' identity rules unchanged.
-7. For resolved RGB appearance hash ordered pixels/headers and renderer-used
-   masks/flags, excluding private allocation IDs, frame bases, and generated
-   animation names. Those are addressing/provenance, not visual changes. Missing
+7. Visual identity includes all excluded presentation inputs: ordered twelve
+   sprite slots (including duplicates and empty slots), hair/top/bottom/skin
+   palettes, camera dimensions, walk/combat selectors, and combatSprite. For each
+   slot hash resolved ordered RGB pixels/headers and renderer-used masks/flags,
+   excluding private allocation IDs, frame bases, and generated animation names. Those are addressing/provenance, not visual changes. Missing
    to resolved appearance is a reviewed visual update, not a semantic blocker.
 8. Run normal preview-bound Detect New Content successor revision publication,
    preserving saved work and all old evidence. Map import still validates target
@@ -200,6 +202,9 @@ Source references at runtime lock 236d47bf4660605cc4f2482769eb54c21f990cae:
   source dependencies, inactive definition source, duplicate/missing IDs,
   partial closure, corrupt OSAR/palette/frame budgets, unsupported frame resolver
   or spritepack, and preview-to-apply asset changes all refuse before mutation.
+- Reorder slots, repeat a slot, and change only each NPC palette/camera/animation
+  selector: each changes the visual signature without changing semantic identity.
+  Change name, command, or statistic: semantic conflict remains blocked.
 - Adding one animation cannot change existing NPC signatures because private
   addresses moved. Adding unrelated archive entries preserves old signatures.
 - Target files remain unchanged during discovery/capture/refresh; final imports
