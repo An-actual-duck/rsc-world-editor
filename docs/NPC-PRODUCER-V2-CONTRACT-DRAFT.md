@@ -332,10 +332,21 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
   bounded under server/src or Client_Base/src, definition roles under the selected
   definition root, configuration inputs under the supported selected-profile
   configuration roots, and image/archive artifacts under Client_Base/Cache or
-  server/conf/world-builder. All use exact contained portable paths.
+  server/conf/world-builder. external-sprite-input additionally permits the
+  maintained source asset roots dev/myworld/assets/sprites/npcs/**,
+  Client_Base/dev/myworld/assets/**, and Core-Framework/dev/myworld/assets/**,
+  always resolved INSIDE this selected target root. These last roots bind actual
+  earlier candidate absence; they never authorize another checkout or parent.
+  client-visual-archive is exactly the independently selected active paired client
+  JAR path (including supported Client_Base/Open_RSC_Client.jar), checked against
+  discovery's active binary evidence. Embedded members are bounded to
+  myworld-assets/**. producer-helper-source permits direct *.java files under
+  tools/item-visual-provider only; these are inert freshness inputs, never run by
+  Editor. Client source inputs include Sprite.java and the declared SpriteArchive
+  decoder modules. All use exact contained portable paths.
 - Each asset provider has exactly assetId, sourceId, format, targetRelativePath,
-  packageRelativePath, sha256. sourceId references a matching sprite-input or
-  resolved-frame-artifact source; targetRelativePath and SHA must match it.
+  packageRelativePath, sha256. sourceId references a matching sprite-input,
+  resolved-frame-artifact, or client-visual-archive source; targetRelativePath and SHA must match it.
 - resolutionProbes is an ordered array with unique probeId values using the
   sourceId identifier grammar. Exact tagged shapes are:
   * absent file: `{probeId,kind:"file",relativePath,present:false}`;
