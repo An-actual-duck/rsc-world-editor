@@ -8187,7 +8187,7 @@ public final class UpgradeNpcPlacements {
         self.assertIn("Choose Server Map", launcher_source)
         self.assertIn("Use Most Recently Modified", launcher_source)
         self.assertIn("Choose from Detected…", launcher_source)
-        self.assertIn("fixed imported snapshot", launcher_source)
+        self.assertIn("Use Detect New Content to review", launcher_source)
         self.assertIn("Map configuration:", launcher_source)
         self.assertNotIn("Select Layered Base…", launcher_source)
         self.assertIn('"\\nSource: " + contract.relativePath()', launcher_source)

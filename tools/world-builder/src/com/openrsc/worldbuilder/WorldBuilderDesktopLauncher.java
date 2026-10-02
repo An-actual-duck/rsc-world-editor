@@ -295,6 +295,7 @@ final class WorldBuilderDesktopLauncher {
 		private final JButton importToServer =
 			new JButton("Import Map Changes");
 		private final JButton upgradeFloors = new JButton("Upgrade Project Floors");
+		private final JButton refreshContent = new JButton("Detect New Content");
 		private final JButton restoreBackup = new JButton("Restore Project Backup");
 		private volatile boolean busy;
 		private volatile boolean editorRunning;
@@ -330,6 +331,9 @@ final class WorldBuilderDesktopLauncher {
 			}));
 			file.add(menu("Detect Server Map", new Runnable() {
 				@Override public void run() { inspectInstalledSource(); }
+			}));
+			file.add(menu("Detect New Content…", new Runnable() {
+				@Override public void run() { detectNewContent(); }
 			}));
 			file.add(new JSeparator());
 			file.add(menu("Export Selected Project Complete Map Package…", new Runnable() {
@@ -426,6 +430,8 @@ final class WorldBuilderDesktopLauncher {
 			importToServer.addActionListener(event -> importSelectedProject());
 			restoreBackup.addActionListener(event -> openProjectBackups());
 			upgradeFloors.addActionListener(event -> upgradeProjectFloors());
+			refreshContent.addActionListener(event -> detectNewContent());
+			refreshContent.setToolTipText("Review new server content while preserving saved map edits and all previous content revisions.");
 			upgradeFloors.setToolTipText("Create an upgraded copy with current floor choices, preserving your saved map edits and original project.");
 			for (JButton primary : new JButton[] {installedSource, open}) {
 				primary.setFont(primary.getFont().deriveFont(Font.BOLD));
@@ -444,6 +450,7 @@ final class WorldBuilderDesktopLauncher {
 			importToServer.setEnabled(false);
 			restoreBackup.setEnabled(false);
 			upgradeFloors.setEnabled(false);
+			refreshContent.setEnabled(false);
 
 			JPanel actions = new JPanel(new GridBagLayout());
 			actions.setBorder(BorderFactory.createEmptyBorder(0, 20, 12, 20));
@@ -470,7 +477,9 @@ final class WorldBuilderDesktopLauncher {
 			selectedProjectActions.add(importToServer, selectedAction);
 			selectedAction.gridx = 2;
 			selectedProjectActions.add(restoreBackup, selectedAction);
-			selectedAction.gridx = 0; selectedAction.gridy = 1; selectedAction.gridwidth = 3;
+			selectedAction.gridx = 0; selectedAction.gridy = 1; selectedAction.gridwidth = 2;
+			selectedProjectActions.add(refreshContent, selectedAction);
+			selectedAction.gridx = 2; selectedAction.gridwidth = 1;
 			selectedProjectActions.add(upgradeFloors, selectedAction);
 
 			JPanel actionRows = new JPanel();
@@ -537,12 +546,14 @@ final class WorldBuilderDesktopLauncher {
 			importToServer.setEnabled(!busy && entry != null);
 			restoreBackup.setEnabled(!busy && entry != null);
 			upgradeFloors.setEnabled(!busy && entry != null && !"standalone-empty".equals(entry.origin));
+			refreshContent.setEnabled(!busy && entry != null && !"standalone-empty".equals(entry.origin));
 			if (entry == null) return;
 			frame.getRootPane().setDefaultButton(open);
 			details.setText("Project: " + entry.displayName
 				+ "\nWorld type: " + originLabel(entry.origin)
 				+ "\nStatus: " + entry.state
 				+ "\nCurrent project: " + (entry.active ? "Yes" : "No")
+				+ (entry.previousContentProjectId.isEmpty() ? "" : "\nPrevious content revision: " + entry.previousContentProjectId)
 				+ (entry.sourceDisplay.isEmpty() ? ""
 					: "\nImported from: " + entry.sourceDisplay)
 				+ (entry.configurationPath.isEmpty() ? ""
@@ -555,9 +566,9 @@ final class WorldBuilderDesktopLauncher {
 				+ "run Import Map Changes. If Import reports RUNTIME_UPGRADE_REQUIRED, "
 				+ "run Upgrade Target Runtime first. Runtime upgrade and map activation "
 				+ "are separate reviewed transactions.\n\n"
-				+ "This project is a fixed imported snapshot; it is never silently mixed "
-				+ "with newer server files. If the server map has changed, use Detect "
-				+ "Server Map to create a fresh isolated project.");
+				+ "Use Detect New Content to review new server definitions and visuals "
+				+ "while preserving your saved map. Previous content revisions remain available. "
+				+ "External server map changes require a separate conflict decision.");
 			details.setCaretPosition(0);
 		}
 
@@ -656,6 +667,52 @@ final class WorldBuilderDesktopLauncher {
 						details.setCaretPosition(0);
 						JOptionPane.showMessageDialog(frame, message,
 							"Complete Map Exported", JOptionPane.INFORMATION_MESSAGE);
+					}
+				});
+		}
+
+		private WorldBuilderProjectContentRefresh.Observer contentRefreshProgress() {
+			return new WorldBuilderProjectContentRefresh.Observer() {
+				@Override public void progress(final String phase, final long elapsedMillis) {
+					SwingUtilities.invokeLater(new Runnable() {
+						@Override public void run() { status.setText(phase + "… " + (elapsedMillis / 1000L) + "s elapsed"); }
+					});
+				}
+			};
+		}
+
+		private void detectNewContent() {
+			final WorldBuilderLauncherModel.ProjectEntry entry = selectedForServerAction("detect new content");
+			if (entry == null) return;
+			runTask("Scanning target definitions and visual dependencies; preserving saved map edits…",
+				new Task<WorldBuilderProjectContentRefresh.Preview>() {
+					@Override public WorldBuilderProjectContentRefresh.Preview run() throws Exception {
+						return model.previewContentRefresh(entry, contentRefreshProgress());
+					}
+				}, new Success<WorldBuilderProjectContentRefresh.Preview>() {
+					@Override public void accept(final WorldBuilderProjectContentRefresh.Preview preview) {
+						if (!preview.blockers.isEmpty() || preview.unchanged) {
+							details.setText(preview.summary()); details.setCaretPosition(0);
+							JOptionPane.showMessageDialog(frame, contentReviewScroll(preview.summary()),
+								preview.unchanged ? "Content Is Current" : "Content Changes Need Resolution",
+								preview.unchanged ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+							return;
+						}
+						if (!confirmContentRefresh(preview.summary())) return;
+						runTask("Verifying reviewed content and preserving the saved map in a new content revision…",
+							new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
+								@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run() throws Exception {
+									return model.applyContentRefresh(entry, preview, contentRefreshProgress());
+								}
+							}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
+								@Override public void accept(WorldBuilderAdaptiveProjectLifecycle.ProjectResult result) {
+									refreshProjects(result.projectId);
+									JOptionPane.showMessageDialog(frame,
+										"New content is ready. Continue Working opens your preserved map with the reviewed library.\n"
+										+ "The previous content revision and its history remain in the project list.",
+										"Content Updated", JOptionPane.INFORMATION_MESSAGE);
+								}
+							});
 					}
 				});
 		}
@@ -862,6 +919,18 @@ final class WorldBuilderDesktopLauncher {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			if (entry == null) showError("Select a project first.", null);
 			return entry;
+		}
+
+		private JScrollPane contentReviewScroll(String summary) {
+			JTextArea visible = readOnlyText();
+			visible.setRows(18); visible.setColumns(72); visible.setText(summary); visible.setCaretPosition(0);
+			return new JScrollPane(visible);
+		}
+
+		private boolean confirmContentRefresh(String summary) {
+			Object[] options = {"Accept Content", "Cancel"};
+			return JOptionPane.showOptionDialog(frame, contentReviewScroll(summary), "Detect New Content",
+				JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[1]) == 0;
 		}
 
 		private boolean confirmTransaction(String title, String action, String summary) {
@@ -1651,6 +1720,7 @@ final class WorldBuilderDesktopLauncher {
 			importToServer.setEnabled(!value && selected);
 			restoreBackup.setEnabled(!value && selected);
 			upgradeFloors.setEnabled(!value && selected && !"standalone-empty".equals(projectList.getSelectedValue().origin));
+			refreshContent.setEnabled(!value && selected && !"standalone-empty".equals(projectList.getSelectedValue().origin));
 			status.setText(message);
 		}
 
