@@ -335,17 +335,25 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
 - Each asset provider has exactly assetId, sourceId, format, targetRelativePath,
   packageRelativePath, sha256. sourceId references a matching sprite-input or
   resolved-frame-artifact source; targetRelativePath and SHA must match it.
-- resolutionProbes is an ordered array of exact objects `{relativePath,present}`
-  when present=false, or `{relativePath,present,sha256}` when present=true.
-  Paths are restricted to the same supported external image/archive roots. A
-  successful file hashes exact bytes. Missing means no directory, regular file,
-  or symlink exists at that path. Any later appearance/disappearance/byte change
-  makes the provider stale. Sources still require present regular files.
-  A missing archive member is instead bound by its containing archive SHA and
-  a resolver input source; it is not treated as a missing filesystem path.
+- resolutionProbes is an ordered array with unique probeId values using the
+  sourceId identifier grammar. Exact tagged shapes are:
+  * absent file: `{probeId,kind:"file",relativePath,present:false}`;
+  * present file: `{probeId,kind:"file",relativePath,present:true,sha256}`;
+  * absent member: `{probeId,kind:"archive-entry",archiveRelativePath,
+    archiveSha256,entryPath,present:false}`;
+  * present member: the same archive-entry shape with present:true and
+    entrySha256 (hash of exact expanded member bytes).
+  File/archive paths use the same supported external image/archive roots;
+  entryPath is a contained portable archive path. The containing archive must
+  also be a declared sprite-input source and its SHA must match. Duplicate
+  archive members refuse; absent member means no entry with that exact name.
+  A successful file hashes exact bytes. Missing file means no directory, regular
+  file, or symlink exists at that path. Any later appearance/disappearance/byte
+  change makes the provider stale. Sources still require present regular files.
+  No missing file/member has a fictitious content hash.
 - Each animation resolution object has exactly resolverSourceId,
-  resolverSourceSha256, inputSourceIds, precedenceSourceIds, probePaths.
-  probePaths references declared resolutionProbes. Every probe is referenced by
+  resolverSourceSha256, inputSourceIds, precedenceSourceIds, probeIds.
+  probeIds references declared resolutionProbes by probeId in actual attempt order. Every probe is referenced by
   at least one resolution. inputSourceIds includes the final selected asset's
   source and every prerequisite loader/source/image affecting resolution;
   precedenceSourceIds contains each ordered applied resolver input once, drawn
@@ -373,7 +381,7 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
   private RGB animation IDs remain1080..65535.
 
 The shortened main example must include sourceId on its asset and empty
-resolutionProbes/probePaths where no optional-path probes apply. Producers must
+resolutionProbes/probeIds where no optional-path probes apply. Producers must
 emit the closed shapes above; missing keys never imply guessed default evidence.
 
 Probe ordering follows the actual external loader's attempted candidate order,
