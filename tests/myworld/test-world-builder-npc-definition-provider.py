@@ -682,6 +682,24 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 self.assertIn("Selected provider does not match this server revision", failure)
                 self.assertIn("CAPABILITY_MISMATCH", failure)
 
+    def test_lifecycle_reproduction_removing_last_type_invalidates_unchanged_content(self):
+        """Phase 1 reproduction: content stays identical; map population alone breaks reuse."""
+        with tempfile.TemporaryDirectory(prefix="npc-provider-lifecycle-reproduction-") as temp:
+            base = Path(temp)
+            target, selected = self.fixture(base)
+            self.producer_package(target, selected)
+            custom, report = self.consume(target, selected, base / "before")
+            self.assertEqual("Neutral producer NPC", custom["npcs"][1]["name"])
+            self.assertEqual([], report["warnings"])
+            retained = {p: p.read_bytes() for p in target.rglob("*") if p.is_file()
+                        and "locs" not in p.parts}
+            provider_before = {p: p.read_bytes() for p in selected.parent.rglob("*") if p.is_file()}
+            write_json(target / "server/conf/server/defs/locs/MyWorldNpcLocs.json", {"npclocs": []})
+            failure = self.consume_failure(target, selected, base / "after")
+            self.assertIn("Provider placed extension NPC set differs from the target", failure)
+            self.assertEqual(retained, {p: p.read_bytes() for p in retained})
+            self.assertEqual(provider_before, {p: p.read_bytes() for p in provider_before})
+
     def test_rich_provider_survives_coordinate_only_placement_changes(self):
         with tempfile.TemporaryDirectory(
                 prefix="npc-provider-placement-coordinate-change-") as temp:
