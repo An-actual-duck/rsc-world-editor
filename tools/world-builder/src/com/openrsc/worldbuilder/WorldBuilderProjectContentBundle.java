@@ -737,6 +737,14 @@ final class WorldBuilderProjectContentBundle {
 		return result;
 	}
 
+    /** Complete effective target IDs, independent of map population or provider selection. */
+    static Map<String,Object> deriveTargetCatalog(WorldBuilderReadOnlyTarget target,
+        WorldBuilderPackedSourceLayout layout, String catalogId)
+        throws IOException, WorldBuilderContractException {
+        return deriveCatalog(target.root, catalogId, layout,
+            WorldBuilderDefinitionComposition.inspect(target, layout));
+    }
+
 	private static Map<String,Object> deriveCatalog(Path root, String catalogId)
 		throws IOException, WorldBuilderContractException {
 		return deriveCatalog(root, catalogId, null);
