@@ -263,7 +263,7 @@ final class WorldBuilderProjectContentRefresh {
                 text.append('\n');
             }
             if (visualWarnings.size() > 5) text.append("  … and ").append(visualWarnings.size() - 5).append(" more.\n");
-            text.append("Full IDs and dependency details are included in preview visualWarnings; accepted revisions retain ")
+            text.append("Choose View Full Details for all affected IDs and missing dependencies. Accepted revisions keep a diagnostic report at ")
                 .append(WorldBuilderEffectiveContent.VISUAL_REPORT).append(".\n");
             return text.toString();
         }
