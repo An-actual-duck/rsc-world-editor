@@ -15,6 +15,18 @@ verifies every managed file against the application manifest and exact runtime
 asset allowlist, prepares a private rollback copy, and replaces only the
 content-neutral application layer.
 
+If an older updater refuses a schema that its own package shipped, keep the
+installed application and its manifest unchanged. From a verified newer package,
+run its updater against the existing World Builder 2 directory:
+
+  Linux:  bash "<new package>/Update World Builder.sh" --installation-root "<existing World Builder 2>"
+  Windows: powershell -File "<new package>\Update World Builder.ps1" -InstallationRoot "<existing World Builder 2>"
+
+The same release-channel, checksum, installed-file, running-process, project
+compatibility and rollback checks apply. The updater replaces only verified
+application files and preserves the existing project registry, selection, saved
+maps and history. Do not edit package manifests to work around a refusal.
+
 Updates never install a map, terrain archive, placement set, project, export,
 backup, receipt, credential, database state, log, or PID. A valid application
 contains only the generic runtime, tools, launchers, schemas, default
