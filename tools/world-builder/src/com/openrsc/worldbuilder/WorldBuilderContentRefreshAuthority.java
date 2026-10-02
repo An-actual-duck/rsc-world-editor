@@ -272,8 +272,21 @@ final class WorldBuilderContentRefreshAuthority {
             inventory.put("paths",new ArrayList<>(names));WorldBuilderTargetMapIntegration.verifyInventories(target.root,Collections.singletonList(inventory));paths.addAll(names);
         }
     }
-    private static boolean contentRole(String role,String path){
+    static boolean contentRole(String role,String path){
+        // These roles come only from inspectTarget's verified producer closure,
+        // never from the caller's discovery report. Exporter source is inert
+        // provenance outside the maintained game's source/classpath roots.
+        // verifyLiveRuntime still checks it if a target runtime proof happens
+        // to include that exact path; a producer role cannot override runtime
+        // authority. All actual source, configuration and binary roles remain
+        // subject to the retained snapshot/transaction evidence.
+        if("npc-producer-v2-helper-source".equals(role))
+            return path.matches("tools/item-visual-provider/[^/\\\\]+\\.java");
         if(path.endsWith(".java")||path.endsWith(".class")||path.endsWith(".jar"))return false;
+        if("npc-producer-v2-manifest".equals(role)
+            ||"npc-producer-v2-definition".equals(role)
+            ||"npc-producer-v2-asset".equals(role)
+            ||"npc-producer-v2-probe".equals(role))return true;
         return role.startsWith("server-definition.")||role.startsWith("content.definition.")||role.startsWith("content.asset.")||role.startsWith("content.metadata.")
             ||("effective-content-sources".equals(role)&&"server/conf/world-builder/effective-content-sources-v1.json".equals(path))
             ||"client-asset.library".equals(role)||"npc-visual-image".equals(role)||"npc-visual-metadata".equals(role)||"definition-composition.patch".equals(role);

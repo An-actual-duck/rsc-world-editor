@@ -14,6 +14,9 @@ HARNESS='''package com.openrsc.worldbuilder;
 import java.nio.file.*;import java.nio.charset.StandardCharsets;import java.util.*;
 public final class ContentAuthorityFixture {
  public static void main(String[] args)throws Exception{
+  if(args[0].equals("content-role")){
+   System.out.print(WorldBuilderContentRefreshAuthority.contentRole(args[1],args[2]));return;
+  }
   Path root=Paths.get(args[1]);WorldBuilderReadOnlyTarget target=WorldBuilderReadOnlyTarget.open(root);
   if(args[0].equals("floors")){
    WorldBuilderAdaptiveConfiguration configuration=WorldBuilderAdaptiveConfiguration.select(target,WorldBuilderTargetCapability.read(target),null).selected;
@@ -58,6 +61,33 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
         return self.target_project(base,representation='packed',installed_standard_floors=True,target_mutator=complete)
     def add_content(self,target):
         path=target/'server/conf/server/defs/NpcDefsCustom.json';value=json.loads(path.read_text());value['npcs'].append({'name':'authority fixture addition','sprites':[0]*12});support.write_json(path,value);self.sync_catalogs(target)
+    def test_producer_provenance_never_authorizes_runtime_or_configuration_changes(self):
+        accepted=[
+            ('manifest','server/conf/world-builder/npc-definitions-v2.json'),
+            ('definition','server/conf/server/defs/NpcDefsCustom.json'),
+            ('asset','server/conf/world-builder/npc-preview-rgb.zip'),
+            ('probe','dev/myworld/assets/sprites/npcs/optional.png'),
+            ('helper-source','tools/item-visual-provider/ExportEffectiveNpcVisuals.java'),
+        ]
+        rejected=[
+            ('source','server/src/com/openrsc/server/external/EntityHandler.java'),
+            ('source','Client_Base/src/com/openrsc/client/entityhandling/EntityHandler.java'),
+            ('client-archive','Client_Base/Open_RSC_Client.jar'),
+            ('config','server/myworld.conf'),
+            ('asset','Client_Base/Open_RSC_Client.jar'),
+            ('asset','Client_Base/src/Injected.java'),
+            ('asset','server/classes/Injected.class'),
+            ('helper-source','server/src/ExportEffectiveNpcVisuals.java'),
+            ('helper-source','tools/item-visual-provider/nested/Export.java'),
+            ('helper-source','tools/item-visual-provider/../Export.java'),
+            ('helper-source','tools/item-visual-provider/Exporter.jar'),
+        ]
+        for expected,rows in [(True,accepted),(False,rejected)]:
+            for role,path in rows:
+                with self.subTest(role=role,path=path):
+                    result=self.probe('content-role','npc-producer-v2-'+role,path)
+                    self.assertEqual(0,result.returncode,result.stderr)
+                    self.assertEqual(str(expected).lower(),result.stdout)
     def test_content_addition_after_import_is_verified_without_mutation(self):
         with tempfile.TemporaryDirectory(prefix='content-authority-chain-') as temp:
             target,install,project,export=self.fixture(Path(temp))
@@ -106,6 +136,13 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
             self.assertEqual(0,reverified.returncode,reverified.stderr)
             self.add_content(target)
             result=self.probe('verify',target,project);self.assertEqual(0,result.returncode,result.stderr)
+            source='src/com/openrsc/client/entityhandling/EntityHandler.java'
+            configuration=json.loads((target/'server/world-builder-configs/primary.json').read_text())
+            client=Path(configuration['clientRuntimeRelativePath']).parts[0]
+            for path in [target/'server/core.jar',target/client/'Open_RSC_Client.jar',target/'server'/source,target/client/source]:
+                original=path.read_bytes();path.write_bytes(original+b' changed')
+                result=self.probe('verify',target,project);self.assertNotEqual(0,result.returncode,result.stdout)
+                path.write_bytes(original)
             extra=target/'server/src/fixture/Unexpected.java';extra.write_text('package fixture; public class Unexpected {}')
             result=self.probe('verify',target,project);self.assertNotEqual(0,result.returncode);self.assertIn('inventory changed',result.stderr)
 
