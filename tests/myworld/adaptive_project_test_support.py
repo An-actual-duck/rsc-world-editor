@@ -919,3 +919,29 @@ def change_working_terrain(project: Path) -> None:
     terrain.write_bytes(payload)
     declaration["sha256"] = sha256(terrain)
     write_json(manifest_path, manifest)
+
+
+def declare_effective_content_sources(target, npc_sources=(), item_sources=None,
+                                      configuration='server/myworld.conf',
+                                      definition_root='server/conf/server/defs'):
+    """Author an inert producer fixture; never guess source order in production."""
+    config = target / configuration
+    if not config.exists():
+        config.parent.mkdir(parents=True, exist_ok=True)
+        config.write_text('want_myworld: true\n', encoding='utf-8')
+    def sources(names):
+        return [{'relativePath': f'{definition_root}/{name}',
+                 'sha256': sha256(target / definition_root / name)} for name in names]
+    document = {
+        'schemaVersion': 1,
+        'manifestType': 'world-builder-effective-content-sources',
+        'configuration': {'relativePath': configuration, 'sha256': sha256(config)},
+        'npcRegistry': {'semantics': 'openrsc-sequential-append-v1',
+                        'sources': sources(['NpcDefs.json', 'NpcDefsCustom.json', *npc_sources])},
+    }
+    if item_sources is not None:
+        document['itemRegistry'] = {
+            'semantics': 'openrsc-id-overwrite-v1',
+            'sources': sources(['ItemDefs.json', 'ItemDefsCustom.json', *item_sources]),
+        }
+    write_json(target / 'server/conf/world-builder/effective-content-sources-v1.json', document)
