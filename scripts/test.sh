@@ -135,6 +135,7 @@ add_group() {
 				test-world-builder-packed-conversion.py
 				test-world-builder-portable-provider.py
 				test-world-builder-npc-definition-provider.py
+				test-world-builder-npc-producer-v2.py
 				test-world-builder-npc-direction-sheets.py
 				test-world-builder-npc-visual-source.py
 				test-world-builder-project-content-bundle.py

@@ -9,8 +9,9 @@ import tempfile
 import unittest
 import zipfile
 import hashlib
+import gzip
 import struct
-from adaptive_project_test_support import load_discovery_fixtures
+from adaptive_project_test_support import load_discovery_fixtures, declare_effective_content_sources
 from npc_producer_v2_test_support import install_v2_fixture,write_json
 ROOT=Path(__file__).resolve().parents[2]
 CLASSES=ROOT/'output/world-builder-tools/classes'
@@ -18,6 +19,17 @@ HARNESS='''package com.openrsc.worldbuilder;
 import java.nio.file.*;import java.util.*;
 public class NpcProducerV2Harness {
  public static void main(String[] args)throws Exception {
+  if("osar-parity".equals(args[0])){
+   java.util.Map<String,WorldBuilderNpcProducerFrames.OsarEntry> decoded=WorldBuilderNpcProducerFrames.osar(Paths.get(args[1]));
+   orsc.graphics.two.SpriteArchive.Workspace source=new orsc.graphics.two.SpriteArchive.Unpacker().unpackArchive(Paths.get(args[1]).toFile());int count=0;
+   for(orsc.graphics.two.SpriteArchive.Subspace sub:source.getSubspaces())for(orsc.graphics.two.SpriteArchive.Entry entry:sub.getEntryList()){
+    java.util.List<byte[]> frames=decoded.get(sub.getName()+"/"+entry.getID()).frames;int i=0;
+    for(orsc.graphics.two.SpriteArchive.Frame frame:entry.getFrames()){
+     java.nio.ByteBuffer expected=java.nio.ByteBuffer.allocate(25+frame.getPixels().length*4);expected.putInt(frame.getWidth()).putInt(frame.getHeight()).put((byte)(frame.getUseShift()?1:0)).putInt(frame.getOffsetX()).putInt(frame.getOffsetY()).putInt(frame.getBoundWidth()).putInt(frame.getBoundHeight());for(int pixel:frame.getPixels())expected.putInt(pixel);
+     if(!Arrays.equals(expected.array(),frames.get(i++)))throw new AssertionError("Actual maintained OSAR decoder parity failed");count++;
+    }
+   }System.out.println(WorldBuilderJsonDocuments.pretty(Collections.singletonMap("frames",count)));return;
+  }
   WorldBuilderNpcProducerV2.Capture capture=WorldBuilderNpcProducerV2.discover(WorldBuilderReadOnlyTarget.open(Paths.get(args[0])),WorldBuilderPackedSourceLayout.canonical("server/myworld.conf"));
   Map<String,Object> out=new TreeMap<>();out.put("npcs",capture.document.npcs.size());out.put("animations",capture.document.animations.size());
   List<Object> evidence=new ArrayList<>();for(WorldBuilderReadOnlyTarget.FileState state:capture.evidence)evidence.add(state.toJson());out.put("evidence",evidence);
@@ -30,7 +42,9 @@ class NpcProducerV2Test(unittest.TestCase):
  def setUpClass(cls):
   subprocess.run([str(ROOT/'scripts/build-tools.sh')],check=True)
   cls.temp=tempfile.TemporaryDirectory(prefix='npc-v2-harness-');root=Path(cls.temp.name);(root/'NpcProducerV2Harness.java').write_text(HARNESS)
-  subprocess.run(['javac','-cp',str(CLASSES),'-d',str(root),str(root/'NpcProducerV2Harness.java')],check=True)
+  provider=ROOT/'.runtime-provider/Client_Base/src'
+  sources=[provider/'com/openrsc/client/model/Sprite.java']+[provider/'orsc/graphics/two/SpriteArchive'/f'{name}.java' for name in ['Unpacker','Workspace','Subspace','Entry','Frame']]
+  subprocess.run(['javac','-cp',str(CLASSES),'-d',str(root),*[str(p) for p in sources],str(root/'NpcProducerV2Harness.java')],check=True)
  @classmethod
  def tearDownClass(cls):cls.temp.cleanup()
  def fixture(self,base,count=15):
@@ -85,4 +99,55 @@ class NpcProducerV2Test(unittest.TestCase):
    target,manifest,doc=self.fixture(Path(temp));self.run_capture(target)
    path=target/'Client_Base/dev/myworld/assets/npcs/optional.png';path.parent.mkdir(parents=True);path.write_bytes(b'new earlier candidate')
    self.assertIn('appeared',self.run_capture(target,False))
+ def test_lossless_osar_conversion_matches_actual_locked_unpacker(self):
+  with tempfile.TemporaryDirectory() as temp:
+   path=Path(temp)/'frames.osar';payload=bytearray([0,15,3]);payload.extend(bytes.fromhex('000000 ff00ff 808080 804020'))
+   for i in range(15):payload.extend(struct.pack('>HHBhhHH',2,2,i%2,-3,4,7,8)+bytes([0,1,2,3]))
+   path.write_bytes(gzip.compress(b'\x01npc\0\x00\x01fixture\0'+payload,mtime=0))
+   result=subprocess.run(['java','-cp',os.pathsep.join([self.temp.name,str(CLASSES)]),'com.openrsc.worldbuilder.NpcProducerV2Harness','osar-parity',str(path)],text=True,capture_output=True)
+   self.assertEqual(0,result.returncode,result.stderr);self.assertEqual({'frames':15},json.loads(result.stdout))
+ def test_only_literal_unambiguous_config_defaults_are_accepted(self):
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,original=self.fixture(Path(temp));config=target/'server/myworld.conf';config.write_text('\n'.join(line for line in config.read_text().splitlines() if not line.startswith(('custom_sprites:','allow_bearded_ladies:')))+'\n')
+   declare_effective_content_sources(target,item_sources=())
+   source=target/'server/src/com/openrsc/server/ServerConfiguration.java';source.parent.mkdir(parents=True,exist_ok=True)
+   valid='WANT_CUSTOM_SPRITES = tryReadBool("custom_sprites").orElse(false);\nALLOW_BEARDED_LADIES = tryReadBool("allow_bearded_ladies").orElse(false);\n'
+   for text,success in [(valid,True),('/*'+valid+'*/',False),(valid+'WANT_CUSTOM_SPRITES = true;',False),(valid+valid,False)]:
+    source.write_text(text);doc=copy.deepcopy(original);doc['provider']['configuration']['sha256']=hashlib.sha256(config.read_bytes()).hexdigest();doc['provider']['sources'].append({'sourceId':'server-config','role':'server-npc-loader','relativePath':str(source.relative_to(target)),'sha256':hashlib.sha256(source.read_bytes()).hexdigest()});write_json(manifest,doc);self.run_capture(target,success)
+ def runtime(self,base):
+  path=Path(base)/'private-runtime.jar'
+  with zipfile.ZipFile(path,'w') as jar:jar.writestr('META-INF/MANIFEST.MF','Manifest-Version: 1.0\nWorld-Builder-Npc-Rgb: npc-rgb-frames-v1\nWorld-Builder-Npc-Mask-Policy: npc-mask-policy-v1\nWorld-Builder-Npc-Animation-Count: 1080\n\n')
+  return path
+ def test_two_active_complete_producers_refuse(self):
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,doc=self.fixture(Path(temp));write_json(target/'server/conf/world-builder/npc-definitions-v2.json',doc)
+   self.assertIn('two active',self.run_capture(target,False).lower())
+ def test_disjoint_active_pack_is_bound_but_npc_override_refuses(self):
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,doc=self.fixture(Path(temp));config=target/'Client_Base/Cache/config.txt';config.write_text('Menus:1\n')
+   pack=target/'Client_Base/Cache/video/spritepacks/Menus.osar';pack.parent.mkdir(parents=True,exist_ok=True)
+   for category,name,success in [('gui','menu',True),('npc','fixture',False)]:
+    payload=bytes([0,1,0,0x12,0x34,0x56])+struct.pack('>HHBhhHHB',1,1,0,0,0,1,1,0)
+    pack.write_bytes(gzip.compress(b'\x01'+category.encode()+b'\0\x00\x01'+name.encode()+b'\0'+payload,mtime=0))
+    updated=copy.deepcopy(doc)
+    for identity,path,role in [('selector',config,'configuration-input'),('pack',pack,'sprite-input')]:updated['provider']['sources'].append({'sourceId':identity,'role':role,'relativePath':str(path.relative_to(target)),'sha256':hashlib.sha256(path.read_bytes()).hexdigest()})
+    probe=updated['provider']['resolutionProbes'][0];probe.update(present=True,sha256=hashlib.sha256(config.read_bytes()).hexdigest())
+    for key in ['inputSourceIds','precedenceSourceIds']:updated['animationDefinitions'][0]['resolution'][key]+=['selector','pack']
+    write_json(manifest,updated);result=self.run_capture(target,success)
+    if not success:self.assertIn('overrides npc animation',result.lower())
+ def test_malformed_or_undeclared_rgb_frames_are_rejected_before_publication(self):
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,original=self.fixture(Path(temp));runtime=self.runtime(temp);archive=target/'world-builder-provider/npc-frames.zip'
+   with zipfile.ZipFile(archive) as zipped:initial={name:zipped.read(name) for name in zipped.namelist()}
+   variants={'bad-pixel':lambda entries:entries.update({'frames/0.dat':entries['frames/0.dat'][:-4]+bytes.fromhex('ff102030')}),'undeclared':lambda entries:entries.update({'undeclared.dat':initial['frames/0.dat']}),'duplicate-numeric':lambda entries:entries.update({'sprites/7':initial['frames/0.dat'],'7.dat':initial['frames/0.dat']})}
+   for label,mutate in variants.items():
+    with self.subTest(label=label):
+     entries=dict(initial);mutate(entries)
+     with zipfile.ZipFile(archive,'w') as zipped:
+      for name,data in entries.items():zipped.writestr(name,data)
+     (target/'server/conf/world-builder/npc-frames.zip').write_bytes(archive.read_bytes());doc=copy.deepcopy(original);digest=hashlib.sha256(archive.read_bytes()).hexdigest();doc['assetProviders'][0]['sha256']=digest
+     for row in doc['provider']['sources']:
+      if row['sourceId']=='frames':row['sha256']=digest
+     doc['animationDefinitions'][0]['frames']['frameSha256s'][0]=hashlib.sha256(entries['frames/0.dat']).hexdigest();write_json(manifest,doc)
+     self.run_capture(target);before={p:p.read_bytes() for p in target.rglob('*') if p.is_file()};self.run_capture(target,False,runtime);self.assertEqual(before,{p:p.read_bytes() for p in target.rglob('*') if p.is_file()})
 if __name__=='__main__':unittest.main()

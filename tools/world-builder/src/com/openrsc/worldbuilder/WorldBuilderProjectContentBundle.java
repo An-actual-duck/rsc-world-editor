@@ -342,7 +342,7 @@ final class WorldBuilderProjectContentBundle {
             if(copied.exists(path))throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,path,"Complete NPC producer conflicts with a separate explicit NPC visual descriptor.","Publish one complete maintained visual authority for the selected configuration.");
 		WorldBuilderNpcVisualCompiler.Result directionMigration = completeNpcVisuals != null
             ? new WorldBuilderNpcVisualCompiler.Result(WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
-                completeNpcVisuals.authenticArchive,completeNpcVisuals.animations,completeNpcVisuals.limitations)
+                completeNpcVisuals.authenticArchive,completeNpcVisuals.animations,Collections.<Object>emptyList())
             : WorldBuilderNpcVisualCompiler.normalize(
 			copiedTarget, sourceLayout, originalLayout == null ? sourceLayout : originalLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
@@ -449,11 +449,7 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
-        if(completeNpcVisuals!=null){
-            Map<String,Object> report=new LinkedHashMap<>();report.put("schemaVersion",Long.valueOf(1));report.put("manifestType","world-builder-complete-npc-presentation");
-            report.put("producerManifest",effectiveProducer.manifestPath);report.put("npcCount",Long.valueOf(effectiveProducer.document.npcs.size()));report.put("animationCount",Long.valueOf(effectiveProducer.document.animations.size()));report.put("previewLimitations",completeNpcVisuals.limitations);
-            Path reportPath=projectStage.resolve("diagnostics/npc-producer-v2-resolution.json");Files.createDirectories(reportPath.getParent());Files.write(reportPath,WorldBuilderJsonDocuments.pretty(report).getBytes(StandardCharsets.UTF_8));
-        }
+
 		WorldBuilderNpcVisualCompiler.writeReport(projectStage, directionMigration);
 		WorldBuilderNpcDefinitionReconciliation.writeReport(
 			projectStage, copiedTarget, sourceLayout, npcRegistry);
@@ -486,7 +482,9 @@ final class WorldBuilderProjectContentBundle {
 				"Captured custom-content bundle changed during verification.",
 				"Discard the unpublished project stage and retry.");
 		}
-		WorldBuilderEffectiveContent.writeVisualReport(projectStage, WorldBuilderEffectiveContent.visualReport(captured));
+        WorldBuilderEffectiveContent.BundleReport visualReport=WorldBuilderEffectiveContent.visualReport(captured);
+        WorldBuilderEffectiveContent.writeVisualReport(projectStage,visualReport);
+        if(completeNpcVisuals!=null)WorldBuilderNpcProducerFrames.writeReport(projectStage,effectiveProducer,completeNpcVisuals,visualReport.index);
 		return captured;
 	}
 

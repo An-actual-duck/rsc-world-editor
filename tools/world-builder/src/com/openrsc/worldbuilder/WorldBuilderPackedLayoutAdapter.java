@@ -296,18 +296,20 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		for (WorldBuilderReadOnlyTarget.FileState candidate : supplemental) {
 			// Optional provider metadata is an input only when it exists. Its absence
 			// must not become a required conversion record.
-			if (!candidate.present) continue;
+            if (!candidate.present && !(WorldBuilderNpcProducerV2.ROLE_PREFIX+"probe").equals(candidate.role)) continue;
 			boolean duplicate = false;
 			for (int index = 0; index < files.size(); index++) {
 				WorldBuilderReadOnlyTarget.FileState existing = files.get(index);
 				if (!existing.relativePath.equals(candidate.relativePath)) continue;
-				if ((existing.role.equals(candidate.role) || WorldBuilderTargetMapIntegration.evidenceRole(existing.role))
+				if ((existing.role.equals(candidate.role) || WorldBuilderTargetMapIntegration.evidenceRole(existing.role)
+                    || WorldBuilderNpcProducerV2.evidenceRole(candidate.role))
 					&& existing.present == candidate.present
 					&& existing.size == candidate.size
 					&& existing.sha256.equals(candidate.sha256)) {
 					// A verified proof dependency may also be a content input.
 					// Retain the specific content role and its identical state.
-					if (WorldBuilderTargetMapIntegration.evidenceRole(existing.role)) files.set(index, candidate);
+					if (WorldBuilderTargetMapIntegration.evidenceRole(existing.role)
+                        && !WorldBuilderNpcProducerV2.evidenceRole(candidate.role)) files.set(index, candidate);
 					duplicate = true;
 					break;
 				}
@@ -352,9 +354,13 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 		Collections.sort(sorted);
 		List<Object> records = new ArrayList<Object>(sorted.size());
 		for (WorldBuilderReadOnlyTarget.FileState file : sorted) {
+            if(!file.present && !(WorldBuilderNpcProducerV2.ROLE_PREFIX+"probe").equals(file.role)) throw problem(
+                WorldBuilderErrorCodes.MALFORMED_SERVER,file.relativePath,"Required configured source evidence is absent.","Restore the required source and rediscover.");
 			records.add(file.toJson());
 		}
-		WorldBuilderBoundedInventory.read(records, "discover-target", 1, true);
+        // Only producer candidate probes may assert absence; all configured
+        // runtime/map inputs above remain required and independently checked.
+		WorldBuilderBoundedInventory.read(records, "discover-target", 1, false);
 	}
 
 	private static WorldBuilderAdapterInspection inspectLegacyFallback(

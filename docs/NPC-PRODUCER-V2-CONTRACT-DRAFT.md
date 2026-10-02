@@ -418,3 +418,35 @@ The contained Core-Framework/dev candidate prefix above is a literal input of th
 recognized maintained external-asset resolver, not a server identity exception.
 No behavior depends on server folder name or NPC identity. Other resolver profiles
 need separately verified semantics; no external checkout is read.
+
+### Active spritepack selection in this bounded profile
+
+`Client_Base/Cache/config.txt` is an explicit visual selector, not gameplay
+configuration. Its complete file is bound as `configuration-input`; discovery
+emits `npc-producer-v2-visual-selector` only after verifying its bounded syntax.
+Each line is a unique portable pack name followed by `:0` or `:1`. Each active
+pack is bound as a `sprite-input` source at
+`Client_Base/Cache/video/spritepacks/<name>.osar`. Every animation's resolution
+input list includes active packs, with their ordered source IDs retained in the
+precedence list. The consumer independently decodes each active pack and refuses
+any `(category, name)` that intersects the complete referenced NPC animation
+closure. Disjoint packs remain active and unchanged. Supporting packs that replace
+NPC frames requires a future reviewed resolver profile; the consumer never
+silently disables them. A missing selector requires a bound absent-file probe.
+
+Discovery validates manifest/source/asset hashes and selection/probe outcomes.
+Capture validates every resolved frame's internal geometry, payload and declared
+closure before publishing a project or revision. ZIP closures permit at most
+32,768 entries and 512 MiB expanded; individual RGB payloads are limited to
+16 MiB. Combined retained source frame payloads are bounded to 512 MiB, and the
+private emitted NPC RGB projection to 256 MiB. OSAR-to-RGB conversion is checked
+against the exact locked provider's maintained `Unpacker`, including palette
+zero, offsets, shifts, bounds and frame order.
+
+Intentional cadence and secondary-attack limitations are recorded separately in
+`diagnostics/npc-producer-v2-resolution.json`. They do not mark verified frames as
+missing or unresolved. Names and original NPC IDs identify affected rows; no
+private animation IDs appear in placement data. A first legacy-to-complete-RGB
+revision may require broad visual review because the verified representation and
+source renderer profile change. That review is not a claim that every NPC's
+visible appearance changed, and it does not authorize changing semantic content.

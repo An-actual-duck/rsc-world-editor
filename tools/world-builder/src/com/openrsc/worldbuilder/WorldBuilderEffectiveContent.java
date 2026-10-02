@@ -123,7 +123,7 @@ final class WorldBuilderEffectiveContent {
         document.put("manifestType","world-builder-content-visual-resolution");
         document.put("bundleFingerprintSha256",index.bundleFingerprintSha256);
         document.put("unresolved",index.visualWarnings());
-        return new BundleReport(document);
+        return new BundleReport(document,index);
     }
 
     static String projectWarningSummary(Path project) {
@@ -149,7 +149,8 @@ final class WorldBuilderEffectiveContent {
 
     static final class BundleReport {
         final Map<String,Object> document;
-        BundleReport(Map<String,Object> document) { this.document=document; }
+        final Index index;
+        BundleReport(Map<String,Object> document,Index index) { this.document=document;this.index=index; }
     }
 
     /** Entry-level closures for supported lookups; unsupported lookups retain exact archive authority. */
