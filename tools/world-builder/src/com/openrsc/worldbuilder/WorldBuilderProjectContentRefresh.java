@@ -80,8 +80,16 @@ final class WorldBuilderProjectContentRefresh {
                 "Detect New Content currently supports attached declarative-content projects; preserve this project unchanged.");
         phase("Scanning effective target content");
         Map<String,Object> selected = WorldBuilderAdaptiveExporter.object(parent.snapshot.get("selectedConfiguration"), "selectedConfiguration");
-        String role = WorldBuilderAdaptiveExporter.string(selected, "role");
+        String role = WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(parent.discoveryReport);
         Map<String,Object> report = parse(new WorldBuilderAdaptiveDiscovery().discover(target, role.isEmpty() ? null : role).toJson());
+        if ("compatible".equals(report.get("status"))) {
+            Map<String,Object> currentSelection = WorldBuilderAdaptiveExporter.object(report.get("selectedConfiguration"), "selectedConfiguration");
+            String expectedPath = WorldBuilderAdaptiveExporter.string(selected, "relativePath");
+            if (!expectedPath.startsWith("source/original/")
+                || !expectedPath.substring("source/original/".length()).equals(currentSelection.get("relativePath")))
+                throw drift("selectedConfiguration", "Detected content belongs to a different active map configuration.",
+                    "Select the original project target and resolve the map configuration change separately.");
+        }
         phase("Verifying current map, runtime and transaction history");
         Map<String,Object> authority = WorldBuilderContentRefreshAuthority.verify(parent, target, report);
         WorldBuilderEffectiveContent.Index before = WorldBuilderEffectiveContent.index(
@@ -213,6 +221,14 @@ final class WorldBuilderProjectContentRefresh {
                 text.append(family.get("family")).append(": added ").append(compact(family.get("added")))
                     .append("; changed ").append(compact(family.get("changed"))).append("; removed ").append(compact(family.get("removed")))
                     .append("; visuals ").append(compact(family.get("visualsChanged"))).append('\n');
+                List<?> changes = (List<?>)family.get("details");
+                for (int index = 0; index < Math.min(8, changes.size()); index++) {
+                    @SuppressWarnings("unchecked") Map<String,Object> change = (Map<String,Object>)changes.get(index);
+                    String name = String.valueOf(change.get("name"));
+                    if (name.isEmpty()) name = String.valueOf(change.get("previousName"));
+                    text.append("  ").append(change.get("status")).append(" ").append(change.get("id"))
+                        .append(": ").append(name).append(" — ").append(change.get("mapReferenceCount")).append(" map references\n");
+                }
             }
             if (!blockers.isEmpty()) text.append("\nRefresh is blocked: ").append(compact(blockers))
                 .append("\n\nKeep working in the current preserved project. Restore the target IDs to their previous meanings, or resolve changes explicitly with the target maintainer. This version accepts additions and reviewed visual updates; it does not accept identity redefinitions or removals. No references are removed or substituted.");

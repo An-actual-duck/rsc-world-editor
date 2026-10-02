@@ -640,7 +640,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			observe("active-published", project);
 			loadRegistry(install, true);
 			return new ProjectResult(project, projectId, origin,
-				string(manifest, "state"), prepared.packageFingerprintSha256, port);
+				string(manifest, "state"), contentRefresh == null ? prepared.packageFingerprintSha256
+					: stagedWorking.fingerprintSha256, port);
 		} catch (WorldBuilderContractException failure) {
 			rollbackCreation(install, project, stage, projectPublished,
 				oldRegistry, oldActive, failure);

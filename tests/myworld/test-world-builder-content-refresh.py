@@ -106,17 +106,18 @@ public final class RefreshDesktopModel {
         result = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.RefreshCatalogFixture", str(target), *options], capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
 
+    def complete_content(self, target):
+        support.write_json(target / "server/conf/server/defs/NpcDefs.json", {
+            "npcs": [{"id": index, "name": "fixture-" + str(index)} for index in range(36)]
+        })
+        patch = target / "server/conf/server/defs/NpcDefsPatch18.json"
+        value = json.loads(patch.read_text())
+        value["npcs"].append({"id": 35, "name": "placed-fixture-35"})
+        support.write_json(patch, value)
+        self.sync_catalogs(target)
+
     def fixture(self, base):
-        def complete_content(target):
-            support.write_json(target / "server/conf/server/defs/NpcDefs.json", {
-                "npcs": [{"id": index, "name": "fixture-" + str(index)} for index in range(36)]
-            })
-            patch = target / "server/conf/server/defs/NpcDefsPatch18.json"
-            value = json.loads(patch.read_text())
-            value["npcs"].append({"id": 35, "name": "placed-fixture-35"})
-            support.write_json(patch, value)
-            self.sync_catalogs(target)
-        target, installation, project, export = self.target_project(base, representation="packed", installed_standard_floors=True, target_mutator=complete_content)
+        target, installation, project, export = self.target_project(base, representation="packed", installed_standard_floors=True, target_mutator=self.complete_content)
         return target, installation, project, export, base / "builder-runtime"
 
     def refresh(self, project, runtime, target, *args):
@@ -183,13 +184,15 @@ public final class RefreshDesktopModel {
             target, install, project, _, runtime = self.fixture(Path(temp))
             path = target / "server/conf/server/defs/NpcDefsPatch18.json"
             document = json.loads(path.read_text())
-            document["npcs"][0]["name"] = "replacement with a different identity"
+            document["npcs"][-1]["name"] = "replacement with a different identity"
             support.write_json(path, document)
             before = support.tree_bytes(project)
             reviewed = self.refresh(project, runtime, target)
             self.assertEqual(0, reviewed.returncode, reviewed.stderr)
             preview = json.loads(reviewed.stdout)
             self.assertEqual("blocked", preview["status"])
+            affected = next(row for row in preview["families"] if row["family"] == "npc")["details"]
+            self.assertTrue(any(row["mapReferenceCount"] > 0 and row["previousName"] for row in affected))
             accepted = self.refresh(project, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
             self.assertEqual(3, accepted.returncode, accepted.stderr)
             self.assertIn("conflicts", accepted.stderr)
@@ -295,6 +298,110 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(before, support.tree_bytes(project))
             self.assertNotEqual(project.name, json.loads(result.stdout)["projectId"])
+
+
+    def test_added_item_scenery_boundary_content_can_be_placed_and_imported(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-families-") as temp:
+            target, install, project, _, runtime = self.fixture(Path(temp))
+            defs = target / "server/conf/server/defs"
+            path = defs / "ItemDefsCustom.json"
+            value = json.loads(path.read_text()); value["items"].append({"id": 42, "name": "new custom item", "sprite": "items/0", "pictureMask": 0, "blueMask": 0})
+            support.write_json(path, value)
+            path = defs / "GameObjectDef.xml"
+            path.write_text(path.read_text().replace("</GameObjectDef-array>",
+                "<GameObjectDef><name>new collision scenery</name><width>2</width><height>2</height></GameObjectDef></GameObjectDef-array>"))
+            path = defs / "DoorDef.xml"
+            path.write_text(path.read_text().replace("</DoorDef-array>", "<DoorDef><name>new wall</name></DoorDef></DoorDef-array>"))
+            self.sync_catalogs(target)
+            reviewed = self.refresh(project, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"], preview["blockers"])
+            for family in ("ground-item", "scenery", "boundary"):
+                self.assertTrue(next(row for row in preview["families"] if row["family"] == family)["added"])
+            accepted = self.refresh(project, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            package = successor / "working/layered-world/package"
+            manifest = json.loads((package / "manifest.json").read_text())
+            pending = {"groundItems": ("itemId", 42), "scenery": ("sceneryId", 22), "boundaries": ("boundaryId", 12)}
+            for declaration in manifest["placementSets"]:
+                path = package / declaration["path"]; value = json.loads(path.read_text())
+                for family, (field, identity) in list(pending.items()):
+                    if value[family]: value[family][0][field] = identity; del pending[family]
+                support.write_json(path, value); declaration["sha256"] = support.sha256(path)
+            self.assertFalse(pending)
+            support.write_json(package / "manifest.json", manifest)
+            exported = self.next_history_export(successor)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
+
+
+    def test_refresh_tracks_selected_path_after_packed_alias_changes(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-role-alias-") as temp:
+            base = Path(temp)
+            target, install, _, _, runtime = self.fixture(base)
+            configuration = "client_version: 10046\nmember_world: true\nbased_map_data: 64\nbased_config_data: 18\nwant_myworld: true\ncustom_landscape: true\n"
+            (target / "myworld.conf").write_text(configuration)
+            (target / "server/myworld.conf").write_text(configuration)
+            selected = self.run_cli("discover-adaptive", "--target-root", target, "--configuration-role", "packed-map-2")
+            self.assertEqual(0, selected.returncode, selected.stderr)
+            report = base / "alias-discovery.json"; report.write_text(selected.stdout)
+            created = self.run_cli("create-project", "--installation-root", install, "--runtime-root", runtime,
+                "--target-root", target, "--discovery-report", report, "--display-name", "Aliased project", "--port", "43883", "--confirm", "CREATE")
+            self.assertEqual(0, created.returncode, created.stderr)
+            parent = Path(json.loads(created.stdout)["projectRoot"])
+            exported = self.next_history_export(parent)
+            installed = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent, "--export", exported, "--target-root", target)
+            self.assertEqual(0, installed.returncode, installed.stderr)
+            (target / "myworld.conf").unlink()  # Remove an unselected candidate, never the selected source config.
+            self.add_npc(target)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            self.assertEqual("ready", json.loads(reviewed.stdout)["status"])
+
+    def test_refresh_preserves_reverification_boundary_then_rebuilds_successor(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-reverify-chain-") as temp:
+            base = Path(temp)
+            target_project = self.target_project
+            def maintained_target(*args, **kwargs):
+                previous = kwargs.get("target_mutator")
+                def capture_content(target):
+                    if previous is not None: previous(target)
+                    self.complete_content(target)
+                kwargs["target_mutator"] = capture_content
+                kwargs["installed_standard_floors"] = False
+                return target_project(*args, **kwargs)
+            self.target_project = maintained_target
+            try:
+                target, install, parent, export = self.reverification_fixture(base, packed_floors=True)
+            finally:
+                self.target_project = target_project
+            runtime = base / "builder-runtime"
+            self.rebuild_fixture(base, target, "none")
+            checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", parent, "--target-root", target)
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            history = support.tree_bytes(parent)
+            self.add_npc(target)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"], preview["blockers"])
+            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            self.assertEqual(history, support.tree_bytes(parent))
+            for stage in range(2):
+                exported = self.next_history_export(successor)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+                if stage == 0:
+                    archives = self.rebuild_fixture(base, target, "source,lines,vars")
+                    rechecked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", successor, "--target-root", target)
+                    self.assertEqual(0, rechecked.returncode, rechecked.stderr)
+            for path, value in archives.items(): self.assertEqual(value, (target / path).read_bytes())
+            self.assertEqual(history, support.tree_bytes(parent))
 
 
 def load_tests(loader, tests, pattern):
