@@ -1709,7 +1709,7 @@ public final class InstalledFloorFixture {
         self.assertEqual(0, exported.returncode, exported.stderr)
         return Path(json.loads(exported.stdout)["exportDirectory"])
 
-    def reverification_fixture(self, base):
+    def reverification_fixture(self, base, packed_floors=False):
         def content(target):
             self.add_targeted_floor_fixture(base, target)
             configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
@@ -1730,7 +1730,7 @@ public final class InstalledFloorFixture {
                             *map(str, (target / "server/src").rglob("*.java"))], check=True, capture_output=True)
             for file in classes.rglob("*.class"):
                 self.rewrite_runtime_entry(target / "server/core.jar", file.relative_to(classes).as_posix(), file.read_bytes())
-        target, installation, project, export = self.target_project(base, target_mutator=content)
+        target, installation, project, export = self.target_project(base, representation="packed" if packed_floors else "layered", target_mutator=content)
         upgraded = self.run_reviewed_apply("upgrade-target-runtime", "UPGRADE", "--project", project,
             "--export", export, "--target-root", target)
         self.assertEqual(0, upgraded.returncode, upgraded.stderr)
@@ -2058,6 +2058,120 @@ public final class InstalledFloorFixture {
                 "--export", export, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(saved, project_support.tree_bytes(project / "working"))
+
+    def test_fresh_project_refuses_pre_capture_discovery_report(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-old-proof-report-") as temp:
+            base = Path(temp)
+            target, installation, parent, export = self.reverification_fixture(base)
+            # Emit an authentic prior-version report; do not invent its fingerprint.
+            source = (SOURCE_ROOT / "com/openrsc/worldbuilder/WorldBuilderCompatibilityEvidence.java").read_text()
+            capture = "WorldBuilderTargetMapIntegration.inspectInstalledEvidence(target, configuration, files);"
+            self.assertEqual(1, source.count(capture))
+            java = base / "old/WorldBuilderCompatibilityEvidence.java"
+            java.parent.mkdir()
+            java.write_text(source.replace(capture, "// Prior discovery omitted this dependency closure."))
+            classes = base / "old-classes"
+            classes.mkdir()
+            subprocess.run(["javac", "-source", "8", "-target", "8", "-cp", str(self.classes),
+                "-d", str(classes), str(java)], check=True, capture_output=True)
+            before = project_support.tree_bytes(target, installation)
+            old = subprocess.run(["java", "-cp", os.pathsep.join((str(classes), str(self.classes))), MAIN_CLASS,
+                "discover-adaptive", "--target-root", str(target)], capture_output=True, text=True)
+            self.assertEqual(0, old.returncode, old.stderr)
+            self.assertNotIn("server/conf/world-builder/installed-target-map-integration-v1.json",
+                [row["relativePath"] for row in json.loads(old.stdout)["files"]])
+            report = base / "old-discovery.json"
+            report.write_text(old.stdout)
+            install = base / "fresh-editor"
+            install.mkdir()
+            refused = self.run_cli("create-project", "--installation-root", install,
+                "--runtime-root", base / "builder-runtime", "--target-root", target,
+                "--discovery-report", report, "--display-name", "Old discovery", "--port", "43894", "--confirm", "CREATE")
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("TARGET_DRIFT", refused.stderr)
+            self.assertIn("rediscover", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertFalse(list((install / "projects").glob("*/project.json")))
+
+    def test_fresh_project_captures_installed_integration_proof_and_dependencies(self):
+        for rebuilt in (False, True):
+            with self.subTest(rebuilt=rebuilt), tempfile.TemporaryDirectory(prefix="adaptive-fresh-proof-") as temp:
+                base = Path(temp)
+                target, installation, parent, export = self.reverification_fixture(base, packed_floors=True)
+                if rebuilt:
+                    self.rebuild_fixture(base, target, "none", drop_markers=True)
+                    accepted = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY",
+                        "--project", parent, "--target-root", target)
+                    self.assertEqual(0, accepted.returncode, accepted.stderr)
+                proof_path = "server/conf/world-builder/installed-target-map-integration-v1.json"
+                proof = json.loads((target / proof_path).read_text())
+                expected = {proof_path} | {row["relativePath"] for key in ("sources", "archives") for row in proof[key]}
+                before = project_support.tree_bytes(target, installation)
+                parent_before = project_support.tree_bytes(parent)
+                discovery = self.run_cli("discover-adaptive", "--target-root", target)
+                self.assertEqual(0, discovery.returncode, discovery.stderr)
+                report = base / "fresh-discovery.json"
+                report.write_text(discovery.stdout)
+                inventory = json.loads(discovery.stdout)["files"]
+                paths = [row["relativePath"] for row in inventory]
+                self.assertEqual(len(paths), len(set(paths)))
+                self.assertTrue(expected.issubset(paths), expected - set(paths))
+                fresh_install = base / "fresh-editor"
+                fresh_install.mkdir()
+                def create():
+                    return self.run_cli("create-project", "--installation-root", fresh_install,
+                        "--runtime-root", base / "builder-runtime", "--target-root", target,
+                        "--discovery-report", report, "--display-name", "Fresh integrated target",
+                        "--port", "43894", "--confirm", "CREATE")
+                # The preview inventory binds proof and every verified dependency.
+                for path in sorted(expected):
+                    content = (target / path).read_bytes()
+                    (target / path).write_bytes(content + b" ")
+                    changed = project_support.tree_bytes(target, installation)
+                    refused = create()
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("TARGET_DRIFT", refused.stderr)
+                    self.assertEqual(changed, project_support.tree_bytes(target, installation))
+                    (target / path).write_bytes(content)
+                content = (target / proof_path).read_bytes()
+                for corrupt in ("descriptor", "source-hash", "unreviewed-path", "missing-source"):
+                    altered = json.loads(content)
+                    if corrupt == "descriptor": altered["descriptorSha256"] = "0" * 64
+                    elif corrupt == "source-hash": altered["sources"][0]["sha256"] = "0" * 64
+                    elif corrupt == "unreviewed-path": altered["sources"][0]["relativePath"] = "../outside.java"
+                    else: altered["sources"].pop()
+                    (target / proof_path).write_text(json.dumps(altered))
+                    changed = project_support.tree_bytes(target, installation)
+                    refused = self.run_cli("discover-adaptive", "--target-root", target)
+                    self.assertNotEqual(0, refused.returncode, refused.stdout)
+                    self.assertIn("RUNTIME_UPGRADE_REQUIRED", refused.stderr + refused.stdout)
+                    self.assertEqual(changed, project_support.tree_bytes(target, installation))
+                (target / proof_path).unlink()
+                refused = create()
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                if rebuilt:
+                    refused = self.run_cli("discover-adaptive", "--target-root", target)
+                    self.assertNotEqual(0, refused.returncode, refused.stdout)
+                    self.assertIn(proof_path, refused.stderr + refused.stdout)
+                (target / proof_path).write_bytes(content)
+                created = create()
+                self.assertEqual(0, created.returncode, created.stderr)
+                project = Path(json.loads(created.stdout)["projectRoot"])
+                for path in expected:
+                    self.assertEqual((target / path).read_bytes(), (project / "source/original" / path).read_bytes())
+                self.assertEqual(before, project_support.tree_bytes(target, installation))
+                self.assertEqual(parent_before, project_support.tree_bytes(parent))
+                for generation in range(2):
+                    export = self.next_history_export(project)
+                    imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                        "--export", export, "--target-root", target)
+                    self.assertEqual(0, imported.returncode, imported.stderr)
+                for path in expected:
+                    self.assertEqual((project / "source/original" / path).read_bytes(), (target / path).read_bytes())
+                reopened = self.run_cli("open-project", "--installation-root", fresh_install, "--target-root", target)
+                self.assertEqual(0, reopened.returncode, reopened.stderr)
+                self.assertEqual("ready-detached", json.loads(reopened.stdout)["state"])
+                self.assertEqual(parent_before, project_support.tree_bytes(parent))
 
     def test_standard_floors_upgrade_then_repeated_map_only_import(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-standard-floors-") as temp:

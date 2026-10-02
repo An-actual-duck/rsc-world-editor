@@ -942,13 +942,37 @@ final class WorldBuilderTargetMapIntegration {
         return summary.toString();
     }
 
+    static boolean evidenceRole(String role) {
+        return Arrays.asList("installed-map-integration-proof", "installed-map-integration-source",
+            "installed-map-integration-archive").contains(role);
+    }
+
+    /** Capture exactly the current files consumed by installed-proof verification. */
+    static void inspectInstalledEvidence(WorldBuilderReadOnlyTarget target,
+        WorldBuilderAdaptiveConfiguration configuration, List<WorldBuilderReadOnlyTarget.FileState> evidence)
+        throws WorldBuilderContractException {
+        if (!target.exists(INSTALLED)) return;
+        try { verifyInstalled(target.root, WorldBuilderInstalledFloorContent.clientRoot(configuration), evidence); }
+        catch (IOException invalid) { throw failure(INSTALLED, "Installed integration evidence cannot be read; restore the stable target and rediscover."); }
+    }
+
     static List<Integer> verifyInstalled(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
+        return verifyInstalled(target, clientRoot, null);
+    }
+    private static List<Integer> verifyInstalled(Path target, String clientRoot,
+        List<WorldBuilderReadOnlyTarget.FileState> evidence) throws IOException, WorldBuilderContractException {
         Path current = embeddedPayload();
         if (current == null) throw failure(DESCRIPTOR, "This application has no trusted targeted map integration payload.");
-        try { return verifyInstalledPayload(current, target, clientRoot); }
+        try { return verifyInstalledPayload(current, target, clientRoot, evidence); }
         finally { if (current != null) deleteOwnedStage(current); }
     }
     static List<Integer> verifyInstalledPayload(Path project, Path target, String clientRoot) throws IOException, WorldBuilderContractException {
+        return verifyInstalledPayload(project, target, clientRoot, null);
+    }
+    static List<Integer> verifyInstalledPayload(Path project, Path target, String clientRoot,
+        List<WorldBuilderReadOnlyTarget.FileState> evidence) throws IOException, WorldBuilderContractException {
+        WorldBuilderReadOnlyTarget checkedTarget = WorldBuilderReadOnlyTarget.open(target);
+        WorldBuilderReadOnlyTarget.FileState proof = checkedTarget.requiredState("installed-map-integration-proof", INSTALLED);
         Map<String,Object> descriptor = read(file(project, "working/runtime/" + DESCRIPTOR)); requireDescriptor(descriptor);
         Map<String,Object> installed = read(file(target, INSTALLED));
         if (!"world-builder-installed-target-map-integration".equals(installed.get("manifestType"))
@@ -970,11 +994,32 @@ final class WorldBuilderTargetMapIntegration {
         for (String group : Arrays.asList("sources", "archives")) for (Object raw : array(installed.get(group))) {
             Map<String,Object> record = object(raw); String path = string(record, "relativePath");
             if (!("sources".equals(group) ? actualSources : actualArchives).add(path)) throw failure(INSTALLED, "Installed proof repeats a source or archive.");
-            if (!string(record, "sha256").equals(WorldBuilderHashes.sha256(file(target, path))))
-                throw failure(path, "Installed map integration changed; recapture and review a targeted upgrade before importing.");
         }
         if (!expectedSources.equals(actualSources) || !expectedArchives.equals(actualArchives))
             throw failure(INSTALLED, "Installed proof does not cover the complete paired source and archive inventory.");
+        List<WorldBuilderReadOnlyTarget.FileState> verified = new ArrayList<WorldBuilderReadOnlyTarget.FileState>();
+        verified.add(proof);
+        // Validate the descriptor-derived path sets before reading target-declared
+        // paths. beforeInputs/inputInventories describe historical compilation
+        // inputs, not the current transformed source/archive proof dependency set.
+        for (String group : Arrays.asList("sources", "archives")) for (Object raw : array(installed.get(group))) {
+            Map<String,Object> record = object(raw); String path = string(record, "relativePath");
+            WorldBuilderReadOnlyTarget.FileState state = checkedTarget.requiredState(
+                "sources".equals(group) ? "installed-map-integration-source" : "installed-map-integration-archive", path);
+            if (!string(record, "sha256").equals(state.sha256))
+                throw failure(path, "Installed map integration changed; recapture and review a targeted upgrade before importing.");
+            verified.add(state);
+        }
+        if (!proof.stableKey().equals(checkedTarget.requiredState(proof.role, INSTALLED).stableKey()))
+            throw failure(INSTALLED, "Installed map integration proof changed during verification; rediscover the stable target.");
+        if (evidence != null) for (WorldBuilderReadOnlyTarget.FileState state : verified) {
+            WorldBuilderReadOnlyTarget.FileState existing = null;
+            for (WorldBuilderReadOnlyTarget.FileState item : evidence)
+                if (item.relativePath.equals(state.relativePath)) { existing = item; break; }
+            if (existing == null) evidence.add(state);
+            else if (existing.present != state.present || existing.size != state.size || !existing.sha256.equals(state.sha256))
+                throw failure(state.relativePath, "Installed map integration evidence changed during discovery; rediscover the stable target.");
+        }
         return encodings(descriptor);
     }
 
