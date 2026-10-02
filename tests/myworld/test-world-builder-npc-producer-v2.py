@@ -130,7 +130,8 @@ class NpcProducerV2Test(unittest.TestCase):
   with tempfile.TemporaryDirectory() as temp:
    target,manifest,doc=self.fixture(Path(temp));config=target/'Client_Base/Cache/config.txt';config.write_text('Menus:1\n')
    pack=target/'Client_Base/Cache/video/spritepacks/Menus.osar';pack.parent.mkdir(parents=True,exist_ok=True)
-   for category,name,success in [('gui','menu',True),('npc','fixture',False)]:
+   for category,name,selector,success in [('gui','menu','',True),('gui','menu','Menus:1\n',True),('gui','menu','Menus:1\rOther:0\r',True),('npc','fixture','Menus:1\n',False)]:
+    config.write_text(selector)
     payload=bytes([0,1,0,0x12,0x34,0x56])+struct.pack('>HHBhhHHB',1,1,0,0,0,1,1,0)
     pack.write_bytes(gzip.compress(b'\x01'+category.encode()+b'\0\x00\x01'+name.encode()+b'\0'+payload,mtime=0))
     updated=copy.deepcopy(doc)

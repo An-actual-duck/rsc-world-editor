@@ -82,13 +82,23 @@ final class WorldBuilderNpcProducerV2 {
         }
     }
 
+    private static List<String> lines(String text) throws IOException {
+        List<String> result = new ArrayList<>();
+        try (java.io.BufferedReader input =
+                new java.io.BufferedReader(new java.io.StringReader(text))) {
+            String line;
+            while ((line = input.readLine()) != null) result.add(line);
+        }
+        return result;
+    }
+
     private static Boolean configuredFlag(String text, String key)
-            throws WorldBuilderContractException {
+            throws IOException, WorldBuilderContractException {
         java.util.regex.Pattern line =
                 java.util.regex.Pattern.compile(
                         "^\\s*([A-Za-z0-9_]+)\\s*:\\s*([^#]*?)\\s*(?:#.*)?$");
         Boolean found = null;
-        for (String value : text.split("\\r?\\n")) {
+        for (String value : lines(text)) {
             java.util.regex.Matcher match = line.matcher(value);
             if (!match.matches()
                     || !key.equalsIgnoreCase(match.group(1))
@@ -452,10 +462,10 @@ final class WorldBuilderNpcProducerV2 {
         Set<String> seen = new HashSet<>();
         List<String> activeSources = new ArrayList<>();
         for (String line :
-                new String(
+                lines(
+                        new String(
                                 readBounded(target.requiredFile(config), 4L * 1024 * 1024),
-                                java.nio.charset.StandardCharsets.UTF_8)
-                        .split("\\r?\\n")) {
+                                java.nio.charset.StandardCharsets.UTF_8))) {
             if (!line.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[01]"))
                 throw failure(
                         config,
