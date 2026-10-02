@@ -45,11 +45,21 @@ composition rules; this descriptor cannot redefine their semantics. Unknown
 schemas or executable/generated behavior require a supported inert export
 adapter, not executing target code during Editor discovery.
 
-The other supported families retain their existing bounded definition formats:
-tile and boundary XML, scenery XML/models, item base/custom/selected overlays,
-and verified item/NPC visual metadata with sprites/animations/textures. The
-descriptor above is deliberately limited to NPC append source selection; it
-does not claim arbitrary engine support or new gameplay authority.
+An optional sibling `itemRegistry` uses the same ordered `sources` records and
+`semantics: "openrsc-id-overwrite-v1"`. Its first two files are the selected
+layout's `ItemDefs.json` and `ItemDefsCustom.json`. The supported item loader
+indexes complete definitions by their explicit IDs, with later loaded records
+replacing earlier records. It does not use the NPC append-index rule. Include
+every actively loaded supplemental item file and retain separately selected
+patch/world overlay behavior. The current private fixture demonstrated a real
+omission here: supplemental items had valid exported visuals but were missing
+from the editor's definition library.
+
+The remaining families retain their existing bounded definition formats:
+tile and boundary XML, scenery XML/models, and verified item/NPC visual metadata
+with sprites/animations/textures. This descriptor selects supported NPC/item
+source compositions; it does not claim arbitrary engine support or new gameplay
+authority.
 
 Generate both installed placement catalogs from the same effective content.
 Validate their agreement with the current loader contract and resolved client
