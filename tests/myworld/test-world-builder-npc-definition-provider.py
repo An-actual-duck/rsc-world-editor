@@ -656,7 +656,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
             self.assertEqual("[Missing NPC 2]", custom["npcs"][1]["name"])
             self.assertEqual([2], [row["npcId"] for row in report["warnings"]])
 
-    def test_rich_provider_refuses_target_definition_asset_and_placement_drift(self):
+    def test_rich_provider_refuses_target_definition_asset_and_unknown_placement(self):
         for case in ("definition", "asset", "placement"):
             with self.subTest(case=case), tempfile.TemporaryDirectory(
                     prefix="npc-provider-target-mismatch-") as temp:
@@ -679,11 +679,15 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                         ]
                     })
                 failure = self.consume_failure(target, selected, base / "stage")
-                self.assertIn("Selected provider does not match this server revision", failure)
-                self.assertIn("CAPABILITY_MISMATCH", failure)
+                if case == "placement":
+                    self.assertIn("absent from the effective target definitions", failure)
+                    self.assertIn("Detect new content", failure)
+                else:
+                    self.assertIn("Selected provider does not match this server revision", failure)
+                    self.assertIn("CAPABILITY_MISMATCH", failure)
 
-    def test_lifecycle_reproduction_removing_last_type_invalidates_unchanged_content(self):
-        """Phase 1 reproduction: content stays identical; map population alone breaks reuse."""
+    def test_lifecycle_removing_last_type_preserves_unchanged_content(self):
+        """Regression for Phase 1 reproduction: map population is not content identity."""
         with tempfile.TemporaryDirectory(prefix="npc-provider-lifecycle-reproduction-") as temp:
             base = Path(temp)
             target, selected = self.fixture(base)
@@ -695,8 +699,9 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                         and "locs" not in p.parts}
             provider_before = {p: p.read_bytes() for p in selected.parent.rglob("*") if p.is_file()}
             write_json(target / "server/conf/server/defs/locs/MyWorldNpcLocs.json", {"npclocs": []})
-            failure = self.consume_failure(target, selected, base / "after")
-            self.assertIn("Provider placed extension NPC set differs from the target", failure)
+            after, after_report = self.consume(target, selected, base / "after")
+            self.assertEqual(custom, after)
+            self.assertEqual(report, after_report)
             self.assertEqual(retained, {p: p.read_bytes() for p in retained})
             self.assertEqual(provider_before, {p: p.read_bytes() for p in provider_before})
 
