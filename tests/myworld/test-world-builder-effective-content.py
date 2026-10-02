@@ -120,15 +120,15 @@ class EffectiveContentTest(unittest.TestCase):
   with tempfile.TemporaryDirectory(prefix='effective-content-dependencies-') as tmp:
    root=Path(tmp)/'bundle';shutil.copytree(ROOT/'tests/fixtures/project-content-bundle-v2/bundle',root)
    defs=root/'files/server/conf/server/defs';video=root/'files/client/Cache/video'
-   values={'items':{'0':sprite()},'textures':{str(i):sprite() for i in range(32)},'npc':{'fixture':sprite(15)}}
+   values={'items':{'0':sprite()},'textures':{str(i):sprite() for i in range(32)},'npc':{'fixture':sprite(15)},'player':{'head1':sprite(18)}}
    (video/'Custom_Sprites.osar').write_bytes(archive(values))
    (video/'spritepacks/Menus.osar').write_bytes(archive({'GUI':{'0':sprite()}}))
-   frames={i:sprite() for i in list(range(100,130))+[417,2150]}
+   frames={i:sprite() for i in list(range(100,130))+list(range(18))+[417,2150]}
    with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
     for i,payload in frames.items():z.writestr(str(i),payload)
    for filename in ['NpcDefs.json','NpcDefsCustom.json']:
     document=json.loads((defs/filename).read_text())
-    for row in document['npcs']:row.update({f'sprites{i}':2000 if i==1 else -1 for i in range(1,13)})
+    for row in document['npcs']:row.update({f'sprites{i}':(0 if row.get('id')==0 else 2000) if i==1 else -1 for i in range(1,13)})
     (defs/filename).write_text(json.dumps(document))
    (defs/'DoorDef.xml').write_text('<DoorDef-array>'+''.join(f'<DoorDef><name>wall{i}</name><modelVar2>0</modelVar2><modelVar3>1</modelVar3></DoorDef>' for i in range(220))+'</DoorDef-array>')
    (defs/'GameObjectDef.xml').write_text('<GameObjectDef-array>'+''.join(f'<GameObjectDef><name>object{i}</name><objectModel>sample</objectModel><width>1</width><height>1</height></GameObjectDef>' for i in range(60))+'</GameObjectDef-array>')
@@ -142,6 +142,15 @@ class EffectiveContentTest(unittest.TestCase):
    path=defs/'TileDef.xml';path.write_text(path.read_text().replace('<colour>0</colour>','<colour>12345678</colour>',1))
    path=defs/'DoorDef.xml';path.write_text(path.read_text().replace('<modelVar2>0</modelVar2>','<modelVar2>12345678</modelVar2>',1))
    seal();before=self.run_index(root)
+   # An explicit registry row and the immutable supported fallback describe
+   # identical renderer inputs; metadata provenance cannot create visual drift.
+   baseline=json.loads((CLASSES/'com/openrsc/worldbuilder/authoring-lookups/animation-visuals.json').read_text())['animations'][0]
+   explicit={**baseline,'genderModel':999,'customSpriteSubspace':'player','customSpriteEntry':'head1','customEntrySha256':hashlib.sha256(b'head1\0'+sprite(18)).hexdigest(),'authenticFrameSha256s':[hashlib.sha256(frames[i]).hexdigest() for i in range(18)]}
+   registry['animations'].insert(0,explicit);seal();explicit_index=self.run_index(root)
+   self.assertEqual(before['npc']['0'],explicit_index['npc']['0'])
+   explicit['charColour']=2;seal();changed_mask=self.run_index(root)
+   self.assertNotEqual(before['npc']['0'][2],changed_mask['npc']['0'][2])
+   registry['animations'].pop(0);seal()
    values['textures']['32']=sprite();values['items']['1']=sprite();values['npc']['second']=sprite(15);(video/'Custom_Sprites.osar').write_bytes(archive(values))
    (video/'models.orsc').write_bytes(model_archive(['sample.ob3','new-model.ob3']))
    registry['animations'].append(animation(2001,115,'second'))
