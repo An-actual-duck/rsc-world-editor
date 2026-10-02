@@ -254,6 +254,7 @@ final class WorldBuilderAdaptiveImporter {
 						WorldBuilderErrorCodes.TARGET_DRIFT, "mutation-plan", false,
 						"Target, project, export, or plan changed after the reviewed preview.",
 						"Request and review a fresh preview; there is no force mode.");
+					if (!runtimeUpgrade && !runtimeReverification) verifyPlannedPlacementDefinitions(plan);
 					ensureFreeSpace(plan);
 					if (confirmation == null) return new ImportOutcome(plan, null);
 					String supplied = confirmation.confirm(plan);
@@ -324,6 +325,7 @@ final class WorldBuilderAdaptiveImporter {
             WorldBuilderRuntimeReverification.verifyInputs(plan);
             WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
             if (plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) WorldBuilderTargetMapIntegration.verifyInputs(plan);
+			if (!runtimeUpgradeOnly(plan)) verifyPlannedPlacementDefinitions(plan);
 
 			int packageIndex = 0;
 			for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
@@ -628,6 +630,73 @@ final class WorldBuilderAdaptiveImporter {
 		}
 		verifyInstalledSemantics(plan);
 		return values;
+	}
+
+	/** Use the catalog the planned activation selects, never the editor presentation catalog. */
+	private static void verifyPlannedPlacementDefinitions(
+		WorldBuilderAdaptiveMutationProfile.Plan plan)
+		throws IOException, WorldBuilderContractException {
+		try {
+			Map<String,Object> configuration = WorldBuilderJsonDocuments.readObject(
+				plan.configurationBytes, plan.configuration.relativePath);
+			String serverPath = WorldBuilderAdaptiveExporter.string(configuration,
+				"serverDefinitionCatalogRelativePath");
+			String clientPath = WorldBuilderAdaptiveExporter.string(configuration,
+				"clientDefinitionCatalogRelativePath");
+			byte[] server = plannedCatalogBytes(plan, serverPath);
+			byte[] client = plannedCatalogBytes(plan, clientPath);
+			if (!java.util.Arrays.equals(server, client)
+				|| !plan.capability.definitionCatalogSha256.equals(WorldBuilderHashes.sha256(server))) {
+				throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, serverPath, false,
+					"Planned target server/client catalogs do not match each other and the verified capability.",
+					"Have the target maintainer correct and verify its compatibility catalogs, then request a fresh preview.");
+			}
+			WorldBuilderCompatibilityEvidence.DefinitionCatalog catalog =
+				WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(
+					WorldBuilderJsonDocuments.readObject(server, serverPath), serverPath);
+			if (!plan.capability.definitionCatalogId.equals(catalog.catalogId)) throw problem(
+				WorldBuilderErrorCodes.DEFINITION_MISMATCH, serverPath, false,
+				"Planned target definition catalog identity differs from its verified capability.",
+				"Have the target maintainer verify its compatibility catalogs before retrying.");
+			for (Map.Entry<String,List<Integer>> family : plan.export.packageValue.requiredDefinitionIds().entrySet()) {
+				// Floor additions are verified by the installed-floor integration. They do
+				// not grant any NPC, item, scenery or boundary placement identities.
+				if ("floor".equals(family.getKey())) continue;
+				for (Integer id : family.getValue()) {
+					try {
+						catalog.require(family.getKey(), id.intValue(), serverPath);
+					} catch (WorldBuilderContractException missing) {
+						throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, serverPath, false,
+							"Export references editor-known " + family.getKey() + " ID " + id
+								+ ", but the planned target catalog does not support it. No target files were changed.",
+							"Have the target maintainer correct and verify the installed server/client compatibility catalogs, "
+								+ "then request a fresh preview; or explicitly edit the placement and save/export again. "
+								+ "Discovery in the editor does not establish target runtime support.", missing);
+					}
+				}
+			}
+		} catch (WorldBuilderDiscoveryException malformed) {
+			throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, "planned-target-catalog", false,
+				"Planned target catalog or configuration is malformed.",
+				"Restore verified compatibility evidence and request a fresh preview.", malformed);
+		}
+	}
+
+	private static byte[] plannedCatalogBytes(WorldBuilderAdaptiveMutationProfile.Plan plan, String relative)
+		throws IOException, WorldBuilderContractException, WorldBuilderDiscoveryException {
+		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
+			if (!relative.equals(action.destinationRelativePath)) continue;
+			if (!action.after.present) throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH, relative, false,
+				"The planned target definition catalog would be removed.", "Correct the target integration before importing.");
+			byte[] bytes = action.generatedContent != null ? action.generatedContent
+				: WorldBuilderJsonDocuments.readBounded(WorldBuilderAdaptiveExporter.requireFile(plan.export.root,
+					action.contentRelativePath, "planned definition catalog"));
+			if (bytes.length != action.after.size || !WorldBuilderHashes.sha256(bytes).equals(action.after.sha256))
+				throw problem(WorldBuilderErrorCodes.SOURCE_CORRUPT, relative, false,
+					"Planned definition catalog content changed.", "Request a fresh verified preview.");
+			return bytes;
+		}
+		return WorldBuilderJsonDocuments.readBounded(WorldBuilderReadOnlyTarget.open(plan.targetRoot).requiredFile(relative));
 	}
 
 	private static void verifyInstalledSemantics(
