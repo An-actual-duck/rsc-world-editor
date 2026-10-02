@@ -156,18 +156,20 @@ final class WorldBuilderProjectContentRefresh {
         final WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent;
         final Map<String,Object> report, authority, document;
         final List<String> blockers;
+        final List<Map<String,Object>> visualWarnings;
         final String fingerprint, newContentSha256;
         final boolean unchanged;
         Preview(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent, Map<String,Object> report,
             Map<String,Object> authority, WorldBuilderEffectiveContent.Index before, WorldBuilderEffectiveContent.Index after)
             throws IOException, WorldBuilderContractException {
             this.parent = parent; this.report = report; this.authority = authority; this.newContentSha256 = after.contentSha256;
+            this.visualWarnings = after.visualWarnings();
             List<String> conflicts = new ArrayList<String>();
             List<Object> families = new ArrayList<Object>();
             Map<String,Map<Integer,Long>> references = referenceCounts(parent);
             for (String family : before.families.keySet()) {
                 Map<Integer,WorldBuilderEffectiveContent.Entry> old = before.families.get(family), next = after.families.get(family);
-                List<Object> added = new ArrayList<Object>(), changed = new ArrayList<Object>(), removed = new ArrayList<Object>(), visuals = new ArrayList<Object>(), details = new ArrayList<Object>();
+                List<Object> added = new ArrayList<Object>(), changed = new ArrayList<Object>(), removed = new ArrayList<Object>(), visuals = new ArrayList<Object>(), unresolvedVisuals = new ArrayList<Object>(), details = new ArrayList<Object>();
                 for (Map.Entry<Integer,WorldBuilderEffectiveContent.Entry> entry : old.entrySet()) {
                     Integer id = entry.getKey(); WorldBuilderEffectiveContent.Entry value = next.get(id);
                     long uses = references.get(family).containsKey(id) ? references.get(family).get(id).longValue() : 0L;
@@ -179,14 +181,19 @@ final class WorldBuilderProjectContentRefresh {
                         changed.add(Long.valueOf(id)); conflicts.add(identity + " changed identity/semantics to “" + value.name + "”");
                         details.add(delta(id, entry.getValue(), value, uses, "changed"));
                     } else if (!entry.getValue().visualSha256.equals(value.visualSha256)) {
-                        visuals.add(Long.valueOf(id)); details.add(delta(id, entry.getValue(), value, uses, "visuals-changed"));
+                        if (entry.getValue().visualWarnings.isEmpty() && value.visualWarnings.isEmpty()) {
+                            visuals.add(Long.valueOf(id)); details.add(delta(id, entry.getValue(), value, uses, "visuals-changed"));
+                        } else {
+                            unresolvedVisuals.add(Long.valueOf(id));
+                            details.add(delta(id, entry.getValue(), value, uses, "visuals-unverified"));
+                        }
                     }
                 }
                 for (Integer id : next.keySet()) if (!old.containsKey(id)) {
                     added.add(Long.valueOf(id)); details.add(delta(id, null, next.get(id), 0L, "added"));
                 }
                 Map<String,Object> row = new LinkedHashMap<String,Object>(); row.put("family", family);
-                row.put("added", added); row.put("changed", changed); row.put("removed", removed); row.put("visualsChanged", visuals); row.put("details", details); families.add(row);
+                row.put("added", added); row.put("changed", changed); row.put("removed", removed); row.put("visualsChanged", visuals); row.put("visualDependenciesChanged", unresolvedVisuals); row.put("details", details); families.add(row);
             }
             this.blockers = Collections.unmodifiableList(conflicts);
             document = new LinkedHashMap<String,Object>();
@@ -197,6 +204,7 @@ final class WorldBuilderProjectContentRefresh {
             document.put("targetRootDisplay", report.get("targetRootDisplay"));
             document.put("previousContentSha256", before.contentSha256); document.put("contentSha256", after.contentSha256);
             document.put("targetAuthority", authority); document.put("families", families); document.put("blockers", new ArrayList<String>(conflicts));
+            document.put("visualWarnings", visualWarnings);
             unchanged = conflicts.isEmpty() && before.bundleFingerprintSha256.equals(after.bundleFingerprintSha256)
                 && capturedContentAuthorityMatches(parent, authority);
             document.put("status", !conflicts.isEmpty() ? "blocked" : unchanged ? "unchanged" : "ready");
@@ -238,32 +246,62 @@ final class WorldBuilderProjectContentRefresh {
             result.put("semanticSha256", after == null ? "" : after.semanticSha256);
             result.put("previousVisualSha256", before == null ? "" : before.visualSha256);
             result.put("visualSha256", after == null ? "" : after.visualSha256);
+            result.put("previousVisualWarnings", before == null ? Collections.emptyList() : before.visualWarnings);
+            result.put("visualWarnings", after == null ? Collections.emptyList() : after.visualWarnings);
             return result;
+        }
+        private String warningSummary() {
+            if (visualWarnings.isEmpty()) return "";
+            StringBuilder text = new StringBuilder("\n\nAppearance verification is incomplete for ")
+                .append(visualWarnings.size()).append(" content entries. These are unresolved dependencies, not confirmed appearance changes.\n");
+            for (int index = 0; index < Math.min(5, visualWarnings.size()); index++) {
+                Map<String,Object> warning = visualWarnings.get(index);
+                text.append("  ").append(warning.get("family")).append(' ').append(warning.get("id"))
+                    .append(": ").append(warning.get("name")).append(" — ");
+                List<?> messages = (List<?>)warning.get("messages");
+                if (!messages.isEmpty()) text.append(messages.get(0));
+                text.append('\n');
+            }
+            if (visualWarnings.size() > 5) text.append("  … and ").append(visualWarnings.size() - 5).append(" more.\n");
+            text.append("Full IDs and dependency details are included in preview visualWarnings; accepted revisions retain ")
+                .append(WorldBuilderEffectiveContent.VISUAL_REPORT).append(".\n");
+            return text.toString();
         }
         private static String compact(Object raw) {
             List<?> values = (List<?>)raw;
             return values.size() <= 12 ? values.toString() : values.subList(0, 12) + " (" + values.size() + " total)";
         }
         String toJson() { return WorldBuilderJsonDocuments.pretty(document); }
+        String reviewDetails() {
+            Map<String,Object> review = new LinkedHashMap<String,Object>();
+            review.put("families", document.get("families"));
+            review.put("conflicts", document.get("blockers"));
+            review.put("unresolvedAppearanceDependencies", visualWarnings);
+            return WorldBuilderJsonDocuments.pretty(review);
+        }
         String summary() {
-            if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project.";
+            if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project." + warningSummary();
             StringBuilder text = new StringBuilder("Detect New Content\n\nYour saved terrain and placements will be preserved. Previous content revisions, exports and receipts remain available.\nNo target files will be changed.\n\n");
             boolean libraryChanges = false;
             for (Object raw : (List<?>)document.get("families")) {
                 @SuppressWarnings("unchecked") Map<String,Object> family = (Map<String,Object>)raw;
                 text.append(family.get("family")).append(": added ").append(compact(family.get("added")))
                     .append("; changed ").append(compact(family.get("changed"))).append("; removed ").append(compact(family.get("removed")))
-                    .append("; visuals ").append(compact(family.get("visualsChanged"))).append('\n');
+                    .append("; verified visual changes ").append(compact(family.get("visualsChanged")))
+                    .append("; unverified visual dependencies ").append(compact(family.get("visualDependenciesChanged"))).append('\n');
                 List<?> changes = (List<?>)family.get("details");
                 libraryChanges |= !changes.isEmpty();
                 for (int index = 0; index < Math.min(8, changes.size()); index++) {
                     @SuppressWarnings("unchecked") Map<String,Object> change = (Map<String,Object>)changes.get(index);
                     String name = String.valueOf(change.get("name"));
                     if (name.isEmpty()) name = String.valueOf(change.get("previousName"));
-                    text.append("  ").append(change.get("status")).append(" ").append(change.get("id"))
+                    String status = "visuals-unverified".equals(change.get("status"))
+                        ? "dependency change; appearance could not be verified for" : String.valueOf(change.get("status"));
+                    text.append("  ").append(status).append(" ").append(change.get("id"))
                         .append(": ").append(name).append(" — ").append(change.get("mapReferenceCount")).append(" map references\n");
                 }
             }
+            text.append(warningSummary());
             if (!libraryChanges) text.append("\nThe available identities and visual references are unchanged. Captured source evidence changed; accepting records that evidence in the new revision.\n");
             if (!blockers.isEmpty()) text.append("\nRefresh is blocked: ").append(compact(blockers))
                 .append("\n\nKeep working in the current preserved project. Restore the target IDs to their previous meanings, or resolve changes explicitly with the target maintainer. This version accepts additions and reviewed visual updates; it does not accept identity redefinitions or removals. No references are removed or substituted.");
