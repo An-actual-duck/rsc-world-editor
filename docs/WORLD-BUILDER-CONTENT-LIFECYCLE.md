@@ -122,3 +122,34 @@ custom content, account data and unrelated target files are not replaced.
 Final delivery records exact commits, package checksums, supported schema and
 migration limits, Core prerequisites, manager-run versus owner-run evidence,
 untested platforms, and detect/continue/refresh/save/import/recovery instructions.
+
+## Integrated verification checkpoints
+
+These are manager-run intermediate results, not a packaged-candidate or private
+game acceptance claim. Final packaging and the complete release test record
+remain pending.
+
+- Effective source discovery and bundle capture passed on a sanitized frozen
+  maintained target. The Core-generated inert source descriptor also passed;
+  changing one declared source hash was refused.
+- Three changed imports passed with placement, movement, and removal of the last
+  placement of the tested custom NPC, plus item, scenery, boundary and terrain
+  edits. Rediscovery and reopen passed after each import. Exact inventories
+  retained 9,129 pre-existing target files; only the selected activation and
+  paired installed profiles changed, with new paired packages added.
+- Fourteen content refresh cases and 75 project lifecycle cases passed after
+  integration. Two additional immediate rebuild/recovery cases and one
+  visual-only model refresh/import case passed after their later integration.
+  The complete refresh suite now contains 17 cases.
+- On the copied existing edited project, refresh retained all 11,390 predecessor
+  files and all 1,789 saved map files, while leaving all 9,132 target files
+  unchanged. Repeated imports from that successor are a separate running check.
+- Snapshot re-verification covers a refreshed successor with no local import
+  history. It binds an ordinary saved-map export and authenticated predecessor
+  evidence, rejects changed confirmation inputs, and preserves rebuilt archives
+  through interrupted recovery and historical undo boundaries.
+
+The first real-copy refresh preview took about 83 seconds and apply about 160
+seconds. Its launcher presents phase progress; repeated history verification
+remains intentionally exact. These measurements do not imply final packaged
+performance or authorization to reuse stale target checks.
