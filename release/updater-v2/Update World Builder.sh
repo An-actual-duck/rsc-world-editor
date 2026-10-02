@@ -2,12 +2,6 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-WORKSPACE="$ROOT_DIR/workspace"
-PROJECTS="$ROOT_DIR/projects"
-PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
-ACTIVE_PROJECT="$ROOT_DIR/active-project.json"
-UPDATES_DIR="$ROOT_DIR/updates"
-LOCK_DIR="$ROOT_DIR/.world-builder-v2-update.lock"
 REPOSITORY="An-actual-duck/rsc-world-editor"
 API_URL="${WORLD_BUILDER_V2_RELEASE_API_URL:-https://api.github.com/repos/$REPOSITORY/releases?per_page=100}"
 DOWNLOAD_ROOT="${WORLD_BUILDER_V2_RELEASE_DOWNLOAD_URL:-https://github.com/$REPOSITORY/releases/download}"
@@ -32,16 +26,31 @@ fail() {
 	exit 1
 }
 
-for argument in "$@"; do
-	case "$argument" in
-		--automatic) AUTOMATIC=true ;;
+INSTALLATION_ROOT_SET=false
+while (($#)); do
+	case "$1" in
+		--automatic) AUTOMATIC=true; shift ;;
+		--installation-root)
+			[[ "$INSTALLATION_ROOT_SET" == false && $# -ge 2 && -n "$2" ]] \
+				|| fail "Supply --installation-root once with an existing installation directory"
+			[[ -d "$2" && ! -L "$2" ]] || fail "Installation root is missing or linked"
+			ROOT_DIR="$(cd -- "$2" && pwd -P)"
+			INSTALLATION_ROOT_SET=true
+			shift 2
+			;;
 		-h|--help)
-			printf 'Usage: %s [--automatic]\n' "$0"
+			printf 'Usage: %s [--automatic] [--installation-root <existing World Builder 2>]\n' "$0"
 			exit 0
 			;;
-		*) fail "Unknown option: $argument" ;;
+		*) fail "Unknown option: $1" ;;
 	esac
 done
+WORKSPACE="$ROOT_DIR/workspace"
+PROJECTS="$ROOT_DIR/projects"
+PROJECT_REGISTRY="$ROOT_DIR/project-registry.json"
+ACTIVE_PROJECT="$ROOT_DIR/active-project.json"
+UPDATES_DIR="$ROOT_DIR/updates"
+LOCK_DIR="$ROOT_DIR/.world-builder-v2-update.lock"
 
 for command_name in awk cmp cp curl find grep mkdir mktemp rm rmdir sed sha256sum sort tr unzip; do
 	command -v "$command_name" >/dev/null 2>&1 \
@@ -526,6 +535,7 @@ validate_application_paths() {
 		provider-cache-diagnostic-v1.schema.json \
 		item-visual-mapping-v1.schema.json \
 		npc-definition-mapping-v1.schema.json \
+		npc-visual-sources-v1.schema.json \
 		region-bundle-manifest-v1.schema.json \
 		region-compatibility-report-v1.schema.json \
 		region-operation-plan-v1.schema.json region-selection-v1.schema.json \

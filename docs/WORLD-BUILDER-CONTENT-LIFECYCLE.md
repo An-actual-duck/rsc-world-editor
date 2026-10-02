@@ -176,12 +176,33 @@ require renderer parity checks; copying pixels alone is insufficient. Specialize
 gameplay and secondary attack behavior remain outside the authoring runtime's
 purpose. This work precedes final custom-content acceptance.
 
-The full Editor gate at `8016cb031f6beff0a82281f296832d19d1b51de2`
-passed 23 contract and 42 discovery tests, then found 19 failures in the
-75-case project suite. Those failures share one synthetic fixture that explicitly
-declares item frame 417 without supplying it. The fixture correction and a
-missing-frame refusal regression are pending; strict dependency validation is
-retained. This checkpoint is not a passing full gate.
+The maintained complete NPC export now passes independent adaptive discovery:
+877 effective NPCs, 249 referenced animations and 4,521 captured frames. Its
+source and asset hashes, configuration flags, load order and absent resolver
+candidates are verified. These counts describe the acceptance fixture, not
+hardcoded supported IDs. Full capture, refresh and packaged visual acceptance
+remain required before delivery.
+
+The full Editor gate began at `8016cb031f6beff0a82281f296832d19d1b51de2`.
+Its first failure exposed a synthetic fixture declaring item frame 417 without
+supplying it. That fixture is corrected, with a missing-frame refusal regression;
+the 75 project and 42 discovery tests passed. Resumed testing also corrected an
+obsolete expected CLI error code, then passed the 34 targeted-upgrade cases.
+The remaining CLI suffix has completed after the updater correction below.
+One mandatory desktop login test is still under keyboard-delivery investigation.
+This is not a passing full gate, and the new version-2 consumer must receive
+its affected integration tests after integration.
+
+The updater tests found an actual packaged-update defect: alpha 12 ships
+`npc-visual-sources-v1.schema.json` but omits it from the updater's exact allowed
+file list. Commit `4f831702e8556fc42b8fa5f0b8fb73f00486c611` adds that exact
+schema and allows the corrected updater from a verified new package to select
+an existing installation. It keeps the existing package manifest intact until
+the verified update transaction. Twenty-two tests pass, including unchanged
+durable data, installed-file tampering refusal and restoration of the historical
+manifest after failure. Five PowerShell execution tests are skipped because
+PowerShell is unavailable. Actual populated-installation acceptance remains
+pending the final package.
 
 A desktop rehearsal passed actual detect/create, visible terrain edit/save,
 export and paired import on an isolated copy. The exact final package must
