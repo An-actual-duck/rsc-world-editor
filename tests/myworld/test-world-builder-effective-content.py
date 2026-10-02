@@ -30,6 +30,10 @@ public class EffectiveContentHarness {
    for(WorldBuilderEffectiveContent.Entry e:family.getValue().values()) rows.put(Integer.toString(e.id),Arrays.asList(e.name,e.semanticSha256,e.visualSha256,e.provenance));
    out.put(family.getKey(),rows);
   }
+  if(args.length>1){
+   WorldBuilderEffectiveContent.writeVisualReport(Paths.get(args[1]),WorldBuilderEffectiveContent.visualReport(WorldBuilderProjectContentBundle.read(Paths.get(args[0]))));
+   out.put("warnings",value.visualWarnings());out.put("summary",WorldBuilderEffectiveContent.projectWarningSummary(Paths.get(args[1])));
+  }
   System.out.println(WorldBuilderJsonDocuments.pretty(out));
  }
 }'''
@@ -43,8 +47,8 @@ class EffectiveContentTest(unittest.TestCase):
   subprocess.run(['javac','-cp',str(CLASSES),'-d',str(p),str(p/'EffectiveContentHarness.java')],check=True)
  @classmethod
  def tearDownClass(cls): cls.tmp.cleanup()
- def run_index(self, root, success=True):
-  result=subprocess.run(['java','-cp',os.pathsep.join([self.tmp.name,str(CLASSES)]),'com.openrsc.worldbuilder.EffectiveContentHarness',str(root)],text=True,capture_output=True)
+ def run_index(self, root, success=True, report=None):
+  result=subprocess.run(['java','-cp',os.pathsep.join([self.tmp.name,str(CLASSES)]),'com.openrsc.worldbuilder.EffectiveContentHarness',str(root),*([str(report)] if report else [])],text=True,capture_output=True)
   self.assertEqual(success,result.returncode==0,result.stdout+result.stderr)
   return json.loads(result.stdout) if success else result.stderr
  def seal(self,root,catalog=None):
@@ -119,7 +123,7 @@ class EffectiveContentTest(unittest.TestCase):
    values={'items':{'0':sprite()},'textures':{str(i):sprite() for i in range(32)},'npc':{'fixture':sprite(15)}}
    (video/'Custom_Sprites.osar').write_bytes(archive(values))
    (video/'spritepacks/Menus.osar').write_bytes(archive({'GUI':{'0':sprite()}}))
-   frames={i:sprite() for i in list(range(100,130))+[417]}
+   frames={i:sprite() for i in list(range(100,130))+[417,2150]}
    with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
     for i,payload in frames.items():z.writestr(str(i),payload)
    for filename in ['NpcDefs.json','NpcDefsCustom.json']:
@@ -154,11 +158,46 @@ class EffectiveContentTest(unittest.TestCase):
    seal();after=self.run_index(root)
    for family in ['floor','boundary','scenery','npc']:
     for identity,row in before[family].items():self.assertEqual(row[:3],after[family][identity][:3],(family,identity))
-   for identity in ['9000','9001','9002']:self.assertEqual(before['ground-item'][identity][:3],after['ground-item'][identity][:3])
+   for identity in ['0','9000','9001','9002']:self.assertEqual(before['ground-item'][identity][:3],after['ground-item'][identity][:3])
+   # A model's unchanged bytes still depend on its referenced face textures.
+   original_texture=values['textures']['0'];values['textures']['0']=original_texture[:3]+bytes((0x65,0x43,0x21))+original_texture[6:]
+   (video/'Custom_Sprites.osar').write_bytes(archive(values));seal();texture_changed=self.run_index(root)
+   self.assertEqual(after['scenery']['0'][1],texture_changed['scenery']['0'][1])
+   self.assertNotEqual(after['scenery']['0'][2],texture_changed['scenery']['0'][2])
+   self.assertNotEqual(after['boundary']['1'][2],texture_changed['boundary']['1'][2])
+   self.assertEqual(after['boundary']['0'],texture_changed['boundary']['0'])
+   self.assertEqual(after['npc']['0'],texture_changed['npc']['0'])
+   values['textures']['0']=original_texture;(video/'Custom_Sprites.osar').write_bytes(archive(values));seal()
+   # Immutable baseline item0 resolves its actual +2150 frame and items/0 entry.
+   with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
+    for i,payload in frames.items():z.writestr(str(i),payload+(b'baseline change' if i==2150 else b''))
+   seal();baseline_changed=self.run_index(root)
+   self.assertEqual(after['ground-item']['0'][1],baseline_changed['ground-item']['0'][1])
+   self.assertNotEqual(after['ground-item']['0'][2],baseline_changed['ground-item']['0'][2])
+   self.assertEqual(after['ground-item']['9000'],baseline_changed['ground-item']['9000'])
    # A registry hash alone cannot bless changed frame bytes.
    with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
     for i,payload in frames.items():z.writestr(str(i),payload+(b'changed' if i==100 else b''))
    seal();self.assertIn('authentic frame differs',self.run_index(root,False))
+   with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
+    for i,payload in frames.items():z.writestr(str(i),payload)
+   # A matching payload hash cannot bless an incompatible renderer frame count.
+   values['npc']['fixture']=sprite(14);(video/'Custom_Sprites.osar').write_bytes(archive(values))
+   registry['animations'][0]['customEntrySha256']=hashlib.sha256(b'fixture\0'+sprite(14)).hexdigest()
+   seal();self.assertIn('custom animation entry differs',self.run_index(root,False))
+
+ def test_unresolved_dependencies_have_named_bounded_project_diagnostics(self):
+  with tempfile.TemporaryDirectory(prefix='effective-content-warning-') as temp:
+   project=Path(temp);root=project/'bundle';shutil.copytree(FIXTURE,root)
+   path=root/'files/server/conf/server/defs/NpcDefs.json';document=json.loads(path.read_text())
+   document['npcs'][0].update({f'sprites{i}':9000 if i==1 else -1 for i in range(1,13)});path.write_text(json.dumps(document));self.seal(root)
+   before={p:p.read_bytes() for p in root.rglob('*') if p.is_file()};result=self.run_index(root,report=project)
+   warning=next(row for row in result['warnings'] if row['family']=='npc' and row['id']==0)
+   self.assertEqual('fixture-base-npc',warning['name']);self.assertIn('NPC animation 9000',warning['messages'][0])
+   report=json.loads((project/'diagnostics/content-visual-resolution-v1.json').read_text())
+   self.assertEqual(result['warnings'],report['unresolved']);self.assertIn('Some may display fallback visuals',result['summary'])
+   self.assertIn('content-visual-resolution-v1.json',result['summary']);self.assertLess(len(result['summary']),1800)
+   self.assertEqual(before,{p:p.read_bytes() for p in before})
 
  def test_tampered_durable_bundle_is_rejected(self):
   with tempfile.TemporaryDirectory(prefix='effective-content-tamper-') as tmp:

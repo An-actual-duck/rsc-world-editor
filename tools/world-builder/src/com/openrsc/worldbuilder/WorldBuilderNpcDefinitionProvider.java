@@ -93,8 +93,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	static Result consume(Path selectedProviderManifest, Path copiedTarget,
 		Map<String,Object> targetCatalog, Set<Integer> effectiveNpcIds)
 		throws IOException, WorldBuilderContractException {
-		WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(
-			WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
+		WorldBuilderPackedSourceLayout layout = capturedLayout(copiedTarget);
 		return consume(selectedProviderManifest, copiedTarget, targetCatalog,
 			effectiveNpcIds, WorldBuilderSupplementalNpcDefinitions
 				.mergedCustomRows(copiedTarget, layout));
@@ -104,6 +103,14 @@ final class WorldBuilderNpcDefinitionProvider {
 		Map<String,Object> targetCatalog, Set<Integer> effectiveNpcIds,
 		List<Object> normalizedCustomRows)
 		throws IOException, WorldBuilderContractException {
+        return consume(selectedProviderManifest, copiedTarget, targetCatalog, effectiveNpcIds,
+            normalizedCustomRows, capturedLayout(copiedTarget));
+    }
+
+    static Result consume(Path selectedProviderManifest, Path copiedTarget,
+        Map<String,Object> targetCatalog, Set<Integer> effectiveNpcIds,
+        List<Object> normalizedCustomRows, WorldBuilderPackedSourceLayout layout)
+        throws IOException, WorldBuilderContractException {
 		Map<String,Object> base = definitionDocument(copiedTarget,
 			"server/conf/server/defs/NpcDefs.json", "npcs");
 		List<Object> baseRows = array(base.get("npcs"), "NpcDefs.json");
@@ -132,7 +139,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		int originalCount = baseRows.size() + array(definitionDocument(copiedTarget,
 			"server/conf/server/defs/NpcDefsCustom.json", "npcs").get("npcs"), "NpcDefsCustom.json").size();
 		Provider provider = readProvider(selectedProviderManifest, copiedTarget,
-			originalCount - 1, providerPlacements);
+			originalCount - 1, providerPlacements, layout);
         // Available content is the complete validated projection, including
         // definitions not currently placed. Never truncate it at the largest
         // placed ID. A provider is not authority to invent a missing placed ID.
@@ -167,7 +174,6 @@ final class WorldBuilderNpcDefinitionProvider {
                 id.intValue(), "NPC_VISUAL_UNRESOLVED", "The selected NPC record lacks source-bound animation evidence; existing server presentation references were retained."));
         }
         List<Object> presentationOverrides = new ArrayList<Object>();
-        Set<Integer> usedAnimations = new TreeSet<Integer>();
         // Legacy rich providers prove only their declared placed-extension selection.
         // Reuse verified appearance for now-declarative extensions without replacing server stats.
         if (!provider.animations.isEmpty()) for (Map.Entry<Integer,Map<String,Object>> entry : provider.definitions.entrySet()) {
@@ -175,7 +181,7 @@ final class WorldBuilderNpcDefinitionProvider {
             if (id < originalCount || id >= appendedCount) continue;
             Map<String,Object> existing = object(customRows.get(id - baseRows.size()), "existing NPC");
             if (!entry.getValue().get("name").equals(existing.get("name"))
-                || !verifiedExistingIdentity(selectedProviderManifest, copiedTarget, id)) {
+                || !verifiedExistingIdentity(selectedProviderManifest, copiedTarget, id, layout)) {
                 warnings.add(new Warning(id, "NPC_VISUAL_UNRESOLVED", "Verified provider NPC identity does not match the effective server definition."));
                 continue;
             }
@@ -184,7 +190,6 @@ final class WorldBuilderNpcDefinitionProvider {
             for (int slot=1;slot<=12;slot++) visual.put("sprites"+slot, entry.getValue().get("sprites"+slot));
             for (String field : Arrays.asList("hairColour", "topColour", "bottomColour", "skinColour", "camera1", "camera2", "walkModel", "combatModel", "combatSprite")) visual.put(field, entry.getValue().get(field));
             presentationOverrides.add(visual);
-            collectAnimationIds(visual, usedAnimations);
             items.add(new Item(id, "resolved-existing-visual"));
         }
 		for (int id = appendedCount; id <= maximum; id++) {
@@ -206,33 +211,32 @@ final class WorldBuilderNpcDefinitionProvider {
 				items.add(new Item(id, requiredId ? "placeholder" : "gap-placeholder"));
 			} else {
 				items.add(new Item(id, "resolved"));
-                collectAnimationIds(definition, usedAnimations);
 			}
 			rewritten.add(definition);
 		}
 		Map<String,Object> document = new LinkedHashMap<String,Object>();
 		document.put("npcs", rewritten);
-        List<Animation> selectedAnimations = new ArrayList<Animation>();
-        for (Animation animation : provider.animations) if (usedAnimations.contains(animation.animationId)) selectedAnimations.add(animation);
+        // The producer already proves exact source/definition/frame closure.
+        // Keep that complete presentation projection, independently of whether
+        // a normalized NPC currently needs an appearance override or is placed.
         Result result = new Result(WorldBuilderJsonDocuments.pretty(document)
-            .getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings, selectedAnimations);
+            .getBytes(StandardCharsets.UTF_8), provider.sha256, items, warnings, provider.animations);
         result.presentationOverrides.addAll(presentationOverrides);
         return result;
 	}
 
-    private static void collectAnimationIds(Map<String,Object> definition, Set<Integer> ids) {
-        for (int slot=1;slot<=12;slot++) {
-            Object raw=definition.get("sprites"+slot);
-            if(raw instanceof Long && (Long)raw>=0)ids.add(((Long)raw).intValue());
-        }
+    private static WorldBuilderPackedSourceLayout capturedLayout(Path root) throws WorldBuilderContractException {
+        WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(root);
+        List<String> paths = WorldBuilderPackedSourceLayout.configurationPaths(target);
+        if (paths.size() > 1) throw problem("target-configuration", "NPC content verification requires one explicitly selected captured configuration.");
+        return WorldBuilderPackedSourceLayout.canonical(paths.isEmpty() ? WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION : paths.get(0));
     }
 
-    private static boolean verifiedExistingIdentity(Path selected, Path copiedTarget, int id) {
+    private static boolean verifiedExistingIdentity(Path selected, Path copiedTarget, int id, WorldBuilderPackedSourceLayout layout) {
         try {
             Map<String,Object> document = WorldBuilderJsonDocuments.readTargetDefinitionObject(selected.getParent().resolve(FILE_NAME));
             Map<String,Object> metadata = object(document.get("provider"), "provider");
             WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(copiedTarget);
-            WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
             WorldBuilderSupplementalNpcDefinitions.Result normalized = WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, layout);
             for (Object raw : array(metadata.get("sources"), "provider sources")) {
                 Map<String,Object> source = object(raw, "provider source");
@@ -314,7 +318,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	}
 
 	private static Provider readProvider(Path selected, Path copiedTarget,
-		int declarativeMaximum, Set<Integer> placements)
+		int declarativeMaximum, Set<Integer> placements, WorldBuilderPackedSourceLayout layout)
 		throws WorldBuilderContractException {
 		if (selected == null || selected.getParent() == null) return Provider.unavailable(
 			"No local custom-content provider was selected for the project.");
@@ -334,7 +338,7 @@ final class WorldBuilderNpcDefinitionProvider {
 			}
 			if (PRODUCER_TYPE.equals(document.get("manifestType"))) {
 				return readProducerProvider(root, candidate, copiedTarget,
-					declarativeMaximum, placements, document);
+					declarativeMaximum, placements, document, layout);
 			}
 			exact(document, set("schemaVersion", "manifestType", "npcs"), FILE_NAME);
 			if (!TYPE.equals(document.get("manifestType"))) return Provider.unavailable(
@@ -388,7 +392,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	 */
 	private static Provider readProducerProvider(Path root, Path candidate,
 		Path copiedTarget, int declarativeMaximum, Set<Integer> placements,
-		Map<String,Object> document) throws IOException {
+		Map<String,Object> document, WorldBuilderPackedSourceLayout layout) throws IOException {
 		exact(document, PRODUCER_ROOT_KEYS, FILE_NAME);
 		Map<String,Object> metadata = object(document.get("provider"), "provider");
 		validateProducerMetadata(metadata);
@@ -461,7 +465,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		if (!referencedAnimationIds.equals(animationIds)) throw new AnimationFailure(
 			"The provider animation inventory contains missing or unreferenced animation IDs.");
 		validateProducerTarget(copiedTarget, declarativeMaximum, placements,
-			metadata, assets, selection);
+			metadata, assets, selection, layout);
 		return new Provider(definitions, WorldBuilderHashes.sha256(candidate),
 			new ArrayList<Animation>(animationEvidence.values()), null, null);
 	}
@@ -469,7 +473,7 @@ final class WorldBuilderNpcDefinitionProvider {
 	private static void validateProducerTarget(Path copiedTarget, int declarativeMaximum,
 		Set<Integer> placements,
 		Map<String,Object> provider, Map<String,Object> assets,
-		Map<String,Object> selection) throws IOException {
+		Map<String,Object> selection, WorldBuilderPackedSourceLayout layout) throws IOException {
 		if (copiedTarget == null) throw new TargetMismatch(
 			"Provider compatibility cannot be proven without an immutable target copy.");
 		Map<String,String> expected = new TreeMap<String,String>();
@@ -533,7 +537,6 @@ final class WorldBuilderNpcDefinitionProvider {
                 "Provider extension definition identity is unsafe.");
             try {
                 WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(copiedTarget);
-                WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
                 if (!WorldBuilderNpcContentSources.inspect(target, layout).supplemental.contains(layout.definitionPath(identity))) {
                     throw new TargetMismatch("Provider extension source is not active in the selected target configuration: " + identity + ".");
                 }
@@ -823,13 +826,8 @@ final class WorldBuilderNpcDefinitionProvider {
 		return value;
 	}
 
-    static Map<String,String> spriteEntryHashes(Path path) throws IOException {
-        Map<String,String> result = new TreeMap<String,String>();
-        for (Map.Entry<String,SpriteEntry> entry : readOsar(path).entrySet()) result.put(entry.getKey(), entry.getValue().sha256);
-        return result;
-    }
 
-	private static Map<String,SpriteEntry> readOsar(Path path)
+	static Map<String,SpriteEntry> readOsar(Path path)
 		throws IOException {
 		byte[] expanded;
 		try (InputStream input = new GZIPInputStream(Files.newInputStream(path));
@@ -1176,8 +1174,8 @@ final class WorldBuilderNpcDefinitionProvider {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.CAPABILITY_MISMATCH,
 			"npc-definition-provider-compatibility", path, false,
 			"Selected provider does not match this server revision: " + message,
-			"Regenerate the server-root world-builder-provider package from this exact "
-				+ "server revision and create the project again.", cause);
+			"Publish a fresh maintained world-builder-provider export for this exact "
+				+ "server revision, then retry Detect New Content or project creation. Saved projects and cached provider packages remain intact.", cause);
 	}
 
 	private static final class TargetMismatch extends IOException {
@@ -1309,7 +1307,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		}
 	}
 
-	private static final class SpriteEntry {
+	static final class SpriteEntry {
 		final int frames;
 		final String sha256;
 		SpriteEntry(int frames, String sha256) {
