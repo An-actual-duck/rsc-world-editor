@@ -57,7 +57,8 @@ final class WorldBuilderPortableProvider {
 		Path explicit = safeFile(source.resolve(MAPPING_FILE))
 			|| safeFile(source.resolve(PACKAGE_MANIFEST_FILE))
 			? source : source.resolve(PACKAGE_DIRECTORY);
-		if (safeDirectory(explicit)) {
+		if (safeDirectory(explicit) && !(safeFile(explicit.resolve(WorldBuilderNpcProducerV2.FILE))
+            && !safeFile(explicit.resolve(MAPPING_FILE)) && !safeFile(explicit.resolve(PACKAGE_MANIFEST_FILE)))) {
 			Candidate candidate = explicitCandidate(explicit);
 			return new Discovery(Status.EXPLICIT, source,
 				Collections.singletonList(candidate), candidate,
@@ -76,7 +77,8 @@ final class WorldBuilderPortableProvider {
 		Path explicit = safeFile(source.resolve(MAPPING_FILE))
 			|| safeFile(source.resolve(PACKAGE_MANIFEST_FILE))
 			? source : source.resolve(PACKAGE_DIRECTORY);
-		if (safeDirectory(explicit)) {
+		if (safeDirectory(explicit) && !(safeFile(explicit.resolve(WorldBuilderNpcProducerV2.FILE))
+            && !safeFile(explicit.resolve(MAPPING_FILE)) && !safeFile(explicit.resolve(PACKAGE_MANIFEST_FILE)))) {
 			Candidate candidate = explicitCandidate(explicit);
 			return new Discovery(Status.EXPLICIT, source,
 				Collections.singletonList(candidate), candidate,
