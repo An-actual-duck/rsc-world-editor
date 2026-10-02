@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from adaptive_project_test_support import declare_effective_content_sources
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -1671,6 +1672,7 @@ public final class AdaptiveDiscoveryDriftHarness {
             write_json(supplemental, {
                 "npcs": [{"id": 3, "name": "Supplemental NPC"}],
             })
+            declare_effective_content_sources(root, ['MonsterSlayerNpcDefs.json'])
             before = self.snapshot(root)
 
             result = self.run_discovery(root)

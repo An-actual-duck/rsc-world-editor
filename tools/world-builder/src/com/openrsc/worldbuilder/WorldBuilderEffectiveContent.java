@@ -56,6 +56,7 @@ final class WorldBuilderEffectiveContent {
             String role = (String)file.toJson().get("role");
             if (!role.startsWith("definition.")) dependencies.put(role, file.sha256);
         }
+        VisualClosure closure = new VisualClosure(bundle, dependencies);
         Map<String,Map<Integer,Entry>> families = new TreeMap<>();
         for (Map.Entry<String,Map<Integer,MutableEntry>> family : rows.entrySet()) {
             String key = family.getKey();
@@ -64,19 +65,11 @@ final class WorldBuilderEffectiveContent {
                 throw problem("Effective " + key + " definitions disagree with the validated catalog.");
             }
             Map<Integer,Entry> entries = new TreeMap<>();
-            Map<String,String> visuals = visualDependencies(key, dependencies);
             for (Map.Entry<Integer,MutableEntry> row : family.getValue().entrySet()) {
                 if (!expected.contains(Long.valueOf(row.getKey()))) throw problem(
                     "Effective " + key + " ID " + row.getKey() + " is outside the validated catalog.");
                 MutableEntry value = row.getValue();
-                Map<String,Object> visual = new TreeMap<>();
-                visual.put("dependencies", visuals);
-                if ("ground-item".equals(key)) {
-                    for (Object raw : bundle.itemVisuals) {
-                        Map<?,?> item = (Map<?,?>)raw;
-                        if (Long.valueOf(row.getKey()).equals(item.get("itemId"))) visual.put("item", raw);
-                    }
-                }
+                Map<String,Object> visual = closure.forDefinition(key, row.getKey(), value.definition);
                 String name = value.definition.get("name") instanceof String
                     ? (String)value.definition.get("name") : key + " " + row.getKey();
                 entries.put(row.getKey(), new Entry(row.getKey(), name,
@@ -91,17 +84,123 @@ final class WorldBuilderEffectiveContent {
         return new Index(families, dependencies, bundle.bundleFingerprintSha256);
     }
 
-    private static Map<String,String> visualDependencies(String family, Map<String,String> dependencies) {
-        Map<String,String> result = new TreeMap<>();
-        for (Map.Entry<String,String> item : dependencies.entrySet()) {
-            String role = item.getKey();
-            boolean relevant = "scenery".equals(family) ? "asset.model".equals(role)
-                : "npc".equals(family) ? role.contains("sprite") || role.contains("animation")
-                : "ground-item".equals(family) ? role.contains("sprite")
-                : "asset.library".equals(role) || "asset.sprite.custom".equals(role);
-            if (relevant) result.put(role, item.getValue());
+    /** Entry-level closures for supported lookups; unsupported lookups retain exact archive authority. */
+    private static final class VisualClosure {
+        final WorldBuilderProjectContentBundle.Bundle bundle;
+        final Map<String,String> dependencies;
+        final Map<String,Map<String,String>> sprites = new TreeMap<>();
+        final Map<Integer,String> authentic;
+        final Map<Integer,Map<String,Object>> animations = new TreeMap<>();
+        final Map<Integer,Map<String,Object>> items = new TreeMap<>();
+        final WorldBuilderNativeArchiveIndex models;
+        VisualClosure(WorldBuilderProjectContentBundle.Bundle bundle, Map<String,String> dependencies)
+            throws IOException, WorldBuilderContractException {
+            this.bundle = bundle; this.dependencies = dependencies;
+            for (String role : Arrays.asList("asset.sprite.custom", "asset.spritepack")) {
+                try { sprites.put(role, WorldBuilderNpcDefinitionProvider.spriteEntryHashes(bundle.pathForRole(role))); }
+                catch (IOException unsupported) { sprites.put(role, null); }
+            }
+            Map<Integer,String> indexed;
+            try { indexed = WorldBuilderNpcDefinitionProvider.readAuthentic(bundle.pathForRole("asset.sprite.authentic")); }
+            catch (IOException unsupported) { indexed = null; }
+            authentic = indexed;
+            models = WorldBuilderNativeArchiveIndex.inspect(bundle.pathForRole("asset.model"));
+            if (dependencies.containsKey("metadata.npc-animations")) {
+                Map<String,Object> registry;
+                try { registry = WorldBuilderJsonDocuments.readTargetDefinitionObject(bundle.pathForRole("metadata.npc-animations")); }
+                catch (WorldBuilderDiscoveryException invalid) { throw new IOException(invalid); }
+                for (Object raw : (List<?>)registry.get("animations")) {
+                    @SuppressWarnings("unchecked") Map<String,Object> row = (Map<String,Object>)raw;
+                    animations.put(((Long)row.get("animationId")).intValue(), row);
+                }
+            }
+            for (Object raw : bundle.itemVisuals) {
+                @SuppressWarnings("unchecked") Map<String,Object> row = (Map<String,Object>)raw;
+                items.put(((Long)row.get("itemId")).intValue(), row);
+            }
         }
-        return result;
+        Map<String,Object> forDefinition(String family, int id, Map<String,Object> definition)
+            throws IOException, WorldBuilderContractException {
+            Map<String,Object> result = new TreeMap<>();
+            if ("scenery".equals(family)) {
+                Object raw = definition.get("objectModel");
+                if (raw instanceof String && !((String)raw).isEmpty() && !"na".equalsIgnoreCase((String)raw)) {
+                    String name = (String)raw + ".ob3";
+                    String entry = models.entrySha256(name);
+                    if (entry != null && models.containsValidModel(name)) result.put(name, entry);
+                    else result.put("unresolved-model-archive", dependencies.get("asset.model"));
+                } else result.put("unresolved-model-archive", dependencies.get("asset.model"));
+            } else if ("floor".equals(family) || "boundary".equals(family)) {
+                boolean baseColor = "floor".equals(family) && "base-color-v1".equals(definition.get("worldBuilderMaterial"));
+                for (String field : baseColor ? Collections.<String>emptyList() : "floor".equals(family) ? Arrays.asList("colour") : Arrays.asList("modelVar2", "modelVar3")) {
+                    Integer material = integer(definition.get(field));
+                    if (material == null) {
+                        result.put("unresolved-material-archive", dependencies.get("asset.sprite.custom")); continue;
+                    }
+                    // Renderer sentinel used by invisible floors and wall faces.
+                    if (material >= 0 && material != 12345678) sprite(result, "asset.sprite.custom", "textures/" + material);
+                }
+                // type-4 bridge underlays use a separately selected material.
+                if (!baseColor && "floor".equals(family) && Integer.valueOf(4).equals(integer(definition.get("unknown")))) {
+                    Integer selected = integer(definition.get("worldBuilderSourceOverlay"));
+                    int overlay = selected == null || selected == 0 ? id + 1 : selected;
+                    sprite(result, "asset.sprite.custom", "textures/" + (overlay == 12 ? 31 : 1));
+                }
+            } else if ("ground-item".equals(family) && items.containsKey(id)) {
+                Map<String,Object> row = items.get(id); result.put("mapping", row);
+                String role = (String)row.get("customSpriteAssetRole");
+                if (role != null && !role.isEmpty()) sprite(result, role, row.get("customSpriteSubspace") + "/" + row.get("customSpriteEntry"));
+                Integer sprite = integer(row.get("authenticSpriteId"));
+                if (sprite != null && sprite >= 0) frame(result, sprite);
+            } else if ("npc".equals(family)) {
+                boolean unresolved = false;
+                for (int slot = 1; slot <= 12; slot++) {
+                    Integer animation = integer(definition.get("sprites" + slot));
+                    if (animation == null) { unresolved = true; continue; }
+                    if (animation < 0) continue;
+                    Map<String,Object> row = animations.get(animation);
+                    if (row == null) { unresolved = true; continue; }
+                    result.put("animation/" + animation, row);
+                    if (!"authentic-rgb".equals(row.get("frameSource"))) {
+                        String key = row.get("customSpriteSubspace") + "/" + row.get("customSpriteEntry");
+                        sprite(result, "asset.sprite.custom", key);
+                        String actual = sprites.get("asset.sprite.custom") == null ? null : sprites.get("asset.sprite.custom").get(key);
+                        if (actual != null && !actual.equals(row.get("customEntrySha256"))) throw problem("NPC custom animation entry differs from its verified registry.");
+                    }
+                    int first = ((Long)row.get("authenticBaseSpriteId")).intValue();
+                    List<?> hashes = (List<?>)row.get("authenticFrameSha256s");
+                    for (int offset = 0; offset < hashes.size(); offset++) {
+                        frame(result, first + offset);
+                        if (authentic != null && !hashes.get(offset).equals(authentic.get(first + offset))) throw problem("NPC authentic frame differs from its verified registry.");
+                    }
+                }
+                if (unresolved) unresolvedSprites(result);
+            } else unresolvedSprites(result);
+            return result;
+        }
+        void sprite(Map<String,Object> result, String role, String key) throws WorldBuilderContractException {
+            Map<String,String> entries = sprites.get(role);
+            if (entries == null) result.put("unresolved/" + role, dependencies.get(role));
+            else if (entries.containsKey(key)) result.put(role + "/" + key, entries.get(key));
+            else throw problem("Content references missing sprite dependency " + role + "/" + key + ".");
+        }
+        void frame(Map<String,Object> result, int id) throws WorldBuilderContractException {
+            if (authentic == null) result.put("unresolved/asset.sprite.authentic", dependencies.get("asset.sprite.authentic"));
+            else if (authentic.containsKey(id)) result.put("authentic/" + id, authentic.get(id));
+            else throw problem("Content references missing authentic frame " + id + ".");
+        }
+        void unresolvedSprites(Map<String,Object> result) {
+            // Unrecognized lookup semantics cannot safely use per-entry equivalence.
+            // Bind logical entries when readable (archive timestamps are irrelevant).
+            result.put("unresolved/authentic", authentic == null ? dependencies.get("asset.sprite.authentic") : authentic);
+            for (String role : sprites.keySet()) result.put("unresolved/" + role,
+                sprites.get(role) == null ? dependencies.get(role) : sprites.get(role));
+        }
+        Integer integer(Object raw) {
+            if (raw instanceof Long && (Long)raw >= Integer.MIN_VALUE && (Long)raw <= Integer.MAX_VALUE) return ((Long)raw).intValue();
+            if (raw instanceof String) try { return Integer.valueOf((String)raw); } catch (NumberFormatException invalid) { return null; }
+            return null;
+        }
     }
 
     private static void appendJson(WorldBuilderProjectContentBundle.Bundle bundle,
@@ -198,7 +297,7 @@ final class WorldBuilderEffectiveContent {
     private static Object canonical(Object value) {
         if (value instanceof Map) {
             Map<String,Object> sorted = new TreeMap<>();
-            for (Map.Entry<?,?> entry : ((Map<?,?>)value).entrySet()) sorted.put((String)entry.getKey(), canonical(entry.getValue()));
+            for (Map.Entry<?,?> entry : ((Map<?,?>)value).entrySet()) sorted.put(String.valueOf(entry.getKey()), canonical(entry.getValue()));
             return sorted;
         }
         if (value instanceof List) {

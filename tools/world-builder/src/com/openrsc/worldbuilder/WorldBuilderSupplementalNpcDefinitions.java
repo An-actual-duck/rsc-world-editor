@@ -2,21 +2,16 @@ package com.openrsc.worldbuilder;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.DirectoryStream;
-import java.nio.file.Files;
-import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
-/** Safely folds target-owned append-only NPC registries into the portable custom registry. */
+/** Folds verified active NPC append order into the portable custom registry without changing IDs. */
 final class WorldBuilderSupplementalNpcDefinitions {
-	private static final int MAX_CATALOGS = 64;
 	private static final int MAX_DEFINITIONS = 65536;
 
 	private WorldBuilderSupplementalNpcDefinitions() {
@@ -24,38 +19,10 @@ final class WorldBuilderSupplementalNpcDefinitions {
 
 	static List<String> inspect(WorldBuilderReadOnlyTarget target,
 		WorldBuilderPackedSourceLayout layout) throws WorldBuilderContractException {
-		String definitionRoot = layout.definitionPath("");
-		Path directory = target.requiredDirectory(trimTrailingSlash(definitionRoot));
-		TreeMap<String,String> discovered = new TreeMap<String,String>();
-		try (DirectoryStream<Path> entries = Files.newDirectoryStream(directory)) {
-			for (Path candidate : entries) {
-				String name = candidate.getFileName().toString();
-				if (!isSupplementalName(name)) continue;
-				String relative = target.relative(candidate);
-				target.requiredFile(relative);
-				String portable = name.toLowerCase(Locale.ROOT);
-				if (discovered.put(portable, relative) != null) {
-					throw problem(relative,
-						"Supplemental NPC definition catalogs have a portable-name collision.",
-						"Rename the supplemental catalogs so their names differ on every platform.");
-				}
-				if (discovered.size() > MAX_CATALOGS) {
-					throw problem(relative,
-						"Target contains more than 64 supplemental NPC definition catalogs.",
-						"Consolidate the append-only NPC catalogs and retry discovery.");
-				}
-			}
-		} catch (WorldBuilderContractException refusal) {
-			throw refusal;
-		} catch (IOException failure) {
-			throw problem(definitionRoot,
-				"Supplemental NPC definition catalogs could not be inspected.",
-				"Stop target changes, verify read access, and retry discovery.", failure);
-		}
-		List<String> result = new ArrayList<String>(discovered.values());
-		for (String relative : result) rows(target.requiredFile(relative), relative);
-		return Collections.unmodifiableList(result);
-	}
+        List<String> result = WorldBuilderNpcContentSources.inspect(target, layout).supplemental;
+        for (String relative : result) rows(target.requiredFile(relative), relative);
+        return result;
+    }
 
 	static List<Object> mergedCustomRows(Path targetRoot,
 		WorldBuilderPackedSourceLayout layout)
@@ -71,7 +38,7 @@ final class WorldBuilderSupplementalNpcDefinitions {
 		List<Object> baseRows = rows(target.requiredFile(base), base);
 		List<Object> ordinaryCustom = rows(target.requiredFile(custom), custom);
 		if (baseRows.isEmpty()) throw problem(base,
-			"Base NPC definitions contain no record for safe gap placeholders.",
+			"Base NPC definitions contain no initial record.",
 			"Restore one complete base NPC registry and retry discovery.");
 		if (baseRows.size() + ordinaryCustom.size() > MAX_DEFINITIONS) {
 			throw tooMany(custom);
@@ -91,72 +58,29 @@ final class WorldBuilderSupplementalNpcDefinitions {
 			> MAX_DEFINITIONS) throw tooMany(custom);
 
 		int firstSupplemental = baseRows.size() + ordinaryCustom.size();
-		Map<Integer,Occupied> occupied = new TreeMap<Integer,Occupied>();
-		for (int index = 0; index < baseRows.size(); index++) {
-			occupied.put(Integer.valueOf(index), new Occupied(
-				name(baseRows.get(index)), base, index));
-		}
 		List<Object> merged = new ArrayList<Object>(ordinaryCustom.size());
 		for (int index = 0; index < ordinaryCustom.size(); index++) {
 			int id = baseRows.size() + index;
 			Map<String,Object> row = object(ordinaryCustom.get(index), custom, index);
 			Map<String,Object> canonical = withId(row, id);
 			merged.add(canonical);
-			occupied.put(Integer.valueOf(id), new Occupied(name(canonical), custom, index));
 		}
 
-		TreeMap<Integer,Definition> assigned = new TreeMap<Integer,Definition>();
-		List<Conflict> conflicts = new ArrayList<Conflict>();
-		Map<Definition,Conflict> needsAssignment =
-			new LinkedHashMap<Definition,Conflict>();
-		int maximumRequested = firstSupplemental - 1;
-		for (Definition definition : definitions) {
-			if (definition.requestedId == null) {
-				needsAssignment.put(definition, null);
-				continue;
-			}
-			int requested = definition.requestedId.intValue();
-			maximumRequested = Math.max(maximumRequested, requested);
-			Occupied prior = occupied.get(Integer.valueOf(requested));
-			Definition priorSupplemental = assigned.get(Integer.valueOf(requested));
-			if (prior != null || priorSupplemental != null) {
-				Conflict conflict = new Conflict(definition, requested,
-					prior != null ? prior : new Occupied(priorSupplemental.name(),
-						priorSupplemental.relative, priorSupplemental.index));
-				needsAssignment.put(definition, conflict);
-				conflicts.add(conflict);
-			} else {
-				assigned.put(Integer.valueOf(requested), definition);
-			}
-		}
+        TreeMap<Integer,Definition> assigned = new TreeMap<Integer,Definition>();
+        List<Conflict> conflicts = new ArrayList<Conflict>();
+        int next = firstSupplemental;
+        for (Definition definition : definitions) {
+            if (definition.requestedId != null && definition.requestedId.intValue() != next) {
+                throw problem(definition.relative,
+                    "NPC declared ID " + definition.requestedId + " disagrees with its active append slot " + next + ".",
+                    "Correct the maintained effective definition export; World Builder will not remap content identities.");
+            }
+            assigned.put(Integer.valueOf(next++), definition);
+        }
 
-		int next = Math.max(firstSupplemental, maximumRequested + 1);
-		for (Map.Entry<Definition,Conflict> pending : needsAssignment.entrySet()) {
-			Definition definition = pending.getKey();
-			while (next <= 65535 && (occupied.containsKey(Integer.valueOf(next))
-				|| assigned.containsKey(Integer.valueOf(next)))) next++;
-			if (next > 65535) throw problem(definition.relative,
-				"No NPC ID remains available for a discovered definition.",
-				"Retire an unused NPC definition before rediscovering this server.");
-			assigned.put(Integer.valueOf(next), definition);
-			if (pending.getValue() != null) pending.getValue().assignedId = next;
-			next++;
-		}
-
-		int gapCount = 0;
-		if (!assigned.isEmpty()) {
-			int maximum = assigned.lastKey().intValue();
-			Map<String,Object> template = object(baseRows.get(0), base, 0);
-			for (int id = firstSupplemental; id <= maximum; id++) {
-				Definition definition = assigned.get(Integer.valueOf(id));
-				if (definition == null) {
-					merged.add(placeholder(template, id));
-					gapCount++;
-				} else {
-					merged.add(withId(definition.row, id));
-				}
-			}
-		}
+        for (Map.Entry<Integer,Definition> entry : assigned.entrySet()) {
+            merged.add(withId(entry.getValue().row, entry.getKey()));
+        }
 		if (baseRows.size() + merged.size() > MAX_DEFINITIONS) throw tooMany(custom);
 		Map<String,Integer> sourceIds = new TreeMap<String,Integer>();
 		for (int index = 0; index < baseRows.size(); index++) sourceIds.put(base + "#" + index, index);
@@ -165,7 +89,7 @@ final class WorldBuilderSupplementalNpcDefinitions {
 			Definition source = entry.getValue();
 			sourceIds.put(source.relative + "#" + source.index, entry.getKey());
 		}
-		return new Result(merged, catalogs, definitions.size(), gapCount, conflicts, sourceIds);
+		return new Result(merged, catalogs, definitions.size(), 0, conflicts, sourceIds);
 	}
 
 	static byte[] customJson(List<Object> rows) {
@@ -190,26 +114,13 @@ final class WorldBuilderSupplementalNpcDefinitions {
 		if (!(raw instanceof Long) || ((Long)raw).longValue() < 0L
 			|| ((Long)raw).longValue() > 65535L) throw problem(path,
 			"Supplemental NPC definition record " + index + " has an invalid ID.",
-			"Use an integer ID in 0..65535 or omit it for automatic assignment.");
+			"Use an integer ID matching the maintained append slot, or omit the redundant ID field.");
 		return Integer.valueOf(((Long)raw).intValue());
 	}
 
 	private static Map<String,Object> withId(Map<String,Object> row, int id) {
 		Map<String,Object> result = new LinkedHashMap<String,Object>(row);
 		result.put("id", Long.valueOf(id));
-		return result;
-	}
-
-	private static Map<String,Object> placeholder(Map<String,Object> template, int id) {
-		Map<String,Object> result = withId(template, id);
-		result.put("name", "Unused NPC definition slot " + id);
-		if (result.containsKey("description")) {
-			result.put("description", "Reserved by World Builder for sparse NPC IDs");
-		}
-		if (result.containsKey("command")) result.put("command", "");
-		if (result.containsKey("command2")) result.put("command2", "");
-		if (result.containsKey("attackable")) result.put("attackable", Long.valueOf(0L));
-		if (result.containsKey("aggressive")) result.put("aggressive", Long.valueOf(0L));
 		return result;
 	}
 
@@ -258,16 +169,6 @@ final class WorldBuilderSupplementalNpcDefinitions {
 		}
 	}
 
-	private static boolean isSupplementalName(String name) {
-		return name.endsWith("NpcDefs.json")
-			&& !"NpcDefs.json".equals(name)
-			&& !"NpcDefsCustom.json".equals(name);
-	}
-
-	private static String trimTrailingSlash(String value) {
-		return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
-	}
-
 	private static WorldBuilderContractException problem(String path,
 		String message, String nextStep) {
 		return problem(path, message, nextStep, null);
@@ -277,7 +178,7 @@ final class WorldBuilderSupplementalNpcDefinitions {
 		String message, String nextStep, Throwable cause) {
 		return new WorldBuilderContractException(WorldBuilderErrorCodes.DEFINITION_MISMATCH,
 			"project-content-bundle", "", "", path, "supplemental NPC definitions",
-			"Bounded regular append-only *NpcDefs.json catalogs in portable order.",
+			"Bounded declarative NPC registries in their verified maintained runtime append order.",
 			message, false, message, nextStep, cause);
 	}
 

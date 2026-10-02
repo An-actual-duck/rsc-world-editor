@@ -332,6 +332,11 @@ final class WorldBuilderPackedSourceLayout {
                 aliases.add(new Alias("server-definition.npc.supplemental", supplemental,
                     canonicalDefinitionPath(inside), true));
             }
+            for (String supplemental : WorldBuilderNpcContentSources.inspectItems(source, this).supplemental) {
+                String inside = supplemental.substring(definitionRoot.length() + 1);
+                aliases.add(new Alias("server-definition.item.supplemental", supplemental,
+                    canonicalDefinitionPath(inside), true));
+            }
 			String suffix = basedMapData == 14 ? "14" : basedMapData == 27 ? "27" : "";
 			aliases.add(new Alias("placement.boundary-base-source",
 				locationPath("BoundaryLocs" + suffix + ".json"),

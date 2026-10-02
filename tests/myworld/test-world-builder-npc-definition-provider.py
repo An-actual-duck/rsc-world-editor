@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from adaptive_project_test_support import declare_effective_content_sources
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -394,6 +395,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 "npcs": [definition(1, "Alpha supplemental")],
             })
 
+            declare_effective_content_sources(target, ['AlphaNpcDefs.json', 'ZetaNpcDefs.json'])
             custom, report = self.consume_effective(
                 target, selected, base / "stage", [3]
             )
@@ -446,7 +448,8 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                 base=Path(temp);target,selected=self.fixture(base)
                 catalog=target / "server/conf/server/defs/ArbitraryNpcDefs.json"
                 npc=definition(2,"Neutral producer NPC");npc.update({"attack":91,"sprites1":7})
-                write_json(catalog,{"npcs":[npc]})
+                write_json(catalog,{"npcs":[definition(1,"Reserved slot"),npc]})
+                declare_effective_content_sources(target,[catalog.name])
                 write_json(target / "server/conf/server/defs/NpcDefsMyWorld.json",
                     {"npcs": [{"id": 2, "attack": 123, "description": "Retained world behavior", "sprites1": 9}]})
                 self.producer_package(target,selected)
@@ -473,7 +476,8 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="npc-provider-existing-simple-") as temp:
             base=Path(temp);target,selected=self.fixture(base)
             npc=definition(2,"Mapped NPC");npc["attack"]=73
-            write_json(target / "server/conf/server/defs/MoreNpcDefs.json",{"npcs":[npc]})
+            write_json(target / "server/conf/server/defs/MoreNpcDefs.json",{"npcs":[definition(1,"Reserved slot"),npc]})
+            declare_effective_content_sources(target,["MoreNpcDefs.json"])
             write_json(selected.parent / "npc-definitions-v1.json",{
                 "schemaVersion":1,"manifestType":"world-builder-npc-definition-mapping",
                 "npcs":[{"npcId":2,"name":"Mapped NPC","definition":definition(2,"Mapped NPC")}]})
@@ -485,7 +489,8 @@ class NpcDefinitionProviderTest(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="npc-provider-existing-invalid-") as temp:
             base=Path(temp);target,selected=self.fixture(base)
             npc=definition(2,"Neutral producer NPC");npc["attack"]=91
-            write_json(target / "server/conf/server/defs/AnyNpcDefs.json",{"npcs":[npc]})
+            write_json(target / "server/conf/server/defs/AnyNpcDefs.json",{"npcs":[definition(1,"Reserved slot"),npc]})
+            declare_effective_content_sources(target,["AnyNpcDefs.json"])
             self.producer_package(target,selected,unresolved_animation=True)
             custom,report=self.consume(target,selected,base / "stage")
             self.assertEqual(91,custom["npcs"][1]["attack"])

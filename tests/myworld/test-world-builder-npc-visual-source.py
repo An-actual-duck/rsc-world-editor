@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zlib
+from adaptive_project_test_support import declare_effective_content_sources
 
 ROOT=Path(__file__).resolve().parents[2]
 FIXTURE=ROOT/'tests/myworld/fixtures/npc-visual-source-format'
@@ -54,9 +55,18 @@ class NpcVisualSourceTest(unittest.TestCase):
    image=art/(key+'.png');png(image,sum(widths),height)
    entries.append({'id':id,'key':key,'columns':widths,'height':height,'sha256':hashlib.sha256(image.read_bytes()).hexdigest()})
   (art/'provenance.json').write_text(json.dumps({'entries':entries}))
+  if not hasattr(self,"owned_roots"):self.owned_roots=set()
+  self.owned_roots.add(root)
   return root
 
  def run_probe(self,root,explicit=(),success=True):
+  if root in getattr(self,'owned_roots',set()):
+   defs=root/'server/conf/server/defs';extra=defs/'ForeignNpcDefs.json'
+   if extra.exists():
+    first=json.loads(extra.read_text())['npcs'][0]['id']
+    (defs/'NpcDefs.json').write_text(json.dumps({'npcs':[{'id':i,'name':f'fixture base {i}'} for i in range(first)]}))
+    (defs/'NpcDefsCustom.json').write_text('{"npcs":[]}')
+   declare_effective_content_sources(root,['ForeignNpcDefs.json'] if extra.exists() else [])
   r=subprocess.run(['java','-cp',f'{ROOT}/output/world-builder-tools/classes:{self.compiled.name}','com.openrsc.worldbuilder.NpcVisualSourceProbe',str(root),*explicit],text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
   self.assertEqual(success,r.returncode==0,r.stderr)
   return json.loads(r.stdout) if success else r.stderr

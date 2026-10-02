@@ -12,6 +12,7 @@ import tempfile
 import unittest
 import zipfile
 import zlib
+from adaptive_project_test_support import declare_effective_content_sources
 
 ROOT = Path(__file__).resolve().parents[2]
 spec = importlib.util.spec_from_file_location("npc_lifecycle", ROOT / "tests/myworld/test-world-builder-adaptive-project-lifecycle.py")
@@ -63,6 +64,17 @@ class NpcDirectionSheetsTest(unittest.TestCase):
         self.report = root / "report.json"
 
     def write_visual_descriptor(self, npc_id, definition_path, definition_index, slot=1):
+        definition_root = str(Path(definition_path).parent)
+        defs = self.target / definition_root
+        supplemental = Path(definition_path).name not in ('NpcDefs.json', 'NpcDefsCustom.json')
+        if supplemental:
+            # Explicitly authored sequential fixture rows, never production ID remapping.
+            base = json.loads((defs / 'NpcDefs.json').read_text())['npcs']
+            custom = json.loads((defs / 'NpcDefsCustom.json').read_text())['npcs']
+            custom = [row for row in custom if not row.get('name', '').startswith('fixture append slot ')]
+            custom += [{'id': i, 'name': f'fixture append slot {i}'} for i in range(len(base) + len(custom), npc_id)]
+            L.write_json(defs / 'NpcDefsCustom.json', {'npcs': custom})
+        declare_effective_content_sources(self.target, [Path(definition_path).name] if supplemental else [], definition_root=definition_root)
         record = {
             "npcId": npc_id, "definitionPath": definition_path, "definitionIndex": definition_index,
             "definitionSha256": hashlib.sha256((self.target / definition_path).read_bytes()).hexdigest(),
@@ -195,6 +207,7 @@ class NpcDirectionSheetsTest(unittest.TestCase):
             custom = json.loads(custom_path.read_text())
             custom["npcs"][0]["name"] = "Naga"
             L.write_json(custom_path, custom)
+            declare_effective_content_sources(self.target, ["SlayerMovementPreviewNpcDefs.json"])
             first = self.create()
             bundle = first / "source/content-bundle/files"
             registry = "server/conf/world-builder/npc-animations-v1.json"
@@ -215,6 +228,7 @@ class NpcDirectionSheetsTest(unittest.TestCase):
             (self.target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json").unlink()
             (self.target / SHEET).unlink()
             (self.target / "npc-visuals-v1.json").unlink()
+            declare_effective_content_sources(self.target)
             self.runtime = self.life.make_runtime(self.root / "old-preserved-runtime")
             self.life.discover(self.target, self.report)
             result, _ = self.life.create_project(self.install, self.runtime, self.target, self.report, "Old preserved", 43861)
