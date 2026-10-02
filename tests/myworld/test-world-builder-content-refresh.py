@@ -479,42 +479,146 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, reviewed.returncode, reviewed.stderr)
             self.assertEqual("ready", json.loads(reviewed.stdout)["status"])
 
+    def reverified_content_successor(self, base):
+        target_project = self.target_project
+        def maintained_target(*args, **kwargs):
+            previous = kwargs.get("target_mutator")
+            def capture_content(target):
+                if previous is not None: previous(target)
+                self.complete_content(target)
+            kwargs["target_mutator"] = capture_content
+            kwargs["installed_standard_floors"] = False
+            return target_project(*args, **kwargs)
+        self.target_project = maintained_target
+        try:
+            target, install, parent, export = self.reverification_fixture(base, packed_floors=True)
+        finally:
+            self.target_project = target_project
+        runtime = base / "builder-runtime"
+        self.rebuild_fixture(base, target, "none")
+        checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", parent, "--target-root", target)
+        self.assertEqual(0, checked.returncode, checked.stderr)
+        baseline_receipt_id = next(json.loads(path.read_text())["runtimeReverification"]["baseline"]["transactionId"]
+            for path in (parent / "backups").glob("*/mutation-plan.json")
+            if "runtimeReverification" in json.loads(path.read_text()))
+        history = support.tree_bytes(parent)
+        self.add_npc(target)
+        reviewed = self.refresh(parent, runtime, target)
+        self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+        preview = json.loads(reviewed.stdout)
+        self.assertEqual("ready", preview["status"], preview["blockers"])
+        accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
+        self.assertEqual(0, accepted.returncode, accepted.stderr)
+        successor = Path(json.loads(accepted.stdout)["projectRoot"])
+        self.assertEqual(history, support.tree_bytes(parent))
+        self.next_history_export(parent)  # Local historical edits do not invalidate immutable runtime provenance.
+        history = support.tree_bytes(parent)
+        return target, install, parent, runtime, successor, history, baseline_receipt_id
+
+    def test_immediate_reverification_binds_saved_work_and_snapshot_authority(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-immediate-reverify-") as temp:
+            base = Path(temp)
+            target, install, parent, runtime, successor, history, _ = self.reverified_content_successor(base)
+            self.assertFalse(list((successor / "receipts").glob("*.json")))
+            self.assertFalse(list((successor / "exports").iterdir()))
+            self.promote_fixture_terrain_to_v2(successor / "working/layered-world/package", 95)
+            saved = self.run_cli("save-project", "--project", successor)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            saved_before = support.tree_bytes(successor / "working")
+            source_before = support.tree_bytes(successor / "source")
+            archives = self.rebuild_fixture(base, target, "source,lines,vars")
+            target_before = support.tree_bytes(target, install)
+            reviewed = self.run_cli("reverify-target-runtime", "--project", successor, "--target-root", target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            plan = json.loads(reviewed.stdout)
+            self.assertIn("snapshotPredecessor", plan["runtimeReverification"])
+            self.assertNotIn("predecessor", plan["runtimeReverification"])
+            self.assertEqual(successor.name, plan["runtimeReverification"]["snapshotPredecessor"]["projectId"])
+            self.assertEqual(parent.name, plan["runtimeReverification"]["baselineProject"]["projectId"])
+            exports = list((successor / "exports").iterdir())
+            self.assertEqual(1, len(exports))
+            repeated = self.run_cli("reverify-target-runtime", "--project", successor, "--target-root", target)
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual(exports, list((successor / "exports").iterdir()))
+            self.assertEqual(saved_before, support.tree_bytes(successor / "working"))
+            self.assertEqual(target_before, support.tree_bytes(target, install))
+            self.assertFalse(list((successor / "receipts").glob("*.json")))
+            self.assertEqual(history, support.tree_bytes(parent))
+            # A newer saved map is never silently accepted under the previous confirmation.
+            self.promote_fixture_terrain_to_v2(successor / "working/layered-world/package", 96)
+            saved = self.run_cli("save-project", "--project", successor)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            refused = self.run_cli("reverify-target-runtime", "--project", successor, "--target-root", target,
+                "--confirm", "REVERIFY", "--transaction-id", plan["transactionId"], "--plan-sha256", plan["planFingerprintSha256"])
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(target_before, support.tree_bytes(target, install))
+            saved_before = support.tree_bytes(successor / "working")
+            configuration = target / "server/world-builder-configs/primary.json"
+            selected = json.loads(configuration.read_text())
+            # Snapshot authority still binds the selected configuration and installed map exactly.
+            for path in (configuration, target / selected["serverMapRelativePath"] / "manifest.json"):
+                with self.subTest(path=path.relative_to(target).as_posix()):
+                    original = path.read_bytes()
+                    path.write_bytes(original + b" ")
+                    drifted = support.tree_bytes(target, install)
+                    rejected = self.run_cli("reverify-target-runtime", "--project", successor, "--target-root", target)
+                    self.assertEqual(3, rejected.returncode, rejected.stderr)
+                    self.assertEqual(drifted, support.tree_bytes(target, install))
+                    self.assertFalse(list((successor / "receipts").glob("*.json")))
+                    path.write_bytes(original)
+            checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", successor, "--target-root", target)
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            self.assertEqual(saved_before, support.tree_bytes(successor / "working"))
+            self.assertEqual(source_before, support.tree_bytes(successor / "source"))
+            exported = self.run_cli("export-adaptive", "--project", successor)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor,
+                "--export", json.loads(exported.stdout)["exportDirectory"], "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", successor, "--target-root", target)
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            refused = self.run_cli("undo-adaptive", "--project", successor, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("re-verification boundary", refused.stderr)
+            for path, value in archives.items(): self.assertEqual(value, (target / path).read_bytes())
+            self.assertEqual(history, support.tree_bytes(parent))
+
+    def test_immediate_reverification_interruption_recovery_keeps_rebuilt_archives(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-immediate-recovery-") as temp:
+            base = Path(temp)
+            target, install, parent, runtime, successor, history, _ = self.reverified_content_successor(base)
+            archives = self.rebuild_fixture(base, target, "source,lines,vars")
+            before = support.tree_bytes(target, install)
+            saved = support.tree_bytes(successor / "working")
+            # The operation has no successful local receipt and must prepare its genuine saved-map export.
+            failed = self.run_failure("reverify", "activation-published,any-rollback", successor, target, successor / "exports")
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            jar = target / "server/core.jar"
+            jar.write_bytes(jar.read_bytes() + b"independent-drift")
+            rejected = self.run_cli("recover-adaptive", "--project", successor, "--target-root", target)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertTrue(jar.read_bytes().endswith(b"independent-drift"))
+            jar.write_bytes(archives["server/core.jar"])
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", successor, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, support.tree_bytes(target, install))
+            self.assertEqual(saved, support.tree_bytes(successor / "working"))
+            self.assertEqual(history, support.tree_bytes(parent))
+            checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", successor, "--target-root", target)
+            self.assertEqual(0, checked.returncode, checked.stderr)
+            exported = self.run_cli("export-adaptive", "--project", successor)
+            self.assertEqual(0, exported.returncode, exported.stderr)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor,
+                "--export", json.loads(exported.stdout)["exportDirectory"], "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            for path, value in archives.items(): self.assertEqual(value, (target / path).read_bytes())
+            self.assertEqual(history, support.tree_bytes(parent))
+
     def test_refresh_preserves_reverification_boundary_then_rebuilds_successor(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-reverify-chain-") as temp:
             base = Path(temp)
-            target_project = self.target_project
-            def maintained_target(*args, **kwargs):
-                previous = kwargs.get("target_mutator")
-                def capture_content(target):
-                    if previous is not None: previous(target)
-                    self.complete_content(target)
-                kwargs["target_mutator"] = capture_content
-                kwargs["installed_standard_floors"] = False
-                return target_project(*args, **kwargs)
-            self.target_project = maintained_target
-            try:
-                target, install, parent, export = self.reverification_fixture(base, packed_floors=True)
-            finally:
-                self.target_project = target_project
-            runtime = base / "builder-runtime"
-            self.rebuild_fixture(base, target, "none")
-            checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", parent, "--target-root", target)
-            self.assertEqual(0, checked.returncode, checked.stderr)
-            baseline_receipt_id = next(json.loads(path.read_text())["runtimeReverification"]["baseline"]["transactionId"]
-                for path in (parent / "backups").glob("*/mutation-plan.json")
-                if "runtimeReverification" in json.loads(path.read_text()))
-            history = support.tree_bytes(parent)
-            self.add_npc(target)
-            reviewed = self.refresh(parent, runtime, target)
-            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
-            preview = json.loads(reviewed.stdout)
-            self.assertEqual("ready", preview["status"], preview["blockers"])
-            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
-            self.assertEqual(0, accepted.returncode, accepted.stderr)
-            successor = Path(json.loads(accepted.stdout)["projectRoot"])
-            self.assertEqual(history, support.tree_bytes(parent))
-            self.next_history_export(parent)  # Local historical edits do not invalidate immutable runtime provenance.
-            history = support.tree_bytes(parent)
+            target, install, parent, runtime, successor, history, baseline_receipt_id = self.reverified_content_successor(base)
             for stage in range(3):
                 exported = self.next_history_export(successor)
                 imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
