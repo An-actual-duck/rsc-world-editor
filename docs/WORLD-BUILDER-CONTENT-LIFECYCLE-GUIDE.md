@@ -63,13 +63,20 @@ the editor is not proof that the target can accept that placement.
 
 ## Rebuilds and recovery
 
-Use **Re-verify Target Runtime** after a supported normal rebuild of an already
+Use **Re-verify Rebuilt Target Runtime…** after a supported normal rebuild of an already
 integrated runtime. The target must remain offline. Verification checks the
 maintained source/binary relationship and dependencies; it does not merely
 refresh archive hashes or replace gameplay with the editing runtime. Content
 refresh retains the original integration evidence through its predecessor
 revisions. Source changes and other unsupported differences receive a refusal
 requiring separate resolution.
+
+A refreshed content revision can be verified before its first import when its
+complete predecessor chain retains the original integration evidence. Preview
+may create a normal immutable export of the current saved map for transaction
+binding; it does not install that map or create a successful import receipt.
+Keep all predecessor revisions. A fresh project without the required original
+integration evidence cannot infer it from the rebuilt target.
 
 If a transaction was interrupted, use **Recover Interrupted Server Transaction**
 before another import or content refresh. Preserve the complete project and its
