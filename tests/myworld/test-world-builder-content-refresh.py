@@ -187,7 +187,12 @@ public final class RefreshDesktopModel {
             latest = Path(json.loads(accepted.stdout)["projectRoot"])
             self.assertEqual(first_revision, support.tree_bytes(successor))
             self.assertEqual(parent_before, support.tree_bytes(parent))
-            exported = self.next_history_export(latest)
+            self.promote_fixture_terrain_to_v2(latest / "working/layered-world/package", 77)
+            saved = self.run_cli("save-project", "--project", latest)
+            self.assertEqual(0, saved.returncode, saved.stderr)
+            exported_result = self.run_cli("export-adaptive", "--project", latest)
+            self.assertEqual(0, exported_result.returncode, exported_result.stderr)
+            exported = Path(json.loads(exported_result.stdout)["exportDirectory"])
             imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", latest, "--export", exported, "--target-root", target)
             self.assertEqual(0, imported.returncode, imported.stderr)
             # Opening without a target must retain complete editor content.
