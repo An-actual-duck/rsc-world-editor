@@ -234,6 +234,23 @@ final class WorldBuilderAdaptiveMutationProfile {
 			+ "/package";
 		String clientPackage = clientRoot + "/world-builder/packages/"
 			+ packageContentAddress + "/package";
+		if (serverPackage.equals(configuration.serverMapRelativePath)
+			&& clientPackage.equals(configuration.clientMapRelativePath)) {
+			requireExactActivePackage(target, export, serverPackage, clientPackage);
+			List<Action> compatibility = WorldBuilderRuntimeCompatibility.bindTransaction(
+				runtimeCompatibility, transactionId);
+			if (compatibility.isEmpty()) throw alreadyInstalled();
+			byte[] unchangedConfiguration = Files.readAllBytes(
+				safeExistingFile(target, configurationPath, "selected configuration"));
+			List<String> directories = plannedDirectories(target, compatibility);
+			Map<String,Object> document = document(transactionId, project, export,
+				capability, configuration, expectedLineage, compatibility,
+				Collections.<ConfigurationChange>emptyList(), directories,
+				requiredSpace(compatibility), configuration.sha256);
+			return new Plan(target, project, export, capability, configuration,
+				profile, serverPackage, clientPackage, unchangedConfiguration,
+				compatibility, Collections.<ConfigurationChange>emptyList(), directories, document);
+		}
 		requireInstallRootsAbsent(target, serverPackage, clientPackage);
 		Map<String,Object> originalConfiguration = readOnly.readObject(configurationPath);
 		Map<String,Object> installedConfiguration = deepCopy(originalConfiguration);
@@ -395,10 +412,8 @@ final class WorldBuilderAdaptiveMutationProfile {
 			List<Action> compatibility = new ArrayList<Action>();
 			compatibility.addAll(WorldBuilderRuntimeCompatibility.bindTransaction(
 				runtimeCompatibility, transactionId));
-			if (compatibility.isEmpty()) throw problem(
-				WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "exports",
-				"This exact exported map package and matching runtime are already installed.",
-				"Make and save another map edit before importing again.");
+			requireExactActivePackage(target, export, serverPackage, clientPackage);
+			if (compatibility.isEmpty()) throw alreadyInstalled();
 			byte[] unchangedConfiguration = Files.readAllBytes(configFile);
 			long requiredSpace = requiredSpace(compatibility);
 			List<String> directories = plannedDirectories(target, compatibility);
@@ -2107,11 +2122,64 @@ final class WorldBuilderAdaptiveMutationProfile {
 		}
 	}
 
+	static void verifyRetainedActivePackage(Plan plan)
+		throws IOException, WorldBuilderContractException {
+		for (Action action : plan.actions) {
+			if (action.role.startsWith("server-package-")
+				|| action.role.startsWith("client-package-")) return;
+		}
+		String address = packageContentAddress(plan.profileId, plan.export.packageValue);
+		if (plan.serverPackageRelativePath.equals(SERVER_PACKAGE_ROOT + "/" + address + "/package")
+			&& plan.clientPackageRelativePath.equals(compiledClientRoot(plan.configuration)
+				+ "/world-builder/packages/" + address + "/package")) {
+			WorldBuilderReadOnlyTarget.FileState configuration = WorldBuilderReadOnlyTarget.open(plan.targetRoot)
+				.requiredState("selected-configuration", plan.configuration.relativePath);
+			if (!plan.configuration.sha256.equals(configuration.sha256)) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, plan.configuration.relativePath,
+				"Active package configuration changed after the import preview.",
+				"Stop target changes and request a fresh import preview.");
+			requireExactActivePackage(plan.targetRoot, plan.export,
+				plan.serverPackageRelativePath, plan.clientPackageRelativePath);
+		}
+	}
+
+	private static WorldBuilderContractException alreadyInstalled() {
+		return problem(WorldBuilderErrorCodes.CONTRACT_VALUE_INVALID, "exports",
+			"This exact exported map package and matching runtime are already installed. No import is needed.",
+			"Make and save another map edit, then export it before importing again; keep the existing target packages.");
+	}
+
+	/** Existing bytes are baseline evidence, never owned or overwritten by this transaction. */
+	private static void requireExactActivePackage(Path target,
+		WorldBuilderAdaptiveExporter.VerifiedExport export, String serverPackage, String clientPackage)
+		throws IOException, WorldBuilderContractException {
+		WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
+		for (String root : new String[] {serverPackage, clientPackage}) {
+			Set<String> expected = new HashSet<String>();
+			for (WorldBuilderReadOnlyTarget.FileState file : export.packageValue.files) {
+				String relative = root + "/" + file.relativePath.substring(
+					(WorldBuilderAdaptiveExporter.PACKAGE_DIRECTORY + "/").length());
+				expected.add(relative);
+				WorldBuilderReadOnlyTarget.FileState actual = readOnly.requiredState("active-package", relative);
+				if (file.size != actual.size || !file.sha256.equals(actual.sha256)) throw problem(
+					WorldBuilderErrorCodes.TARGET_DRIFT, relative,
+					"The active content-addressed package differs from the exact export.",
+					"Restore the exact active package; do not overwrite or delete retained packages.");
+			}
+			List<String> unexpected = new ArrayList<String>();
+			WorldBuilderAdaptiveUndo.collectUnexpectedFingerprintEntries(target, root, expected, unexpected);
+			if (!unexpected.isEmpty()) throw problem(WorldBuilderErrorCodes.TARGET_DRIFT, unexpected.get(0),
+				"The active content-addressed package contains unexpected entries.",
+				"Restore the exact active package before importing; do not force replacement.");
+		}
+	}
+
 	static void requireInstallRootsAbsent(Plan plan)
 		throws IOException, WorldBuilderContractException {
 		boolean installsPackage = false;
 		for (Action action : plan.actions) {
-			if (!action.activation) {
+			if (action.role.startsWith("server-package-")
+				|| action.role.startsWith("client-package-")) {
 				installsPackage = true;
 				break;
 			}
@@ -2562,14 +2630,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 			return WorldBuilderJsonDocuments.pretty(document);
 		}
 
-		String humanSummary() {
+		String humanSummary(boolean runtimeUpgrade) {
 			int retiredLegacyFiles = 0;
 			int managedRuntimeActions = 0;
 			int floorContentActions = 0;
-			boolean runtimeUpgradeOnly = !actions.isEmpty()
-				&& configurationChanges.isEmpty();
 			for (Action action : actions) {
-				runtimeUpgradeOnly &= action.role.startsWith("runtime-compatibility-");
 				if (WorldBuilderInstalledFloorContent.isRole(action.role)) floorContentActions++;
 				if (action.role.startsWith("retire-legacy-landscape-")
 					&& action.before.present && !action.after.present) {
@@ -2589,7 +2654,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				}
 			}
 			StringBuilder value = new StringBuilder(4096);
-			value.append(runtimeUpgradeOnly
+			value.append(runtimeUpgrade
 				? "Target runtime upgrade preview (no target files changed)\n"
 				: "Import preview (no target files changed)\n")
 				.append("Transaction: ").append(document.get("transactionId")).append('\n')
@@ -2620,7 +2685,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append("Receipt: projects/").append(project.projectId).append("/receipts/")
 				.append(document.get("transactionId")).append(".json\n")
 				.append("Confirmation required: ")
-				.append(runtimeUpgradeOnly ? "UPGRADE" : "IMPORT").append('\n');
+				.append(runtimeUpgrade ? "UPGRADE" : "IMPORT").append('\n');
 			return value.toString();
 		}
 	}

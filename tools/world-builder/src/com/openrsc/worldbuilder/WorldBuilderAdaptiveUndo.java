@@ -490,7 +490,7 @@ final class WorldBuilderAdaptiveUndo {
 		return false;
 	}
 
-	private static void collectUnexpectedFingerprintEntries(Path target, String packagePath,
+	static void collectUnexpectedFingerprintEntries(Path target, String packagePath,
 		final Set<String> expected, final List<String> changed)
 		throws IOException, WorldBuilderContractException {
 		final String root = WorldBuilderAdaptiveMutationProfile.fingerprintRoot(packagePath);

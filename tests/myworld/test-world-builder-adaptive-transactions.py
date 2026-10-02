@@ -347,6 +347,15 @@ public final class AdaptiveTransactionFailureHarness {
                                 Files.write(target.resolve("server/src/fixture/Unexpected.java"), "package fixture; class Unexpected {}".getBytes("UTF-8"));
                             if ("reverify-final-archive-drift".equals(failures) && "plan-confirmed".equals(milestone))
                                 Files.write(target.resolve("server/core.jar"), new byte[] {42}, StandardOpenOption.APPEND);
+                            if ("active-configuration-final-drift".equals(failures) && "before-first-target-mutation".equals(milestone))
+                                Files.write(target.resolve("server/world-builder-configs/primary.json"),
+                                    new byte[] {32}, StandardOpenOption.APPEND);
+                            if ("active-package-final-drift".equals(failures) && "before-first-target-mutation".equals(milestone)) {
+                                java.util.Map<String,Object> config = WorldBuilderJsonDocuments.readObject(
+                                    target.resolve("server/world-builder-configs/primary.json"));
+                                Files.write(target.resolve((String) config.get("clientMapRelativePath"))
+                                    .resolve("manifest.json"), new byte[] {32}, StandardOpenOption.APPEND);
+                            }
                             if ("runtime-history-final-drift".equals(failures) && "plan-confirmed".equals(milestone))
                                 Files.write(target.resolve("server/src/fixture/MapEngine.java"), new byte[] {42}, StandardOpenOption.APPEND);
                             if ("stage-collision".equals(failures)
@@ -1418,6 +1427,155 @@ public final class InstalledFloorFixture {
         self.assertEqual(0, exported.returncode, exported.stderr)
         export = Path(json.loads(exported.stdout)["exportDirectory"])
         return target, installation, project, export
+
+    def active_package_fresh_project(self, base, missing_profile=False):
+        target, installation, parent, export = self.target_project(base)
+        installed = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent,
+            "--export", export, "--target-root", target)
+        self.assertEqual(0, installed.returncode, installed.stderr)
+        if missing_profile:
+            (target / "server/world-builder-configs/installed-server.json").unlink()
+        discovery = self.run_cli("discover-adaptive", "--target-root", target)
+        self.assertEqual(0, discovery.returncode, discovery.stderr)
+        report = base / "fresh-discovery.json"
+        report.write_text(discovery.stdout)
+        created = self.run_cli("create-project", "--installation-root", installation,
+            "--runtime-root", base / "builder-runtime", "--target-root", target,
+            "--discovery-report", report, "--display-name", "Adopt active package",
+            "--port", "43894", "--confirm", "CREATE")
+        self.assertEqual(0, created.returncode, created.stderr)
+        project = Path(json.loads(created.stdout)["projectRoot"])
+        exported = self.run_cli("export-adaptive", "--project", project)
+        self.assertEqual(0, exported.returncode, exported.stderr)
+        return target, installation, project, Path(json.loads(exported.stdout)["exportDirectory"])
+
+    def test_fresh_project_already_active_package_is_not_a_collision(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-active-package-") as temp:
+            target, installation, project, export = self.active_package_fresh_project(Path(temp))
+            before = project_support.tree_bytes(target)
+            refused = self.run_cli("import-adaptive", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("already installed. No import is needed", refused.stderr)
+            self.assertNotIn("TARGET_DRIFT", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target))
+            configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+            for key in ("serverMapRelativePath", "clientMapRelativePath"):
+                root = target / configuration[key]
+                for kind in ("missing", "tampered", "extra", "extra-directory"):
+                    with self.subTest(key=key, kind=kind):
+                        file = root / "manifest.json"
+                        payload = file.read_bytes()
+                        extra = root.parent / "unexpected"
+                        if kind == "missing": file.unlink()
+                        elif kind == "tampered": file.write_bytes(payload + b" ")
+                        elif kind == "extra": extra.write_bytes(b"foreign")
+                        else: extra.mkdir()
+                        changed = project_support.tree_bytes(target)
+                        rejected = self.run_cli("import-adaptive", "--project", project,
+                            "--export", export, "--target-root", target)
+                        self.assertEqual(3, rejected.returncode, rejected.stderr)
+                        self.assertNotIn("No import is needed", rejected.stderr)
+                        self.assertEqual(changed, project_support.tree_bytes(target))
+                        file.write_bytes(payload)
+                        if extra.is_dir(): extra.rmdir()
+                        elif extra.exists(): extra.unlink()
+            project_support.change_working_terrain(project)
+            self.assertEqual(0, self.run_cli("save-project", "--project", project).returncode)
+            exported = self.run_cli("export-adaptive", "--project", project)
+            edited = Path(json.loads(exported.stdout)["exportDirectory"])
+            baseline = project_support.tree_bytes(target, installation)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", edited, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            repeated = self.run_cli("import-adaptive", "--project", project,
+                "--export", edited, "--target-root", target)
+            self.assertIn("No import is needed", repeated.stderr)
+            undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(baseline, project_support.tree_bytes(target, installation))
+
+    def test_inactive_identical_package_still_refuses_collision(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-inactive-package-") as temp:
+            target, installation, project, export = self.target_project(Path(temp))
+            address = self.native_package_inventory_sha256(export / "package")
+            destination = target / "server/world-builder/packages" / address / "package"
+            shutil.copytree(export / "package", destination)
+            before = project_support.tree_bytes(target)
+            refused = self.run_cli("import-adaptive", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("Content-addressed install destination already exists", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target))
+
+    def test_fresh_active_package_compatibility_only_import_preserves_baseline(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-active-compatibility-") as temp:
+            target, installation, project, export = self.active_package_fresh_project(Path(temp), missing_profile=True)
+            baseline = project_support.tree_bytes(target, installation)
+            preview = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertIn("Import preview", preview.stderr)
+            self.assertIn("Confirmation required: IMPORT", preview.stderr)
+            self.assertNotIn("Target runtime upgrade preview", preview.stderr)
+            configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+            manifest = target / configuration["clientMapRelativePath"] / "manifest.json"
+            original = manifest.read_bytes()
+            manifest.write_bytes(original + b" ")
+            drifted = project_support.tree_bytes(target, installation)
+            rejected = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target, preview=preview)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+            manifest.write_bytes(original)
+            rejected = self.run_failure("import", "active-package-final-drift", project, target, export)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("TARGET_DRIFT", rejected.stderr)
+            self.assertEqual(drifted, project_support.tree_bytes(target, installation))
+            manifest.write_bytes(original)
+            configuration_file = target / "server/world-builder-configs/primary.json"
+            original_configuration = configuration_file.read_bytes()
+            configuration_file.write_bytes(original_configuration + b" ")
+            drifted_configuration = project_support.tree_bytes(target, installation)
+            configuration_file.write_bytes(original_configuration)
+            rejected = self.run_failure("import", "active-configuration-final-drift", project, target, export)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("TARGET_DRIFT", rejected.stderr)
+            self.assertEqual(drifted_configuration, project_support.tree_bytes(target, installation))
+            configuration_file.write_bytes(original_configuration)
+            catalog = target / "server/evidence/definitions.json"
+            original_catalog = catalog.read_bytes()
+            catalog.write_bytes(original_catalog + b" ")
+            drifted_catalog = project_support.tree_bytes(target, installation)
+            catalog.write_bytes(original_catalog)
+            rejected = self.run_failure("import", "catalog-final-drift", project, target, export)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("DEFINITION_MISMATCH", rejected.stderr)
+            self.assertEqual(drifted_catalog, project_support.tree_bytes(target, installation))
+            catalog.write_bytes(original_catalog)
+            failed = self.run_failure("import", "activation-published,any-rollback", project, target, export)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(baseline, project_support.tree_bytes(target, installation))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            transaction = json.loads(imported.stdout)["transactionId"]
+            plan = json.loads((project / "backups" / transaction / "mutation-plan.json").read_text())
+            self.assertTrue(all(row["role"].startswith("runtime-compatibility-") for row in plan["actions"]))
+            compatible = project_support.tree_bytes(target, installation)
+            for _ in range(2):
+                edited = self.next_history_export(project)
+                changed = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", edited, "--target-root", target)
+                self.assertEqual(0, changed.returncode, changed.stderr)
+            for _ in range(2):
+                undone_map = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+                self.assertEqual(0, undone_map.returncode, undone_map.stderr)
+            self.assertEqual(compatible, project_support.tree_bytes(target, installation))
+            undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(baseline, project_support.tree_bytes(target, installation))
 
     def placement_catalog_project(self, base, matching, family="npc"):
         field, record_key, identity = {
@@ -3133,7 +3291,8 @@ public final class SuccessorProofProbe {
                 "--export", fresh_export, "--target-root", installed_target,
             )
             self.assertEqual(3, preview.returncode, preview.stderr)
-            self.assertIn("TARGET_DRIFT", preview.stderr)
+            self.assertIn("CONTRACT_VALUE_INVALID", preview.stderr)
+            self.assertIn("No import is needed", preview.stderr)
             for source, _ in downgraded_sources:
                 self.assertNotIn(
                     b"WIDE_TILE_WIRE_BYTES = 11", source.read_bytes(),
