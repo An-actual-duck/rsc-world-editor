@@ -568,7 +568,8 @@ final class WorldBuilderDesktopLauncher {
 				+ "are separate reviewed transactions.\n\n"
 				+ "Use Detect New Content to review new server definitions and visuals "
 				+ "while preserving your saved map. Previous content revisions remain available. "
-				+ "External server map changes require a separate conflict decision.");
+				+ "External server map changes require a separate conflict decision."
+				+ contentWarning(entry.projectRoot));
 			details.setCaretPosition(0);
 		}
 
@@ -693,12 +694,10 @@ final class WorldBuilderDesktopLauncher {
 					@Override public void accept(final WorldBuilderProjectContentRefresh.Preview preview) {
 						if (!preview.blockers.isEmpty() || preview.unchanged) {
 							details.setText(preview.summary()); details.setCaretPosition(0);
-							JOptionPane.showMessageDialog(frame, contentReviewScroll(preview.summary()),
-								preview.unchanged ? "Content Is Current" : "Content Changes Need Resolution",
-								preview.unchanged ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
+							showContentReview(preview);
 							return;
 						}
-						if (!confirmContentRefresh(preview.summary())) return;
+						if (!confirmContentRefresh(preview)) return;
 						runTask("Verifying reviewed content and preserving the saved map in a new content revision…",
 							new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 								@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run() throws Exception {
@@ -707,9 +706,10 @@ final class WorldBuilderDesktopLauncher {
 							}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 								@Override public void accept(WorldBuilderAdaptiveProjectLifecycle.ProjectResult result) {
 									refreshProjects(result.projectId);
-									JOptionPane.showMessageDialog(frame,
+									JOptionPane.showMessageDialog(frame, contentReviewScroll(
 										"New content is ready. Continue Working opens your preserved map with the reviewed library.\n"
-										+ "The previous content revision and its history remain in the project list.",
+										+ "The previous content revision and its history remain in the project list."
+										+ contentWarning(result.projectRoot)),
 										"Content Updated", JOptionPane.INFORMATION_MESSAGE);
 								}
 							});
@@ -927,10 +927,30 @@ final class WorldBuilderDesktopLauncher {
 			return new JScrollPane(visible);
 		}
 
-		private boolean confirmContentRefresh(String summary) {
-			Object[] options = {"Accept Content", "Cancel"};
-			return JOptionPane.showOptionDialog(frame, contentReviewScroll(summary), "Detect New Content",
-				JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[1]) == 0;
+		private String contentWarning(Path project) {
+			String warning = WorldBuilderEffectiveContent.projectWarningSummary(project);
+			return warning == null ? "" : warning;
+		}
+
+		private void showContentReview(WorldBuilderProjectContentRefresh.Preview preview) {
+			Object[] options = {"Close", "View Full Details"};
+			int choice = JOptionPane.showOptionDialog(frame, contentReviewScroll(preview.summary()),
+				preview.unchanged ? (preview.visualWarnings.isEmpty() ? "Content Is Current" : "Content Is Current — Appearance Warnings") : "Content Changes Need Resolution",
+				JOptionPane.DEFAULT_OPTION, preview.unchanged && preview.visualWarnings.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE,
+				null, options, options[0]);
+			if (choice == 1) JOptionPane.showMessageDialog(frame, contentReviewScroll(preview.reviewDetails()),
+				"Complete Content Review", JOptionPane.INFORMATION_MESSAGE);
+		}
+
+		private boolean confirmContentRefresh(WorldBuilderProjectContentRefresh.Preview preview) {
+			Object[] options = {"Accept Content", "View Full Details", "Cancel"};
+			while (true) {
+				int choice = JOptionPane.showOptionDialog(frame, contentReviewScroll(preview.summary()), "Detect New Content",
+					JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[2]);
+				if (choice != 1) return choice == 0;
+				JOptionPane.showMessageDialog(frame, contentReviewScroll(preview.reviewDetails()),
+					"Complete Content Review", JOptionPane.INFORMATION_MESSAGE);
+			}
 		}
 
 		private boolean confirmTransaction(String title, String action, String summary) {
@@ -1620,18 +1640,19 @@ final class WorldBuilderDesktopLauncher {
                             + (WorldBuilderNpcVisualCompiler.projectWarningSummary(created.projectRoot) == null ? ""
                                 : WorldBuilderNpcVisualCompiler.projectWarningSummary(created.projectRoot))
 							+ (sceneryWarning == null ? "" : sceneryWarning)
-							+ (materialWarning == null ? "" : materialWarning);
+							+ (materialWarning == null ? "" : materialWarning)
+							+ contentWarning(created.projectRoot);
 						status.setText(warnings.isEmpty()
 							? "Project created; opening the editor…"
 							: "Project created with content warnings; opening the editor…");
-						if (reconciliationWarning != null) {
+						if (!warnings.isEmpty()) {
 							JTextArea notice = readOnlyText();
 							notice.setRows(8);
 							notice.setColumns(58);
-							notice.setText(reconciliationWarning);
+							notice.setText(warnings);
 							notice.setCaretPosition(0);
 							JOptionPane.showMessageDialog(frame, new JScrollPane(notice),
-								"NPC IDs Reconciled", JOptionPane.WARNING_MESSAGE);
+								"Content Discovery Warnings", JOptionPane.WARNING_MESSAGE);
 						}
 						launchProject(created.projectId,
 							"standalone-empty".equals(created.origin)

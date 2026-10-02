@@ -104,6 +104,23 @@ public final class RefreshDesktopModel {
         result = subprocess.run(["javac", "-cp", str(cls.classes), "-d", str(cls.classes), str(desktop_harness)], capture_output=True, text=True)
         if result.returncode: raise AssertionError(result.stderr)
 
+        review_harness = Path(cls.compile_temp.name) / "RefreshReviewFixture.java"
+        review_harness.write_text('''package com.openrsc.worldbuilder;
+import java.nio.file.*;import java.util.*;
+public final class RefreshReviewFixture {
+ public static void main(String[] args) throws Exception {
+  WorldBuilderProjectContentRefresh.Preview preview=new WorldBuilderProjectContentRefresh().preview(
+   Paths.get(args[0]),Paths.get(args[1]),Paths.get(args[2]),43883);
+  Map<String,Object> result=new LinkedHashMap<>();result.put("summary",preview.summary());
+  result.put("details",preview.reviewDetails());
+  result.put("projectWarning",WorldBuilderEffectiveContent.projectWarningSummary(Paths.get(args[0])));
+  System.out.print(WorldBuilderJsonDocuments.pretty(result));
+ }
+}
+''')
+        result = subprocess.run(["javac", "-cp", str(cls.classes), "-d", str(cls.classes), str(review_harness)], capture_output=True, text=True)
+        if result.returncode: raise AssertionError(result.stderr)
+
     def sync_catalogs(self, target, *options):
         result = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.RefreshCatalogFixture", str(target), *options], capture_output=True, text=True)
         self.assertEqual(0, result.returncode, result.stderr)
@@ -255,6 +272,44 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(model_archive(96), archive.read_bytes())
             self.assertEqual(before, support.tree_bytes(parent))
+
+    def test_unresolved_visual_dependencies_are_diagnosed_without_claiming_visual_changes(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-unresolved-visual-") as temp:
+            target, install, parent, _, runtime = self.fixture(Path(temp))
+            before = support.tree_bytes(parent)
+            archive = target / "Client_Base/Cache/video/models.orsc"
+            archive.write_bytes(archive.read_bytes() + b"\nchanged opaque archive")
+            target_before = support.tree_bytes(target, install)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"])
+            scenery = next(row for row in preview["families"] if row["family"] == "scenery")
+            self.assertFalse(scenery["visualsChanged"])
+            self.assertTrue(scenery["visualDependenciesChanged"])
+            for row in scenery["details"]:
+                self.assertEqual("visuals-unverified", row["status"])
+                self.assertTrue(row["visualWarnings"])
+                self.assertEqual(row["previousSemanticSha256"], row["semanticSha256"])
+            warnings = [row for row in preview["visualWarnings"] if row["family"] == "scenery"]
+            self.assertEqual(len(scenery["visualDependenciesChanged"]), len(warnings))
+            self.assertTrue(all(row["name"] and row["messages"] for row in warnings))
+            report = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.RefreshReviewFixture",
+                str(parent), str(runtime), str(target)], capture_output=True, text=True)
+            self.assertEqual(0, report.returncode, report.stderr)
+            display = json.loads(report.stdout)
+            self.assertIn("not confirmed appearance changes", display["summary"])
+            self.assertIn("appearance could not be verified", display["summary"])
+            self.assertEqual(preview["visualWarnings"], json.loads(display["details"])["unresolvedAppearanceDependencies"])
+            self.assertIn("content-visual-resolution-v1.json", display["projectWarning"])
+            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            diagnostic = json.loads((successor / "diagnostics/content-visual-resolution-v1.json").read_text())
+            self.assertEqual(preview["visualWarnings"], diagnostic["unresolved"])
+            self.assertEqual(before, support.tree_bytes(parent))
+            self.assertEqual(target_before, support.tree_bytes(target, install))
 
     def test_exact_unchanged_library_is_noop_but_raw_evidence_updates_are_retained(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-unchanged-") as temp:
