@@ -28,12 +28,44 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
-        "predecessor",
         "baseline",
         "inputs",
         "inventories"
       ],
+      "oneOf": [
+        {"required": ["predecessor"], "not": {"required": ["snapshotPredecessor"]}},
+        {"required": ["snapshotPredecessor", "baselineProject"], "not": {"required": ["predecessor"]}}
+      ],
       "properties": {
+        "snapshotPredecessor": {
+          "type": "object", "additionalProperties": false,
+          "required": ["projectId", "sourceFingerprintSha256", "originSha256"],
+          "properties": {
+            "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+            "sourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+            "originSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+          }
+        },
+        "baselineProject": {
+          "type": "object", "additionalProperties": false,
+          "required": ["projectId", "sourceFingerprintSha256", "lineage"],
+          "properties": {
+            "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+            "sourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+            "lineage": {
+              "type": "array", "minItems": 1, "maxItems": 16,
+              "items": {
+                "type": "object", "additionalProperties": false,
+                "required": ["projectId", "sourceFingerprintSha256", "originSha256"],
+                "properties": {
+                  "projectId": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/uuid"},
+                  "sourceFingerprintSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"},
+                  "originSha256": {"$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"}
+                }
+              }
+            }
+          }
+        },
         "predecessor": {
           "$ref": "#/properties/runtimeUpgradeHistory/items"
         },

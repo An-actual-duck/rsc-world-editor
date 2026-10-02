@@ -186,7 +186,7 @@ final class WorldBuilderContentRefreshAuthority {
         return proof;
     }
 
-    private static void verifyLivePackages(Path target,WorldBuilderAdaptiveConfiguration configuration,
+    static void verifyLivePackages(Path target,WorldBuilderAdaptiveConfiguration configuration,
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected)throws IOException,WorldBuilderContractException {
         if(!"layered".equals(configuration.representation))return;
         Set<String> files=new TreeSet<>();

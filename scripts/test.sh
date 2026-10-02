@@ -139,12 +139,14 @@ add_group() {
 				test-world-builder-npc-visual-source.py
 				test-world-builder-project-content-bundle.py
 				test-world-builder-effective-content.py
+				test-world-builder-effective-sources.py
 				test-world-builder-standard-floors.py
 			)
 			;;
 		projects)
 			members=(
 				test-world-builder-adaptive-project-lifecycle.py
+				test-world-builder-content-refresh.py
 				test-world-builder-base-authoring-generation.py
 				test-world-builder-runtime-preparation.py
 				test-world-builder-supervision.py
@@ -159,6 +161,8 @@ add_group() {
 				test-world-builder-target-map-integration.py
 				test-world-builder-runtime-rebuild-verifier.py
 				test-world-builder-class-semantics.py
+				test-world-builder-content-refresh-authority.py
+				test-world-builder-content-refresh.py
 				test-world-builder-adaptive-transactions.py
 				test-world-builder-current-runtime-upgrade-transaction.py
     test-world-builder-current-runtime-instance.py

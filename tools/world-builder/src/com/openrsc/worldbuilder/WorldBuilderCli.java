@@ -85,6 +85,7 @@ public final class WorldBuilderCli {
 		if ("convert-packed".equals(args[0])) {
 			return convertPacked(args);
 		}
+		if ("refresh-project-content".equals(args[0])) return refreshProjectContent(args);
 		if ("create-project".equals(args[0])) {
 			return createProject(args);
 		}
@@ -600,6 +601,33 @@ public final class WorldBuilderCli {
 				+ failure.getMessage());
 			return 4;
 		}
+	}
+
+	private static int refreshProjectContent(String[] args) {
+		try {
+			Map<String,String> options = new LinkedHashMap<String,String>();
+			for (int index = 1; index < args.length; index += 2) {
+				if (index + 1 >= args.length || options.put(args[index], args[index + 1]) != null
+					|| !java.util.Arrays.asList("--project", "--runtime-root", "--target-root", "--port", "--confirm", "--expected-preview").contains(args[index]))
+					throw new IllegalArgumentException("Invalid or repeated refresh option: " + args[index]);
+			}
+			for (String key : java.util.Arrays.asList("--project", "--runtime-root", "--target-root"))
+				if (!options.containsKey(key)) throw new IllegalArgumentException(key + " is required");
+			Path project = Paths.get(options.get("--project")).toAbsolutePath().normalize();
+			Path runtime = Paths.get(options.get("--runtime-root")), target = Paths.get(options.get("--target-root"));
+			int port = options.containsKey("--port") ? Integer.parseInt(options.get("--port")) : 43595;
+			WorldBuilderProjectContentRefresh service = new WorldBuilderProjectContentRefresh();
+			if (options.containsKey("--confirm")) {
+				if (!options.containsKey("--expected-preview")) throw new IllegalArgumentException("--expected-preview is required with --confirm");
+				System.out.print(service.apply(project, runtime, target, port, options.get("--expected-preview"), options.get("--confirm")).toJson());
+			} else {
+				if (options.containsKey("--expected-preview")) throw new IllegalArgumentException("--expected-preview requires --confirm");
+				System.out.print(service.preview(project, runtime, target, port).toJson());
+			}
+			return 0;
+		} catch (WorldBuilderContractException refusal) { return adaptiveRefusal(refusal); }
+		catch (IllegalArgumentException invalid) { System.err.println(invalid.getMessage()); return 2; }
+		catch (Exception failure) { System.err.println("ERROR: Could not refresh project content: " + failure.getMessage()); return 4; }
 	}
 
 	private static int saveProject(String[] args) {
@@ -2319,6 +2347,7 @@ public final class WorldBuilderCli {
 			+ " --project-id <uuid>"
 			+ "\n  WorldBuilderCli open-project --installation-root <World Builder 2>"
 			+ " [--target-root <server-root>] [--validate-only]"
+			+ "\n  WorldBuilderCli refresh-project-content --project <projects/uuid> --runtime-root <builder-runtime> --target-root <server> [--confirm REFRESH --expected-preview <sha256>]"
 			+ "\n  WorldBuilderCli save-project --project <projects/uuid>"
 			+ "\n  WorldBuilderCli region-copy --project <projects/uuid>"
 			+ " --selection <region-selection-v1.json> --name <name>"
