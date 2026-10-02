@@ -397,8 +397,11 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
 - Up to65536 NPC/animation rows; up to8192 sources/assets/probes, paths<=512
   characters, manifest<=16MiB, expanded source archives<=512MiB. RGB payload
   limits above are additional and enforced before publishing project files.
-  ZIPs reject duplicate names, paths outside the provider root, links, nested
-  archives, and undeclared entries. Frame allocation must remain within0..65535;
+  Resolved RGB ZIP closures reject duplicate or unsafe names and undeclared
+  entries; every selected payload must decode as a bounded RGB frame.
+  Filesystem links are refused. Archive entries are consumed as inert bytes;
+  their filesystem attributes are never applied or extracted as links.
+  Frame allocation must remain within0..65535;
   private RGB animation IDs remain1080..65535.
 
 The shortened main example must include sourceId on its asset and empty
