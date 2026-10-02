@@ -14,7 +14,17 @@ final class WorldBuilderContentRefreshAuthority {
         Path requestedTarget, Map<String,Object> freshReport) throws IOException, WorldBuilderContractException {
         requireMutationAllowed(parent);
         WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT, freshReport);
-        if (!"compatible".equals(freshReport.get("status"))) throw refusal("discovery", "Fresh discovery must be compatible before content refresh.");
+        if (!"compatible".equals(freshReport.get("status"))) {
+            // Keep the precise source and resolution from bounded discovery.
+            // A stale optional image probe must not become a generic request
+            // to make the server compatible, which hides what actually changed.
+            for(Object raw:list(freshReport.get("issues"))){Map<String,Object> issue=object(raw);
+                if("blocker".equals(issue.get("severity")))throw new WorldBuilderContractException(
+                    string(issue,"code"),OP,string(issue,"relativePath"),false,
+                    string(issue,"observed"),string(issue,"nextStep"));
+            }
+            throw refusal("discovery", "Fresh discovery must be compatible before content refresh.");
+        }
         WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedTarget);
         if ("standalone-empty".equals(parent.origin)) throw refusal("project", "Content refresh requires an attached target project.");
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected = new TreeMap<>();
@@ -272,8 +282,27 @@ final class WorldBuilderContentRefreshAuthority {
             inventory.put("paths",new ArrayList<>(names));WorldBuilderTargetMapIntegration.verifyInventories(target.root,Collections.singletonList(inventory));paths.addAll(names);
         }
     }
-    private static boolean contentRole(String role,String path){
+    static boolean contentRole(String role,String path){
+        // These roles come only from inspectTarget's verified producer closure,
+        // never from the caller's discovery report. Exporter source is inert
+        // provenance outside the maintained game's source/classpath roots.
+        // verifyLiveRuntime still checks it if a target runtime proof happens
+        // to include that exact path; a producer role cannot override runtime
+        // authority. All actual source, configuration and binary roles remain
+        // subject to the retained snapshot/transaction evidence.
+        if("npc-producer-v2-helper-source".equals(role))
+            return path.matches("tools/item-visual-provider/[^/\\\\]+\\.(java|py)")
+                ||"scripts/generate-world-builder-target-contract.py".equals(path);
+        // The producer validates the bounded visual-pack selector separately
+        // from server/runtime configuration. Its role alone cannot authorize
+        // a change to another configuration path.
+        if("npc-producer-v2-visual-selector".equals(role))
+            return "Client_Base/Cache/config.txt".equals(path);
         if(path.endsWith(".java")||path.endsWith(".class")||path.endsWith(".jar"))return false;
+        if("npc-producer-v2-manifest".equals(role)
+            ||"npc-producer-v2-definition".equals(role)
+            ||"npc-producer-v2-asset".equals(role)
+            ||"npc-producer-v2-probe".equals(role))return true;
         return role.startsWith("server-definition.")||role.startsWith("content.definition.")||role.startsWith("content.asset.")||role.startsWith("content.metadata.")
             ||("effective-content-sources".equals(role)&&"server/conf/world-builder/effective-content-sources-v1.json".equals(path))
             ||"client-asset.library".equals(role)||"npc-visual-image".equals(role)||"npc-visual-metadata".equals(role)||"definition-composition.patch".equals(role);

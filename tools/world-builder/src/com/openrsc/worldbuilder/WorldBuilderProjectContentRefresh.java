@@ -107,7 +107,8 @@ final class WorldBuilderProjectContentRefresh {
             WorldBuilderEffectiveContent.Index after = WorldBuilderEffectiveContent.index(
                 WorldBuilderProjectContentBundle.read(captured.projectRoot.resolve(WorldBuilderProjectContentBundle.SOURCE_DIRECTORY)));
             phase("Comparing content identities and saved map references");
-            Preview result = new Preview(parent, report, authority, before, after);
+            Preview result = new Preview(parent, report, authority, before, after,
+                WorldBuilderNpcProducerFrames.readPreviewLimitations(captured.projectRoot));
             if (!authority.equals(WorldBuilderContentRefreshAuthority.verify(parent, target, report)))
                 throw drift("target", "Target authority changed while content was inspected.", "Stop target updates and repeat Detect New Content.");
             phase("Content review ready");
@@ -157,13 +158,16 @@ final class WorldBuilderProjectContentRefresh {
         final Map<String,Object> report, authority, document;
         final List<String> blockers;
         final List<Map<String,Object>> visualWarnings;
+        final List<Object> previewLimitations;
         final String fingerprint, newContentSha256;
         final boolean unchanged;
         Preview(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent, Map<String,Object> report,
-            Map<String,Object> authority, WorldBuilderEffectiveContent.Index before, WorldBuilderEffectiveContent.Index after)
+            Map<String,Object> authority, WorldBuilderEffectiveContent.Index before, WorldBuilderEffectiveContent.Index after,
+            List<Object> previewLimitations)
             throws IOException, WorldBuilderContractException {
             this.parent = parent; this.report = report; this.authority = authority; this.newContentSha256 = after.contentSha256;
             this.visualWarnings = after.visualWarnings();
+            this.previewLimitations = Collections.unmodifiableList(new ArrayList<Object>(previewLimitations));
             List<String> conflicts = new ArrayList<String>();
             List<Object> families = new ArrayList<Object>();
             Map<String,Map<Integer,Long>> references = referenceCounts(parent);
@@ -205,6 +209,7 @@ final class WorldBuilderProjectContentRefresh {
             document.put("previousContentSha256", before.contentSha256); document.put("contentSha256", after.contentSha256);
             document.put("targetAuthority", authority); document.put("families", families); document.put("blockers", new ArrayList<String>(conflicts));
             document.put("visualWarnings", visualWarnings);
+            document.put("authoringPreviewLimitations", this.previewLimitations);
             unchanged = conflicts.isEmpty() && before.bundleFingerprintSha256.equals(after.bundleFingerprintSha256)
                 && capturedContentAuthorityMatches(parent, authority);
             document.put("status", !conflicts.isEmpty() ? "blocked" : unchanged ? "unchanged" : "ready");
@@ -277,36 +282,58 @@ final class WorldBuilderProjectContentRefresh {
             review.put("families", document.get("families"));
             review.put("conflicts", document.get("blockers"));
             review.put("unresolvedAppearanceDependencies", visualWarnings);
+            review.put("authoringPreviewLimitations", previewLimitations);
             return WorldBuilderJsonDocuments.pretty(review);
         }
         String summary() {
-            if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project." + warningSummary();
+            if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project." + warningSummary() + previewLimitationSummary();
             StringBuilder text = new StringBuilder("Detect New Content\n\nYour saved terrain and placements will be preserved. Previous content revisions, exports and receipts remain available.\nNo target files will be changed.\n\n");
             boolean libraryChanges = false;
+            boolean visualEvidenceChanges = false;
             for (Object raw : (List<?>)document.get("families")) {
                 @SuppressWarnings("unchecked") Map<String,Object> family = (Map<String,Object>)raw;
                 text.append(family.get("family")).append(": added ").append(compact(family.get("added")))
                     .append("; changed ").append(compact(family.get("changed"))).append("; removed ").append(compact(family.get("removed")))
-                    .append("; verified visual changes ").append(compact(family.get("visualsChanged")))
+                    .append("; visual evidence changes ").append(compact(family.get("visualsChanged")))
                     .append("; unverified visual dependencies ").append(compact(family.get("visualDependenciesChanged"))).append('\n');
                 List<?> changes = (List<?>)family.get("details");
                 libraryChanges |= !changes.isEmpty();
+                visualEvidenceChanges |= !((List<?>)family.get("visualsChanged")).isEmpty();
                 for (int index = 0; index < Math.min(8, changes.size()); index++) {
                     @SuppressWarnings("unchecked") Map<String,Object> change = (Map<String,Object>)changes.get(index);
                     String name = String.valueOf(change.get("name"));
                     if (name.isEmpty()) name = String.valueOf(change.get("previousName"));
                     String status = "visuals-unverified".equals(change.get("status"))
-                        ? "dependency change; appearance could not be verified for" : String.valueOf(change.get("status"));
+                        ? "dependency change; appearance could not be verified for"
+                        : "visuals-changed".equals(change.get("status")) ? "visual evidence updated for" : String.valueOf(change.get("status"));
                     text.append("  ").append(status).append(" ").append(change.get("id"))
                         .append(": ").append(name).append(" — ").append(change.get("mapReferenceCount")).append(" map references\n");
                 }
             }
             text.append(warningSummary());
+            text.append(previewLimitationSummary());
+            if (visualEvidenceChanges) text.append("\nVisual evidence can change when an existing appearance is captured more completely; these counts do not prove every entry looks different.\n");
             if (!libraryChanges) text.append("\nThe available identities and visual references are unchanged. Captured source evidence changed; accepting records that evidence in the new revision.\n");
             if (!blockers.isEmpty()) text.append("\nRefresh is blocked: ").append(compact(blockers))
                 .append("\n\nKeep working in the current preserved project. Restore the target IDs to their previous meanings, or resolve changes explicitly with the target maintainer. This version accepts additions and reviewed visual updates; it does not accept identity redefinitions or removals. No references are removed or substituted.");
             else text.append("\nAccept and continue with this content revision?");
             return text.toString();
+        }
+        private String previewLimitationSummary() {
+            if (previewLimitations.isEmpty()) return "";
+            java.util.Set<Object> ids = new java.util.HashSet<Object>();
+            for (Object raw : previewLimitations) ids.add(((Map<?,?>)raw).get("npcId"));
+            StringBuilder text = new StringBuilder("\n\nNPC authoring preview notes: ")
+                .append(ids.size()).append(" NPCs use a standard animation preview. Source-specific walking cadence or secondary attacks are retained as evidence but are not reproduced in the building preview.\n");
+            for (int index = 0; index < Math.min(5, previewLimitations.size()); index++) {
+                Map<?,?> row = (Map<?,?>)previewLimitations.get(index);
+                text.append("  NPC ").append(row.get("npcId")).append(": ").append(row.get("name")).append(" — ")
+                    .append("source-secondary-attack-not-previewed".equals(row.get("limitation"))
+                        ? "secondary attack is not animated" : "walking cadence uses the standard preview").append('\n');
+            }
+            if (previewLimitations.size() > 5) text.append("  … and ").append(previewLimitations.size() - 5).append(" more entries.\n");
+            return text.append("Choose View Full Details for all affected IDs. Accepted revisions retain the full report at ")
+                .append(WorldBuilderNpcProducerFrames.REPORT).append(".\n").toString();
         }
     }
 
