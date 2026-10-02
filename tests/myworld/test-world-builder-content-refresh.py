@@ -5,6 +5,7 @@ import json
 import subprocess
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import adaptive_project_test_support as support
@@ -179,6 +180,28 @@ public final class RefreshDesktopModel {
             opened = self.run_cli("open-project", "--installation-root", moved_install)
             self.assertEqual(0, opened.returncode, opened.stderr)
 
+    def test_exact_unchanged_library_is_noop_but_raw_evidence_updates_are_retained(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-unchanged-") as temp:
+            target, install, parent, _, runtime = self.fixture(Path(temp))
+            before = support.tree_bytes(install)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("unchanged", preview["status"])
+            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            self.assertEqual(parent.name, json.loads(accepted.stdout)["projectId"])
+            self.assertEqual(before, support.tree_bytes(install))
+            path = target / "server/conf/server/defs/NpcDefs.json"
+            path.write_text(json.dumps(json.loads(path.read_text()), separators=(",", ":")))
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"])
+            self.assertEqual(preview["previousContentSha256"], preview["contentSha256"])
+            self.assertEqual(before, support.tree_bytes(install))
+
     def test_registered_successor_blocks_parent_mutations_but_preserves_editing(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-historical-boundary-") as temp:
             target, install, parent, export, runtime = self.fixture(Path(temp))
@@ -230,6 +253,41 @@ public final class RefreshDesktopModel {
             self.assertEqual(3, accepted.returncode, accepted.stderr)
             self.assertIn("conflicts", accepted.stderr)
             self.assertEqual(before, support.tree_bytes(project))
+
+    def test_used_item_scenery_boundary_changes_report_identity_and_references(self):
+        for family, key, identity_key in (("ground-item", "groundItems", "itemId"),
+                ("scenery", "scenery", "sceneryId"), ("boundary", "boundaries", "boundaryId")):
+            with self.subTest(family=family), tempfile.TemporaryDirectory(prefix="content-refresh-family-conflict-") as temp:
+                target, install, parent, _, runtime = self.fixture(Path(temp))
+                package = parent / "working/layered-world/package"
+                manifest = json.loads((package / "manifest.json").read_text())
+                identity = next(row[identity_key] for placement in manifest["placementSets"]
+                    for row in json.loads((package / placement["path"]).read_text())[key])
+                defs = target / "server/conf/server/defs"
+                if family == "ground-item":
+                    path = defs / "ItemDefsMyWorld.json"
+                    support.write_json(path, {"items": [{"id": identity, "name": "changed placed item"}]})
+                else:
+                    path = defs / ("GameObjectDef.xml" if family == "scenery" else "DoorDef.xml")
+                    document = ET.fromstring(path.read_text())
+                    document[identity].find("name").text = "changed placed " + family
+                    path.write_text(ET.tostring(document, encoding="unicode"))
+                before = support.tree_bytes(parent)
+                reviewed = self.refresh(parent, runtime, target)
+                self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+                preview = json.loads(reviewed.stdout)
+                self.assertEqual("blocked", preview["status"])
+                details = next(row for row in preview["families"] if row["family"] == family)["details"]
+                changed = next(row for row in details if row["id"] == identity)
+                self.assertEqual("changed", changed["status"])
+                self.assertGreater(changed["mapReferenceCount"], 0)
+                self.assertTrue(changed["previousName"])
+                self.assertIn("changed placed", changed["name"])
+                accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                    "--expected-preview", preview["previewFingerprintSha256"])
+                self.assertEqual(3, accepted.returncode, accepted.stderr)
+                self.assertIn("conflicts", accepted.stderr)
+                self.assertEqual(before, support.tree_bytes(parent))
 
     def test_preview_to_apply_change_is_refused_without_publication(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-drift-") as temp:
@@ -434,6 +492,8 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, accepted.returncode, accepted.stderr)
             successor = Path(json.loads(accepted.stdout)["projectRoot"])
             self.assertEqual(history, support.tree_bytes(parent))
+            self.next_history_export(parent)  # Local historical edits do not invalidate immutable runtime provenance.
+            history = support.tree_bytes(parent)
             for stage in range(3):
                 exported = self.next_history_export(successor)
                 imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)

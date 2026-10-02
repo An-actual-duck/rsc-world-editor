@@ -53,6 +53,9 @@ final class WorldBuilderProjectContentRefresh {
             if (!current.blockers.isEmpty()) throw refusal("content",
                 "Content refresh has unresolved identity or removal conflicts: " + current.blockers,
                 "Keep editing the preserved project; resolve the listed target definitions before refreshing.");
+            if (current.unchanged) return new WorldBuilderAdaptiveProjectLifecycle.ProjectResult(
+                current.parent.projectRoot, current.parent.projectId, current.parent.origin,
+                WorldBuilderAdaptiveExporter.string(current.parent.manifest, "state"), current.parent.working.fingerprintSha256, port);
             Path report = Files.createTempFile(project.getParent().getParent(), ".content-refresh-report-", ".json");
             try {
                 Files.write(report, WorldBuilderJsonDocuments.pretty(current.report).getBytes(StandardCharsets.UTF_8));
@@ -154,6 +157,7 @@ final class WorldBuilderProjectContentRefresh {
         final Map<String,Object> report, authority, document;
         final List<String> blockers;
         final String fingerprint, newContentSha256;
+        final boolean unchanged;
         Preview(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent, Map<String,Object> report,
             Map<String,Object> authority, WorldBuilderEffectiveContent.Index before, WorldBuilderEffectiveContent.Index after)
             throws IOException, WorldBuilderContractException {
@@ -193,9 +197,36 @@ final class WorldBuilderProjectContentRefresh {
             document.put("targetRootDisplay", report.get("targetRootDisplay"));
             document.put("previousContentSha256", before.contentSha256); document.put("contentSha256", after.contentSha256);
             document.put("targetAuthority", authority); document.put("families", families); document.put("blockers", new ArrayList<String>(conflicts));
-            document.put("status", conflicts.isEmpty() ? "ready" : "blocked");
+            unchanged = conflicts.isEmpty() && before.bundleFingerprintSha256.equals(after.bundleFingerprintSha256)
+                && capturedContentAuthorityMatches(parent, authority);
+            document.put("status", !conflicts.isEmpty() ? "blocked" : unchanged ? "unchanged" : "ready");
             fingerprint = WorldBuilderHashes.sha256(WorldBuilderJsonDocuments.canonical(document).getBytes(StandardCharsets.UTF_8));
             document.put("previewFingerprintSha256", fingerprint);
+        }
+        private static boolean capturedContentAuthorityMatches(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent,
+            Map<String,Object> authority) throws WorldBuilderContractException {
+            Map<String,Map<String,Object>> captured = new java.util.TreeMap<String,Map<String,Object>>();
+            for (String group : java.util.Arrays.asList("originalFiles", "definitionRuntimeFiles")) {
+                for (Object raw : WorldBuilderAdaptiveExporter.array(parent.snapshot.get(group), group)) {
+                    Map<String,Object> row = WorldBuilderAdaptiveExporter.object(raw, group);
+                    String path = WorldBuilderAdaptiveExporter.string(row, "relativePath");
+                    if (path.startsWith("source/original/")) captured.put(path.substring("source/original/".length()), row);
+                }
+            }
+            Map<String,Object> states = WorldBuilderAdaptiveExporter.object(authority.get("targetStates"), "targetStates");
+            for (String group : java.util.Arrays.asList("contentPaths", "catalogProjectionPaths")) {
+                for (Object raw : WorldBuilderAdaptiveExporter.array(authority.get(group), group)) {
+                    Map<String,Object> before = captured.get(String.valueOf(raw));
+                    Map<String,Object> current = WorldBuilderAdaptiveExporter.object(states.get(String.valueOf(raw)), "targetState");
+                    if (before == null) {
+                        if (Boolean.FALSE.equals(current.get("present"))) continue;
+                        return false;
+                    }
+                    for (String key : java.util.Arrays.asList("present", "size", "sha256"))
+                        if (!java.util.Objects.equals(before.get(key), current.get(key))) return false;
+                }
+            }
+            return true;
         }
         private static Map<String,Object> delta(int id, WorldBuilderEffectiveContent.Entry before,
             WorldBuilderEffectiveContent.Entry after, long references, String status) {
@@ -215,6 +246,7 @@ final class WorldBuilderProjectContentRefresh {
         }
         String toJson() { return WorldBuilderJsonDocuments.pretty(document); }
         String summary() {
+            if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project.";
             StringBuilder text = new StringBuilder("Detect New Content\n\nYour saved terrain and placements will be preserved. Previous content revisions, exports and receipts remain available.\nNo target files will be changed.\n\n");
             for (Object raw : (List<?>)document.get("families")) {
                 @SuppressWarnings("unchecked") Map<String,Object> family = (Map<String,Object>)raw;

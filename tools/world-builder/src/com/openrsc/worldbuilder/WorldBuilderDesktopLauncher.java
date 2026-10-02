@@ -691,9 +691,11 @@ final class WorldBuilderDesktopLauncher {
 					}
 				}, new Success<WorldBuilderProjectContentRefresh.Preview>() {
 					@Override public void accept(final WorldBuilderProjectContentRefresh.Preview preview) {
-						if (!preview.blockers.isEmpty()) {
+						if (!preview.blockers.isEmpty() || preview.unchanged) {
 							details.setText(preview.summary()); details.setCaretPosition(0);
-							JOptionPane.showMessageDialog(frame, preview.summary(), "Content Changes Need Resolution", JOptionPane.WARNING_MESSAGE);
+							JOptionPane.showMessageDialog(frame, contentReviewScroll(preview.summary()),
+								preview.unchanged ? "Content Is Current" : "Content Changes Need Resolution",
+								preview.unchanged ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
 							return;
 						}
 						if (!confirmContentRefresh(preview.summary())) return;
@@ -919,11 +921,15 @@ final class WorldBuilderDesktopLauncher {
 			return entry;
 		}
 
-		private boolean confirmContentRefresh(String summary) {
+		private JScrollPane contentReviewScroll(String summary) {
 			JTextArea visible = readOnlyText();
 			visible.setRows(18); visible.setColumns(72); visible.setText(summary); visible.setCaretPosition(0);
+			return new JScrollPane(visible);
+		}
+
+		private boolean confirmContentRefresh(String summary) {
 			Object[] options = {"Accept Content", "Cancel"};
-			return JOptionPane.showOptionDialog(frame, new JScrollPane(visible), "Detect New Content",
+			return JOptionPane.showOptionDialog(frame, contentReviewScroll(summary), "Detect New Content",
 				JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[1]) == 0;
 		}
 
