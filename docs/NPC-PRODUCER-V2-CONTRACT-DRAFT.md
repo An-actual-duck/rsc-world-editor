@@ -327,7 +327,8 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
   unique `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` identifier. Permitted roles are
   effective-npc-definition, configuration-input, server-npc-loader,
   client-npc-loader, client-frame-resolver, client-sprite-initializer,
-  external-sprite-input, sprite-input, resolved-frame-artifact. Code roles are
+  external-sprite-input, sprite-input, resolved-frame-artifact,
+  client-visual-archive, producer-helper-source. Code roles are
   bounded under server/src or Client_Base/src, definition roles under the selected
   definition root, configuration inputs under the supported selected-profile
   configuration roots, and image/archive artifacts under Client_Base/Cache or
@@ -345,7 +346,7 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
     entrySha256 (hash of exact expanded member bytes).
   File/archive paths use the same supported external image/archive roots;
   entryPath is a contained portable archive path. The containing archive must
-  also be a declared sprite-input source and its SHA must match. Duplicate
+  also be a declared sprite-input or client-visual-archive source and its SHA must match. Duplicate
   archive members refuse; absent member means no entry with that exact name.
   A successful file hashes exact bytes. Missing file means no directory, regular
   file, or symlink exists at that path. Any later appearance/disappearance/byte
