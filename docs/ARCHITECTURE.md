@@ -6,12 +6,10 @@ RSC World Editor is a local, isolated editing appliance. Adaptive World Builder
 2 is designed as a standalone, server-agnostic drop-in folder placed directly
 inside a recognized game/server root. It currently discovers that target's
 active map, definitions, and capabilities, then adopts or converts copies into a
-project owned by World Builder. Planned destination resolution additionally
-classifies the historical runtime and customization tier. A recognized target
-that is not already current will be eligible for a separate previewed
-transactional upgrade to the appropriate current server/client composition once
-the replacement gate is implemented. World Builder never connects to or edits a
-public server.
+project owned by World Builder. Target runtime integration is a separate, narrowly reviewed map-compatibility
+transaction. The target retains its gameplay, definitions, and custom code;
+World Builder's editing runtime is not a replacement game distribution.
+World Builder never connects to or edits a public server.
 
 The repository is divided into four layers:
 
@@ -31,43 +29,27 @@ The repository is divided into four layers:
   target-content-neutral. Runtime source is developed in the separate
   `rsc-world-editor-runtime` repository rather than Core-Framework.
 
-## Current runtime generation and public adaptability
+## Targeted compatibility and content lifecycle
 
-The replacement upgrade architecture maintains one current engine/API/protocol/
-schema generation and release train. It does not require one gameplay
-composition for every owner:
+The September 30, 2026 owner direction supersedes the earlier Current
+Base/Advanced whole-game replacement roadmap. Historical composition documents
+remain design history, not prerequisites for target discovery, content refresh,
+or map import. The independent pinned provider supplies the private editing
+runtime and map integration capabilities. It does not acquire authority over
+the target's combat, quests, dialogue, accounts, or other gameplay.
 
-- **Current Base** is the conservative public default for Preservation-like and
-  lightly customized servers, including targets with no prior layered-map
-  support.
-- **Current Advanced** is the owner's reviewed Spoiled Milk composition on the
-  same platform generation.
-- **Current modules** provide explicitly versioned optional code, data, or
-  coordinated server/client features through declared APIs, dependencies,
-  conflicts, configuration/state migrations, and exact manifests.
-- **Input adapters** recognize and translate historical layouts into a current
-  composition. They never remain installed or define another runtime version.
+Input adapters recognize supported layouts and normalize inert content.
+Destination compatibility verifies the paired loader contract, map encoding,
+placement/collision semantics, required dependencies, and activation metadata.
+Unknown formats or compatibility produce actionable refusals. Maintained source
+and archive verification remains required for the supported upgrade/rebuild
+paths; accepting arbitrary gameplay changes by refreshing hashes is unsupported.
 
-The runtime identity is `(platformReleaseId, platformManifestHash, variantId,
-variantManifestHash, moduleSetHash, bundleInventoryHash)`. `moduleSetHash`
-commits to the canonical ordered module-manifest and module-payload roots;
-`bundleInventoryHash` commits to the complete resolved composition. Variants
-share the project format, canonical layered-map engine, target ledger, upgrade
-engine, transaction safety, and release gates.
-Adding another historical layout adds an adapter; adding portable current
-behavior adds a module. Neither creates a legacy-runtime branch or permits
-target classes to shadow the platform.
-
-Most public inputs are expected to be near the sealed Preservation baseline.
-Discovery must therefore work without an existing World Builder receipt,
-classify light configuration/data/plugin changes, and convert legacy packed
-maps and placements into the canonical current package. The advanced Core
-lineage is an upper-bound behavior fixture and informs reusable platform/module
-work; it is not the public default.
-
-This architecture is the active replacement direction, not a claim that the
-rejected pinned-core candidate implements it. The complete design and gates are
-in [World Builder 2 Current Runtime Upgrade Review](WORLD-BUILDER-2-CURRENT-RUNTIME-UPGRADE-REVIEW.md).
+Content and map revisions are distinct. Available definitions and dependencies
+must not become invalid when a placement is moved, duplicated, added, or removed.
+The content lifecycle implementation and phased acceptance are tracked in
+[Content Lifecycle Delivery](WORLD-BUILDER-CONTENT-LIFECYCLE.md). That document
+records implemented checkpoints separately from work still awaiting validation.
 
 ## Durable and replaceable state
 
@@ -114,10 +96,9 @@ write a target. Adaptive export locks and revalidates that project, copies its
 complete working package, independently validates the stage, and atomically
 publishes a unique deterministic result without target access.
 
-Under the replacement design, target-runtime migration is a separate
-**Upgrade Target Runtime** transaction. The map transaction described here
-begins only after the target ledger proves that the current composition is
-installed and after a fresh capability/source-lineage check and all compiled
+Target-runtime migration is a separate **Upgrade Target Runtime** transaction.
+The map transaction described here begins only after targeted map compatibility
+is verified, with fresh capability/source-lineage checks and all compiled
 offline evidence. Adapter code—not target JSON or a receipt—owns the bounded
 content-addressed server/client map-package destinations and selected-
 configuration path. Preview binds a real transaction UUID to exact before and
