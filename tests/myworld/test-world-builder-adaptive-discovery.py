@@ -833,6 +833,8 @@ public final class AdaptiveDiscoveryDriftHarness {
         (video / "models.orsc").write_bytes(b"fixture target model archive\n")
         with zipfile.ZipFile(video / "Authentic_Sprites.orsc", "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("sprites/base.bin", b"fixture authentic sprites")
+            # The explicit item 9001 mapping above requires this captured frame.
+            archive.writestr("sprites/417.dat", b"authentic-417")
         (video / "Custom_Sprites.osar").write_bytes(fixture_osar([
             ("items", [("0", fixture_sprite_entry(0x336699))]),
         ]))

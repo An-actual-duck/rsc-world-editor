@@ -7274,6 +7274,13 @@ public final class UpgradeNpcPlacements {
 
         cases["missing-entry"] = (missing_entry, "archive entry is missing")
 
+        def missing_authentic_frame(target: Path) -> None:
+            path = target / "Client_Base/Cache/video/Authentic_Sprites.orsc"
+            with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+                archive.writestr("sprites/base.bin", b"fixture authentic sprites")
+
+        cases["missing-authentic-frame"] = (missing_authentic_frame, "missing authentic frame 417")
+
         for name, (mutation, expected) in cases.items():
             with self.subTest(case=name), tempfile.TemporaryDirectory(
                 prefix="adaptive-item-visual-blocker-"
@@ -7381,6 +7388,10 @@ public final class UpgradeNpcPlacements {
                 "source/content-bundle/files/server/conf/world-builder/item-visuals-v1.json"
             ).read_text(encoding="utf-8"))
             self.assertEqual(visuals, generated["itemVisuals"])
+            with zipfile.ZipFile(target / "Client_Base/Cache/video/Authentic_Sprites.orsc") as original, zipfile.ZipFile(
+                project / "source/content-bundle/files/client/Cache/video/Authentic_Sprites.orsc"
+            ) as captured:
+                self.assertEqual(original.read("sprites/417.dat"), captured.read("sprites/417.dat"))
             self.assertEqual(before, tree_bytes(target))
 
     def test_neutral_provider_resolves_all_asset_roles_and_preserves_masks(self):
