@@ -322,6 +322,7 @@ final class WorldBuilderAdaptiveImporter {
 			WorldBuilderAdaptiveMutationProfile.requireInstallRootsAbsent(plan);
 			verifyPlannedDirectoriesAbsent(plan);
 			observe("before-first-target-mutation", target);
+            WorldBuilderAdaptiveMutationProfile.verifyRetainedActivePackage(plan);
             WorldBuilderRuntimeReverification.verifyInputs(plan);
             WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
             if (plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) WorldBuilderTargetMapIntegration.verifyInputs(plan);
