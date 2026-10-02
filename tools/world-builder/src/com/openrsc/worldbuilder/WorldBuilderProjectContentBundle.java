@@ -1550,7 +1550,12 @@ final class WorldBuilderProjectContentBundle {
 		for (Object raw : rows) {
 			Map<String,Object> row = object(raw, "NPC animation");
 			boolean rgb = "authentic-rgb".equals(row.get("frameSource"));
-			if (rgb) exact(row, "animationId", "name", "category", "charColour",
+            boolean explicitMask = row.containsKey("npcMaskPolicy") || row.containsKey("sourceAnimationId") || row.containsKey("sourceCustomSprites");
+            if (rgb && explicitMask) exact(row, "animationId", "name", "category", "charColour",
+                "blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames",
+                "requiredFrameCount", "frameSource", "authenticBaseSpriteId", "authenticFrameSha256s",
+                "npcMaskPolicy", "sourceAnimationId", "sourceCustomSprites");
+			else if (rgb) exact(row, "animationId", "name", "category", "charColour",
 				"blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames",
 				"requiredFrameCount", "frameSource", "authenticBaseSpriteId", "authenticFrameSha256s");
 			else exact(row, "animationId", "name", "category", "charColour",
@@ -1578,6 +1583,13 @@ final class WorldBuilderProjectContentBundle {
 					throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
 				}
 			}
+            if (explicitMask) {
+                long sourceId = integer(row,"sourceAnimationId");
+                if (!rgb || sourceId < 0 || sourceId > MAX_RUNTIME_ID || !(row.get("sourceCustomSprites") instanceof Boolean)
+                    || !effectiveNpcMaskPolicy(sourceId,Boolean.TRUE.equals(row.get("sourceCustomSprites")),integer(row,"charColour")).equals(row.get("npcMaskPolicy"))) {
+                    throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+                }
+            }
 			Object combatRaw = row.get("hasCombatFrames");
 			Object specialRaw = row.get("hasSpecialCombatFrames");
 			if (!(combatRaw instanceof Boolean) || !(specialRaw instanceof Boolean)
@@ -1607,6 +1619,14 @@ final class WorldBuilderProjectContentBundle {
 		}
 		return result;
 	}
+
+    static String effectiveNpcMaskPolicy(long sourceId, boolean customSprites, long charColour) {
+        if (charColour == 1) return "hair-and-skin";
+        if (customSprites && sourceId >= 230) return "literal-and-skin";
+        if (charColour == 2) return "top-and-skin";
+        if (charColour == 3) return "bottom-and-skin";
+        return "literal-only";
+    }
 
 	private static boolean safeArchiveName(String value) {
 		return value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");

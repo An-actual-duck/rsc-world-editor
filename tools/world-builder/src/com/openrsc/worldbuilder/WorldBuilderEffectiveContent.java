@@ -28,7 +28,18 @@ import org.w3c.dom.NodeList;
  */
 final class WorldBuilderEffectiveContent {
     static final String VISUAL_REPORT = "diagnostics/content-visual-resolution-v1.json";
+    private static final List<String> NPC_PRESENTATION_FIELDS = Collections.unmodifiableList(Arrays.asList(
+        "sprites1", "sprites2", "sprites3", "sprites4", "sprites5", "sprites6",
+        "sprites7", "sprites8", "sprites9", "sprites10", "sprites11", "sprites12",
+        "hairColour", "topColour", "bottomColour", "skinColour", "camera1", "camera2",
+        "walkModel", "combatModel", "combatSprite"));
     private WorldBuilderEffectiveContent() { }
+
+    private static Map<String,Object> semanticDefinition(String family, Map<String,Object> definition) {
+        Map<String,Object> semantic = new TreeMap<>(definition);
+        if ("npc".equals(family)) for (String field : NPC_PRESENTATION_FIELDS) semantic.remove(field);
+        return semantic;
+    }
 
     static Index index(WorldBuilderProjectContentBundle.Bundle bundle)
         throws IOException, WorldBuilderContractException {
@@ -75,7 +86,7 @@ final class WorldBuilderEffectiveContent {
                 String name = value.definition.get("name") instanceof String
                     ? (String)value.definition.get("name") : key + " " + row.getKey();
                 entries.put(row.getKey(), new Entry(row.getKey(), name,
-                    hash(value.definition), hash(visual), value.provenance, visualWarnings(visual)));
+                    hash(semanticDefinition(key,value.definition)), hash(visual), value.provenance, visualWarnings(visual)));
             }
             families.put(key, Collections.unmodifiableMap(entries));
         }
@@ -223,27 +234,38 @@ final class WorldBuilderEffectiveContent {
                 if (sprite != null && sprite >= 0) frame(result, sprite);
             } else if ("npc".equals(family)) {
                 boolean unresolved = false;
+                Map<String,Object> presentation = new TreeMap<>();
+                for (String field : NPC_PRESENTATION_FIELDS) if (!field.startsWith("sprites")) presentation.put(field,definition.get(field));
+                result.put("presentation",presentation);
+                List<Object> slots = new ArrayList<>();
+                result.put("orderedSpriteSlots",slots);
                 for (int slot = 1; slot <= 12; slot++) {
                     Integer animation = integer(definition.get("sprites" + slot));
-                    if (animation == null) { unresolved = true; result.put("unresolved/npc-sprite-slot/"+slot,slot); continue; }
-                    if (animation < 0) continue;
+                    Map<String,Object> resolved = new TreeMap<>(); slots.add(resolved);
+                    if (animation == null) { unresolved = true; result.put("unresolved/npc-sprite-slot/"+slot,slot); resolved.put("unresolved",null); continue; }
+                    if (animation < 0) { resolved.put("empty",true); continue; }
                     Map<String,Object> row = animations.get(animation);
                     boolean captured = row != null;
                     if (!captured && baselineAnimationAvailable(animation)) row=baselineAnimations.get(animation);
-                    if (row == null) { unresolved = true; result.put("unresolved/npc-animation/"+animation,animation); continue; }
-                    result.put("animation/" + animation, animationAppearance(row));
+                    if (row == null) { unresolved = true; result.put("unresolved/npc-animation/"+animation,animation); resolved.put("unresolvedAnimationId",animation); continue; }
+                    resolved.put("appearance", animationAppearance(row));
                     if (!"authentic-rgb".equals(row.get("frameSource"))) {
                         String key = row.get("category") + "/" + row.get("name");
-                        sprite(result, "asset.sprite.custom", key);
+                        sprite(resolved, "asset.sprite.custom", key);
                         String actual = sprites.get("asset.sprite.custom") == null ? null : sprites.get("asset.sprite.custom").get(key);
                         if (captured && actual != null && (!actual.equals(row.get("customEntrySha256")) || !Long.valueOf(spriteFrameCounts.get("asset.sprite.custom").get(key)).equals(row.get("requiredFrameCount")))) throw problem("NPC custom animation entry differs from its verified registry.");
                     }
                     int first = ((Long)row.get("authenticBaseSpriteId")).intValue();
                     List<?> hashes = captured ? (List<?>)row.get("authenticFrameSha256s") : Collections.emptyList();
                     int count = ((Long)row.get("requiredFrameCount")).intValue();
+                    List<Object> frames = new ArrayList<>(); resolved.put("orderedFrames",frames);
                     for (int offset = 0; offset < count; offset++) {
-                        frame(result, first + offset);
+                        Map<String,Object> checked = new TreeMap<>();
+                        frame(checked, first + offset);
                         if (captured && authentic != null && !hashes.get(offset).equals(authentic.get(first + offset))) throw problem("NPC authentic frame differs from its verified registry.");
+                        // The exact frame payload binds pixels, transparency, crop,
+                        // shift bit and bounds. Its private archive address is not appearance.
+                        frames.add(authentic == null ? checked : authentic.get(first + offset));
                     }
                 }
                 if (unresolved) unresolvedSprites(result);
@@ -274,8 +296,15 @@ final class WorldBuilderEffectiveContent {
         }
         Map<String,Object> animationAppearance(Map<String,Object> row) {
             Map<String,Object> result = new TreeMap<>();
-            for (String key : Arrays.asList("animationId","name","category","charColour","blueMask","hasCombatFrames","hasSpecialCombatFrames","requiredFrameCount","authenticBaseSpriteId")) result.put(key,row.get(key));
+            for (String key : Arrays.asList("charColour","hasCombatFrames","hasSpecialCombatFrames","requiredFrameCount")) result.put(key,row.get(key));
+            // Identity/address fields select frames but have no effect after the
+            // exact ordered frame closure has been resolved. This also avoids
+            // false changes when private RGB allocations move during a refresh.
             result.put("frameSource",row.containsKey("frameSource")?row.get("frameSource"):"custom-and-authentic");
+            result.put("npcMaskPolicy",row.containsKey("npcMaskPolicy") ? row.get("npcMaskPolicy")
+                : WorldBuilderProjectContentBundle.effectiveNpcMaskPolicy((Long)row.get("animationId"),false,(Long)row.get("charColour")));
+            // The supported NPC draw path passes literal blue mask zero; the
+            // animation's blueMask remains validated source metadata only.
             // genderModel controls player appearance selection, not the chosen
             // NPC sprite's rendering. Source/asset registry validation is unchanged.
             return result;

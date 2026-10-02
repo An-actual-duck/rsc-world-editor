@@ -1,14 +1,18 @@
 # Effective NPC visual producer v2 — review contract
 
-Status: proposed, implementation pending manager/Core contract review. Scope is the
+Status: architecture reviewed; revised final-initialization/frame contract pending
+manager/Core field agreement. Scope is the
 maintained OpenRSC NPC registry and existing World Builder RGB presentation
 capability. This is not a general target-code interpreter.
 
 ## Authority and completeness
 
-The maintainer's build-time exporter reads the final effective client NPC and
-animation registries under the selected server configuration and explicit client
-flags. It exports all effective server NPC IDs, including unplaced NPCs and IDs
+The maintainer's build-time exporter captures after the selected branch's entire
+client sprite initialization, under the selected server configuration and explicit
+client flags. EntityHandler.load is not that boundary: active spritepacks and
+external sprite loaders can subsequently mutate NPC vectors, conditionally on PNG
+load success. Capture the actual final NPC vectors and selected spriteSelect frames
+after all supported loaders complete; a registry-table snapshot is insufficient. It exports all effective server NPC IDs, including unplaced NPCs and IDs
 below the preservation boundary. It must capture final client overrides, not
 substitute server sprite vectors or infer vectors by NPC name.
 
@@ -43,17 +47,19 @@ active NPC manifests are refused rather than chosen by filename order.
   "manifestType": "world-builder-npc-definitions",
   "provider": {
     "identity": "maintainer-defined descriptive identifier",
-    "rendererProfile": "openrsc-npc-layered-rgb-v1",
+    "rendererProfile": "openrsc-effective-npc-preview-v1",
+    "capturePhase": "after-selected-client-sprite-initialization-v1",
+    "spriteBranch": "custom",
     "configuration": {"relativePath": "server/myworld.conf", "sha256": "..."},
     "clientFlags": {
       "Config.S_WANT_CUSTOM_SPRITES": true,
       "Config.S_ALLOW_BEARDED_LADIES": false
     },
     "sources": [
-      {"role": "effective-npc-definition", "relativePath": "server/conf/server/defs/NpcDefs.json", "sha256": "..."},
-      {"role": "server-npc-loader", "relativePath": "server/src/com/openrsc/server/external/EntityHandler.java", "sha256": "..."},
-      {"role": "client-npc-loader", "relativePath": "Client_Base/src/com/openrsc/client/entityhandling/EntityHandler.java", "sha256": "..."},
-      {"role": "client-frame-resolver", "relativePath": "Client_Base/src/orsc/graphics/two/GraphicsController.java", "sha256": "..."}
+      {"sourceId": "npc-base", "role": "effective-npc-definition", "relativePath": "server/conf/server/defs/NpcDefs.json", "sha256": "..."},
+      {"sourceId": "server-loader", "role": "server-npc-loader", "relativePath": "server/src/com/openrsc/server/external/EntityHandler.java", "sha256": "..."},
+      {"sourceId": "client-loader", "role": "client-npc-loader", "relativePath": "Client_Base/src/com/openrsc/client/entityhandling/EntityHandler.java", "sha256": "..."},
+      {"sourceId": "frame-resolver", "role": "client-frame-resolver", "relativePath": "Client_Base/src/orsc/graphics/two/GraphicsController.java", "sha256": "..."}
     ]
   },
   "selection": {"kind": "complete-effective-server-npc-catalog", "npcIds": [0, 1]},
@@ -68,7 +74,11 @@ active NPC manifests are refused rather than chosen by filename order.
   "animationDefinitions": [
     {"animationId": 0, "name": "head1", "category": "player",
      "charColour": 1, "blueMask": 0, "genderModel": 13,
-     "hasCombatFrames": true, "hasSpecialCombatFrames": false, "requiredFrameCount": 18,
+     "hasCombatFrames": true, "hasSpecialCombatFrames": false, "resolvedFrameCount": 18,
+     "npcMaskPolicy": "hair-and-skin",
+     "authoringPreview": {"behavior": "generic-layered-preview-v1", "hasCombatFrames": true, "hasSpecialCombatFrames": false,
+       "frameIndices": [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17], "limitations": []},
+     "resolution": {"resolverSourceId": "frame-resolver", "resolverSourceSha256": "...", "inputSourceIds": ["frame-resolver"], "precedenceSourceIds": ["frame-resolver"]},
      "frames": {"kind": "osar-entry", "assetId": "custom", "subspace": "player", "entry": "head1", "entrySha256": "..."}}
   ]
 }
@@ -76,10 +86,16 @@ active NPC manifests are refused rather than chosen by filename order.
 
 The example arrays are abbreviated; a real complete document must contain all
 selected IDs and the complete animation dependency closure. IDs are integers
-0..65535; empty slots use -1. NPC and animation rows and selection IDs are sorted
+0..65535; empty slots use -1. walkModel must be positive (renderer division); dimensions and other animation
+selectors must satisfy the supported renderer bounds. NPC and animation rows and selection IDs are sorted
 and unique. Every vector contains exactly twelve slots. Referenced animation IDs
 must equal animation rows, with no missing or unused animation rows. Animation
-flags require exactly 15, 18, or 27 frames; special frames require combat frames.
+preview flags require exactly 15, 18, or 27 selected authoring frame indices;
+special preview frames require combat preview frames and reachable offsets18..26. resolvedFrameCount records
+the complete actual source frame inventory and can differ (for example21). Each
+frame index addresses that complete ordered inventory. Source hasCombatFrames and
+hasSpecialCombatFrames remain captured evidence; they are not rewritten to invent
+nine F frames from three additional attack frames.
 No names, stats, descriptions, commands, or alternative NPC IDs are accepted in
 v2 presentation rows. Unknown keys are rejected.
 
@@ -87,9 +103,24 @@ v2 presentation rows. Unknown keys are rejected.
 
 - `osar-entry`: exact object above. Palette-indexed OSAR entry, including all
   frames and headers, is hashed using the existing Editor logical entry digest.
+- `resolved-rgb`: `{kind,assetId,frameKeys,frameSha256s}`. Asset format is
+  `world-builder-rgb-frame-zip-v1`, a deterministic ZIP of raw existing private
+  RGB frame payloads. Keys are contained portable relative paths, sorted archive
+  inventory; frameKeys is ordered by effective source frame index and may repeat
+  an entry. Every entry is used by at least one animation; no undeclared payloads.
+  Both arrays have exactly resolvedFrameCount entries. The archive is a
+  maintainer-generated target evidence artifact, bound by targetRelativePath and
+  packageRelativePath plus SHA. It is not an invented authentic fallback.
+  Payloads must be final spriteSelect Sprite state, including its actual shift and
+  logical frame bounds, not raw PNG bytes or an image crop approximation.
+  Raw payload is big-endian width:i32, height:i32, shift:u8, offsetX:i32,
+  offsetY:i32, boundWidth:i32, boundHeight:i32, then width*height RGB:i32 values.
+  Values are 24-bit; zero is transparent. Preserve explicit shift/offset/bounds.
+  Existing runtime bounds apply (dimensions/bounds1..4096, offsets-4096..4096,
+  <=16MiB per frame and256MiB total decoded private frame budget).
 - `authentic-frames`: `{kind,assetId,baseSpriteId,entrySha256s}`. The asset format
   is `openrsc-authentic-zip-v1`; IDs are consecutive from the given base, hashes
-  cover exact raw frame payloads, and the array has requiredFrameCount elements.
+  cover exact raw frame payloads, and the array has resolvedFrameCount elements.
 
 Only the actually selected frame mode is required. In particular an OSAR-only
 animation under custom sprites does not claim an authentic fallback that does
@@ -97,6 +128,27 @@ not exist. Initial profile excludes remastered/procedural sprite substitution
 and undeclared spritepack precedence. If a selected spritepack overrides an
 entry, the exporter must declare the resolved asset and the supported ordered
 resolution evidence; until that profile is implemented, the consumer refuses it.
+Resolved RGB is the preferred route when successful PNG loading or layered
+resolvers supply final frames. resolution.inputSourceIds includes all used PNG,
+OSAR/authentic inputs and client loader modules. precedenceSourceIds lists their
+actual application order; all references must exist in provider.sources (assets
+also carry corresponding sourceId). The resolver source SHA must match the named
+source record and captured target. Bind initializers as client-sprite-initializer,
+external images as external-sprite-input, archives as sprite-input. Capture the
+original successful/failed resolution outcome, not merely an existing PNG path.
+Failed optional loads must reflect the actual fallback final vectors/frames.
+
+A21-frame source with source hasCombatFrames=true and hasSpecialCombatFrames=false
+may declare authoringPreview.frameIndices0..17, combat=true,
+special=false while retaining all21 raw frames. The remaining three are preserved
+second-attack evidence, not invented generic F frames. A source-specific walking
+cadence (for example three-phase walking versus idle-left-idle-right) can use an
+explicit bounded generic authoring preview, with limitations containing
+`source-animation-cadence-not-reproduced` and/or
+`source-secondary-attack-not-previewed`. These limitations are displayed during
+capture/refresh and retained in the diagnostic report. An export cannot claim
+complete runtime animation fidelity from a supported building preview subset.
+
 Existing source-bound direction-sheet discovery remains a separate supported
 route and cannot silently override conflicting v2 slots.
 
@@ -161,9 +213,38 @@ route and cannot silently override conflicting v2 slots.
    preserving saved work and all old evidence. Map import still validates target
    catalog support independently and never installs private presentation data.
 
+## Effective NPC mask policy (required runtime addition)
+
+Pixel parity alone is insufficient. The maintained drawNPC branch uses the
+ORIGINAL animation ID and custom-sprite flag before considering charColour2/3.
+A private ID>=1080 can change the chosen tint even when frame pixels are exact.
+The producer exports npcMaskPolicy per source animation; Editor independently derives
+and checks the following ordered policy using source animationId, charColour,
+and captured Config.S_WANT_CUSTOM_SPRITES:
+
+1. charColour==1: `hair-and-skin`.
+2. customSprites && source animationId>=230: `literal-and-skin`.
+3. charColour==2: `top-and-skin`.
+4. charColour==3: `bottom-and-skin`.
+5. Otherwise: `literal-only`.
+
+Private RGB registry rows carry the optional all-or-none triple
+`npcMaskPolicy`, `sourceAnimationId` (0..65535), and `sourceCustomSprites` (boolean).
+Runtime independently validates that policy against the two source provenance
+fields and charColour; all three are allowed only on RGB rows.
+Private registry rows need the verified policy; the runtime's NPC renderer must
+apply it independently of private allocation IDs and authoring global flags.
+Existing rows without the field retain their historical behavior. The literal
+value remains charColour; NPC palette values remain per-definition. NPC blue
+mask is literal0 in this profile; captured animation blueMask is source metadata,
+not a claim that the NPC renderer applies it. Both renderer branches and the final
+ordinary draw path need the same bounded helper. Runtime review and framebuffer
+parity are required before consumer acceptance.
+
 ## OSAR normalization finding
 
-No new runtime gameplay behavior appears necessary. Existing locked runtime
+Frame storage requires no new format, but the explicit NPC mask-policy runtime
+addition above IS required for faithful tinting. Existing locked runtime
 `ProjectNpcAnimationRegistry` supports `authentic-rgb` frames for private animation
 IDs >=1080. `GraphicsController.spriteSelect(AnimationDef,int)` returns those
 frames before the custom/authentic branch; NPC layer composition and mask
@@ -176,8 +257,9 @@ turns opaque black into 0x010101 and derives a shift bit, whereas OSAR preservat
 must retain raw zero and the original bit. Add a strict OSAR decoder/encoder
 route and prove parity with the maintained decoder and actual shared renderer.
 Bounds beyond the supported RGB decoder budget must refuse before publication.
-A runtime provider change is warranted only if these parity tests identify an
-actual unrepresentable frame/render behavior; do not guess or force acceptance.
+The runtime change is limited to the explicit private NPC mask policy; it does
+not transplant target gameplay or source-specific combat/animation controllers.
+Unsupported frame or renderer behavior still refuses rather than forcing acceptance.
 
 Source references at runtime lock 236d47bf4660605cc4f2482769eb54c21f990cae:
 `Client_Base/src/orsc/graphics/two/SpriteArchive/Unpacker.java`,
@@ -198,6 +280,13 @@ Source references at runtime lock 236d47bf4660605cc4f2482769eb54c21f990cae:
 - OSAR-only custom mode with no authentic counterpart; exact pixel/mask/shift,
   offset and bounds parity for 15/18/27 frames, grayscale and blue masking,
   transparency, mirrored directions and combat frame selection.
+- Final loader-success and loader-failure fixtures: actual vectors after PNG
+  success differ from the earlier table snapshot; failed PNG retains actual
+  fallback. Source21-frame inventory retains all21 hashes; authoring18 subset
+  does not pretend F9 support. Named cadence/secondary-attack limits are visible.
+- All five mask policies, original IDs229/230, charColour1/2/3/literal, flags
+  false/true, different private allocations, NPC palettes and pixel-level tint
+  framebuffer parity; animation blueMask metadata does not alter NPC output.
 - False/custom flag mismatch, stale sources, selected config mismatch, missing
   source dependencies, inactive definition source, duplicate/missing IDs,
   partial closure, corrupt OSAR/palette/frame budgets, unsupported frame resolver
@@ -215,3 +304,92 @@ Producer acceptance must compare v2 vectors and decoded selected frames against
 actual final client registries for the selected target build/profile. Editor
 acceptance validates inert consumption, appearance parity, saved work, and the
 complete lifecycle. Neither side substitutes a successful helper test for both.
+
+## Closed v2 validation addendum
+
+This addendum resolves conditional shapes and supersedes abbreviated example rows.
+
+- Root keys are exactly schemaVersion, manifestType, provider, selection,
+  assetProviders, npcDefinitions, animationDefinitions.
+- provider keys are exactly identity, rendererProfile, capturePhase, spriteBranch,
+  configuration, clientFlags, sources, resolutionProbes. clientFlags has exactly
+  Config.S_WANT_CUSTOM_SPRITES and Config.S_ALLOW_BEARDED_LADIES, both booleans.
+  spriteBranch is `custom` iff the first flag is true, otherwise `authentic`.
+  The initial profile's frame/tint logic has no other configurable branch.
+  All registry/loading decisions must derive from bound selected configuration
+  and bound source defaults; any additional renderer flag or unbound preference
+  requires a new supported profile, not an ignored flag. Remastered resolution
+  is unsupported. Both explicit flag values must be checked against the selected
+  configuration adapter plus captured supported client/server defaults. A value
+  that cannot be derived from those inputs refuses; a producer assertion alone
+  is insufficient. This does not authorize parsing arbitrary Java control flow.
+- Each source has exactly sourceId, role, relativePath, sha256. sourceId is a
+  unique `[A-Za-z0-9][A-Za-z0-9._-]{0,127}` identifier. Permitted roles are
+  effective-npc-definition, configuration-input, server-npc-loader,
+  client-npc-loader, client-frame-resolver, client-sprite-initializer,
+  external-sprite-input, sprite-input, resolved-frame-artifact. Code roles are
+  bounded under server/src or Client_Base/src, definition roles under the selected
+  definition root, configuration inputs under the supported selected-profile
+  configuration roots, and image/archive artifacts under Client_Base/Cache or
+  server/conf/world-builder. All use exact contained portable paths.
+- Each asset provider has exactly assetId, sourceId, format, targetRelativePath,
+  packageRelativePath, sha256. sourceId references a matching sprite-input or
+  resolved-frame-artifact source; targetRelativePath and SHA must match it.
+- resolutionProbes is an ordered array of exact objects `{relativePath,present}`
+  when present=false, or `{relativePath,present,sha256}` when present=true.
+  Paths are restricted to the same supported external image/archive roots. A
+  successful file hashes exact bytes. Missing means no directory, regular file,
+  or symlink exists at that path. Any later appearance/disappearance/byte change
+  makes the provider stale. Sources still require present regular files.
+  A missing archive member is instead bound by its containing archive SHA and
+  a resolver input source; it is not treated as a missing filesystem path.
+- Each animation resolution object has exactly resolverSourceId,
+  resolverSourceSha256, inputSourceIds, precedenceSourceIds, probePaths.
+  probePaths references declared resolutionProbes. Every probe is referenced by
+  at least one resolution. inputSourceIds includes the final selected asset's
+  source and every prerequisite loader/source/image affecting resolution;
+  precedenceSourceIds contains each ordered applied resolver input once, drawn
+  from inputSourceIds. Unknown/dangling/duplicate references refuse.
+- Each animation row has exactly animationId, name, category, charColour,
+  blueMask, genderModel, hasCombatFrames, hasSpecialCombatFrames,
+  resolvedFrameCount, npcMaskPolicy, authoringPreview, resolution, frames.
+  The two top-level flags describe the source animation. Authoring preview keys
+  are exactly behavior, hasCombatFrames, hasSpecialCombatFrames, frameIndices,
+  limitations. behavior is generic-layered-preview-v1. Limitations is a unique
+  array containing only source-animation-cadence-not-reproduced and
+  source-secondary-attack-not-previewed. A projected source must report its
+  applicable limitation; claims are checked by its supported source profile.
+- The initial complete source frame inventory is bounded1..256 per animation;
+  authoring frameIndices has15/18/27 indices consistent with its flags. Each is
+  within resolvedFrameCount. Repeated indices are explicit and permitted. A
+  source21→authoring18 projection requires sourceA=true/sourceF=false, retains
+  all21 frame payloads, and declares source-secondary-attack-not-previewed.
+  SourceF=true requires source frames reachable through26; no fabricated F9.
+- Up to65536 NPC/animation rows; up to8192 sources/assets/probes, paths<=512
+  characters, manifest<=16MiB, expanded source archives<=512MiB. RGB payload
+  limits above are additional and enforced before publishing project files.
+  ZIPs reject duplicate names, paths outside the provider root, links, nested
+  archives, and undeclared entries. Frame allocation must remain within0..65535;
+  private RGB animation IDs remain1080..65535.
+
+The shortened main example must include sourceId on its asset and empty
+resolutionProbes/probePaths where no optional-path probes apply. Producers must
+emit the closed shapes above; missing keys never imply guessed default evidence.
+
+Probe ordering follows the actual external loader's attempted candidate order,
+including failed earlier candidates before the selected file or embedded-JAR
+fallback. Relative traversal to a parent or another checkout is never authorized
+by the producer. The maintainer must capture in an isolated sealed input layout
+whose effective candidate paths remain inside the selected owned target root;
+otherwise the consumer refuses with the exact external path requirement. For a
+missing embedded member, capture the whole containing JAR digest and explicit
+member lookup outcome in a supported resolver profile; do not invent a missing
+member hash or accept an unbound running classpath.
+
+Absent-path observations are durable evidence despite having no file to copy.
+The original producer manifest and its ordered probe states enter the sealed
+content/source snapshot. Discovery validates them against the live target;
+project capture checks again before and after copying, and refresh/import preview
+and apply revalidate the exact absent/present state. Merely omitting missing files
+from the copied file inventory is insufficient. Appearance of an earlier candidate
+must stale the provider even when its final selected asset still has the old hash.

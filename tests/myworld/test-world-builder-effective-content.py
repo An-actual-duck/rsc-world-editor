@@ -91,6 +91,22 @@ class EffectiveContentTest(unittest.TestCase):
      document=json.loads(path.read_text());next(iter(document.values()))[-1]['name']='Changed content';path.write_text(json.dumps(document))
     self.seal(root,catalog);changed=self.run_index(root)
     self.assertNotEqual(after[family][str(newid)][1],changed[family][str(newid)][1])
+ def test_npc_presentation_is_ordered_and_separate_from_target_semantics(self):
+  with tempfile.TemporaryDirectory(prefix='effective-npc-presentation-') as tmp:
+   root=Path(tmp)/'bundle';shutil.copytree(FIXTURE,root)
+   path=root/'files/server/conf/server/defs/NpcDefs.json'
+   original={'id':0,'name':'Authoritative NPC','command':'Talk-to','attack':10,**{f'sprites{i}':-1 for i in range(1,13)},'sprites1':9000,'sprites2':9001,
+    'hairColour':10,'topColour':20,'bottomColour':30,'skinColour':40,'camera1':145,'camera2':200,'walkModel':4,'combatModel':4,'combatSprite':1}
+   def write(row):path.write_text(json.dumps({'npcs':[row]}));self.seal(root);return self.run_index(root)['npc']['0']
+   before=write(original)
+   changes=[{field:original[field]+1} for field in ['hairColour','topColour','bottomColour','skinColour','camera1','camera2','walkModel','combatModel','combatSprite']]
+   changes += [{'sprites1':9001,'sprites2':9000},{'sprites2':9000},{'sprites3':9000}]
+   for change in changes:
+    with self.subTest(presentation=change):
+     after=write({**original,**change});self.assertEqual(before[1],after[1]);self.assertNotEqual(before[2],after[2])
+   for field,value in [('name','Different NPC'),('command','Attack'),('attack',11)]:
+    with self.subTest(semantics=field):
+     after=write({**original,field:value});self.assertNotEqual(before[1],after[1]);self.assertEqual(before[2],after[2])
  def test_whitespace_and_json_order_do_not_change_effective_identity(self):
   before=self.run_index(FIXTURE)
   with tempfile.TemporaryDirectory(prefix='effective-content-format-') as tmp:
@@ -194,6 +210,27 @@ class EffectiveContentTest(unittest.TestCase):
    values['npc']['fixture']=sprite(14);(video/'Custom_Sprites.osar').write_bytes(archive(values))
    registry['animations'][0]['customEntrySha256']=hashlib.sha256(b'fixture\0'+sprite(14)).hexdigest()
    seal();self.assertIn('custom animation entry differs',self.run_index(root,False))
+   # Private RGB allocation addresses and generated names do not change pixels.
+   values['npc']['fixture']=sprite(15);(video/'Custom_Sprites.osar').write_bytes(archive(values))
+   registry['animations'][0]['customEntrySha256']=hashlib.sha256(b'fixture\0'+sprite(15)).hexdigest()
+   rgb_frames=[struct.pack('>iiBiiiiI',1,1,1,-1,2,3,4,0x123400+i) for i in range(15)]
+   rgb={'animationId':3000,'name':'private-a','category':'npc','charColour':2,'blueMask':0,'genderModel':0,'hasCombatFrames':False,'hasSpecialCombatFrames':False,'requiredFrameCount':15,'frameSource':'authentic-rgb','authenticBaseSpriteId':3000,'authenticFrameSha256s':[hashlib.sha256(frame).hexdigest() for frame in rgb_frames]}
+   registry['animations'].append(rgb)
+   def write_rgb(identity,base):
+    rgb.update(animationId=identity,authenticBaseSpriteId=base)
+    doc=json.loads((defs/'NpcDefs.json').read_text());doc['npcs'][0]['sprites1']=identity;(defs/'NpcDefs.json').write_text(json.dumps(doc))
+    with zipfile.ZipFile(video/'Authentic_Sprites.orsc','w') as z:
+     for i,payload in frames.items():z.writestr(str(i),payload)
+     for i,payload in enumerate(rgb_frames):z.writestr(str(base+i),payload)
+    seal();return self.run_index(root)['npc']['0']
+   rgb_before=write_rgb(3000,3000);rgb['name']='private-reallocated'
+   rgb_after=write_rgb(3100,3100);self.assertEqual(rgb_before[:3],rgb_after[:3])
+   rgb['blueMask']=123;seal();self.assertEqual(rgb_after[:3],self.run_index(root)['npc']['0'][:3])
+   rgb.update(npcMaskPolicy='literal-and-skin',sourceAnimationId=230,sourceCustomSprites=True)
+   seal();policy_changed=self.run_index(root)['npc']['0'];self.assertEqual(rgb_after[1],policy_changed[1]);self.assertNotEqual(rgb_after[2],policy_changed[2])
+   for patch in [{'npcMaskPolicy':'top-and-skin'},{'sourceAnimationId':229},{'sourceCustomSprites':'true'},{'sourceAnimationId':65536}]:
+    saved=dict(rgb);rgb.update(patch);seal();self.run_index(root,False);rgb.clear();rgb.update(saved)
+   del rgb['sourceAnimationId'];seal();self.run_index(root,False)
 
  def test_unresolved_dependencies_have_named_bounded_project_diagnostics(self):
   with tempfile.TemporaryDirectory(prefix='effective-content-warning-') as temp:
