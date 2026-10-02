@@ -179,6 +179,39 @@ public final class RefreshDesktopModel {
             opened = self.run_cli("open-project", "--installation-root", moved_install)
             self.assertEqual(0, opened.returncode, opened.stderr)
 
+    def test_registered_successor_blocks_parent_mutations_but_preserves_editing(self):
+        with tempfile.TemporaryDirectory(prefix="content-refresh-historical-boundary-") as temp:
+            target, install, parent, export, runtime = self.fixture(Path(temp))
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", parent, "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.add_npc(target)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                "--expected-preview", json.loads(reviewed.stdout)["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            edited = self.next_history_export(parent)  # Historical editing/export remains available.
+            target_before = support.tree_bytes(target, install)
+            for command in ("import-adaptive", "undo-adaptive", "reverify-target-runtime"):
+                with self.subTest(command=command):
+                    args = ("--export", edited) if command == "import-adaptive" else ()
+                    refused = self.run_cli(command, "--project", parent, "--target-root", target, *args)
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("registered content successor", refused.stderr)
+                    self.assertEqual(target_before, support.tree_bytes(target, install))
+            origin = successor / "source/content-refresh/origin.json"
+            original = origin.read_bytes()
+            for changed in (None, original + b" "):
+                with self.subTest(origin="missing" if changed is None else "altered"):
+                    if changed is None: origin.unlink()
+                    else: origin.write_bytes(changed)
+                    refused = self.run_cli("import-adaptive", "--project", parent, "--export", edited, "--target-root", target)
+                    self.assertEqual(3, refused.returncode, refused.stderr)
+                    self.assertIn("origin.json", refused.stderr)
+                    self.assertEqual(target_before, support.tree_bytes(target, install))
+                    origin.write_bytes(original)
+
     def test_changed_used_identity_is_reviewed_and_cannot_be_accepted(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-conflict-") as temp:
             target, install, project, _, runtime = self.fixture(Path(temp))
@@ -262,10 +295,16 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, reviewed.returncode, reviewed.stderr)
             preview = json.loads(reviewed.stdout)
             self.assertEqual("ready", preview["status"], preview["blockers"])
-            self.assertTrue(next(row for row in preview["families"] if row["family"] == "floor")["added"])
+            additions = next(row for row in preview["families"] if row["family"] == "floor")["details"]
+            floor_id = next(row["id"] for row in additions if row["status"] == "added")
             accepted = self.refresh(project, runtime, target, "--confirm", "REFRESH", "--expected-preview", preview["previewFingerprintSha256"])
             self.assertEqual(0, accepted.returncode, accepted.stderr)
             self.assertEqual(before, support.tree_bytes(target, install))
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            self.set_fixture_ground_overlay(successor / "working/layered-world/package", floor_id + 1)
+            exported = self.next_history_export(successor)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
 
     def test_changed_existing_floor_missing_pair_and_bad_descriptor_refused(self):
         for mode in ("existing-floor", "missing-pair", "bad-descriptor"):
@@ -382,6 +421,9 @@ public final class RefreshDesktopModel {
             self.rebuild_fixture(base, target, "none")
             checked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", parent, "--target-root", target)
             self.assertEqual(0, checked.returncode, checked.stderr)
+            baseline_receipt_id = next(json.loads(path.read_text())["runtimeReverification"]["baseline"]["transactionId"]
+                for path in (parent / "backups").glob("*/mutation-plan.json")
+                if "runtimeReverification" in json.loads(path.read_text()))
             history = support.tree_bytes(parent)
             self.add_npc(target)
             reviewed = self.refresh(parent, runtime, target)
@@ -392,15 +434,25 @@ public final class RefreshDesktopModel {
             self.assertEqual(0, accepted.returncode, accepted.stderr)
             successor = Path(json.loads(accepted.stdout)["projectRoot"])
             self.assertEqual(history, support.tree_bytes(parent))
-            for stage in range(2):
+            for stage in range(3):
                 exported = self.next_history_export(successor)
                 imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
                 self.assertEqual(0, imported.returncode, imported.stderr)
-                if stage == 0:
-                    archives = self.rebuild_fixture(base, target, "source,lines,vars")
+                if stage < 2:
+                    archives = self.rebuild_fixture(base, target, "source,lines,vars" if stage == 0 else "none")
                     rechecked = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", successor, "--target-root", target)
                     self.assertEqual(0, rechecked.returncode, rechecked.stderr)
             for path, value in archives.items(): self.assertEqual(value, (target / path).read_bytes())
+            self.assertEqual(history, support.tree_bytes(parent))
+            # Missing retained ancestor authority must never be replaced by target-provided hashes.
+            receipt = parent / "receipts" / (baseline_receipt_id + ".json")
+            original_receipt = receipt.read_bytes()
+            receipt.unlink()
+            archives = self.rebuild_fixture(base, target, "source,lines,vars")
+            refused = self.run_cli("reverify-target-runtime", "--project", successor, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            for path, value in archives.items(): self.assertEqual(value, (target / path).read_bytes())
+            receipt.write_bytes(original_receipt)
             self.assertEqual(history, support.tree_bytes(parent))
 
 
