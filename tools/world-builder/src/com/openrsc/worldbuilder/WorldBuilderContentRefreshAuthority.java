@@ -85,9 +85,17 @@ final class WorldBuilderContentRefreshAuthority {
         WorldBuilderAdaptiveImporter.verifyState(target.root,configurationPath,expectedConfiguration);
         WorldBuilderAdaptiveConfiguration configuration=WorldBuilderAdaptiveConfiguration.read(target,configurationPath,expectedConfiguration.sha256);
 
+        Map<String,Object> freshSelection=object(freshReport.get("selectedConfiguration"));
+        if(!configurationPath.equals(freshSelection.get("relativePath")) || !expectedConfiguration.sha256.equals(freshSelection.get("sha256")))
+            throw refusal(configurationPath,"Fresh discovery selected a different target configuration.");
+        verifyLivePackages(target.root,configuration,expected);
         verifyLiveRuntime(target,expected,paths);
         Set<String> content=new TreeSet<>();
-        WorldBuilderPackedSourceLayout layout=WorldBuilderPackedSourceLayout.select(target);
+        String selectedContentConfiguration=null;
+        for(Object raw:list(freshReport.get("files"))){Map<String,Object> row=object(raw);
+            if("server-runtime-config".equals(row.get("role"))&&Boolean.TRUE.equals(row.get("present")))selectedContentConfiguration=string(row,"relativePath");
+        }
+        WorldBuilderPackedSourceLayout layout=WorldBuilderPackedSourceLayout.select(target,selectedContentConfiguration);
         List<WorldBuilderReadOnlyTarget.FileState> inspected=WorldBuilderProjectContentBundle.inspectTarget(target,layout);
         for(WorldBuilderReadOnlyTarget.FileState file:inspected){paths.add(file.relativePath);if(contentRole(file.role,file.relativePath))content.add(file.relativePath);}
         String serverTiles=layout.definitionPath("TileDef.xml");
@@ -166,7 +174,8 @@ final class WorldBuilderContentRefreshAuthority {
             }
             for(Map.Entry<String,Object> entry:liveStates.entrySet())WorldBuilderAdaptiveImporter.verifyState(target.root,entry.getKey(),state(object(entry.getValue())));
             verifyLiveRuntime(target,expected,new TreeSet<String>());
-            WorldBuilderAdaptiveDiscoveryReport currentReport = new WorldBuilderAdaptiveDiscovery().discover(target.root,string(reference,"role"));
+            verifyLivePackages(target.root,configuration,expected);
+            WorldBuilderAdaptiveDiscoveryReport currentReport = new WorldBuilderAdaptiveDiscovery().discover(target.root,WorldBuilderAdaptiveProjectLifecycle.rediscoveryRole(freshReport));
             if(!freshReport.get("discoveryFingerprintSha256").equals(currentReport.fingerprintSha256()))
                 throw refusal("discovery","Target inventory changed during content verification; repeat discovery and review.");
         }finally{try(java.util.stream.Stream<Path> walk=Files.walk(shadow)){List<Path> cleanup=new ArrayList<>();walk.forEach(cleanup::add);cleanup.sort(Comparator.reverseOrder());for(Path path:cleanup)Files.deleteIfExists(path);}}
@@ -175,6 +184,21 @@ final class WorldBuilderContentRefreshAuthority {
         proof.put("savedMapFingerprintSha256",parent.working.fingerprintSha256);proof.put("discoveryFingerprintSha256",freshReport.get("discoveryFingerprintSha256"));
         proof.put("history",history);proof.put("contentPaths",new ArrayList<>(content));proof.put("catalogProjectionPaths",new ArrayList<>(projections));proof.put("targetStates",liveStates);
         return proof;
+    }
+
+    private static void verifyLivePackages(Path target,WorldBuilderAdaptiveConfiguration configuration,
+        Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected)throws IOException,WorldBuilderContractException {
+        if(!"layered".equals(configuration.representation))return;
+        Set<String> files=new TreeSet<>();
+        for(Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry:expected.entrySet())if(entry.getValue().present)files.add(entry.getKey());
+        for(String selected:Arrays.asList(configuration.serverMapRelativePath,configuration.clientMapRelativePath)){
+            String root=selected.contains("/world-builder/packages/")&&selected.endsWith("/package")
+                ?WorldBuilderAdaptiveMutationProfile.fingerprintRoot(selected):selected;
+            for(String path:files)if(path.startsWith(root+"/"))WorldBuilderAdaptiveImporter.verifyState(target,path,expected.get(path));
+            List<String> changed=new ArrayList<>();
+            WorldBuilderAdaptiveUndo.collectUnexpectedFingerprintEntries(target,root+"/package",files,changed);
+            if(!changed.isEmpty())throw refusal(changed.get(0),"Active map package inventory changed outside content refresh, including an unexpected file or directory.");
+        }
     }
 
     /** Historical parents stay editable, but cannot mutate a target after refresh. */
@@ -195,11 +219,11 @@ final class WorldBuilderContentRefreshAuthority {
             Path successor=WorldBuilderPortablePath.resolveContained(install,"projects/"+id,OP);
             String originPath="source/content-refresh/origin.json";
             Map<String,Object> manifest=read(WorldBuilderAdaptiveExporter.requireFile(install,manifestPath,"registered successor"));
-            WorldBuilderAdaptiveContracts.Document checked=WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST,manifest);
+            WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST,manifest);
             Map<String,Object> manifestTarget=object(manifest.get("target"));Object locator=manifestTarget.put("locatorDisplay","");
             try{WorldBuilderAdaptiveExporter.requireFingerprint(manifest,"projectFingerprintSha256");}
             finally{manifestTarget.put("locatorDisplay",locator);}
-            if(!id.equals(manifest.get("projectId")) || !checked.canonicalSha256.equals(record.get("manifestSha256")))
+            if(!id.equals(manifest.get("projectId")) || !WorldBuilderHashes.sha256(WorldBuilderAdaptiveExporter.requireFile(install,manifestPath,"registered successor")).equals(record.get("manifestSha256")))
                 throw refusal(manifestPath,"Registered content successor manifest authority changed.");
             String snapshotPath=string(object(manifest.get("paths")),"sourceSnapshotRelativePath");
             Map<String,Object> snapshot=read(WorldBuilderAdaptiveExporter.requireFile(successor,snapshotPath,"successor snapshot"));

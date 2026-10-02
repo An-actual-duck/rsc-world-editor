@@ -23,7 +23,7 @@ public final class ContentAuthorityFixture {
   }
   if(args[0].equals("verify")){
    WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project=WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(Paths.get(args[2]),true);
-   Map<String,Object> report=WorldBuilderJsonDocuments.readObject(new WorldBuilderAdaptiveDiscovery().discover(root,null).toJson().getBytes(StandardCharsets.UTF_8),"discovery");
+   Map<String,Object> report=WorldBuilderJsonDocuments.readObject(new WorldBuilderAdaptiveDiscovery().discover(root,args.length>3?args[3]:null).toJson().getBytes(StandardCharsets.UTF_8),"discovery");
    System.out.print(WorldBuilderJsonDocuments.pretty(WorldBuilderContentRefreshAuthority.verify(project,root,report)));return;
   }
   WorldBuilderTargetCapability capability=WorldBuilderTargetCapability.read(target);
@@ -93,11 +93,17 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
                 for row in contract['adapters'][0]['compilation']:
                     if row['scope']=='server':row['compileAllSources']=True
                 self.use_targeted_fixture_descriptor(contract)
+                classes=base/'initial-runtime-classes';classes.mkdir()
+                subprocess.run(['javac','-source','8','-target','8','-d',str(classes),*map(str,(target/'server/src').rglob('*.java'))],check=True,capture_output=True)
+                for file in classes.rglob('*.class'):self.rewrite_runtime_entry(target/'server/core.jar',file.relative_to(classes).as_posix(),file.read_bytes())
             target,install,project,export=self.target_project(base,representation='packed',target_mutator=content)
             upgraded=self.run_reviewed_apply('upgrade-target-runtime','UPGRADE','--project',project,'--export',export,'--target-root',target)
             self.assertEqual(0,upgraded.returncode,upgraded.stderr)
             imported=self.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
             self.assertEqual(0,imported.returncode,imported.stderr)
+            self.rebuild_fixture(base,target,'none',drop_markers=True)
+            reverified=self.run_reviewed_apply('reverify-target-runtime','REVERIFY','--project',project,'--target-root',target)
+            self.assertEqual(0,reverified.returncode,reverified.stderr)
             self.add_content(target)
             result=self.probe('verify',target,project);self.assertEqual(0,result.returncode,result.stderr)
             extra=target/'server/src/fixture/Unexpected.java';extra.write_text('package fixture; public class Unexpected {}')
@@ -113,6 +119,41 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
             changed=path.read_text().replace('<TileDef>','<TileDef> ',1);path.write_text(changed)
             paired=self.probe('floors',target);self.assertEqual(0,paired.returncode,paired.stderr);self.sync_catalogs(target)
             result=self.probe('verify',target,project);self.assertNotEqual(0,result.returncode);self.assertIn('append-only',result.stderr)
+
+    def test_active_package_extra_file_and_empty_directory_are_rejected(self):
+        with tempfile.TemporaryDirectory(prefix='content-authority-inventory-') as temp:
+            target,install,project,export=self.fixture(Path(temp))
+            imported=self.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
+            self.assertEqual(0,imported.returncode,imported.stderr)
+            config=json.loads((target/'server/world-builder-configs/primary.json').read_text())
+            package=target/config['serverMapRelativePath']
+            for directory in [False,True]:
+                extra=package/('empty-untracked' if directory else 'untracked.bin')
+                extra.mkdir() if directory else extra.write_bytes(b'untracked')
+                result=self.probe('verify',target,project);self.assertNotEqual(0,result.returncode,result.stdout)
+                extra.rmdir() if directory else extra.unlink()
+
+    def test_packed_alias_refresh_rediscovery_uses_exact_selected_content_path(self):
+        with tempfile.TemporaryDirectory(prefix='content-authority-alias-') as temp:
+            base=Path(temp)
+            def content(target):
+                path=target/'server/conf/server/defs/NpcDefsPatch18.json';value=json.loads(path.read_text());value['npcs'].append({'id':35,'name':'placed-fixture-35'});support.write_json(path,value)
+                config='client_version: 10046\nmember_world: true\nbased_map_data: 64\nbased_config_data: 18\nwant_myworld: true\ncustom_landscape: true\n'
+                (target/'server/myworld.conf').write_text(config);(target/'myworld.conf').write_text(config);self.sync_catalogs(target)
+            original_run=self.run_cli
+            def selected(*args):
+                return original_run(*(args+('--configuration-role','packed-map-2') if args[0]=='discover-adaptive' else args))
+            self.run_cli=selected
+            try:target,install,project,export=self.target_project(base,representation='packed',installed_standard_floors=True,target_mutator=content)
+            finally:self.run_cli=original_run
+            captured=json.loads((project/'discovery/report.json').read_text())
+            self.assertEqual(['server/myworld.conf'],[row['relativePath']for row in captured['files']if row['role']=='server-runtime-config'])
+            other=self.run_cli('create-project','--installation-root',install,'--runtime-root',base/'builder-runtime','--target-root',target,'--discovery-report',base/'discovery.json','--display-name','Other registered project','--port','43890','--confirm','CREATE')
+            self.assertEqual(0,other.returncode,other.stderr)
+            imported=self.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
+            self.assertEqual(0,imported.returncode,imported.stderr)
+            result=subprocess.run(['java','-cp',str(self.classes),'com.openrsc.worldbuilder.ContentAuthorityFixture','verify',str(target),str(project),'server/myworld.conf'],capture_output=True,text=True)
+            self.assertEqual(0,result.returncode,result.stderr)
 
     def test_unimported_project_can_refresh_only_truthful_catalogs(self):
         with tempfile.TemporaryDirectory(prefix='content-authority-initial-') as temp:
