@@ -174,6 +174,22 @@ public final class RefreshDesktopModel {
                 exported = self.next_history_export(successor)
                 applied = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor, "--export", exported, "--target-root", target)
                 self.assertEqual(0, applied.returncode, applied.stderr)
+            # Repeat content detection on the selected revision, preserving both predecessors.
+            first_revision = support.tree_bytes(successor)
+            self.add_npc(target)
+            reviewed = self.refresh(successor, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"])
+            accepted = self.refresh(successor, runtime, target, "--confirm", "REFRESH",
+                "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            latest = Path(json.loads(accepted.stdout)["projectRoot"])
+            self.assertEqual(first_revision, support.tree_bytes(successor))
+            self.assertEqual(parent_before, support.tree_bytes(parent))
+            exported = self.next_history_export(latest)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", latest, "--export", exported, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
             # Opening without a target must retain complete editor content.
             target.rename(base / "offline-target")
             moved_install = base / "offline-target/World Builder 2"

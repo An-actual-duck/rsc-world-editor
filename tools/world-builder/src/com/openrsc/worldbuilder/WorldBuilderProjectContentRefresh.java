@@ -248,12 +248,14 @@ final class WorldBuilderProjectContentRefresh {
         String summary() {
             if (unchanged) return "Detect New Content\n\nThe complete captured library and its compatibility evidence match the target. No content revision is needed; continue working in this project.";
             StringBuilder text = new StringBuilder("Detect New Content\n\nYour saved terrain and placements will be preserved. Previous content revisions, exports and receipts remain available.\nNo target files will be changed.\n\n");
+            boolean libraryChanges = false;
             for (Object raw : (List<?>)document.get("families")) {
                 @SuppressWarnings("unchecked") Map<String,Object> family = (Map<String,Object>)raw;
                 text.append(family.get("family")).append(": added ").append(compact(family.get("added")))
                     .append("; changed ").append(compact(family.get("changed"))).append("; removed ").append(compact(family.get("removed")))
                     .append("; visuals ").append(compact(family.get("visualsChanged"))).append('\n');
                 List<?> changes = (List<?>)family.get("details");
+                libraryChanges |= !changes.isEmpty();
                 for (int index = 0; index < Math.min(8, changes.size()); index++) {
                     @SuppressWarnings("unchecked") Map<String,Object> change = (Map<String,Object>)changes.get(index);
                     String name = String.valueOf(change.get("name"));
@@ -262,6 +264,7 @@ final class WorldBuilderProjectContentRefresh {
                         .append(": ").append(name).append(" — ").append(change.get("mapReferenceCount")).append(" map references\n");
                 }
             }
+            if (!libraryChanges) text.append("\nThe available identities and visual references are unchanged. Captured source evidence changed; accepting records that evidence in the new revision.\n");
             if (!blockers.isEmpty()) text.append("\nRefresh is blocked: ").append(compact(blockers))
                 .append("\n\nKeep working in the current preserved project. Restore the target IDs to their previous meanings, or resolve changes explicitly with the target maintainer. This version accepts additions and reviewed visual updates; it does not accept identity redefinitions or removals. No references are removed or substituted.");
             else text.append("\nAccept and continue with this content revision?");
