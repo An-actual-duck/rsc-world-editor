@@ -17,7 +17,7 @@ still require Advanced/Recovery guidance; adding another neutral adapter is
 continuing input-adapter work, not an incomplete phase of the released
 recognized-layout path.
 
-Direction reconciliation (2026-09-04): public server migration now distinguishes
+Historical direction (2026-09-04, superseded for target upgrades): public server migration distinguished
 historical input adapters from Current Base/Advanced destination compositions.
 The destination-resolution additions below are planned upgrade work; they do
 not retroactively claim that the released map-discovery phases upgrade a target
@@ -28,6 +28,12 @@ automatic. It records the intended user experience, discovery architecture,
 content-completeness rules, safety boundaries, phased work, and acceptance
 criteria. It is deliberately server-neutral and must not acquire behavior tied
 to one named game or private-server repository.
+
+Content lifecycle reconciliation (2026-10-02): the owner adopted
+[Content Lifecycle Delivery](WORLD-BUILDER-CONTENT-LIFECYCLE.md). Placement-bound
+provider identities and the existing-project refresh deferral below are known
+limitations to remove, not accepted final behavior. The earlier Base/Advanced
+target replacement direction is superseded by targeted map integration.
 
 ## Product outcome
 

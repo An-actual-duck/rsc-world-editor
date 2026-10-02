@@ -133,6 +133,16 @@ final class WorldBuilderNpcDefinitionProvider {
 			"server/conf/server/defs/NpcDefsCustom.json", "npcs").get("npcs"), "NpcDefsCustom.json").size();
 		Provider provider = readProvider(selectedProviderManifest, copiedTarget,
 			originalCount - 1, providerPlacements);
+        // Available content is the complete validated projection, including
+        // definitions not currently placed. Never truncate it at the largest
+        // placed ID. A provider is not authority to invent a missing placed ID.
+        required.addAll(provider.definitions.keySet());
+        if (!required.isEmpty()) maximum = Math.max(maximum, Collections.max(required));
+        if (!provider.definitions.isEmpty()) for (Integer id : required) {
+            if (id >= appendedCount && !provider.definitions.containsKey(id)) throw problem(
+                "npc " + id, "NPC " + id + " is referenced but absent from the effective target definitions "
+                    + "and selected content provider. Detect new content before placing this ID.");
+        }
 		Map<String,Object> template = object(baseRows.get(0), "NpcDefs.json#record=0");
 		List<Object> rewritten = new ArrayList<Object>(customRows);
 		List<Item> items = new ArrayList<Item>();
@@ -505,18 +515,23 @@ final class WorldBuilderNpcDefinitionProvider {
 			"declarativeMaximumNpcId") != declarativeMaximum) {
 			throw new TargetMismatch("Provider declarative NPC boundary differs from the target.");
 		}
-		Set<Integer> extensionPlacements = new TreeSet<Integer>(placements);
-		extensionPlacements.removeIf(id -> id.intValue() <= declarativeMaximum);
-		Set<Integer> selected = new TreeSet<Integer>();
-		for (Object raw : array(selection.get("placedNpcIds"), "placedNpcIds")) {
-			selected.add(Integer.valueOf(integer(raw, 0, MAX_ID, "placedNpcId")));
-		}
-		// Placement coordinates and counts may change during ordinary world editing.
-		// Reuse the provider while the extension identity set, declarative registry,
-		// and sprite archives still match; those are the authorities that determine
-		// NPC definitions and visuals.
-		if (!extensionPlacements.equals(selected)) throw new TargetMismatch(
-			"Provider placed extension NPC set differs from the target.");
+        // This producer's selection describes the export that created it, not
+        // the current map population. Internal selection/definition/animation
+        // equality was already checked by validateProducerSelection. Retain its
+        // immutable source/asset bindings while placements change independently.
+        for (Object raw : array(provider.get("sources"), "provider.sources")) {
+            Map<String,Object> source = object(raw, "provider source");
+            if (!"extension-npc-definitions".equals(source.get("role"))) continue;
+            String identity = text(source.get("identity"), 1, 512, "provider source identity");
+            if (!identity.matches("[A-Za-z0-9_-]+\\.json")) throw new TargetMismatch(
+                "Provider extension definition identity is unsafe.");
+            Path actual = copiedTarget.resolve("server/conf/server/defs/" + identity);
+            if (!Files.isRegularFile(actual, LinkOption.NOFOLLOW_LINKS)
+                || Files.isSymbolicLink(actual)
+                || !hash(source.get("sha256"), "provider source sha256").equals(WorldBuilderHashes.sha256(actual))) {
+                throw new TargetMismatch("Provider was generated for different extension definitions: " + identity + ".");
+            }
+        }
 	}
 
 	private static Map<String,Object> producerDefinition(Map<String,Object> row,
