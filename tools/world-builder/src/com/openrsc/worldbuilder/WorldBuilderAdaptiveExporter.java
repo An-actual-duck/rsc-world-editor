@@ -67,7 +67,7 @@ final class WorldBuilderAdaptiveExporter {
 		}
 	}
 
-	private ExportResult exportLocked(Path project)
+	ExportResult exportLocked(Path project)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 			WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);

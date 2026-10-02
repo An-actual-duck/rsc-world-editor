@@ -124,11 +124,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 
     static Plan prepareReverification(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
         WorldBuilderAdaptiveExporter.VerifiedExport export, Path target, String id,
-        Plan predecessor, WorldBuilderTargetMapIntegration.Result verified, Map<String,Object> evidence)
+        Plan predecessor, WorldBuilderTargetMapIntegration.Result verified, Map<String,Object> evidence,
+        WorldBuilderAdaptiveConfiguration selectedConfiguration)
         throws IOException, WorldBuilderContractException {
         WorldBuilderTargetCapability capability = WorldBuilderTargetCapability.read(WorldBuilderReadOnlyTarget.open(target));
         WorldBuilderAdaptiveConfiguration configuration = WorldBuilderAdaptiveConfiguration.select(
-            WorldBuilderReadOnlyTarget.open(target), capability, predecessor.configuration.configurationId).selected;
+            WorldBuilderReadOnlyTarget.open(target), capability, selectedConfiguration.configurationId).selected;
         List<Action> actions = new ArrayList<Action>();
         for (Action raw : WorldBuilderTargetMapIntegration.actions(target, verified)) {
             if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(raw.destinationRelativePath))
@@ -141,10 +142,13 @@ final class WorldBuilderAdaptiveMutationProfile {
         Map<String,Object> generated = document(id, project, export, capability, configuration,
             WorldBuilderAdaptiveExporter.canonicalHash(evidence), actions, Collections.<ConfigurationChange>emptyList(),
             directories, requiredSpace(actions), configuration.sha256);
-        inherit(generated, WorldBuilderFloorUpgradeLineage.advance(predecessor));
-        WorldBuilderRuntimeUpgradeHistory.record(predecessor, generated);
+        if (predecessor != null) {
+            inherit(generated, WorldBuilderFloorUpgradeLineage.advance(predecessor));
+            WorldBuilderRuntimeUpgradeHistory.record(predecessor, generated);
+        }
         WorldBuilderRuntimeReverification.bind(generated, evidence);
-        return new Plan(target, project, export, capability, configuration, predecessor.profileId,
+        return new Plan(target, project, export, capability, configuration, predecessor == null
+            ? WorldBuilderAdaptiveExporter.string(WorldBuilderAdaptiveExporter.object(project.manifest.get("target"), "target"), "importProfileId") : predecessor.profileId,
             configuration.serverMapRelativePath, configuration.clientMapRelativePath,
             Files.readAllBytes(safeExistingFile(target, configuration.relativePath, "configuration")),
             actions, Collections.<ConfigurationChange>emptyList(), directories, generated);
