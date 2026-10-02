@@ -275,10 +275,12 @@ authentication. The simple v1 NPC-definition mapping may reference only
 animation IDs already available through the packaged runtime. Rich neutral
 providers supply the additional animation evidence needed for bundle v3.
 
-The consumer also accepts the richer neutral producer form with
+The legacy schema-1 consumer also accepts the richer neutral producer form with
 `manifestType: "world-builder-npc-definitions"`. That form carries
 `npcDefinitions`, the complete referenced `animationDefinitions`, exact sprite
-archive bindings, and a sorted placed-extension selection. World Builder
+archive bindings, and a sorted historical placed-extension selection. That
+selection describes the producer's original export; it is not required to
+equal the current map population. World Builder
 validates the package inventory, archive hashes, NPC/definition identities,
 selection closure, and every referenced animation before normalizing it to the
 isolated Builder registry. Producer fields which have no Builder runtime
@@ -298,11 +300,49 @@ then installs definitions at their original (including sparse) client IDs
 before project NPC definitions load. Existing v1/v2 projects remain readable.
 
 A structurally valid rich manifest is not sufficient by itself. Its target
-definition, placement, and sprite-archive bindings are compared with the
+definition and sprite-archive bindings are compared with the
 immutable copied source before normalization. A mismatch is a hard
 `CAPABILITY_MISMATCH`, not a placeholder case: placeholders preserve genuinely
 unresolved records, whereas a stale provider could assign valid-looking but
 incorrect content to an existing numeric ID.
+
+### Complete final NPC presentation
+
+Schema version 2 of `world-builder-npc-definitions` captures the complete
+effective server NPC catalog, including unplaced definitions and vanilla-ID
+overrides. It is discovered at `world-builder-provider/npc-definitions-v2.json`
+or `server/conf/world-builder/npc-definitions-v2.json`. Two active complete
+producers are ambiguous and refused. A complete producer supersedes an older
+generated schema-1 presentation cache; users do not delete that cache manually.
+
+The maintained producer runs in the target's trusted build workflow. World
+Builder consumes its inert output and never launches target code. It verifies
+the selected configuration, effective definition order, final twelve animation
+slots, palettes and dimensions, referenced frame closure, renderer sources,
+assets, and ordered resolution evidence. Both successful lookups and earlier
+absent candidates are bound: a new earlier file requires a fresh maintained
+export and reviewed content refresh.
+
+Only project-local presentation is normalized. Target NPC IDs, names and
+gameplay definitions remain authoritative. Private animation allocation does
+not change the visual identity; ordered layers, pixels, geometry and effective
+recolor rules do. The paired private runtime must advertise RGB-frame and
+explicit mask-policy support. These are authoring capabilities, not additional
+target map-loader requirements.
+
+The bounded `openrsc-effective-npc-preview-v1` profile supports verified
+NPC-disjoint active spritepacks. A pack overriding NPC frames is refused with
+an actionable report. The building preview uses generic layered animation;
+source-specific cadence and secondary attacks may be retained as evidence
+without being reproduced. Such limitations are reported separately from
+unresolved visuals in `diagnostics/npc-producer-v2-resolution.json`. A complete
+producer's malformed or stale evidence is a refusal, not permission to substitute
+a generic head. Existing schema-1 projects remain readable.
+
+Use **Detect New Content** to incorporate a new complete export into an edited
+project. The reviewed successor retains the saved map and predecessor history;
+it does not replace the saved map with the target map. See the
+[content lifecycle guide](WORLD-BUILDER-CONTENT-LIFECYCLE-GUIDE.md).
 
 ## Effective definition composition
 
@@ -329,16 +369,13 @@ ignored and cannot block or alter a modern composition. Cross-layer
 replacement is allowed only through the declared deterministic precedence
 order and is always reported.
 
-Additional bounded `*NpcDefs.json` catalogs are discovered without a compiled
-allowlist of NPC names or IDs. Their declared IDs determine the project-local
-sequential registry, independent of filename order; sparse IDs receive inert
-reserved records. A declared ID already occupied by the base, custom, or an
-earlier supplemental definition is the only automatic-reassignment case. The
-later definition receives the next deterministic free ID, existing spawns keep
-their original meaning, and
-`diagnostics/npc-definition-reconciliation-v1.json` records both definitions,
-the reassignment, and every matching source spawn coordinate for manual review.
-Targets remain read-only throughout discovery and project creation.
+Additional NPC catalogs require a verified active load order from a supported
+maintained loader or the bound effective-content source descriptor. Filename
+matching alone does not activate a catalog. Under the supported append-registry
+semantics, any explicit ID must equal its actual append slot; conflicting IDs
+are refused, never automatically reassigned. The same source selection is used
+for unplaced content. Targets remain read-only throughout discovery and project
+creation. See the [maintained export coordination contract](CORE-CONTENT-LIFECYCLE-COORDINATION.md).
 
 Descriptor-backed v1 targets that expose no ordinary gameplay configuration
 retain the legacy supplied Patch18/world closure for compatibility. New packed
