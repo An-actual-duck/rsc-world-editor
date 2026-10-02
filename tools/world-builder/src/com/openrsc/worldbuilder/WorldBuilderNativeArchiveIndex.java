@@ -129,6 +129,25 @@ final class WorldBuilderNativeArchiveIndex {
         }
     }
 
+    Set<Integer> modelTextureIds(String filename) throws IOException {
+        if (!containsValidModel(filename)) return null;
+        Entry entry = entries.get(Integer.valueOf(filenameHash(filename)));
+        try (SeekableByteChannel input = Files.newByteChannel(path, StandardOpenOption.READ)) {
+            input.position(entry.offset);
+            ByteBuffer header = ByteBuffer.allocate(4); readFully(input,header);header.flip();
+            int vertices=header.getShort()&0xffff, faces=header.getShort()&0xffff;
+            input.position(entry.offset+4L+6L*vertices+faces);
+            ByteBuffer materials=ByteBuffer.allocate(4*faces);readFully(input,materials);materials.flip();
+            Set<Integer> textures=new TreeSet<>();
+            while(materials.hasRemaining()) {
+                int material=materials.getShort();
+                // OB3 encodes the renderer's transparent sentinel as signed 32767.
+                if(material>=0&&material!=32767)textures.add(material);
+            }
+            return textures;
+        }
+    }
+
 	static int filenameHash(String name) {
 		int result = 0;
 		String upper = name.toUpperCase(java.util.Locale.ROOT);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Embed only reviewed map integration objects from the exact provider lock."""
+"""Embed reviewed map integration and inert authoring lookups from the exact lock."""
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
@@ -33,6 +33,23 @@ def main():
         if len(result.stdout) > 4 * 1024 * 1024:
             raise ValueError("Targeted source exceeds size bound")
         return result.stdout
+    # Presentation lookup only: this does not select or install a game composition.
+    baseline = read("current-platform/runtime/current-base-v1/public-definitions/item-visuals.json", optional=True)
+    if baseline is not None:
+        value = json.loads(baseline)
+        if value.get("manifestType") != "current-base-public-item-visuals" or value.get("schemaVersion") != 1:
+            raise ValueError("Unsupported immutable authoring item lookup")
+        destination = classes / "com/openrsc/worldbuilder/authoring-lookups/item-visuals.json"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(baseline)
+    animations = read("current-platform/runtime/current-base-v1/public-definitions/animation-visuals.json", optional=True)
+    if animations is not None:
+        value = json.loads(animations)
+        if value.get("manifestType") != "current-base-public-animation-visuals" or value.get("schemaVersion") != 1:
+            raise ValueError("Unsupported immutable authoring animation lookup")
+        destination = classes / "com/openrsc/worldbuilder/authoring-lookups/animation-visuals.json"
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.write_bytes(animations)
     raw = read(descriptor, optional=True)
     if raw is None:
         return  # Older locked providers do not support targeted upgrades.

@@ -496,6 +496,20 @@ class TargetMapEmbeddingTest(unittest.TestCase):
             payload=output/'com/openrsc/worldbuilder/target-map-integration'
             contract=json.loads((payload/'target-map-integration-v1.json').read_text())
             self.assertEqual('world-builder-target-map-integration',contract['manifestType'])
+            # The authoring lookup is a byte-exact inert input from the same lock.
+            lookup=output/'com/openrsc/worldbuilder/authoring-lookups/item-visuals.json'
+            import re
+            revision=re.search(r'^RUNTIME_PROVIDER_COMMIT=([0-9a-f]{40})$',(ROOT/'runtime-provider.lock').read_text(),re.M).group(1)
+            expected=subprocess.run(['git','-C',str(provider),'show',revision+':current-platform/runtime/current-base-v1/public-definitions/item-visuals.json'],check=True,capture_output=True).stdout
+            self.assertEqual(expected,lookup.read_bytes())
+            self.assertEqual('current-base-public-item-visuals',json.loads(expected)['manifestType'])
+            animation=output/'com/openrsc/worldbuilder/authoring-lookups/animation-visuals.json'
+            expected_animation=subprocess.run(['git','-C',str(provider),'show',revision+':current-platform/runtime/current-base-v1/public-definitions/animation-visuals.json'],check=True,capture_output=True).stdout
+            self.assertEqual(expected_animation,animation.read_bytes())
+            animation_manifest=json.loads(expected_animation)
+            self.assertEqual('current-base-authentic-npc-visuals-v1',animation_manifest['profileId'])
+            self.assertEqual(229,len(animation_manifest['animations']))
+            self.assertEqual({'Config.S_WANT_CUSTOM_SPRITES':False,'Config.S_ALLOW_BEARDED_LADIES':False},animation_manifest['flags'])
             for adapter in contract['adapters']:
                 for source in adapter['sources']:
                     self.assertEqual(source['sha256'],sha((payload/source['payloadRelativePath']).read_bytes()))

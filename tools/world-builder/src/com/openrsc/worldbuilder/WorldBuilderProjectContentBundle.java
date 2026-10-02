@@ -236,7 +236,7 @@ final class WorldBuilderProjectContentBundle {
 		List<String> copiedConfigurations =
 			WorldBuilderPackedSourceLayout.configurationPaths(copied);
 		WorldBuilderPackedSourceLayout sourceLayout =
-			WorldBuilderPackedSourceLayout.canonical(copiedConfigurations.size() == 1
+			WorldBuilderPackedSourceLayout.canonical(originalLayout != null ? originalLayout.configurationPath : copiedConfigurations.size() == 1
 				? copiedConfigurations.get(0)
 				: WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
 		WorldBuilderDefinitionComposition.Profile composition =
@@ -252,7 +252,7 @@ final class WorldBuilderProjectContentBundle {
 		WorldBuilderNpcDefinitionProvider.Result npcMigration =
 			WorldBuilderNpcDefinitionProvider.consume(
 				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds,
-				npcRegistry.customRows);
+				npcRegistry.customRows, sourceLayout);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
 			WorldBuilderSceneryModelProvider.normalize(copiedTarget, runtime);
 		Map<Integer,Map<String,Object>> targetItemDefinitions =
@@ -449,6 +449,7 @@ final class WorldBuilderProjectContentBundle {
 				"Captured custom-content bundle changed during verification.",
 				"Discard the unpublished project stage and retry.");
 		}
+		WorldBuilderEffectiveContent.writeVisualReport(projectStage, WorldBuilderEffectiveContent.visualReport(captured));
 		return captured;
 	}
 
