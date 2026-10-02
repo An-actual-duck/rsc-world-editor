@@ -200,6 +200,7 @@ final class WorldBuilderAdaptiveImporter {
 				WorldBuilderAdaptiveProjectLifecycle.VerifiedProject verified =
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(project, true);
 				requireSameProject(initial, verified);
+                WorldBuilderContentRefreshAuthority.requireMutationAllowed(verified);
 				outstanding = latestOutstandingSuccessfulImport(project);
 				Path target = WorldBuilderAdaptiveMutationProfile.requireTarget(requestedTarget);
 				WorldBuilderAdaptiveExporter.VerifiedExport export =
