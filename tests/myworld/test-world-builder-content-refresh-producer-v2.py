@@ -29,6 +29,7 @@ class ProducerRefreshTest(refresh.ContentRefreshTest):
 import java.nio.file.*;
 public final class ProducerConversionProbe {
  public static void main(String[] args)throws Exception {
+  if("preview-note".equals(args[0])){System.out.print(WorldBuilderNpcProducerFrames.projectPreviewSummary(Paths.get(args[1])));return;}
   Path root=Paths.get(args[0]);
   WorldBuilderPackedConversionSource source=WorldBuilderPackedConversionSource.open(root,Paths.get(args[1]));
   if(args.length>2){Path candidate=root.resolve(args[2]);Files.createDirectories(candidate.getParent());
@@ -39,7 +40,7 @@ public final class ProducerConversionProbe {
         subprocess.run(["javac", "-cp", str(cls.classes), "-d", str(cls.classes), str(source)],
                        check=True, capture_output=True)
 
-    def producer_fixture(self, base):
+    def producer_fixture(self, base, frame_count=15):
         from npc_producer_v2_test_support import install_v2_fixture
 
         def content(target):
@@ -49,7 +50,7 @@ public final class ProducerConversionProbe {
             self.complete_content(target)
             configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
             catalog = json.loads((target / configuration["serverDefinitionCatalogRelativePath"]).read_text())
-            manifest, document = install_v2_fixture(target, catalog["npcs"])
+            manifest, document = install_v2_fixture(target, catalog["npcs"], frame_count=frame_count)
             # Sources and flags are installed before the original snapshot.
             # The later exporter is new inert provenance, never a game update.
             document["provider"]["sources"] = [row for row in document["provider"]["sources"]
@@ -280,6 +281,51 @@ public final class ProducerConversionProbe {
                 self.assertNotEqual(0, rejected.returncode, rejected.stdout)
                 self.assertIn("previously absent visual candidate", rejected.stderr)
             self.assertEqual(parent_before, support.tree_bytes(parent))
+
+    def test_intentional_preview_limits_are_bound_and_shown_separately_from_missing_visuals(self):
+        with tempfile.TemporaryDirectory(prefix="producer-preview-notes-") as temporary:
+            target, install, parent, export, runtime = self.producer_fixture(Path(temporary), frame_count=21)
+            parent_before = support.tree_bytes(parent)
+            manifest, document = self.add_producer_evidence(target)
+            document["npcDefinitions"][0]["hairColour"] += 1
+            support.write_json(manifest, document)
+            target_before = support.tree_bytes(target, install)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            limitations = preview["authoringPreviewLimitations"]
+            self.assertTrue(limitations)
+            self.assertTrue(all(row["resolvedFrameCount"] == 21 and len(row["authoringFrameIndices"]) == 18
+                                for row in limitations))
+            self.assertTrue(all(row["name"] and row["limitation"] == "source-secondary-attack-not-previewed"
+                                for row in limitations))
+            self.assertFalse([row for row in preview["visualWarnings"] if row["family"] == "npc"])
+            display = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.RefreshReviewFixture",
+                                      str(parent), str(runtime), str(target)], capture_output=True, text=True)
+            self.assertEqual(0, display.returncode, display.stderr)
+            visible = json.loads(display.stdout)
+            self.assertIn("NPC authoring preview notes", visible["summary"])
+            self.assertIn("secondary attack is not animated", visible["summary"])
+            self.assertIn("visual evidence changes", visible["summary"])
+            self.assertNotIn("verified visual changes", visible["summary"])
+            self.assertIn("do not prove every entry looks different", visible["summary"])
+            self.assertEqual(limitations, json.loads(visible["details"])["authoringPreviewLimitations"])
+            repeated = self.refresh(parent, runtime, target)
+            self.assertEqual(0, repeated.returncode, repeated.stderr)
+            self.assertEqual(preview["previewFingerprintSha256"], json.loads(repeated.stdout)["previewFingerprintSha256"])
+            applied = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                                   "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, applied.returncode, applied.stderr)
+            successor = Path(json.loads(applied.stdout)["projectRoot"])
+            report = json.loads((successor / "diagnostics/npc-producer-v2-resolution.json").read_text())
+            self.assertEqual(limitations, report["previewLimitations"])
+            note = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.ProducerConversionProbe",
+                                   "preview-note", str(successor)], capture_output=True, text=True)
+            self.assertEqual(0, note.returncode, note.stderr)
+            self.assertIn("secondary attacks", note.stdout)
+            self.assertIn(str(successor / "diagnostics/npc-producer-v2-resolution.json"), note.stdout)
+            self.assertEqual(parent_before, support.tree_bytes(parent))
+            self.assertEqual(target_before, support.tree_bytes(target, install))
 
 
 def load_tests(loader, tests, pattern):

@@ -569,7 +569,7 @@ final class WorldBuilderDesktopLauncher {
 				+ "Use Detect New Content to review new server definitions and visuals "
 				+ "while preserving your saved map. Previous content revisions remain available. "
 				+ "External server map changes require a separate conflict decision."
-				+ contentWarning(entry.projectRoot));
+				+ contentWarning(entry.projectRoot) + contentPreviewNote(entry.projectRoot));
 			details.setCaretPosition(0);
 		}
 
@@ -709,7 +709,7 @@ final class WorldBuilderDesktopLauncher {
 									JOptionPane.showMessageDialog(frame, contentReviewScroll(
 										"New content is ready. Continue Working opens your preserved map with the reviewed library.\n"
 										+ "The previous content revision and its history remain in the project list."
-										+ contentWarning(result.projectRoot)),
+										+ contentWarning(result.projectRoot) + contentPreviewNote(result.projectRoot)),
 										"Content Updated", JOptionPane.INFORMATION_MESSAGE);
 								}
 							});
@@ -930,6 +930,11 @@ final class WorldBuilderDesktopLauncher {
 		private String contentWarning(Path project) {
 			String warning = WorldBuilderEffectiveContent.projectWarningSummary(project);
 			return warning == null ? "" : warning;
+		}
+
+		private String contentPreviewNote(Path project) {
+			String note = WorldBuilderNpcProducerFrames.projectPreviewSummary(project);
+			return note == null ? "" : note;
 		}
 
 		private void showContentReview(WorldBuilderProjectContentRefresh.Preview preview) {
@@ -1642,17 +1647,20 @@ final class WorldBuilderDesktopLauncher {
 							+ (sceneryWarning == null ? "" : sceneryWarning)
 							+ (materialWarning == null ? "" : materialWarning)
 							+ contentWarning(created.projectRoot);
+						String previewNotes = contentPreviewNote(created.projectRoot);
 						status.setText(warnings.isEmpty()
-							? "Project created; opening the editor…"
+							? (previewNotes.isEmpty() ? "Project created; opening the editor…"
+								: "Project created with animation preview notes; opening the editor…")
 							: "Project created with content warnings; opening the editor…");
-						if (!warnings.isEmpty()) {
+						if (!warnings.isEmpty() || !previewNotes.isEmpty()) {
 							JTextArea notice = readOnlyText();
 							notice.setRows(8);
 							notice.setColumns(58);
-							notice.setText(warnings);
+							notice.setText(warnings + previewNotes);
 							notice.setCaretPosition(0);
 							JOptionPane.showMessageDialog(frame, new JScrollPane(notice),
-								"Content Discovery Warnings", JOptionPane.WARNING_MESSAGE);
+								warnings.isEmpty() ? "NPC Authoring Preview" : "Content Discovery Warnings",
+								warnings.isEmpty() ? JOptionPane.INFORMATION_MESSAGE : JOptionPane.WARNING_MESSAGE);
 						}
 						launchProject(created.projectId,
 							"standalone-empty".equals(created.origin)
