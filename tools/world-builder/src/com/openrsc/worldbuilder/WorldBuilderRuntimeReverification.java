@@ -11,16 +11,17 @@ final class WorldBuilderRuntimeReverification {
 
     static WorldBuilderAdaptiveMutationProfile.Plan prepare(
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target, String id,
-        WorldBuilderAdaptiveReceipt.State previous) throws IOException, WorldBuilderContractException {
-        if (previous == null) throw refusal("Re-verification requires a retained successful integration transaction.");
+        WorldBuilderAdaptiveReceipt.State previous, WorldBuilderAdaptiveExporter.VerifiedExport export) throws IOException, WorldBuilderContractException {
+        if (previous == null) requireSnapshotEligible(project);
         if (Files.exists(project.projectRoot.resolve(WorldBuilderFloorUpgradeLineage.PATH)))
             throw refusal("Re-verification of a sibling floor-upgrade project is not yet supported; retain its complete parent history.");
-        Map<String,Object> previousPlan = readPlan(project, previous.transactionId());
-        // This restores every retained runtime action and checks receipt, export,
-        // before-backup and exact plan bindings without trusting the live target.
-        Map<String,Object> history = WorldBuilderRuntimeUpgradeHistory.describePredecessors(project, target, previousPlan);
-        List<Object> references = new ArrayList<Object>(array(history.get("references")));
-        references.add(reference(project, previous));
+        List<Object> references = new ArrayList<Object>();
+        if (previous != null) {
+            Map<String,Object> previousPlan = readPlan(project, previous.transactionId());
+            Map<String,Object> history = WorldBuilderRuntimeUpgradeHistory.describePredecessors(project, target, previousPlan);
+            references.addAll(array(history.get("references")));
+            references.add(reference(project, previous));
+        }
         Map<String,Path> baseline = new TreeMap<String,Path>();
         byte[] proof = null;
         Map<String,Object> baselineReference = null;
@@ -49,7 +50,6 @@ final class WorldBuilderRuntimeReverification {
             baseline = inherited.outputs; baselineReference = inherited.reference; baselineProject = inherited.binding;
             proof = Files.readAllBytes(baseline.get(WorldBuilderTargetMapIntegration.INSTALLED));
         }
-        WorldBuilderAdaptiveExporter.VerifiedExport export = WorldBuilderAdaptiveUndo.findExport(project, previous.exportFingerprint());
         Map<String,Object> configuration = object(project.snapshot.get("selectedConfiguration"));
         String configPath = string(configuration,"relativePath").substring("source/original/".length());
         WorldBuilderAdaptiveConfiguration selected = WorldBuilderAdaptiveConfiguration.read(
@@ -62,15 +62,24 @@ final class WorldBuilderRuntimeReverification {
         try { originalProof = WorldBuilderJsonDocuments.readObject(proof, "retained-integration-proof"); }
         catch (WorldBuilderDiscoveryException invalid) { throw refusal("Retained integration proof is malformed."); }
         for (Object row : array(originalProof.get("archives"))) archives.add(string(object(row),"relativePath"));
-        WorldBuilderAdaptiveMutationProfile.Plan predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(
-            project, export, target, previous.transactionId(), archives);
-        WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(predecessor, previous);
+        WorldBuilderAdaptiveMutationProfile.Plan predecessor = null;
         Map<String,Object> inputs = new TreeMap<String,Object>();
-        for (WorldBuilderAdaptiveMutationProfile.Action action : predecessor.actions) {
-            if (!archives.contains(action.destinationRelativePath))
-                WorldBuilderAdaptiveImporter.verifyState(target, action.destinationRelativePath, action.after);
-            if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(action.destinationRelativePath))
-                inputs.put(action.destinationRelativePath, action.after.toJson());
+        if (previous != null) {
+            predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), archives);
+            WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(predecessor, previous);
+            for (WorldBuilderAdaptiveMutationProfile.Action action : predecessor.actions) {
+                if (!archives.contains(action.destinationRelativePath))
+                    WorldBuilderAdaptiveImporter.verifyState(target, action.destinationRelativePath, action.after);
+                if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(action.destinationRelativePath))
+                    inputs.put(action.destinationRelativePath, action.after.toJson());
+            }
+        } else {
+            Map<String,WorldBuilderAdaptiveMutationProfile.FileState> snapshot = snapshotStates(project);
+            for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : snapshot.entrySet()) {
+                if (!archives.contains(entry.getKey())) WorldBuilderAdaptiveImporter.verifyState(target,entry.getKey(),entry.getValue());
+                if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(entry.getKey())) inputs.put(entry.getKey(),entry.getValue().toJson());
+            }
+            WorldBuilderContentRefreshAuthority.verifyLivePackages(target,selected,snapshot);
         }
         for (String path : result.inputs.keySet()) {
             WorldBuilderAdaptiveMutationProfile.FileState state = state(target,path);
@@ -79,13 +88,56 @@ final class WorldBuilderRuntimeReverification {
         }
         inputs.put(configPath,state(target,configPath).toJson());
         Map<String,Object> evidence = new LinkedHashMap<String,Object>();
-        evidence.put("predecessor", reference(project, previous));
+        if (previous != null) evidence.put("predecessor", reference(project, previous));
+        else evidence.put("snapshotPredecessor", array(baselineProject.get("lineage")).get(0));
         evidence.put("baseline", baselineReference);
         if (baselineProject != null) evidence.put(WorldBuilderContentRuntimeBaseline.FIELD, baselineProject);
         evidence.put("inputs", inputs);
         try { evidence.put("inventories", WorldBuilderJsonDocuments.readObject(result.outputs.get(WorldBuilderTargetMapIntegration.INSTALLED), "verified-proof").get("inputInventories")); }
         catch (WorldBuilderDiscoveryException invalid) { throw refusal("Verified proof is malformed."); }
-        return WorldBuilderAdaptiveMutationProfile.prepareReverification(project, export, target, id, predecessor, result, evidence);
+        return WorldBuilderAdaptiveMutationProfile.prepareReverification(project, export, target, id, predecessor, result, evidence, selected);
+    }
+
+    /** Called while the caller owns the project lock; export acquires no second lock. */
+    static WorldBuilderAdaptiveExporter.VerifiedExport snapshotExportLocked(
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project) throws IOException, WorldBuilderContractException {
+        requireSnapshotEligible(project);
+        Path exports = WorldBuilderAdaptiveExporter.requireDirectory(project.projectRoot,"exports","project exports");
+        List<Path> candidates = new ArrayList<Path>();
+        try (java.nio.file.DirectoryStream<Path> stream = Files.newDirectoryStream(exports)) {
+            for (Path candidate : stream) if (!candidate.getFileName().toString().startsWith(".")
+                && Files.isDirectory(candidate,java.nio.file.LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(candidate)) candidates.add(candidate);
+        }
+        Collections.sort(candidates);
+        for (Path candidate : candidates) {
+            try { return WorldBuilderAdaptiveExporter.validate(candidate,project); }
+            catch (WorldBuilderContractException unrelated) { /* Only an exact current saved-state export is reusable. */ }
+        }
+        return WorldBuilderAdaptiveExporter.validate(new WorldBuilderAdaptiveExporter().exportLocked(project.projectRoot).exportDirectory,project);
+    }
+    static void requireSnapshotEligible(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
+        throws IOException,WorldBuilderContractException {
+        WorldBuilderContentRuntimeBaseline.resolve(project);
+        for (WorldBuilderAdaptiveReceipt.State receipt : WorldBuilderAdaptiveReceipt.readAll(project.projectRoot)) {
+            if (("import".equals(receipt.transactionType()) && "successful".equals(receipt.status()))
+                || "pending".equals(receipt.status()) || "recovery-required".equals(receipt.status()))
+                throw refusal("Snapshot re-verification requires a content successor with no prior successful or interrupted local transaction.");
+        }
+    }
+    private static Map<String,WorldBuilderAdaptiveMutationProfile.FileState> snapshotStates(
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project) throws WorldBuilderContractException {
+        Map<String,WorldBuilderAdaptiveMutationProfile.FileState> result = new TreeMap<String,WorldBuilderAdaptiveMutationProfile.FileState>();
+        for (String family : Arrays.asList("originalFiles","definitionRuntimeFiles")) {
+            for (Object raw : array(project.snapshot.get(family))) {
+                Map<String,Object> row = object(raw); String path = string(row,"relativePath");
+                if (!path.startsWith("source/original/")) continue;
+                path = path.substring("source/original/".length()); WorldBuilderPortablePath.require(path,FIELD);
+                WorldBuilderAdaptiveMutationProfile.FileState state = fileState(row), previous = result.put(path,state);
+                if (previous != null && !previous.toJson().equals(state.toJson())) throw refusal("Snapshot repeats conflicting target evidence: " + path);
+            }
+        }
+        if (result.isEmpty() || result.size()>100000) throw refusal("Snapshot target inventory is empty or exceeds its bound.");
+        return result;
     }
 
     static void bind(Map<String,Object> plan, Object evidence) throws WorldBuilderContractException {
@@ -97,12 +149,20 @@ final class WorldBuilderRuntimeReverification {
     }
     static void validateShape(Object raw) throws WorldBuilderContractException {
         Map<String,Object> value = object(raw);
+        List<String> keys = new ArrayList<String>(Arrays.asList("baseline","inputs","inventories"));
+        boolean snapshot = value.containsKey("snapshotPredecessor");
+        keys.add(snapshot ? "snapshotPredecessor" : "predecessor");
         if (value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)) {
-            WorldBuilderBoundedInventory.exactKeys(value,FIELD,"predecessor","baseline","inputs","inventories",WorldBuilderContentRuntimeBaseline.FIELD);
+            keys.add(WorldBuilderContentRuntimeBaseline.FIELD);
             WorldBuilderContentRuntimeBaseline.validate(value.get(WorldBuilderContentRuntimeBaseline.FIELD));
-        } else WorldBuilderBoundedInventory.exactKeys(value,FIELD,"predecessor","baseline","inputs","inventories");
-        for (String key : Arrays.asList("predecessor","baseline"))
-            WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get(key)));
+        }
+        WorldBuilderBoundedInventory.exactKeys(value,FIELD,keys.toArray(new String[0]));
+        if (snapshot) {
+            if (!value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)
+                || !value.get("snapshotPredecessor").equals(array(object(value.get(WorldBuilderContentRuntimeBaseline.FIELD)).get("lineage")).get(0)))
+                throw refusal("Snapshot predecessor differs from its inherited runtime source/origin binding.");
+        } else WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get("predecessor")));
+        WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get("baseline")));
         List<?> inventories = array(value.get("inventories"));
         if (inventories.size() > 128) throw refusal("Runtime inventory is unbounded.");
         Map<String,Object> roots = new HashMap<String,Object>();
@@ -139,7 +199,7 @@ final class WorldBuilderRuntimeReverification {
         Map<String,Object> value = object(plan.get(FIELD)); validateShape(value);
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject baselineOwner = project;
         if (value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)) baselineOwner = WorldBuilderContentRuntimeBaseline.require(project,value).owner;
-        for (String key : Arrays.asList("predecessor","baseline")) {
+        for (String key : value.containsKey("snapshotPredecessor") ? Collections.singletonList("baseline") : Arrays.asList("predecessor","baseline")) {
             Map<String,Object> ref = object(value.get(key));
             WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner = "baseline".equals(key) ? baselineOwner : project;
             WorldBuilderAdaptiveReceipt.State receipt = WorldBuilderAdaptiveReceipt.read(owner.projectRoot.resolve("receipts/" + string(ref,"transactionId") + ".json"));
@@ -160,18 +220,28 @@ final class WorldBuilderRuntimeReverification {
         for (WorldBuilderAdaptiveReceipt.State receipt : receipts)
             if (receipt.compareTo(boundary)<0 && "import".equals(receipt.transactionType()) && "successful".equals(receipt.status())
                 && !reverted.contains(receipt.transactionId())) latest=receipt;
-        if (latest == null || !latest.transactionId().equals(object(value.get("predecessor")).get("transactionId")))
+        boolean snapshot = value.containsKey("snapshotPredecessor");
+        if (snapshot) {
+            for (WorldBuilderAdaptiveReceipt.State receipt : receipts)
+                if (receipt.compareTo(boundary)<0 && "import".equals(receipt.transactionType()) && "successful".equals(receipt.status()))
+                    throw refusal("Snapshot re-verification must be the first successful local transaction.");
+        } else if (latest == null || !latest.transactionId().equals(object(value.get("predecessor")).get("transactionId")))
             throw refusal("Re-verification predecessor is not the latest retained installed transaction.");
         Map<String,Object> baseline = readPlan(baselineOwner,string(object(value.get("baseline")),"transactionId"));
         if (baseline.containsKey(FIELD) || (baselineOwner == project && reverted.contains(baseline.get("transactionId")))) throw refusal("Re-verification baseline is not an original active integration.");
         WorldBuilderAdaptiveReceipt.State baselineReceipt = WorldBuilderAdaptiveReceipt.read(baselineOwner.projectRoot.resolve("receipts/"+baseline.get("transactionId")+".json"));
-        if (baselineOwner == project && baselineReceipt.compareTo(latest)>0) throw refusal("Re-verification baseline follows its predecessor.");
-        Map<String,Object> predecessor = readPlan(project,string(object(value.get("predecessor")),"transactionId"));
+        if (baselineOwner == project && (latest == null || baselineReceipt.compareTo(latest)>0)) throw refusal("Re-verification baseline follows its predecessor.");
         Map<String,Object> expected = new TreeMap<String,Object>();
-        for (Object raw : array(predecessor.get("actions"))) {
-            Map<String,Object> action=object(raw);
-            if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(action.get("destinationRelativePath")))
-                expected.put(string(action,"destinationRelativePath"),action.get("after"));
+        if (snapshot) {
+            for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : snapshotStates(project).entrySet())
+                if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(entry.getKey())) expected.put(entry.getKey(),entry.getValue().toJson());
+        } else {
+            Map<String,Object> predecessor = readPlan(project,string(object(value.get("predecessor")),"transactionId"));
+            for (Object raw : array(predecessor.get("actions"))) {
+                Map<String,Object> action=object(raw);
+                if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(action.get("destinationRelativePath")))
+                    expected.put(string(action,"destinationRelativePath"),action.get("after"));
+            }
         }
         List<?> actions=array(plan.get("actions"));
         if (actions.size()!=1 || !WorldBuilderTargetMapIntegration.INSTALLED.equals(object(actions.get(0)).get("destinationRelativePath"))
@@ -235,6 +305,8 @@ final class WorldBuilderRuntimeReverification {
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> states = new TreeMap<String,WorldBuilderAdaptiveMutationProfile.FileState>();
         replay(plan.project,plan.document,states);
         verifyInventories(plan.targetRoot, plan.document);
+        if (plan.document.containsKey(FIELD) && object(plan.document.get(FIELD)).containsKey("snapshotPredecessor"))
+            WorldBuilderContentRefreshAuthority.verifyLivePackages(plan.targetRoot,plan.configuration,snapshotStates(plan.project));
         for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : states.entrySet())
             WorldBuilderAdaptiveImporter.verifyState(plan.targetRoot,entry.getKey(),entry.getValue());
     }

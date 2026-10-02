@@ -172,13 +172,13 @@ final class WorldBuilderAdaptiveImporter {
 			"Continue editing/exporting the standalone project; Import is unavailable.");
 		WorldBuilderAdaptiveReceipt.State outstanding =
 			latestOutstandingSuccessfulImport(initial.projectRoot);
-        if (runtimeReverification && outstanding == null) throw WorldBuilderRuntimeReverification.refusal("Re-verification requires this project's retained successful runtime integration history.");
+        if (runtimeReverification && outstanding == null) WorldBuilderRuntimeReverification.requireSnapshotEligible(initial);
 		if (runtimeUpgrade && outstanding != null) throw problem(
 			WorldBuilderErrorCodes.TARGET_DRIFT, "receipts/"
 				+ outstanding.transactionId() + ".json", false,
 			"This project already has a successful target transaction and cannot establish the affected backup as its upgrade before-state.",
 			"Create a fresh project from the exact offline affected backup, then run Upgrade Target Runtime.");
-		if (!"ready-attached".equals(initial.state) && outstanding == null
+		if (!"ready-attached".equals(initial.state) && outstanding == null && !runtimeReverification
 			&& !(runtimeUpgrade && Files.isRegularFile(initial.projectRoot.resolve(WorldBuilderFloorUpgradeLineage.PATH), LinkOption.NOFOLLOW_LINKS))) {
 			Map<String,Object> targetIdentity = WorldBuilderAdaptiveExporter.object(
 				initial.manifest.get("target"), "target");
@@ -205,7 +205,8 @@ final class WorldBuilderAdaptiveImporter {
 				Path target = WorldBuilderAdaptiveMutationProfile.requireTarget(requestedTarget);
 				WorldBuilderAdaptiveExporter.VerifiedExport export =
 					runtimeReverification
-                        ? WorldBuilderAdaptiveUndo.findExport(verified, outstanding == null ? "" : outstanding.exportFingerprint())
+                        ? (outstanding == null ? WorldBuilderRuntimeReverification.snapshotExportLocked(verified)
+                            : WorldBuilderAdaptiveUndo.findExport(verified, outstanding.exportFingerprint()))
                         : WorldBuilderAdaptiveExporter.validate(requestedExport, verified);
 				WorldBuilderReadOnlyTarget readOnly = WorldBuilderReadOnlyTarget.open(target);
 				WorldBuilderTargetCapability beforeLease =
@@ -227,7 +228,7 @@ final class WorldBuilderAdaptiveImporter {
 							? UUID.randomUUID().toString() : requestedTransactionId;
 						WorldBuilderAdaptiveMutationProfile.Plan plan;
 						if (runtimeReverification) {
-                            plan = WorldBuilderRuntimeReverification.prepare(verified, target, transactionId, outstanding);
+                            plan = WorldBuilderRuntimeReverification.prepare(verified, target, transactionId, outstanding, export);
                         } else if (runtimeUpgrade) {
 							plan = WorldBuilderAdaptiveMutationProfile.prepareRuntimeUpgrade(
 								verified, export, target, transactionId);
