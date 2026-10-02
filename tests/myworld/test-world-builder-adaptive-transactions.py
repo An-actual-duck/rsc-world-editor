@@ -2059,6 +2059,40 @@ public final class InstalledFloorFixture {
             self.assertEqual(0, imported.returncode, imported.stderr)
             self.assertEqual(saved, project_support.tree_bytes(project / "working"))
 
+    def test_fresh_project_refuses_pre_capture_discovery_report(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-old-proof-report-") as temp:
+            base = Path(temp)
+            target, installation, parent, export = self.reverification_fixture(base)
+            # Emit an authentic prior-version report; do not invent its fingerprint.
+            source = (SOURCE_ROOT / "com/openrsc/worldbuilder/WorldBuilderCompatibilityEvidence.java").read_text()
+            capture = "WorldBuilderTargetMapIntegration.inspectInstalledEvidence(target, configuration, files);"
+            self.assertEqual(1, source.count(capture))
+            java = base / "old/WorldBuilderCompatibilityEvidence.java"
+            java.parent.mkdir()
+            java.write_text(source.replace(capture, "// Prior discovery omitted this dependency closure."))
+            classes = base / "old-classes"
+            classes.mkdir()
+            subprocess.run(["javac", "-source", "8", "-target", "8", "-cp", str(self.classes),
+                "-d", str(classes), str(java)], check=True, capture_output=True)
+            before = project_support.tree_bytes(target, installation)
+            old = subprocess.run(["java", "-cp", os.pathsep.join((str(classes), str(self.classes))), MAIN_CLASS,
+                "discover-adaptive", "--target-root", str(target)], capture_output=True, text=True)
+            self.assertEqual(0, old.returncode, old.stderr)
+            self.assertNotIn("server/conf/world-builder/installed-target-map-integration-v1.json",
+                [row["relativePath"] for row in json.loads(old.stdout)["files"]])
+            report = base / "old-discovery.json"
+            report.write_text(old.stdout)
+            install = base / "fresh-editor"
+            install.mkdir()
+            refused = self.run_cli("create-project", "--installation-root", install,
+                "--runtime-root", base / "builder-runtime", "--target-root", target,
+                "--discovery-report", report, "--display-name", "Old discovery", "--port", "43894", "--confirm", "CREATE")
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("TARGET_DRIFT", refused.stderr)
+            self.assertIn("rediscover", refused.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, installation))
+            self.assertFalse(list((install / "projects").glob("*/project.json")))
+
     def test_fresh_project_captures_installed_integration_proof_and_dependencies(self):
         for rebuilt in (False, True):
             with self.subTest(rebuilt=rebuilt), tempfile.TemporaryDirectory(prefix="adaptive-fresh-proof-") as temp:
