@@ -11,6 +11,10 @@ import zipfile
 import hashlib
 import gzip
 import struct
+try:
+ import jsonschema
+except ImportError:
+ jsonschema=None
 from adaptive_project_test_support import load_discovery_fixtures, declare_effective_content_sources
 from npc_producer_v2_test_support import install_v2_fixture,write_json
 ROOT=Path(__file__).resolve().parents[2]
@@ -156,4 +160,18 @@ class NpcProducerV2Test(unittest.TestCase):
    path=target/'Client_Base/Cache/video/Authentic_Sprites.orsc'
    with path.open('wb') as output:output.truncate(128*1024*1024+1)
    self.assertIn('bounded byte limit',self.run_capture(target,False,runtime))
+ @unittest.skipUnless(jsonschema is not None,'optional jsonschema module unavailable')
+ def test_normalized_registry_matches_shipped_schema_and_rejects_partial_policy(self):
+  schema=json.loads((ROOT/'tools/world-builder/schema/npc-animation-registry-v1.schema.json').read_text());jsonschema.Draft202012Validator.check_schema(schema);validator=jsonschema.Draft202012Validator(schema)
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,doc=self.fixture(Path(temp));result=self.run_capture(target,runtime=self.runtime(temp))
+   value={'schemaVersion':1,'manifestType':'world-builder-npc-animation-registry','animations':result['normalizedAnimations']};validator.validate(value)
+   keys=['npcMaskPolicy','sourceAnimationId','sourceCustomSprites'];legacy=copy.deepcopy(value)
+   for key in keys:del legacy['animations'][0][key]
+   validator.validate(legacy)
+   for key in keys:
+    partial=copy.deepcopy(value);del partial['animations'][0][key];self.assertTrue(list(validator.iter_errors(partial)))
+   for patch in [{'npcMaskPolicy':'guessed-mask'},{'sourceAnimationId':-1},{'sourceAnimationId':65536},{'sourceCustomSprites':'true'}]:
+    invalid=copy.deepcopy(value);invalid['animations'][0].update(patch);self.assertTrue(list(validator.iter_errors(invalid)))
+   non_rgb=copy.deepcopy(value);row=non_rgb['animations'][0];del row['frameSource'];row.update(customSpriteSubspace='npc',customSpriteEntry='fixture',customEntrySha256='0'*64);self.assertTrue(list(validator.iter_errors(non_rgb)))
 if __name__=='__main__':unittest.main()
