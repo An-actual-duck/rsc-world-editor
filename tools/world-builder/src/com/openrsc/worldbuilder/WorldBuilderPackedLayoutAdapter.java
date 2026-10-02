@@ -298,12 +298,16 @@ final class WorldBuilderPackedLayoutAdapter implements WorldBuilderLayoutAdapter
 			// must not become a required conversion record.
 			if (!candidate.present) continue;
 			boolean duplicate = false;
-			for (WorldBuilderReadOnlyTarget.FileState existing : files) {
+			for (int index = 0; index < files.size(); index++) {
+				WorldBuilderReadOnlyTarget.FileState existing = files.get(index);
 				if (!existing.relativePath.equals(candidate.relativePath)) continue;
-				if (existing.role.equals(candidate.role)
+				if ((existing.role.equals(candidate.role) || WorldBuilderTargetMapIntegration.evidenceRole(existing.role))
 					&& existing.present == candidate.present
 					&& existing.size == candidate.size
 					&& existing.sha256.equals(candidate.sha256)) {
+					// A verified proof dependency may also be a content input.
+					// Retain the specific content role and its identical state.
+					if (WorldBuilderTargetMapIntegration.evidenceRole(existing.role)) files.set(index, candidate);
 					duplicate = true;
 					break;
 				}

@@ -119,6 +119,7 @@ final class WorldBuilderCompatibilityEvidence {
 			"Server/client builds declare matching protocol, loader format, definitions, and authoring.",
 			server.buildId + " / " + client.buildId + " using " + server.protocolId + "."));
 		catalog = WorldBuilderInstalledFloorContent.inspectTarget(target, configuration, catalog, files);
+		WorldBuilderTargetMapIntegration.inspectInstalledEvidence(target, configuration, files);
 		return new WorldBuilderCompatibilityEvidence(catalog, files, checks);
 	}
 
