@@ -3,7 +3,7 @@
 Status: implementation in progress; no new owner candidate accepted.
 Objective adopted October 2, 2026 from the owner's content lifecycle handoff.
 Baseline Editor: `087e64b5c2624c2e284e43d3e69db64f6ab0ad91`.
-Pinned runtime: `deb55301702dc80f49497ac722341895145363e1` (the lock file remains authoritative).
+Initial runtime: `deb55301702dc80f49497ac722341895145363e1` (the lock file remains authoritative for current builds).
 
 ## Outcome and bounded review
 
@@ -143,7 +143,9 @@ remain pending.
   The complete refresh suite now contains 17 cases.
 - On the copied existing edited project, refresh retained all 11,390 predecessor
   files and all 1,789 saved map files, while leaving all 9,132 target files
-  unchanged. Repeated imports from that successor are a separate running check.
+  unchanged. Two changed imports from that successor then passed, followed by
+  reopening. Each import retained existing target content and changed only the
+  three reviewed activation/profile files while adding paired map packages.
 - Snapshot re-verification covers a refreshed successor with no local import
   history. It binds an ordinary saved-map export and authenticated predecessor
   evidence, rejects changed confirmation inputs, and preserves rebuilt archives
@@ -153,3 +155,37 @@ The first real-copy refresh preview took about 83 seconds and apply about 160
 seconds. Its launcher presents phase progress; repeated history verification
 remains intentionally exact. These measurements do not imply final packaged
 performance or authorization to reuse stale target checks.
+
+### Remaining final-visual closure and packaged acceptance
+
+The legacy NPC producer captures a historically selected subset. Removing its
+population equality check fixes ordinary placement changes, but does not make
+that producer a complete effective client visual export. Fourteen NPC entries
+in the frozen maintained fixture still lack verified effective animation
+lookups, including a placed preservation-ID override. Existing archives alone
+cannot establish their final appearance. Diagnostics now expose this gap;
+warnings are not acceptance of faithful custom visuals.
+
+The maintained producer and Editor consumer are extending the same typed NPC
+manifest to schema version 2. It must carry all effective NPC IDs, including
+unplaced definitions and baseline-ID visual overrides, with final client
+vectors after sprite initialization and exact selected sources/assets. The
+Editor consumes inert evidence and normalizes only private presentation data.
+Resolved custom frames, original mask semantics and ordered layer selection
+require renderer parity checks; copying pixels alone is insufficient. Specialized
+gameplay and secondary attack behavior remain outside the authoring runtime's
+purpose. This work precedes final custom-content acceptance.
+
+The full Editor gate at `8016cb031f6beff0a82281f296832d19d1b51de2`
+passed 23 contract and 42 discovery tests, then found 19 failures in the
+75-case project suite. Those failures share one synthetic fixture that explicitly
+declares item frame 417 without supplying it. The fixture correction and a
+missing-frame refusal regression are pending; strict dependency validation is
+retained. This checkpoint is not a passing full gate.
+
+A desktop rehearsal passed actual detect/create, visible terrain edit/save,
+export and paired import on an isolated copy. The exact final package must
+repeat that flow. A populated update fixture retains both the predecessor and
+selected refreshed project (22,481 durable files); its actual update test,
+Core's private maintained-game acceptance, and the final candidate remain
+pending. No new owner retest is requested at this checkpoint.
