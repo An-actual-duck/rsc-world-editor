@@ -183,7 +183,36 @@
             },
             "frameSource": {
               "const": "authentic-rgb"
+            },
+            "npcMaskPolicy": {
+              "enum": [
+                "hair-and-skin",
+                "top-and-skin",
+                "bottom-and-skin",
+                "literal-and-skin",
+                "literal-only"
+              ]
+            },
+            "sourceAnimationId": {
+              "$ref": "#/$defs/runtimeId"
+            },
+            "sourceCustomSprites": {
+              "type": "boolean"
             }
+          },
+          "dependentRequired": {
+            "npcMaskPolicy": [
+              "sourceAnimationId",
+              "sourceCustomSprites"
+            ],
+            "sourceAnimationId": [
+              "npcMaskPolicy",
+              "sourceCustomSprites"
+            ],
+            "sourceCustomSprites": [
+              "npcMaskPolicy",
+              "sourceAnimationId"
+            ]
           }
         }
       ]

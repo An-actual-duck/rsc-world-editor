@@ -134,7 +134,22 @@ final class WorldBuilderProjectContentBundle {
             for (WorldBuilderReadOnlyTarget.FileState prior : result) if (prior.relativePath.equals(state.relativePath)) found = true;
             if (!found) result.add(state);
         }
-		for (WorldBuilderReadOnlyTarget.FileState visual : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
+        boolean completeNpcProducer=false;
+        try {
+            WorldBuilderNpcProducerV2.Capture producer = WorldBuilderNpcProducerV2.discover(target,layout);
+            completeNpcProducer=producer!=null;
+            if (producer != null) for (WorldBuilderReadOnlyTarget.FileState state : producer.evidence) {
+                boolean found=false;
+                for (WorldBuilderReadOnlyTarget.FileState prior : result) if (prior.relativePath.equals(state.relativePath)) {
+                    if(prior.present!=state.present || prior.size!=state.size || !prior.sha256.equals(state.sha256)) throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT,state.relativePath,"NPC producer evidence changed during discovery.","Retry discovery from stable target files.");
+                    found=true;break;
+                }
+                if(!found)result.add(state);
+            }
+        } catch(IOException invalid) {
+            throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,WorldBuilderNpcProducerV2.FILE,"Complete NPC producer evidence is malformed or unreadable.","Publish a fresh maintained export, then retry discovery.",invalid);
+        }
+		for (WorldBuilderReadOnlyTarget.FileState visual : completeNpcProducer ? Collections.<WorldBuilderReadOnlyTarget.FileState>emptyList() : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
             boolean inventoried = false;
             for (WorldBuilderReadOnlyTarget.FileState existing : result) if (existing.relativePath.equals(visual.relativePath)) {
                 if (!existing.sha256.equals(visual.sha256)) throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, visual.relativePath,
@@ -249,8 +264,11 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
 			"target-adopted-content-v2", sourceLayout, composition);
-		WorldBuilderNpcDefinitionProvider.Result npcMigration =
-			WorldBuilderNpcDefinitionProvider.consume(
+        WorldBuilderNpcProducerV2.Capture effectiveProducer = WorldBuilderNpcProducerV2.discover(copied,
+            originalLayout == null ? sourceLayout : originalLayout);
+		WorldBuilderNpcDefinitionProvider.Result npcMigration = effectiveProducer != null
+            ? WorldBuilderNpcDefinitionProvider.Result.unchanged()
+            : WorldBuilderNpcDefinitionProvider.consume(
 				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds,
 				npcRegistry.customRows, sourceLayout);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
@@ -304,6 +322,11 @@ final class WorldBuilderProjectContentBundle {
 					npcMigration.customDefinitions, "normalized NPC definitions").get("npcs"));
 			} catch (WorldBuilderDiscoveryException malformed) { throw new IOException(malformed); }
 		}
+        WorldBuilderNpcProducerFrames.Result completeNpcVisuals = effectiveProducer == null ? null
+            : WorldBuilderNpcProducerFrames.normalize(effectiveProducer,copied,animationRows,
+                migration == null ? null : migration.authenticArchiveOverride,
+                runtime.verifiedSourcePath("client/Open_RSC_Client.jar"),runtime.verifiedSourcePath("server/core.jar"));
+        if(completeNpcVisuals!=null)animationRows=completeNpcVisuals.animations;
         WorldBuilderNpcVisualCompiler.PresentationOverlay effectiveNpcWorld =
             new WorldBuilderNpcVisualCompiler.PresentationOverlay(WorldBuilderNpcVisualCompiler.readRows(
                 WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json"))));
@@ -311,7 +334,16 @@ final class WorldBuilderProjectContentBundle {
             @SuppressWarnings("unchecked") Map<String, Object> generated = (Map<String, Object>)raw;
             effectiveNpcWorld.merge(generated);
         }
-		WorldBuilderNpcVisualCompiler.Result directionMigration = WorldBuilderNpcVisualCompiler.normalize(
+        if(completeNpcVisuals!=null)for(Object raw:completeNpcVisuals.overlays)effectiveNpcWorld.merge(object(raw,"complete NPC presentation"));
+        // A complete post-initialization producer includes successful external
+        // loaders. Do not replay an earlier structural source approximation over it.
+        if(completeNpcVisuals!=null)for(String path:Arrays.asList(WorldBuilderNpcVisualInventory.FILE,
+            sourceLayout.definitionPath(WorldBuilderNpcVisualInventory.FILE),sourceLayout.definitionPath("world-builder/"+WorldBuilderNpcVisualInventory.FILE)))
+            if(copied.exists(path))throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,path,"Complete NPC producer conflicts with a separate explicit NPC visual descriptor.","Publish one complete maintained visual authority for the selected configuration.");
+		WorldBuilderNpcVisualCompiler.Result directionMigration = completeNpcVisuals != null
+            ? new WorldBuilderNpcVisualCompiler.Result(WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
+                completeNpcVisuals.authenticArchive,completeNpcVisuals.animations,Collections.<Object>emptyList())
+            : WorldBuilderNpcVisualCompiler.normalize(
 			copiedTarget, sourceLayout, originalLayout == null ? sourceLayout : originalLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
 			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
@@ -417,6 +449,7 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
+
 		WorldBuilderNpcVisualCompiler.writeReport(projectStage, directionMigration);
 		WorldBuilderNpcDefinitionReconciliation.writeReport(
 			projectStage, copiedTarget, sourceLayout, npcRegistry);
@@ -449,7 +482,9 @@ final class WorldBuilderProjectContentBundle {
 				"Captured custom-content bundle changed during verification.",
 				"Discard the unpublished project stage and retry.");
 		}
-		WorldBuilderEffectiveContent.writeVisualReport(projectStage, WorldBuilderEffectiveContent.visualReport(captured));
+        WorldBuilderEffectiveContent.BundleReport visualReport=WorldBuilderEffectiveContent.visualReport(captured);
+        WorldBuilderEffectiveContent.writeVisualReport(projectStage,visualReport);
+        if(completeNpcVisuals!=null)WorldBuilderNpcProducerFrames.writeReport(projectStage,effectiveProducer,completeNpcVisuals,visualReport.index);
 		return captured;
 	}
 
@@ -1550,7 +1585,12 @@ final class WorldBuilderProjectContentBundle {
 		for (Object raw : rows) {
 			Map<String,Object> row = object(raw, "NPC animation");
 			boolean rgb = "authentic-rgb".equals(row.get("frameSource"));
-			if (rgb) exact(row, "animationId", "name", "category", "charColour",
+            boolean explicitMask = row.containsKey("npcMaskPolicy") || row.containsKey("sourceAnimationId") || row.containsKey("sourceCustomSprites");
+            if (rgb && explicitMask) exact(row, "animationId", "name", "category", "charColour",
+                "blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames",
+                "requiredFrameCount", "frameSource", "authenticBaseSpriteId", "authenticFrameSha256s",
+                "npcMaskPolicy", "sourceAnimationId", "sourceCustomSprites");
+			else if (rgb) exact(row, "animationId", "name", "category", "charColour",
 				"blueMask", "genderModel", "hasCombatFrames", "hasSpecialCombatFrames",
 				"requiredFrameCount", "frameSource", "authenticBaseSpriteId", "authenticFrameSha256s");
 			else exact(row, "animationId", "name", "category", "charColour",
@@ -1578,6 +1618,13 @@ final class WorldBuilderProjectContentBundle {
 					throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
 				}
 			}
+            if (explicitMask) {
+                long sourceId = integer(row,"sourceAnimationId");
+                if (!rgb || sourceId < 0 || sourceId > MAX_RUNTIME_ID || !(row.get("sourceCustomSprites") instanceof Boolean)
+                    || !effectiveNpcMaskPolicy(sourceId,Boolean.TRUE.equals(row.get("sourceCustomSprites")),integer(row,"charColour")).equals(row.get("npcMaskPolicy"))) {
+                    throw malformedDefinition(NPC_ANIMATION_EVIDENCE_PATH);
+                }
+            }
 			Object combatRaw = row.get("hasCombatFrames");
 			Object specialRaw = row.get("hasSpecialCombatFrames");
 			if (!(combatRaw instanceof Boolean) || !(specialRaw instanceof Boolean)
@@ -1607,6 +1654,14 @@ final class WorldBuilderProjectContentBundle {
 		}
 		return result;
 	}
+
+    static String effectiveNpcMaskPolicy(long sourceId, boolean customSprites, long charColour) {
+        if (charColour == 1) return "hair-and-skin";
+        if (customSprites && sourceId >= 230) return "literal-and-skin";
+        if (charColour == 2) return "top-and-skin";
+        if (charColour == 3) return "bottom-and-skin";
+        return "literal-only";
+    }
 
 	private static boolean safeArchiveName(String value) {
 		return value.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}");
