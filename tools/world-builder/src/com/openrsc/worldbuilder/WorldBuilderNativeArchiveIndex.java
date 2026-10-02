@@ -111,6 +111,24 @@ final class WorldBuilderNativeArchiveIndex {
 		}
 	}
 
+    String entrySha256(String filename) throws IOException {
+        Entry entry = entries.get(Integer.valueOf(filenameHash(filename)));
+        if (!indexed() || entry == null || entry.expanded != entry.stored || entry.stored > 256L * 1024 * 1024) return null;
+        try (SeekableByteChannel input = Files.newByteChannel(path, StandardOpenOption.READ)) {
+            input.position(entry.offset);
+            java.security.MessageDigest digest = WorldBuilderHashes.newDigest();
+            long remaining = entry.stored;
+            ByteBuffer bytes = ByteBuffer.allocate(8192);
+            while (remaining > 0) {
+                bytes.clear(); bytes.limit((int)Math.min(bytes.capacity(), remaining));
+                int read = input.read(bytes);
+                if (read < 0) throw new IOException("truncated native archive entry");
+                digest.update(bytes.array(), 0, read); remaining -= read;
+            }
+            return WorldBuilderHashes.hex(digest.digest());
+        }
+    }
+
 	static int filenameHash(String name) {
 		int result = 0;
 		String upper = name.toUpperCase(java.util.Locale.ROOT);

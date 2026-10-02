@@ -136,6 +136,12 @@ final class WorldBuilderNpcDefinitionProvider {
         // Available content is the complete validated projection, including
         // definitions not currently placed. Never truncate it at the largest
         // placed ID. A provider is not authority to invent a missing placed ID.
+        Set<Integer> available = catalogIds(targetCatalog);
+        for (Integer id : provider.definitions.keySet()) {
+            if (id >= appendedCount && !available.contains(id)) throw problem("npc " + id,
+                "The selected visual provider describes NPC " + id + " outside the effective target content catalog. "
+                    + "Publish a current maintained content export before detecting new content.");
+        }
         required.addAll(provider.definitions.keySet());
         if (!required.isEmpty()) maximum = Math.max(maximum, Collections.max(required));
         if (!provider.definitions.isEmpty()) for (Integer id : required) {
@@ -525,6 +531,15 @@ final class WorldBuilderNpcDefinitionProvider {
             String identity = text(source.get("identity"), 1, 512, "provider source identity");
             if (!identity.matches("[A-Za-z0-9_-]+\\.json")) throw new TargetMismatch(
                 "Provider extension definition identity is unsafe.");
+            try {
+                WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(copiedTarget);
+                WorldBuilderPackedSourceLayout layout = WorldBuilderPackedSourceLayout.canonical(WorldBuilderPackedSourceLayout.CANONICAL_CONFIGURATION);
+                if (!WorldBuilderNpcContentSources.inspect(target, layout).supplemental.contains(layout.definitionPath(identity))) {
+                    throw new TargetMismatch("Provider extension source is not active in the selected target configuration: " + identity + ".");
+                }
+            } catch (WorldBuilderContractException invalid) {
+                throw new TargetMismatch("Provider extension source has no verified active load order: " + identity + ".");
+            }
             Path actual = copiedTarget.resolve("server/conf/server/defs/" + identity);
             if (!Files.isRegularFile(actual, LinkOption.NOFOLLOW_LINKS)
                 || Files.isSymbolicLink(actual)
@@ -808,6 +823,12 @@ final class WorldBuilderNpcDefinitionProvider {
 		return value;
 	}
 
+    static Map<String,String> spriteEntryHashes(Path path) throws IOException {
+        Map<String,String> result = new TreeMap<String,String>();
+        for (Map.Entry<String,SpriteEntry> entry : readOsar(path).entrySet()) result.put(entry.getKey(), entry.getValue().sha256);
+        return result;
+    }
+
 	private static Map<String,SpriteEntry> readOsar(Path path)
 		throws IOException {
 		byte[] expanded;
@@ -869,7 +890,7 @@ final class WorldBuilderNpcDefinitionProvider {
 		}
 	}
 
-	private static Map<Integer,String> readAuthentic(Path path)
+	static Map<Integer,String> readAuthentic(Path path)
 		throws IOException {
 		Map<Integer,String> result = new TreeMap<Integer,String>();
 		Set<String> folded = new TreeSet<String>();

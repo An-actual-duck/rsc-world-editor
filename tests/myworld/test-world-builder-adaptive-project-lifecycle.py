@@ -32,6 +32,7 @@ from adaptive_project_test_support import (
     VISIBLE_FLOOR_TILE,
     canonical_hash,
     change_working_terrain,
+    declare_effective_content_sources,
     host_runtime_capability,
     load_discovery_fixtures,
     load_packed_fixtures,
@@ -6389,6 +6390,7 @@ public final class UpgradeNpcPlacements {
             write_json(definitions / "MonsterSlayerNpcDefs.json", {
                 "npcs": [{"id": 4, "name": "Monster supplemental"}],
             })
+            declare_effective_content_sources(target, ['VisualTestNpcDefs.json','MonsterSlayerNpcDefs.json'])
             server_terrain = (
                 target / "server/conf/server/data/Custom_Landscape.orsc"
             )
@@ -6422,7 +6424,7 @@ public final class UpgradeNpcPlacements {
             self.assertEqual([2, 3, 4], [row["id"] for row in custom[:3]])
             self.assertEqual(target_before, tree_bytes(target))
 
-    def test_supplemental_npc_id_conflict_is_reassigned_with_spawn_audit(self):
+    def test_supplemental_npc_id_conflict_refuses_without_reassigning_saved_identity(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-project-npc-conflict-") as temp:
             base = Path(temp)
             target = self.fixtures.legacy_fixture(str(base))
@@ -6453,42 +6455,13 @@ public final class UpgradeNpcPlacements {
             installation = base / "World Builder 2"
             installation.mkdir()
             runtime = self.make_runtime(installation)
-            discovery_report = base / "report.json"
-            self.discover(target, discovery_report)
+            declare_effective_content_sources(target, ['QuestGreenDragonNpcDefs.json','StandardGreenDragonNpcDefs.json'])
             target_before = tree_bytes(target)
-
-            created, summary = self.create_project(
-                installation, runtime, target, discovery_report,
-                "NPC conflict reconciliation", 43845,
-            )
-
-            self.assertEqual(0, created.returncode, created.stdout + created.stderr)
-            project = Path(summary["projectRoot"])
-            custom = json.loads((
-                project / "source/content-bundle/files/server/conf/server/defs/"
-                "NpcDefsCustom.json"
-            ).read_text(encoding="utf-8"))["npcs"]
-            self.assertEqual([2, 3, 4, 5], [row["id"] for row in custom[:4]])
-            self.assertEqual("Unused NPC definition slot 3", custom[1]["name"])
-            self.assertEqual("Green dragon", custom[2]["name"])
-            self.assertEqual("Quest green dragon", custom[3]["name"])
-
-            reconciliation = json.loads((
-                project / "diagnostics/npc-definition-reconciliation-v1.json"
-            ).read_text(encoding="utf-8"))
-            self.assertEqual("reconciled", reconciliation["status"])
-            self.assertEqual(2, reconciliation["discoveredDefinitionCount"])
-            self.assertEqual(1, reconciliation["generatedGapDefinitionCount"])
-            self.assertEqual(1, len(reconciliation["conflicts"]))
-            conflict = reconciliation["conflicts"][0]
-            self.assertEqual(1, conflict["requestedId"])
-            self.assertEqual(5, conflict["assignedId"])
-            self.assertEqual("base-1", conflict["existingDefinition"]["name"])
-            self.assertEqual(
-                {"X": 12, "Y": 10},
-                conflict["spawnLocationsForRequestedId"][0]["start"],
-            )
-            self.assertEqual(target_before, tree_bytes(target))
+            discovered = self.run_cli('discover-adaptive','--target-root',target)
+            self.assertNotEqual(0, discovered.returncode)
+            self.assertIn('disagrees with its active append slot',discovered.stderr)
+            self.assertEqual(target_before,tree_bytes(target))
+            self.assertFalse((installation/'projects').exists())
 
     def test_active_definition_overlay_cannot_repeat_an_id(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-active-overlay-") as temp:

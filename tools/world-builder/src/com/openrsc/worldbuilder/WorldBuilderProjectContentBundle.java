@@ -118,12 +118,22 @@ final class WorldBuilderProjectContentBundle {
 			validateFile(target.requiredFile(sourceSpec.targetPath), sourceSpec);
 			result.add(state);
 		}
+        for (WorldBuilderReadOnlyTarget.FileState source : WorldBuilderNpcContentSources.inspect(target, layout).evidence) result.add(source);
 		int supplementalIndex = 0;
 		for (String relative : WorldBuilderSupplementalNpcDefinitions.inspect(
 			target, layout)) {
 			result.add(target.requiredState(
 				"server-definition.npc.supplemental." + (++supplementalIndex), relative));
 		}
+        WorldBuilderNpcContentSources.Selection itemSources = WorldBuilderNpcContentSources.inspectItems(target, layout);
+        int itemSourceIndex = 0;
+        for (String relative : itemSources.supplemental) result.add(target.requiredState(
+            "server-definition.item.supplemental." + (++itemSourceIndex), relative));
+        for (WorldBuilderReadOnlyTarget.FileState state : itemSources.evidence) {
+            boolean found = false;
+            for (WorldBuilderReadOnlyTarget.FileState prior : result) if (prior.relativePath.equals(state.relativePath)) found = true;
+            if (!found) result.add(state);
+        }
 		for (WorldBuilderReadOnlyTarget.FileState visual : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
             boolean inventoried = false;
             for (WorldBuilderReadOnlyTarget.FileState existing : result) if (existing.relativePath.equals(visual.relativePath)) {
@@ -339,7 +349,11 @@ final class WorldBuilderProjectContentBundle {
 				generated.put("animations", animationRows);
 				Files.write(destination, WorldBuilderJsonDocuments.pretty(generated)
 					.getBytes(StandardCharsets.UTF_8));
-			} else if ("definition.npc.patch".equals(spec.role)
+            } else if ("definition.item.custom".equals(spec.role)) {
+                Map<String,Object> normalized = new LinkedHashMap<String,Object>();
+                normalized.put("items", new ArrayList<Object>(normalizedCustomItemDefinitions(copiedTarget, sourceLayout).values()));
+                Files.write(destination, WorldBuilderJsonDocuments.pretty(normalized).getBytes(StandardCharsets.UTF_8));
+            } else if ("definition.npc.patch".equals(spec.role)
 				|| "definition.item.patch".equals(spec.role)
 				|| "definition.npc.world".equals(spec.role)
 				|| "definition.item.world".equals(spec.role)) {
@@ -350,7 +364,7 @@ final class WorldBuilderProjectContentBundle {
 				validateFile(source, spec);
 				Files.copy(source, destination, StandardCopyOption.COPY_ATTRIBUTES);
 			}
-			boolean overridden = spec == NPC_ANIMATION_SPEC && (directionMigration.changed() || !npcMigration.animations.isEmpty())
+			boolean overridden = "definition.item.custom".equals(spec.role) || spec == NPC_ANIMATION_SPEC && (directionMigration.changed() || !npcMigration.animations.isEmpty())
 				|| !composition.sourceFor(
 				spec.role, selectedSpec.targetPath).equals(selectedSpec.targetPath);
 			if ("definition.tile".equals(spec.role)) {
@@ -791,6 +805,7 @@ final class WorldBuilderProjectContentBundle {
 		Set<Integer> itemIds = new TreeSet<Integer>();
 		itemIds.addAll(jsonIds(root, "definition.item.base", layout, "item"));
 		itemIds.addAll(jsonIds(root, "definition.item.custom", layout, "items"));
+        if (layout != null) itemIds.addAll(normalizedCustomItemDefinitions(root, layout).keySet());
 		if (composition == null || composition.wantMyWorld) {
 			itemIds.addAll(jsonIds(root, "definition.item.world", layout, "items"));
 		}
@@ -1081,6 +1096,17 @@ final class WorldBuilderProjectContentBundle {
 			"Provide a complete supported target-owned archive.");
 	}
 
+    private static Map<Integer,Map<String,Object>> normalizedCustomItemDefinitions(Path root,
+        WorldBuilderPackedSourceLayout layout) throws IOException, WorldBuilderContractException {
+        Map<Integer,Map<String,Object>> result = new TreeMap<Integer,Map<String,Object>>();
+        appendItemDefinitions(result, contentPath(root, "definition.item.custom", layout), "definition.item.custom", "items");
+        WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(root);
+        for (String relative : WorldBuilderNpcContentSources.inspectItems(target, layout).supplemental) {
+            appendItemDefinitions(result, target.requiredFile(relative), "effective item source " + relative, "items", "item");
+        }
+        return result;
+    }
+
 	private static Map<Integer,Map<String,Object>> effectiveTargetItemDefinitions(
 		Path root, WorldBuilderPackedSourceLayout layout,
 		WorldBuilderDefinitionComposition.Profile composition)
@@ -1091,6 +1117,7 @@ final class WorldBuilderProjectContentBundle {
 			"definition.item.base", "item");
 		appendItemDefinitions(result, contentPath(root, "definition.item.custom", layout),
 			"definition.item.custom", "items");
+        if (layout != null) result.putAll(normalizedCustomItemDefinitions(root, layout));
 		if (!composition.itemPatchPath.isEmpty()) {
 			appendItemDefinitions(result, root.resolve(composition.itemPatchPath),
 				"definition.item.patch", "items", "item");
@@ -1125,6 +1152,7 @@ final class WorldBuilderProjectContentBundle {
 			"definition.item.base", "item");
 		appendItemDefinitions(result, contentPath(root, "definition.item.custom", layout),
 			"definition.item.custom", "items");
+        if (layout != null) result.putAll(normalizedCustomItemDefinitions(root, layout));
 		return result;
 	}
 

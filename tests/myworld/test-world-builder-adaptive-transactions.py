@@ -1587,12 +1587,13 @@ public final class InstalledFloorFixture {
         def content(target):
             project_support.write_json(
                 target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json",
-                {"npcs": [{"id": 866, "name": "Custom serpent"}]},
+                {"npcs": [{"id": i, "name": "Reserved fixture slot"} for i in range(1,866)] + [{"id": 866, "name": "Custom serpent"}]},
             )
             project_support.write_json(
                 target / "server/conf/server/defs/ItemDefsCustom.json",
                 {"items": [{"id": 866, "name": "Custom item"}]},
             )
+            project_support.declare_effective_content_sources(target, ['SlayerMovementPreviewNpcDefs.json'])
             if matching:
                 config = json.loads((target / "server/world-builder-configs/primary.json").read_text())
                 server = target / config["serverDefinitionCatalogRelativePath"]
@@ -1707,6 +1708,7 @@ public final class InstalledFloorFixture {
                     definitions / "StandardGreenDragonNpcDefs.json",
                     {"npcs": [{"id": 2, "name": "Green dragon"}]},
                 )
+                project_support.declare_effective_content_sources(target, ['QuestGreenDragonNpcDefs.json', 'StandardGreenDragonNpcDefs.json'])
 
             target, installation, project, export = self.target_project(
                 Path(temp), representation="packed",
@@ -1742,6 +1744,56 @@ public final class InstalledFloorFixture {
                 (definitions / "NpcDefsCustom.json").read_bytes(),
                 "Editor-normalized NPC catalog leaked into target",
             )
+
+    def test_content_library_survives_import_rediscovery_removal_and_reopen(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-complete-content-lifecycle-") as temp:
+            def available(target):
+                definitions = target / "server/conf/server/defs"
+                project_support.write_json(definitions / "UnplacedNpcDefs.json", {"npcs":[{"id":1,"name":"Never initially placed"}]})
+                project_support.declare_effective_content_sources(target, ['UnplacedNpcDefs.json'])
+                config=json.loads((target/'server/world-builder-configs/primary.json').read_text())
+                server=target/config['serverDefinitionCatalogRelativePath'];catalog=json.loads(server.read_text());before=project_support.sha256(server)
+                catalog['npcs']=sorted(set(catalog['npcs']+[1]));project_support.write_json(server,catalog)
+                (target/config['clientDefinitionCatalogRelativePath']).write_bytes(server.read_bytes());after=project_support.sha256(server)
+                for relative in ['server/world-builder-capabilities.json',config['serverRuntimeRelativePath'],config['clientRuntimeRelativePath']]:
+                    path=target/relative;path.write_text(path.read_text().replace(before,after))
+            target, installation, project, export = self.target_project(Path(temp), representation="packed", target_mutator=available, installed_standard_floors=True)
+            library = project_support.tree_bytes(project / "source/content-bundle")
+            original = project_support.tree_bytes(project / "source/original")
+            definitions = project_support.tree_bytes(target / "server/conf/server/defs")
+            previous_exports = set()
+            for step in range(3):
+                if step:
+                    package = project / "working/layered-world/package"
+                    manifest_path = package / "manifest.json"
+                    manifest = json.loads(manifest_path.read_text())
+                    for declaration in manifest['placementSets']:
+                        path = package / declaration['path']; value = json.loads(path.read_text())
+                        if step == 1:
+                            for row in value['npcs']: row['npcId'] = 1
+                        else: value['npcs'] = []
+                        project_support.write_json(path,value);declaration['sha256']=project_support.sha256(path)
+                    project_support.write_json(manifest_path,manifest)
+                    project_support.change_working_terrain(project)
+                    saved=self.run_cli('save-project','--project',project);self.assertEqual(0,saved.returncode,saved.stderr)
+                    exported=self.run_cli('export-adaptive','--project',project);self.assertEqual(0,exported.returncode,exported.stderr)
+                    export=Path(json.loads(exported.stdout)['exportDirectory'])
+                fingerprint=json.loads((export/'manifest.json').read_text())['packageFingerprintSha256']
+                self.assertNotIn(fingerprint,previous_exports);previous_exports.add(fingerprint)
+                result=self.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
+                self.assertEqual(0,result.returncode,result.stderr)
+                discovered=self.run_cli('discover-adaptive','--target-root',target);self.assertEqual(0,discovered.returncode,discovered.stderr)
+                reopened=self.run_cli('open-project','--installation-root',installation);self.assertEqual(0,reopened.returncode,reopened.stderr)
+                self.assertEqual(library,project_support.tree_bytes(project/'source/content-bundle'))
+                self.assertEqual(original,project_support.tree_bytes(project/'source/original'))
+                self.assertEqual(definitions,project_support.tree_bytes(target/'server/conf/server/defs'))
+            self.assertEqual(3,len(list((project/'receipts').glob('*.json'))))
+            report=Path(temp)/'rediscovery.json';report.write_text(discovered.stdout)
+            created=self.run_cli('create-project','--installation-root',installation,'--runtime-root',Path(temp)/'builder-runtime','--target-root',target,'--discovery-report',report,'--display-name','Rediscovered current content','--port','43884','--confirm','CREATE')
+            self.assertEqual(0,created.returncode,created.stderr)
+            successor=Path(json.loads(created.stdout)['projectRoot'])
+            registry=json.loads((successor/'source/content-bundle/files/server/conf/server/defs/NpcDefsCustom.json').read_text())
+            self.assertEqual('Never initially placed',registry['npcs'][0]['name'])
 
     def test_import_mutates_only_map_and_owned_activation_state(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-narrow-import-") as temp:
