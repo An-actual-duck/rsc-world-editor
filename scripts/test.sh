@@ -138,6 +138,7 @@ add_group() {
 				test-world-builder-npc-direction-sheets.py
 				test-world-builder-npc-visual-source.py
 				test-world-builder-project-content-bundle.py
+				test-world-builder-effective-content.py
 				test-world-builder-standard-floors.py
 			)
 			;;

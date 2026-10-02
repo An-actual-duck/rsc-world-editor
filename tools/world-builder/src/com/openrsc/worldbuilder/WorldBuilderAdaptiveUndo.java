@@ -100,6 +100,7 @@ final class WorldBuilderAdaptiveUndo {
 					WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(
 						projectRoot, true);
 				requireSameProject(initial, project);
+                WorldBuilderContentRefreshAuthority.requireMutationAllowed(project);
 				WorldBuilderAdaptiveReceipt.State authority = undoAuthority(projectRoot);
                 WorldBuilderRuntimeReverification.requireUndoAllowed(project, authority);
 				WorldBuilderAdaptiveExporter.VerifiedExport export = findExport(
