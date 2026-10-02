@@ -14,7 +14,17 @@ final class WorldBuilderContentRefreshAuthority {
         Path requestedTarget, Map<String,Object> freshReport) throws IOException, WorldBuilderContractException {
         requireMutationAllowed(parent);
         WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT, freshReport);
-        if (!"compatible".equals(freshReport.get("status"))) throw refusal("discovery", "Fresh discovery must be compatible before content refresh.");
+        if (!"compatible".equals(freshReport.get("status"))) {
+            // Keep the precise source and resolution from bounded discovery.
+            // A stale optional image probe must not become a generic request
+            // to make the server compatible, which hides what actually changed.
+            for(Object raw:list(freshReport.get("issues"))){Map<String,Object> issue=object(raw);
+                if("blocker".equals(issue.get("severity")))throw new WorldBuilderContractException(
+                    string(issue,"code"),OP,string(issue,"relativePath"),false,
+                    string(issue,"observed"),string(issue,"nextStep"));
+            }
+            throw refusal("discovery", "Fresh discovery must be compatible before content refresh.");
+        }
         WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedTarget);
         if ("standalone-empty".equals(parent.origin)) throw refusal("project", "Content refresh requires an attached target project.");
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected = new TreeMap<>();

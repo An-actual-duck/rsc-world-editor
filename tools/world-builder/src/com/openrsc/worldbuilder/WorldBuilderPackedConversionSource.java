@@ -32,6 +32,7 @@ final class WorldBuilderPackedConversionSource {
 	final String selectedConfigurationRelativePath;
 	final String selectedConfigurationSha256;
 	final List<WorldBuilderBoundedInventory.Record> inputs;
+	private final List<String> absentVisualProbes;
 	private WorldBuilderPreservationMapEvidence.Prepared preservationSource;
 
 	int placementEncodingVersion() {
@@ -48,7 +49,8 @@ final class WorldBuilderPackedConversionSource {
 		String selectedConfigurationRole,
 		String selectedConfigurationRelativePath,
 		String selectedConfigurationSha256,
-		List<WorldBuilderBoundedInventory.Record> inputs) {
+		List<WorldBuilderBoundedInventory.Record> inputs,
+		List<String> absentVisualProbes) {
 		this.target = target;
 		this.canonicalSourceRoot = canonicalSourceRoot;
 		this.reportedTargetRoot = reportedTargetRoot;
@@ -60,6 +62,7 @@ final class WorldBuilderPackedConversionSource {
 		this.selectedConfigurationSha256 = selectedConfigurationSha256;
 		this.inputs = Collections.unmodifiableList(
 			new ArrayList<WorldBuilderBoundedInventory.Record>(inputs));
+		this.absentVisualProbes = Collections.unmodifiableList(new ArrayList<String>(absentVisualProbes));
 	}
 
 	static WorldBuilderPackedConversionSource open(Path requestedSourceRoot, Path reportPath)
@@ -75,7 +78,8 @@ final class WorldBuilderPackedConversionSource {
 		List<WorldBuilderBoundedInventory.Record> verified = verifyExactTree(target, genuine.inputs);
 		WorldBuilderPackedConversionSource source = new WorldBuilderPackedConversionSource(target, genuine.inputRoot,
 			genuine.originalRoot, genuine.originalRoot, Collections.<String,Object>emptyMap(),
-			genuine.fingerprintSha256, "preservation-data", "derivation.json", genuine.derivationSha256, verified);
+			genuine.fingerprintSha256, "preservation-data", "derivation.json", genuine.derivationSha256, verified,
+			Collections.<String>emptyList());
 		source.preservationSource = genuine;
 		return source;
 	}
@@ -182,9 +186,11 @@ final class WorldBuilderPackedConversionSource {
 			string(selected, "relativePath"), string(selected, "sha256"), -1L);
 		Object rawFiles = report.get("files");
 		if (!(rawFiles instanceof List)) throw malformed("Discovery file inventory is absent.");
+		List<String> absentVisualProbes = verifiedVisualProbeAbsence(target, report);
 		for (Object raw : (List<?>)rawFiles) {
 			Map<String,Object> file = object(raw, "files");
 			if (!Boolean.TRUE.equals(file.get("present"))) {
+				if (absentVisualProbes.contains(string(file, "relativePath"))) continue;
 				throw blocked("Conversion source inventory contains required absence evidence.",
 					"Use descriptor-backed packed discovery with complete present inputs.");
 			}
@@ -205,7 +211,37 @@ final class WorldBuilderPackedConversionSource {
 		return new WorldBuilderPackedConversionSource(target, canonicalSource,
 			reportedTarget, canonicalReportedTarget, report, sourceFingerprint,
 			string(selected, "role"), string(selected, "relativePath"),
-			string(selected, "sha256"), verified);
+			string(selected, "sha256"), verified, absentVisualProbes);
+	}
+
+	private static List<String> verifiedVisualProbeAbsence(WorldBuilderReadOnlyTarget target,
+		Map<String,Object> report) throws IOException, WorldBuilderContractException {
+		Set<String> declared = new java.util.TreeSet<String>();
+		String contentConfiguration = null;
+		for (Object raw : (List<?>)report.get("files")) {
+			Map<String,Object> row = object(raw, "files");
+			if ("server-runtime-config".equals(row.get("role")) && Boolean.TRUE.equals(row.get("present")))
+				contentConfiguration = string(row, "relativePath");
+			if (Boolean.TRUE.equals(row.get("present"))) continue;
+			if (!"npc-producer-v2-probe".equals(row.get("role")))
+				throw blocked("Conversion source inventory contains required absence evidence.",
+					"Restore all required map and runtime inputs before converting.");
+			declared.add(string(row, "relativePath"));
+		}
+		// A caller-authored role is insufficient. The complete inert producer
+		// independently validates supported paths, source hashes and every probe.
+		boolean producerPresent = target.exists("world-builder-provider/" + WorldBuilderNpcProducerV2.FILE)
+			|| target.exists("server/conf/world-builder/" + WorldBuilderNpcProducerV2.FILE);
+		WorldBuilderNpcProducerV2.Capture producer = producerPresent
+			? WorldBuilderNpcProducerV2.discover(target, WorldBuilderPackedSourceLayout.select(target, contentConfiguration))
+			: null;
+		Set<String> verified = new java.util.TreeSet<String>();
+		if (producer != null) for (WorldBuilderReadOnlyTarget.FileState file : producer.evidence)
+			if (!file.present && "npc-producer-v2-probe".equals(file.role)) verified.add(file.relativePath);
+		if (!declared.equals(verified)) throw blocked(
+			"Conversion absence evidence differs from the verified NPC producer's visual probes.",
+			"Rediscover the complete producer evidence; do not edit or omit its absence records.");
+		return new ArrayList<String>(verified);
 	}
 
 	boolean overlapsSourceOrReportedTarget(
@@ -233,6 +269,9 @@ final class WorldBuilderPackedConversionSource {
 			catch (IOException changed) { throw blocked("Historical derivation changed during conversion.",
 				"Keep original and derived evidence stable until atomic conversion completes."); }
 		}
+		for (String path : absentVisualProbes) if (target.exists(path)) throw blocked(
+			"A previously absent visual candidate appeared during conversion: " + path,
+			"Discard the conversion and rediscover a stable maintained visual export.");
 		List<WorldBuilderBoundedInventory.Record> verified = verifyExactTree(target, inputs);
 		if (verified.size() != inputs.size()) {
 			throw blocked("Immutable conversion evidence changed during conversion.",
