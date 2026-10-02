@@ -1,5 +1,6 @@
 param(
-    [switch]$Automatic
+    [switch]$Automatic,
+    [string]$InstallationRoot
 )
 
 $ErrorActionPreference = "Stop"
@@ -7,6 +8,17 @@ $ErrorActionPreference = "Stop"
     [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 )
 $RootDir = [IO.Path]::GetFullPath((Split-Path -Parent $MyInvocation.MyCommand.Path))
+if ($PSBoundParameters.ContainsKey("InstallationRoot")) {
+    if ([string]::IsNullOrWhiteSpace($InstallationRoot)) {
+        throw "World Builder 2 update failed: Installation root is missing"
+    }
+    $InstallationDirectory = Get-Item -LiteralPath $InstallationRoot -Force -ErrorAction Stop
+    if (-not $InstallationDirectory.PSIsContainer -or
+        ($InstallationDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "World Builder 2 update failed: Installation root is missing or linked"
+    }
+    $RootDir = [IO.Path]::GetFullPath($InstallationDirectory.FullName)
+}
 $Workspace = Join-Path $RootDir "workspace"
 $Projects = Join-Path $RootDir "projects"
 $ProjectRegistry = Join-Path $RootDir "project-registry.json"
@@ -427,6 +439,7 @@ function Assert-ApplicationAllowlist(
         "local-provider-catalog-v2.schema.json",
         "provider-cache-diagnostic-v1.schema.json",
         "item-visual-mapping-v1.schema.json", "npc-definition-mapping-v1.schema.json",
+        "npc-visual-sources-v1.schema.json",
         "region-bundle-manifest-v1.schema.json",
         "region-compatibility-report-v1.schema.json",
         "region-operation-plan-v1.schema.json", "region-selection-v1.schema.json",

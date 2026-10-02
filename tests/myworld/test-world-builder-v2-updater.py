@@ -461,6 +461,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         download_url: str,
         *arguments: str,
         path_prefix: Path | None = None,
+        executable: Path | None = None,
     ) -> subprocess.CompletedProcess[str]:
         environment = os.environ.copy()
         environment.update(
@@ -472,7 +473,7 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
         if path_prefix is not None:
             environment["PATH"] = f"{path_prefix}:{environment['PATH']}"
         return subprocess.run(
-            [str(self.install / UPDATER.name), *arguments],
+            [str(executable or self.install / UPDATER.name), *arguments],
             cwd=self.install,
             env=environment,
             text=True,
@@ -516,6 +517,72 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             self.assertIn(schema.name, shell_updater)
             self.assertIn(schema.name, windows_updater)
         self.assert_durable_state_unchanged()
+
+    def historical_schema_updater(self) -> bytes:
+        """A valid old package with the shipped alpha12 schema omission."""
+        manifest = self.install / "PACKAGE-MANIFEST.sha256"
+        managed = [self.install / line.split("  ./", 1)[1]
+                   for line in manifest.read_text().splitlines()]
+        old_script = UPDATER.read_text().replace(
+            "\t\tnpc-visual-sources-v1.schema.json \\\n", "")
+        self.assertNotIn("npc-visual-sources-v1.schema.json", old_script)
+        (self.install / UPDATER.name).write_text(old_script)
+        self.write_manifest(self.install, managed)
+        return manifest.read_bytes()
+
+    def test_external_verified_updater_recovers_historical_schema_omission(self) -> None:
+        self.historical_schema_updater()
+        api, download = self.make_release()
+        before = self.snapshot(self.install)
+        refused = self.run_updater(api, download)
+        self.assertIn("content-neutral application allowlist", refused.stderr)
+        self.assertEqual(before, self.snapshot(self.install))
+        result = self.run_updater(api, download, "--installation-root", str(self.install),
+                                  executable=UPDATER)
+        self.assertEqual(0, result.returncode, result.stdout + result.stderr)
+        self.assertEqual("v0.1.1", (self.install / "VERSION.txt").read_text().strip())
+        self.assertEqual(UPDATER.read_bytes(), (self.install / UPDATER.name).read_bytes())
+        self.assert_durable_state_unchanged()
+
+    def test_external_updater_still_rejects_modified_installed_files(self) -> None:
+        self.historical_schema_updater()
+        (self.install / "builder-runtime/launcher/world-builder-tools.jar").write_bytes(b"changed")
+        before = self.snapshot(self.install)
+        result = self.run_updater("file:///absent-release", "file:///absent-download",
+                                  "--installation-root", str(self.install), executable=UPDATER)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("manifest is missing or does not verify", result.stderr)
+        self.assertEqual(before, self.snapshot(self.install))
+
+    def test_external_updater_preserves_historical_manifest_on_rollback(self) -> None:
+        manifest = self.historical_schema_updater()
+        old_script = (self.install / UPDATER.name).read_bytes()
+        api, download = self.make_release(compatibility_exit=37)
+        result = self.run_updater(api, download, "--installation-root", str(self.install),
+                                  executable=UPDATER)
+        self.assertNotEqual(0, result.returncode)
+        self.assertIn("restored", result.stderr)
+        self.assertEqual(manifest, (self.install / "PACKAGE-MANIFEST.sha256").read_bytes())
+        self.assertEqual(old_script, (self.install / UPDATER.name).read_bytes())
+        self.assertEqual("v0.1.0", (self.install / "VERSION.txt").read_text().strip())
+        self.assert_durable_state_unchanged()
+
+    def test_external_updater_rejects_missing_duplicate_or_linked_root(self) -> None:
+        linked = self.base / "linked-installation"
+        linked.symlink_to(self.install, target_is_directory=True)
+        before = self.snapshot(self.install)
+        for arguments in (
+            ("--installation-root",),
+            ("--installation-root", str(self.base / "missing")),
+            ("--installation-root", str(linked)),
+            ("--installation-root", str(self.install),
+             "--installation-root", str(self.install)),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_updater("file:///absent-release", "file:///absent-download",
+                                          *arguments, executable=UPDATER)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual(before, self.snapshot(self.install))
 
     def test_historical_pre_adaptive_workspace_refuses_automatic_migration(
         self,
@@ -841,6 +908,9 @@ class WorldBuilderV2UpdaterTest(unittest.TestCase):
             "RollbackArmed",
             "Select-NewestV2Release",
             "releases?per_page=100",
+            '[string]$InstallationRoot',
+            '$PSBoundParameters.ContainsKey("InstallationRoot")',
+            '$InstallationDirectory.Attributes -band [IO.FileAttributes]::ReparsePoint',
         ):
             self.assertIn(snippet, powershell)
         linux = UPDATER.read_text(encoding="utf-8")
