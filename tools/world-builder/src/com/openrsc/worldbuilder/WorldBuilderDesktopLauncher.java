@@ -553,6 +553,7 @@ final class WorldBuilderDesktopLauncher {
 				+ "\nWorld type: " + originLabel(entry.origin)
 				+ "\nStatus: " + entry.state
 				+ "\nCurrent project: " + (entry.active ? "Yes" : "No")
+				+ (entry.previousContentProjectId.isEmpty() ? "" : "\nPrevious content revision: " + entry.previousContentProjectId)
 				+ (entry.sourceDisplay.isEmpty() ? ""
 					: "\nImported from: " + entry.sourceDisplay)
 				+ (entry.configurationPath.isEmpty() ? ""
@@ -565,9 +566,9 @@ final class WorldBuilderDesktopLauncher {
 				+ "run Import Map Changes. If Import reports RUNTIME_UPGRADE_REQUIRED, "
 				+ "run Upgrade Target Runtime first. Runtime upgrade and map activation "
 				+ "are separate reviewed transactions.\n\n"
-				+ "This project is a fixed imported snapshot; it is never silently mixed "
-				+ "with newer server files. If the server map has changed, use Detect "
-				+ "Server Map to create a fresh isolated project.");
+				+ "Use Detect New Content to review new server definitions and visuals "
+				+ "while preserving your saved map. Previous content revisions remain available. "
+				+ "External server map changes require a separate conflict decision.");
 			details.setCaretPosition(0);
 		}
 
@@ -670,13 +671,23 @@ final class WorldBuilderDesktopLauncher {
 				});
 		}
 
+		private WorldBuilderProjectContentRefresh.Observer contentRefreshProgress() {
+			return new WorldBuilderProjectContentRefresh.Observer() {
+				@Override public void progress(final String phase, final long elapsedMillis) {
+					SwingUtilities.invokeLater(new Runnable() {
+						@Override public void run() { status.setText(phase + "… " + (elapsedMillis / 1000L) + "s elapsed"); }
+					});
+				}
+			};
+		}
+
 		private void detectNewContent() {
 			final WorldBuilderLauncherModel.ProjectEntry entry = selectedForServerAction("detect new content");
 			if (entry == null) return;
 			runTask("Scanning target definitions and visual dependencies; preserving saved map edits…",
 				new Task<WorldBuilderProjectContentRefresh.Preview>() {
 					@Override public WorldBuilderProjectContentRefresh.Preview run() throws Exception {
-						return model.previewContentRefresh(entry);
+						return model.previewContentRefresh(entry, contentRefreshProgress());
 					}
 				}, new Success<WorldBuilderProjectContentRefresh.Preview>() {
 					@Override public void accept(final WorldBuilderProjectContentRefresh.Preview preview) {
@@ -685,11 +696,11 @@ final class WorldBuilderDesktopLauncher {
 							JOptionPane.showMessageDialog(frame, preview.summary(), "Content Changes Need Resolution", JOptionPane.WARNING_MESSAGE);
 							return;
 						}
-						if (!confirmTransaction("Detect New Content", "Accept Content", preview.summary())) return;
+						if (!confirmContentRefresh(preview.summary())) return;
 						runTask("Verifying reviewed content and preserving the saved map in a new content revision…",
 							new Task<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 								@Override public WorldBuilderAdaptiveProjectLifecycle.ProjectResult run() throws Exception {
-									return model.applyContentRefresh(entry, preview);
+									return model.applyContentRefresh(entry, preview, contentRefreshProgress());
 								}
 							}, new Success<WorldBuilderAdaptiveProjectLifecycle.ProjectResult>() {
 								@Override public void accept(WorldBuilderAdaptiveProjectLifecycle.ProjectResult result) {
@@ -906,6 +917,14 @@ final class WorldBuilderDesktopLauncher {
 			WorldBuilderLauncherModel.ProjectEntry entry = projectList.getSelectedValue();
 			if (entry == null) showError("Select a project first.", null);
 			return entry;
+		}
+
+		private boolean confirmContentRefresh(String summary) {
+			JTextArea visible = readOnlyText();
+			visible.setRows(18); visible.setColumns(72); visible.setText(summary); visible.setCaretPosition(0);
+			Object[] options = {"Accept Content", "Cancel"};
+			return JOptionPane.showOptionDialog(frame, new JScrollPane(visible), "Detect New Content",
+				JOptionPane.DEFAULT_OPTION, JOptionPane.INFORMATION_MESSAGE, null, options, options[1]) == 0;
 		}
 
 		private boolean confirmTransaction(String title, String action, String summary) {

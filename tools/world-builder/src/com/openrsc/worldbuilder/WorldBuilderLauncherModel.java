@@ -129,6 +129,14 @@ final class WorldBuilderLauncherModel {
 				provenance.configurationPath, provenance.configurationSha256,
 				provenance.workingFingerprint));
 		}
+		for (ProjectEntry entry : result) {
+			Path origin = entry.projectRoot.resolve(WorldBuilderProjectContentRefresh.ORIGIN);
+			if (Files.isRegularFile(origin, LinkOption.NOFOLLOW_LINKS)) {
+				entry.previousContentProjectId = text(WorldBuilderJsonDocuments.readObject(origin).get("projectId"));
+				for (ProjectEntry previous : result) if (previous.projectId.equals(entry.previousContentProjectId))
+					previous.priorContentRevision = true;
+			}
+		}
 		Collections.sort(result, new Comparator<ProjectEntry>() {
 			@Override public int compare(ProjectEntry left, ProjectEntry right) {
 				if (left.active != right.active) return left.active ? -1 : 1;
@@ -453,14 +461,14 @@ final class WorldBuilderLauncherModel {
 		}
 	}
 
-	WorldBuilderProjectContentRefresh.Preview previewContentRefresh(ProjectEntry entry)
+	WorldBuilderProjectContentRefresh.Preview previewContentRefresh(ProjectEntry entry, WorldBuilderProjectContentRefresh.Observer observer)
 		throws IOException, WorldBuilderContractException {
-		return new WorldBuilderProjectContentRefresh().preview(entry.projectRoot, runtime, targetFor(entry), creationPort());
+		return new WorldBuilderProjectContentRefresh(observer).preview(entry.projectRoot, runtime, targetFor(entry), creationPort());
 	}
 
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult applyContentRefresh(ProjectEntry entry,
-		WorldBuilderProjectContentRefresh.Preview preview) throws IOException, WorldBuilderContractException {
-		return new WorldBuilderProjectContentRefresh().apply(entry.projectRoot, runtime, targetFor(entry),
+		WorldBuilderProjectContentRefresh.Preview preview, WorldBuilderProjectContentRefresh.Observer observer) throws IOException, WorldBuilderContractException {
+		return new WorldBuilderProjectContentRefresh(observer).apply(entry.projectRoot, runtime, targetFor(entry),
 			creationPort(), preview.fingerprint, "REFRESH");
 	}
 
@@ -750,6 +758,9 @@ final class WorldBuilderLauncherModel {
 		final String configurationSha256;
 		final String workingFingerprint;
 
+		String previousContentProjectId = "";
+		boolean priorContentRevision;
+
 		ProjectEntry(String projectId, String displayName, String origin,
 			String state, Path projectRoot, boolean active, String sourceDisplay,
 			String configurationPath, String configurationSha256,
@@ -767,7 +778,9 @@ final class WorldBuilderLauncherModel {
 		}
 
 		@Override public String toString() {
-			return (active ? "▶ " : "   ") + displayName;
+			return (active ? "▶ " : "   ") + displayName
+				+ (priorContentRevision ? " (previous content revision)"
+					: previousContentProjectId.isEmpty() ? "" : " (updated content)");
 		}
 	}
 

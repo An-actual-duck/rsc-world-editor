@@ -622,8 +622,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			requireFreshTargetEvidence(report, target);
 			if (migration != null) requireFreshMigration(migration, target);
-			if (contentRefresh != null) contentRefresh.verify(target, report);
 			observe("before-project-publish", stage);
+			if (contentRefresh != null) contentRefresh.verify(target, report);
 			moveAtomicNew(stage, project);
 			projectPublished = true;
 			observe("project-published", project);
