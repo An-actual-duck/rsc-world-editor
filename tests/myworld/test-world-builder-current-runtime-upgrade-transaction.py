@@ -1067,7 +1067,7 @@ public final class RuntimeConfigHarness {
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
-    def test_supported_cli_uses_only_the_built_in_preservation_profile(self) -> None:
+    def test_supported_cli_refuses_unreviewed_composition_and_external_adapters(self) -> None:
         target = self.target("preservation-t0")
         workspace = self.workspace()
         common = [
@@ -1087,9 +1087,12 @@ public final class RuntimeConfigHarness {
              "--adapter", "preservation-family-v1"],
             cwd=ROOT, text=True, capture_output=True, check=False,
         )
-        # The public production adapter must no longer recognize this invented topology.
+        # The public CLI refuses whole-game replacement before adapter conversion.
+        # Only the separately reviewed targeted integration may change a runtime.
         self.assertEqual(3, previewed.returncode, previewed.stderr)
-        self.assertIn("CONVERSION_BLOCKED", previewed.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", previewed.stderr)
+        self.assertIn("target-map-integration", previewed.stderr)
+        self.assertIn("would not preserve its custom content", previewed.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
@@ -1127,7 +1130,9 @@ public final class RuntimeConfigHarness {
             cwd=ROOT, text=True, capture_output=True, check=False,
         )
         self.assertEqual(3, applied.returncode)
-        self.assertIn("CONVERSION_BLOCKED", applied.stderr)
+        self.assertIn("RUNTIME_UPGRADE_REQUIRED", applied.stderr)
+        self.assertIn("target-map-integration", applied.stderr)
+        self.assertIn("would not preserve its custom content", applied.stderr)
         self.assertEqual(before_target, tree_snapshot(target))
         self.assertEqual(before_workspace, tree_snapshot(workspace))
 
