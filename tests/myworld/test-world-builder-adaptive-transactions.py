@@ -347,6 +347,9 @@ public final class AdaptiveTransactionFailureHarness {
                                 Files.write(target.resolve("server/src/fixture/Unexpected.java"), "package fixture; class Unexpected {}".getBytes("UTF-8"));
                             if ("reverify-final-archive-drift".equals(failures) && "plan-confirmed".equals(milestone))
                                 Files.write(target.resolve("server/core.jar"), new byte[] {42}, StandardOpenOption.APPEND);
+                            if ("active-configuration-final-drift".equals(failures) && "before-first-target-mutation".equals(milestone))
+                                Files.write(target.resolve("server/world-builder-configs/primary.json"),
+                                    new byte[] {32}, StandardOpenOption.APPEND);
                             if ("active-package-final-drift".equals(failures) && "before-first-target-mutation".equals(milestone)) {
                                 java.util.Map<String,Object> config = WorldBuilderJsonDocuments.readObject(
                                     target.resolve("server/world-builder-configs/primary.json"));
@@ -1526,6 +1529,16 @@ public final class InstalledFloorFixture {
             self.assertIn("TARGET_DRIFT", rejected.stderr)
             self.assertEqual(drifted, project_support.tree_bytes(target, installation))
             manifest.write_bytes(original)
+            configuration_file = target / "server/world-builder-configs/primary.json"
+            original_configuration = configuration_file.read_bytes()
+            configuration_file.write_bytes(original_configuration + b" ")
+            drifted_configuration = project_support.tree_bytes(target, installation)
+            configuration_file.write_bytes(original_configuration)
+            rejected = self.run_failure("import", "active-configuration-final-drift", project, target, export)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("TARGET_DRIFT", rejected.stderr)
+            self.assertEqual(drifted_configuration, project_support.tree_bytes(target, installation))
+            configuration_file.write_bytes(original_configuration)
             failed = self.run_failure("import", "activation-published,any-rollback", project, target, export)
             self.assertIn("RECOVERY_REQUIRED", failed.stderr)
             recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)

@@ -2132,6 +2132,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 		if (plan.serverPackageRelativePath.equals(SERVER_PACKAGE_ROOT + "/" + address + "/package")
 			&& plan.clientPackageRelativePath.equals(compiledClientRoot(plan.configuration)
 				+ "/world-builder/packages/" + address + "/package")) {
+			WorldBuilderReadOnlyTarget.FileState configuration = WorldBuilderReadOnlyTarget.open(plan.targetRoot)
+				.requiredState("selected-configuration", plan.configuration.relativePath);
+			if (!plan.configuration.sha256.equals(configuration.sha256)) throw problem(
+				WorldBuilderErrorCodes.TARGET_DRIFT, plan.configuration.relativePath,
+				"Active package configuration changed after the import preview.",
+				"Stop target changes and request a fresh import preview.");
 			requireExactActivePackage(plan.targetRoot, plan.export,
 				plan.serverPackageRelativePath, plan.clientPackageRelativePath);
 		}
