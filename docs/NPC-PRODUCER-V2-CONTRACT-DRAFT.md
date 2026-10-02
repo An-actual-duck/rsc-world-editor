@@ -1,9 +1,16 @@
-# Effective NPC visual producer v2 — review contract
+# Effective NPC visual producer v2 — supported contract
 
-Status: architecture reviewed; revised final-initialization/frame contract pending
-manager/Core field agreement. Scope is the
-maintained OpenRSC NPC registry and existing World Builder RGB presentation
-capability. This is not a general target-code interpreter.
+Status: closed producer/consumer agreement, implemented and tested against the
+maintained final-initialization exporter. The historical filename is retained for
+existing handoff links. Scope is the maintained OpenRSC NPC registry and World
+Builder RGB presentation capability, not a general target-code interpreter.
+
+The independent real producer capture contained 877 available NPCs, 249 animation
+records and 4,521 resolved source frames. Editor capture verified all of those
+records, preserved exact ordered NPC vectors and presentation values, and emitted
+4,509 byte-identical authoring frames with zero unresolved NPC dependencies. Eight
+NPCs declare cadence limitations; four also retain unpreviewed secondary-attack
+frames. Those counts characterize the acceptance input, not product constants.
 
 ## Authority and completeness
 
@@ -33,13 +40,15 @@ configuration, ID and asset closure, and retains this provenance. Unrecognized
 renderer semantics require an actionable refusal; extra hashes cannot authorize
 an arbitrary renderer or gameplay replacement.
 
-## Proposed exact document shape
+## Exact document shape
 
 Keep `manifestType: "world-builder-npc-definitions"`; distinguish with
-`schemaVersion: 2`. Packaging selects exactly one
-`full-npc-definition-manifest` role. Proposed new filename is
-`npc-definitions-v2.json`; legacy v1 discovery remains supported. Ambiguous two
-active NPC manifests are refused rather than chosen by filename order.
+`schemaVersion: 2`. The active producer filename is `npc-definitions-v2.json`,
+discovered under either `world-builder-provider/` or `server/conf/world-builder/`.
+Exactly one active v2 manifest is allowed. Legacy v1 discovery remains supported;
+a historical generated v1 cache is superseded by the verified complete v2 source,
+without deleting that cache. Two active complete producers are refused rather
+than chosen by filename order.
 
 ```json
 {
@@ -437,9 +446,12 @@ silently disables them. A missing selector requires a bound absent-file probe.
 Discovery validates manifest/source/asset hashes and selection/probe outcomes.
 Capture validates every resolved frame's internal geometry, payload and declared
 closure before publishing a project or revision. ZIP closures permit at most
-32,768 entries and 512 MiB expanded; individual RGB payloads are limited to
+32,768 entries, 128 MiB compressed input and 512 MiB expanded; individual RGB payloads are limited to
 16 MiB. Combined retained source frame payloads are bounded to 512 MiB, and the
-private emitted NPC RGB projection to 256 MiB. OSAR-to-RGB conversion is checked
+private emitted NPC RGB projection to 256 MiB. Newly read manifests and maintained
+configuration-default sources are limited to 16 MiB; configuration text is limited
+to 4 MiB. Reads enforce their bounds while streaming as well as checking initial
+file size. OSAR-to-RGB conversion is checked
 against the exact locked provider's maintained `Unpacker`, including palette
 zero, offsets, shifts, bounds and frame order.
 

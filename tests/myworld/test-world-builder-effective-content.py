@@ -164,6 +164,14 @@ class EffectiveContentTest(unittest.TestCase):
    explicit={**baseline,'genderModel':999,'customSpriteSubspace':'player','customSpriteEntry':'head1','customEntrySha256':hashlib.sha256(b'head1\0'+sprite(18)).hexdigest(),'authenticFrameSha256s':[hashlib.sha256(frames[i]).hexdigest() for i in range(18)]}
    registry['animations'].insert(0,explicit);seal();explicit_index=self.run_index(root)
    self.assertEqual(before['npc']['0'],explicit_index['npc']['0'])
+   # Known captured animations must still report unresolved nested archives.
+   # Ordered slots/frames cannot hide diagnostics that used to be top-level.
+   for filename,role in [('Authentic_Sprites.orsc','asset.sprite.authentic')]:
+    path=video/filename;original_bytes=path.read_bytes();path.write_bytes(gzip.compress(b'opaque legacy archive fixture',mtime=0));seal()
+    unresolved=self.run_index(root,report=Path(tmp))
+    warning=next(row for row in unresolved['warnings'] if row['family']=='npc' and row['id']==0)
+    self.assertTrue(any(role in message for message in warning['messages']),warning)
+    path.write_bytes(original_bytes);seal()
    explicit['charColour']=2;seal();changed_mask=self.run_index(root)
    self.assertNotEqual(before['npc']['0'][2],changed_mask['npc']['0'][2])
    registry['animations'].pop(0);seal()

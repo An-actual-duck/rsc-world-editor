@@ -99,14 +99,33 @@ final class WorldBuilderEffectiveContent {
 
     private static List<String> visualWarnings(Map<String,Object> visual) {
         List<String> warnings = new ArrayList<>();
-        for (String key : visual.keySet()) if (key.startsWith("unresolved/npc-animation/")) {
+        java.util.Set<String> unresolvedKeys = new java.util.TreeSet<>();
+        collectUnresolvedKeys(visual, unresolvedKeys);
+        for (String key : unresolvedKeys) if (key.startsWith("unresolved/npc-animation/")) {
             warnings.add("NPC animation " + key.substring("unresolved/npc-animation/".length())
                 + " has no verified captured mapping or supported authoring baseline lookup.");
         }
-        if (warnings.isEmpty()) for (String key : visual.keySet()) if (key.startsWith("unresolved")) {
+        if (warnings.isEmpty()) for (String key : unresolvedKeys) {
             warnings.add("Appearance dependencies could not be resolved exactly (" + key + ").");
         }
         return warnings;
+    }
+
+    private static void collectUnresolvedKeys(Object value, java.util.Set<String> keys) {
+        // Closure maps are constructed here, with bounded slot/frame lists. A
+        // dependency nested in an ordered NPC layer is no less unresolved than
+        // a top-level dependency. Do not traverse a recorded unresolved payload:
+        // it may contain the conservative whole-archive index rather than slots.
+        if (value instanceof Map<?,?>) {
+            for (Map.Entry<?,?> entry : ((Map<?,?>)value).entrySet()) {
+                if (entry.getKey() instanceof String
+                    && ((String)entry.getKey()).startsWith("unresolved")) {
+                    keys.add((String)entry.getKey());
+                } else collectUnresolvedKeys(entry.getValue(), keys);
+            }
+        } else if (value instanceof List<?>) {
+            for (Object child : (List<?>)value) collectUnresolvedKeys(child, keys);
+        }
     }
 
     static void writeVisualReport(Path project, BundleReport report) throws IOException {

@@ -150,4 +150,10 @@ class NpcProducerV2Test(unittest.TestCase):
       if row['sourceId']=='frames':row['sha256']=digest
      doc['animationDefinitions'][0]['frames']['frameSha256s'][0]=hashlib.sha256(entries['frames/0.dat']).hexdigest();write_json(manifest,doc)
      self.run_capture(target);before={p:p.read_bytes() for p in target.rglob('*') if p.is_file()};self.run_capture(target,False,runtime);self.assertEqual(before,{p:p.read_bytes() for p in target.rglob('*') if p.is_file()})
+ def test_sparse_oversized_frame_input_refuses_before_allocation(self):
+  with tempfile.TemporaryDirectory() as temp:
+   target,manifest,doc=self.fixture(Path(temp));runtime=self.runtime(temp)
+   path=target/'Client_Base/Cache/video/Authentic_Sprites.orsc'
+   with path.open('wb') as output:output.truncate(128*1024*1024+1)
+   self.assertIn('bounded byte limit',self.run_capture(target,False,runtime))
 if __name__=='__main__':unittest.main()

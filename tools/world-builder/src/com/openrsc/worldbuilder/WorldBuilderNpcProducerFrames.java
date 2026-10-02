@@ -47,9 +47,10 @@ final class WorldBuilderNpcProducerFrames {
             next = Math.max(next, number(object(raw), "animationId", 0, 65535) + 1);
         byte[] bytes =
                 authenticOverride == null
-                        ? Files.readAllBytes(
+                        ? readBounded(
                                 target.requiredFile(
-                                        "Client_Base/Cache/video/Authentic_Sprites.orsc"))
+                                        "Client_Base/Cache/video/Authentic_Sprites.orsc"),
+                                128L * 1024 * 1024)
                         : authenticOverride;
         Map<String, byte[]> archive = zip(bytes);
         int nextSprite = 0;
@@ -106,7 +107,7 @@ final class WorldBuilderNpcProducerFrames {
             } else {
                 Map<String, byte[]> indexed = assets.get(assetId);
                 if (indexed == null) {
-                    indexed = zip(Files.readAllBytes(file));
+                    indexed = zip(readBounded(file, 128L * 1024 * 1024));
                     for (byte[] frame : indexed.values()) sourceBudget += frame.length;
                     if (sourceBudget > MAX_EXPANDED)
                         throw failure(FILE, "Combined NPC source frame closure exceeds512MiB.");
@@ -322,8 +323,8 @@ final class WorldBuilderNpcProducerFrames {
                             .append(ids.size())
                             .append(
                                     " NPCs. Source-specific cadence or secondary attacks are"
-                                        + " retained as evidence but are not reproduced by the"
-                                        + " building preview.");
+                                            + " retained as evidence but are not reproduced by the"
+                                            + " building preview.");
             for (int i = 0; i < Math.min(5, rows.size()); i++) {
                 Map<String, Object> row = object(rows.get(i));
                 text.append("\nNPC ")
@@ -353,7 +354,7 @@ final class WorldBuilderNpcProducerFrames {
                 throw failure(
                         jar.toString(),
                         "Private authoring runtime lacks verified NPC RGB/mask-policy support;"
-                            + " update World Builder.");
+                                + " update World Builder.");
             if (!client) return 0;
             int count = Integer.parseInt(attributes.getValue("World-Builder-Npc-Animation-Count"));
             if (count < 1080 || count > 65535)
@@ -410,7 +411,7 @@ final class WorldBuilderNpcProducerFrames {
                     throw failure(
                             FILE,
                             "NPC frame archive contains directories, duplicates, or too many"
-                                + " entries.");
+                                    + " entries.");
                 ByteArrayOutputStream output = new ByteArrayOutputStream();
                 byte[] block = new byte[8192];
                 int n;

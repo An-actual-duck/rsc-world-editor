@@ -54,10 +54,53 @@ final class WorldBuilderNpcProducerV2 {
                 || Files.size(path) > MAX_MANIFEST)
             throw failure(FILE, "NPC producer manifest is missing or exceeds16MiB.");
         try {
-            return parse(WorldBuilderJsonDocuments.readTargetDefinitionObject(path));
+            return parse(
+                    WorldBuilderJsonDocuments.readTargetDefinitionObject(
+                            readBounded(path, MAX_MANIFEST), path.toString()));
         } catch (WorldBuilderDiscoveryException invalid) {
             throw failure(FILE, "NPC producer manifest is malformed JSON.");
         }
+    }
+
+    static byte[] readBounded(Path path, long limit)
+            throws IOException, WorldBuilderContractException {
+        if (Files.size(path) > limit)
+            throw failure(
+                    path.toString(), "NPC producer input exceeds its bounded byte limit: " + limit);
+        try (java.io.InputStream input = Files.newInputStream(path);
+                java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
+            byte[] bytes = new byte[8192];
+            int count;
+            while ((count = input.read(bytes)) != -1) {
+                if ((long) output.size() + count > limit)
+                    throw failure(
+                            path.toString(),
+                            "NPC producer input grew beyond its bounded byte limit: " + limit);
+                output.write(bytes, 0, count);
+            }
+            return output.toByteArray();
+        }
+    }
+
+    private static Boolean configuredFlag(String text, String key)
+            throws WorldBuilderContractException {
+        java.util.regex.Pattern line =
+                java.util.regex.Pattern.compile(
+                        "^\\s*([A-Za-z0-9_]+)\\s*:\\s*([^#]*?)\\s*(?:#.*)?$");
+        Boolean found = null;
+        for (String value : text.split("\\r?\\n")) {
+            java.util.regex.Matcher match = line.matcher(value);
+            if (!match.matches()
+                    || !key.equalsIgnoreCase(match.group(1))
+                    || match.group(2).trim().isEmpty()) continue;
+            String flag = match.group(2).trim();
+            if (found != null || !("true".equalsIgnoreCase(flag) || "false".equalsIgnoreCase(flag)))
+                throw failure(
+                        FILE,
+                        "NPC producer configuration flag is ambiguous or not boolean: " + key);
+            found = Boolean.valueOf(flag);
+        }
+        return found;
     }
 
     static final class Capture {
@@ -87,7 +130,7 @@ final class WorldBuilderNpcProducerV2 {
                 throw failure(
                         FILE,
                         "Two active complete NPC producers are present; select one maintained"
-                            + " export.");
+                                + " export.");
             selected = candidate;
         }
         if (selected == null) return null;
@@ -142,7 +185,7 @@ final class WorldBuilderNpcProducerV2 {
             throw failure(
                     selected,
                     "NPC producer definition sources differ from the verified effective load"
-                        + " order.");
+                            + " order.");
         requireSourcePath(boundPaths, "server/src/com/openrsc/server/external/EntityHandler.java");
         requireSourcePath(
                 boundPaths, "Client_Base/src/com/openrsc/client/entityhandling/EntityHandler.java");
@@ -159,7 +202,7 @@ final class WorldBuilderNpcProducerV2 {
             throw failure(
                     selected,
                     "Complete NPC producer IDs differ from the effective server catalog; publish a"
-                        + " fresh complete export.");
+                            + " fresh complete export.");
         for (Map<String, Object> asset : document.assets.values()) {
             String packagePath = path(asset, "packageRelativePath");
             Path root = target.requiredFile(selected).getParent();
@@ -184,7 +227,7 @@ final class WorldBuilderNpcProducerV2 {
                     throw failure(
                             path,
                             "NPC loader candidate appeared, disappeared, or changed after capture;"
-                                + " regenerate the complete visual export.");
+                                    + " regenerate the complete visual export.");
                 evidence.add(state);
             } else {
                 String path = path(probe, "archiveRelativePath"), entry = path(probe, "entryPath");
@@ -323,10 +366,13 @@ final class WorldBuilderNpcProducerV2 {
             Document document,
             Map<String, String> sourcePaths)
             throws IOException, WorldBuilderContractException {
-        try {
-            WorldBuilderDiscovery.Config config =
-                    WorldBuilderDiscovery.Config.read(
-                            target.requiredFile(layout.configurationPath));
+        {
+            String config =
+                    new String(
+                            readBounded(
+                                    target.requiredFile(layout.configurationPath),
+                                    4L * 1024 * 1024),
+                            java.nio.charset.StandardCharsets.UTF_8);
             Map<String, Object> flags = object(document.provider.get("clientFlags"));
             for (String[] spec :
                     new String[][] {
@@ -338,14 +384,16 @@ final class WorldBuilderNpcProducerV2 {
                         }
                     }) {
                 boolean value;
-                if (config.contains(spec[0])) value = config.requiredBoolean(spec[0]);
+                Boolean configured = configuredFlag(config, spec[0]);
+                if (configured != null) value = configured;
                 else {
                     String source = "server/src/com/openrsc/server/ServerConfiguration.java";
                     requireSourcePath(sourcePaths, source);
                     String sourceText =
                             withoutJavaComments(
                                     new String(
-                                            Files.readAllBytes(target.requiredFile(source)),
+                                            readBounded(
+                                                    target.requiredFile(source), 16L * 1024 * 1024),
                                             java.nio.charset.StandardCharsets.UTF_8));
                     java.util.regex.Pattern pattern =
                             java.util.regex.Pattern.compile(
@@ -359,7 +407,7 @@ final class WorldBuilderNpcProducerV2 {
                         throw failure(
                                 source,
                                 "NPC client flag has no bounded supported configuration/default"
-                                    + " proof.");
+                                        + " proof.");
                     value = Boolean.parseBoolean(matcher.group(1));
                     if (matcher.find())
                         throw failure(source, "NPC client flag default is ambiguous.");
@@ -379,10 +427,6 @@ final class WorldBuilderNpcProducerV2 {
                             "NPC producer client flag disagrees with selected configuration: "
                                     + spec[1]);
             }
-        } catch (WorldBuilderDiscoveryException invalid) {
-            throw failure(
-                    layout.configurationPath,
-                    "NPC producer selected client flags cannot be verified.");
         }
     }
 
@@ -408,13 +452,15 @@ final class WorldBuilderNpcProducerV2 {
         Set<String> seen = new HashSet<>();
         List<String> activeSources = new ArrayList<>();
         for (String line :
-                Files.readAllLines(
-                        target.requiredFile(config), java.nio.charset.StandardCharsets.UTF_8)) {
+                new String(
+                                readBounded(target.requiredFile(config), 4L * 1024 * 1024),
+                                java.nio.charset.StandardCharsets.UTF_8)
+                        .split("\\r?\\n")) {
             if (!line.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,127}:[01]"))
                 throw failure(
                         config,
                         "Unsupported spritepack configuration; expected bounded unique name:0/1"
-                            + " lines.");
+                                + " lines.");
             String[] parts = line.split(":");
             if (!seen.add(parts[0])) throw failure(config, "Duplicate spritepack selection.");
             if (!"1".equals(parts[1])) continue;
@@ -653,13 +699,13 @@ final class WorldBuilderNpcProducerV2 {
                 throw failure(
                         FILE,
                         "Source special frames require source combat and complete offsets"
-                            + " through26.");
+                                + " through26.");
             if (!WorldBuilderProjectContentBundle.effectiveNpcMaskPolicy(id, custom, colour)
                     .equals(row.get("npcMaskPolicy")))
                 throw failure(
                         FILE,
                         "NPC mask policy disagrees with original animation identity, flags and"
-                            + " colour.");
+                                + " colour.");
             Map<String, Object> preview = object(row.get("authoringPreview"));
             exact(
                     preview,
@@ -693,7 +739,7 @@ final class WorldBuilderNpcProducerV2 {
                 throw failure(
                         FILE,
                         "Twenty-one source frames require explicit combat-only authoring projection"
-                            + " and retained secondary-attack limitation.");
+                                + " and retained secondary-attack limitation.");
             Map<String, Object> resolution = object(row.get("resolution"));
             exact(
                     resolution,
@@ -890,6 +936,6 @@ final class WorldBuilderNpcProducerV2 {
                 path,
                 message,
                 "Publish a fresh complete maintained NPC visual export for the selected"
-                    + " configuration, then detect new content.");
+                        + " configuration, then detect new content.");
     }
 }
