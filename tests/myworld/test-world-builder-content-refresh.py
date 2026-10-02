@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import subprocess
+import struct
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
@@ -200,6 +201,60 @@ public final class RefreshDesktopModel {
             moved_install = base / "offline-target/World Builder 2"
             opened = self.run_cli("open-project", "--installation-root", moved_install)
             self.assertEqual(0, opened.returncode, opened.stderr)
+
+    def test_visual_only_model_refresh_preserves_identities_map_and_target_assets(self):
+        def model_archive(vertex):
+            # One valid native OB3 triangle, with solid face materials and a changed vertex.
+            payload = (struct.pack(">HH", 3, 1) + struct.pack(">hhh", 0, 64, 0)
+                + struct.pack(">hhh", 0, 0, -64) + struct.pack(">hhh", 0, 0, vertex)
+                + bytes((3,)) + struct.pack(">hh", -1, -1) + bytes((0, 0, 1, 2)))
+            name_hash = 0
+            for character in "sample.ob3".upper(): name_hash = (name_hash * 61 + ord(character) - 32) & 0xffffffff
+            raw = b"\x00\x01" + struct.pack(">I", name_hash) + len(payload).to_bytes(3, "big") * 2 + payload
+            return len(raw).to_bytes(3, "big") * 2 + raw
+        def content(target):
+            self.complete_content(target)
+            path = target / "server/conf/server/defs/GameObjectDef.xml"
+            path.write_text(path.read_text().replace("</GameObjectDef>", "<objectModel>sample</objectModel></GameObjectDef>"))
+            (target / "Client_Base/Cache/video/models.orsc").write_bytes(model_archive(64))
+        with tempfile.TemporaryDirectory(prefix="content-refresh-model-visual-") as temp:
+            base = Path(temp)
+            target, install, parent, export = self.target_project(base, representation="packed",
+                installed_standard_floors=True, target_mutator=content)
+            runtime = base / "builder-runtime"
+            before = support.tree_bytes(parent)
+            saved = support.tree_bytes(parent / "working/layered-world/package")
+            archive = target / "Client_Base/Cache/video/models.orsc"
+            archive.write_bytes(model_archive(96))
+            target_before = support.tree_bytes(target, install)
+            reviewed = self.refresh(parent, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            self.assertEqual("ready", preview["status"])
+            scenery = next(row for row in preview["families"] if row["family"] == "scenery")
+            self.assertTrue(scenery["visualsChanged"])
+            self.assertFalse(scenery["added"] or scenery["changed"] or scenery["removed"])
+            self.assertTrue(any(row["mapReferenceCount"] > 0 for row in scenery["details"]))
+            for row in scenery["details"]:
+                self.assertEqual("visuals-changed", row["status"])
+                self.assertEqual(row["previousSemanticSha256"], row["semanticSha256"])
+                self.assertNotEqual(row["previousVisualSha256"], row["visualSha256"])
+            accepted = self.refresh(parent, runtime, target, "--confirm", "REFRESH",
+                "--expected-preview", preview["previewFingerprintSha256"])
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            self.assertEqual(before, support.tree_bytes(parent))
+            self.assertEqual(saved, support.tree_bytes(successor / "working/layered-world/package"))
+            self.assertEqual(target_before, support.tree_bytes(target, install))
+            captured = list((successor / "source").rglob("models.orsc"))
+            self.assertTrue(captured)
+            for path in captured: self.assertEqual(model_archive(96), path.read_bytes())
+            exported = self.next_history_export(successor)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor,
+                "--export", exported, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(model_archive(96), archive.read_bytes())
+            self.assertEqual(before, support.tree_bytes(parent))
 
     def test_exact_unchanged_library_is_noop_but_raw_evidence_updates_are_retained(self):
         with tempfile.TemporaryDirectory(prefix="content-refresh-unchanged-") as temp:
