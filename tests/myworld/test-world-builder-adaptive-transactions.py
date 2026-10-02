@@ -1514,6 +1514,9 @@ public final class InstalledFloorFixture {
             baseline = project_support.tree_bytes(target, installation)
             preview = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
             self.assertEqual(0, preview.returncode, preview.stderr)
+            self.assertIn("Import preview", preview.stderr)
+            self.assertIn("Confirmation required: IMPORT", preview.stderr)
+            self.assertNotIn("Target runtime upgrade preview", preview.stderr)
             configuration = json.loads((target / "server/world-builder-configs/primary.json").read_text())
             manifest = target / configuration["clientMapRelativePath"] / "manifest.json"
             original = manifest.read_bytes()
@@ -1539,6 +1542,16 @@ public final class InstalledFloorFixture {
             self.assertIn("TARGET_DRIFT", rejected.stderr)
             self.assertEqual(drifted_configuration, project_support.tree_bytes(target, installation))
             configuration_file.write_bytes(original_configuration)
+            catalog = target / "server/evidence/definitions.json"
+            original_catalog = catalog.read_bytes()
+            catalog.write_bytes(original_catalog + b" ")
+            drifted_catalog = project_support.tree_bytes(target, installation)
+            catalog.write_bytes(original_catalog)
+            rejected = self.run_failure("import", "catalog-final-drift", project, target, export)
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("DEFINITION_MISMATCH", rejected.stderr)
+            self.assertEqual(drifted_catalog, project_support.tree_bytes(target, installation))
+            catalog.write_bytes(original_catalog)
             failed = self.run_failure("import", "activation-published,any-rollback", project, target, export)
             self.assertIn("RECOVERY_REQUIRED", failed.stderr)
             recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
@@ -3278,7 +3291,8 @@ public final class SuccessorProofProbe {
                 "--export", fresh_export, "--target-root", installed_target,
             )
             self.assertEqual(3, preview.returncode, preview.stderr)
-            self.assertIn("TARGET_DRIFT", preview.stderr)
+            self.assertIn("CONTRACT_VALUE_INVALID", preview.stderr)
+            self.assertIn("No import is needed", preview.stderr)
             for source, _ in downgraded_sources:
                 self.assertNotIn(
                     b"WIDE_TILE_WIRE_BYTES = 11", source.read_bytes(),

@@ -267,13 +267,13 @@ final class WorldBuilderAdaptiveImporter {
 						"Review the complete plan and type " + expectedConfirmation
 							+ " exactly, or cancel.");
 					observe("plan-confirmed", project);
-					return new ImportOutcome(plan, applyLocked(plan, offline));
+					return new ImportOutcome(plan, applyLocked(plan, offline, runtimeUpgrade || runtimeReverification));
 				}
 		}
 	}
 
 	private ImportResult applyLocked(WorldBuilderAdaptiveMutationProfile.Plan plan,
-		WorldBuilderAdaptiveOfflineLease offline)
+		WorldBuilderAdaptiveOfflineLease offline, boolean runtimeOperation)
 		throws IOException, WorldBuilderContractException {
 		Path project = plan.project.projectRoot;
 		Path target = plan.targetRoot;
@@ -326,7 +326,7 @@ final class WorldBuilderAdaptiveImporter {
             WorldBuilderRuntimeReverification.verifyInputs(plan);
             WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
             if (plan.document.containsKey(WorldBuilderRuntimeReverification.FIELD)) WorldBuilderTargetMapIntegration.verifyInputs(plan);
-			if (!runtimeUpgradeOnly(plan)) verifyPlannedPlacementDefinitions(plan);
+			if (!runtimeOperation) verifyPlannedPlacementDefinitions(plan);
 
 			int packageIndex = 0;
 			for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
@@ -415,7 +415,7 @@ final class WorldBuilderAdaptiveImporter {
 			}
 
 			List<WorldBuilderAdaptiveReceipt.Verification> verifications =
-				verifyAfterState(plan);
+				verifyAfterState(plan, runtimeOperation);
 			observe("post-write-verified", target);
 			receipt = WorldBuilderAdaptiveReceipt.create(plan, "import", "successful",
 				createdAt, true, offline.evidence, true, false,
@@ -618,7 +618,7 @@ final class WorldBuilderAdaptiveImporter {
 	}
 
 	private static List<WorldBuilderAdaptiveReceipt.Verification> verifyAfterState(
-		WorldBuilderAdaptiveMutationProfile.Plan plan)
+		WorldBuilderAdaptiveMutationProfile.Plan plan, boolean runtimeOperation)
 		throws IOException, WorldBuilderContractException {
 		List<WorldBuilderAdaptiveReceipt.Verification> values =
 			new ArrayList<WorldBuilderAdaptiveReceipt.Verification>();
@@ -629,7 +629,7 @@ final class WorldBuilderAdaptiveImporter {
 				"post-" + pad(index), true,
 				action.after.present ? action.after.sha256 : "absent"));
 		}
-		verifyInstalledSemantics(plan);
+		verifyInstalledSemantics(plan, runtimeOperation);
 		return values;
 	}
 
@@ -701,7 +701,7 @@ final class WorldBuilderAdaptiveImporter {
 	}
 
 	private static void verifyInstalledSemantics(
-		WorldBuilderAdaptiveMutationProfile.Plan plan)
+		WorldBuilderAdaptiveMutationProfile.Plan plan, boolean runtimeOperation)
 		throws IOException, WorldBuilderContractException {
 		WorldBuilderRuntimeReverification.verifyInputs(plan);
         WorldBuilderRuntimeReverification.verifyRetainedInputs(plan);
@@ -714,7 +714,7 @@ final class WorldBuilderAdaptiveImporter {
 			WorldBuilderTargetCapability.RELATIVE_PATH, true,
 			"Target capability changed during installation.",
 			"Keep the target offline so the transaction can roll back.");
-		if (runtimeUpgradeOnly(plan)) {
+		if (runtimeOperation) {
 			WorldBuilderAdaptiveConfiguration configuration =
 				WorldBuilderAdaptiveConfiguration.select(target, capability,
 					plan.configuration.configurationId).selected;
@@ -755,15 +755,6 @@ final class WorldBuilderAdaptiveImporter {
 			WorldBuilderErrorCodes.MAP_MISMATCH, "installed-package", true,
 			"Installed server/client packages do not match the validated export.",
 			"Keep the target offline so the transaction can roll back.");
-	}
-
-	private static boolean runtimeUpgradeOnly(
-		WorldBuilderAdaptiveMutationProfile.Plan plan) {
-		if (plan.actions.isEmpty() || !plan.configurationChanges.isEmpty()) return false;
-		for (WorldBuilderAdaptiveMutationProfile.Action action : plan.actions) {
-			if (!action.role.startsWith("runtime-compatibility-")) return false;
-		}
-		return true;
 	}
 
 	private List<WorldBuilderAdaptiveReceipt.Verification> rollback(
@@ -1157,7 +1148,7 @@ final class WorldBuilderAdaptiveImporter {
 		}
 
 		String humanSummary() {
-			return runtimeReverification ? "Re-verify Rebuilt Runtime\n\nVerified rebuilt archives and saved editor work are retained. Only compatibility evidence is updated.\nHistorical undo stops at this rebuild boundary.\n\n" + WorldBuilderRuntimeReverification.summary(plan) + plan.humanSummary().replace("Target runtime upgrade preview", "Runtime re-verification preview").replace("UPGRADE", "REVERIFY") : plan.humanSummary();
+			return runtimeReverification ? "Re-verify Rebuilt Runtime\n\nVerified rebuilt archives and saved editor work are retained. Only compatibility evidence is updated.\nHistorical undo stops at this rebuild boundary.\n\n" + WorldBuilderRuntimeReverification.summary(plan) + plan.humanSummary(true).replace("Target runtime upgrade preview", "Runtime re-verification preview").replace("UPGRADE", "REVERIFY") : plan.humanSummary(runtimeUpgrade);
 		}
 
 		String toJson() {

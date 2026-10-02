@@ -2630,14 +2630,11 @@ final class WorldBuilderAdaptiveMutationProfile {
 			return WorldBuilderJsonDocuments.pretty(document);
 		}
 
-		String humanSummary() {
+		String humanSummary(boolean runtimeUpgrade) {
 			int retiredLegacyFiles = 0;
 			int managedRuntimeActions = 0;
 			int floorContentActions = 0;
-			boolean runtimeUpgradeOnly = !actions.isEmpty()
-				&& configurationChanges.isEmpty();
 			for (Action action : actions) {
-				runtimeUpgradeOnly &= action.role.startsWith("runtime-compatibility-");
 				if (WorldBuilderInstalledFloorContent.isRole(action.role)) floorContentActions++;
 				if (action.role.startsWith("retire-legacy-landscape-")
 					&& action.before.present && !action.after.present) {
@@ -2657,7 +2654,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				}
 			}
 			StringBuilder value = new StringBuilder(4096);
-			value.append(runtimeUpgradeOnly
+			value.append(runtimeUpgrade
 				? "Target runtime upgrade preview (no target files changed)\n"
 				: "Import preview (no target files changed)\n")
 				.append("Transaction: ").append(document.get("transactionId")).append('\n')
@@ -2688,7 +2685,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				.append("Receipt: projects/").append(project.projectId).append("/receipts/")
 				.append(document.get("transactionId")).append(".json\n")
 				.append("Confirmation required: ")
-				.append(runtimeUpgradeOnly ? "UPGRADE" : "IMPORT").append('\n');
+				.append(runtimeUpgrade ? "UPGRADE" : "IMPORT").append('\n');
 			return value.toString();
 		}
 	}
