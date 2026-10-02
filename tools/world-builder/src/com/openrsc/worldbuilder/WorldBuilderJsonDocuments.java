@@ -80,7 +80,7 @@ final class WorldBuilderJsonDocuments {
 		return object;
 	}
 
-	private static byte[] readBounded(Path path)
+	static byte[] readBounded(Path path)
 		throws IOException, WorldBuilderDiscoveryException {
 		ByteArrayOutputStream output = new ByteArrayOutputStream(8192);
 		try (java.io.InputStream input = Files.newInputStream(

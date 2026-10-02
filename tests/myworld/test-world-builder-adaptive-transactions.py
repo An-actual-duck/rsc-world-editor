@@ -338,6 +338,11 @@ public final class AdaptiveTransactionFailureHarness {
                     new WorldBuilderAdaptiveImporter.Observer() {
                         @Override public void observe(String milestone, Path path)
                             throws Exception {
+                            if (("catalog-final-drift".equals(failures) && "before-first-target-mutation".equals(milestone))
+                                || ("catalog-confirmed-drift".equals(failures) && "plan-confirmed".equals(milestone))) {
+                                Path catalog = target.resolve("server/evidence/definitions.json");
+                                Files.write(catalog, new byte[] {32}, StandardOpenOption.APPEND);
+                            }
                             if ("reverify-final-new-source".equals(failures) && "before-first-target-mutation".equals(milestone))
                                 Files.write(target.resolve("server/src/fixture/Unexpected.java"), "package fixture; class Unexpected {}".getBytes("UTF-8"));
                             if ("reverify-final-archive-drift".equals(failures) && "plan-confirmed".equals(milestone))
@@ -1413,6 +1418,124 @@ public final class InstalledFloorFixture {
         self.assertEqual(0, exported.returncode, exported.stderr)
         export = Path(json.loads(exported.stdout)["exportDirectory"])
         return target, installation, project, export
+
+    def placement_catalog_project(self, base, matching, family="npc"):
+        field, record_key, identity = {
+            "npc": ("npcs", "npcId", 866),
+            "boundary": ("boundaries", "boundaryId", 0),
+            "scenery": ("scenery", "sceneryId", 0),
+            "ground-item": ("groundItems", "itemId", 866),
+        }[family]
+        def content(target):
+            project_support.write_json(
+                target / "server/conf/server/defs/SlayerMovementPreviewNpcDefs.json",
+                {"npcs": [{"id": 866, "name": "Custom serpent"}]},
+            )
+            project_support.write_json(
+                target / "server/conf/server/defs/ItemDefsCustom.json",
+                {"items": [{"id": 866, "name": "Custom item"}]},
+            )
+            if matching:
+                config = json.loads((target / "server/world-builder-configs/primary.json").read_text())
+                server = target / config["serverDefinitionCatalogRelativePath"]
+                catalog = json.loads(server.read_text())
+                before = hashlib.sha256(server.read_bytes()).hexdigest()
+                catalog[field].append(identity)
+                project_support.write_json(server, catalog)
+                (target / config["clientDefinitionCatalogRelativePath"]).write_bytes(server.read_bytes())
+                after = hashlib.sha256(server.read_bytes()).hexdigest()
+                for relative in ["server/world-builder-capabilities.json",
+                                 config["serverRuntimeRelativePath"], config["clientRuntimeRelativePath"]]:
+                    path = target / relative
+                    path.write_text(path.read_text().replace(before, after))
+        target, installation, project, _ = self.target_project(
+            base, representation="packed", target_mutator=content, installed_standard_floors=True)
+        package = project / "working/layered-world/package"
+        manifest_path = package / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        changed = False
+        for declaration in manifest["placementSets"]:
+            path = package / declaration["path"]
+            payload = json.loads(path.read_text())
+            if payload[field] and not changed:
+                payload[field][0][record_key] = identity
+                project_support.write_json(path, payload)
+                declaration["sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+                changed = True
+        self.assertTrue(changed)
+        project_support.write_json(manifest_path, manifest)
+        result = self.run_cli("save-project", "--project", project)
+        self.assertEqual(0, result.returncode, result.stderr)
+        result = self.run_cli("export-adaptive", "--project", project)
+        self.assertEqual(0, result.returncode, result.stderr)
+        return target, installation, project, Path(json.loads(result.stdout)["exportDirectory"])
+
+    def test_import_rejects_editor_known_npc_missing_from_target_catalog_before_mutation(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-missing-target-npc-") as temp:
+            target, installation, project, export = self.placement_catalog_project(Path(temp), False)
+            before = project_support.tree_bytes(target, excluded=installation)
+            history = project_support.tree_bytes(project / "receipts")
+            result = self.run_cli("import-adaptive", "--project", project, "--export", export, "--target-root", target)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("DEFINITION_MISMATCH", result.stderr)
+            self.assertIn("editor-known npc ID 866", result.stderr)
+            self.assertIn("planned target catalog does not support it", result.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, excluded=installation))
+            self.assertEqual(history, project_support.tree_bytes(project / "receipts"))
+
+    def test_import_rejects_other_editor_known_placement_families_missing_from_target(self):
+        for family in ("boundary", "scenery", "ground-item"):
+            with self.subTest(family=family), tempfile.TemporaryDirectory(prefix="adaptive-target-family-") as temp:
+                target, installation, project, export = self.placement_catalog_project(Path(temp), False, family)
+                before = project_support.tree_bytes(target, excluded=installation)
+                result = self.run_cli("import-adaptive", "--project", project,
+                                      "--export", export, "--target-root", target)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("DEFINITION_MISMATCH", result.stderr)
+                self.assertIn("editor-known " + family + " ID", result.stderr)
+                self.assertEqual(before, project_support.tree_bytes(target, excluded=installation))
+
+    def test_import_accepts_editor_known_npc_in_matching_target_catalog(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-matching-target-npc-") as temp:
+            target, installation, project, export = self.placement_catalog_project(Path(temp), True)
+            definitions = {p.relative_to(target): p.read_bytes() for p in
+                           (target / "server/conf/server/defs").glob("*") if p.is_file()}
+            result = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                                             "--export", export, "--target-root", target)
+            self.assertEqual(0, result.returncode, result.stderr)
+            for path, value in definitions.items():
+                self.assertEqual(value, (target / path).read_bytes())
+
+    def test_import_rejects_catalog_change_between_preview_and_apply(self):
+        with tempfile.TemporaryDirectory(prefix="adaptive-preview-catalog-drift-") as temp:
+            target, installation, project, export = self.placement_catalog_project(Path(temp), True)
+            args = ("--project", project, "--export", export, "--target-root", target)
+            preview = self.run_cli("import-adaptive", *args)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            catalog = target / "server/evidence/definitions.json"
+            value = json.loads(catalog.read_text())
+            value["npcs"].remove(866)
+            project_support.write_json(catalog, value)
+            before = project_support.tree_bytes(target, excluded=installation)
+            history = project_support.tree_bytes(project / "receipts")
+            result = self.run_reviewed_apply("import-adaptive", "IMPORT", *args, preview=preview)
+            self.assertNotEqual(0, result.returncode)
+            self.assertTrue("TARGET_DRIFT" in result.stderr or "DEFINITION_MISMATCH" in result.stderr, result.stderr)
+            self.assertEqual(before, project_support.tree_bytes(target, excluded=installation))
+            self.assertEqual(history, project_support.tree_bytes(project / "receipts"))
+
+    def test_import_rejects_catalog_change_at_final_prewrite_boundary(self):
+        for failure in ("catalog-final-drift", "catalog-confirmed-drift"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory(prefix="adaptive-final-catalog-drift-") as temp:
+                target, installation, project, export = self.target_project(Path(temp))
+                before = project_support.tree_bytes(target, excluded=installation)
+                result = self.run_failure("import", failure, project, target, export)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("DEFINITION_MISMATCH", result.stderr)
+                after = project_support.tree_bytes(target, excluded=installation)
+                before.pop("server/evidence/definitions.json")
+                after.pop("server/evidence/definitions.json")
+                self.assertEqual(before, after)
 
     def test_import_accepts_discovered_supplemental_npc_registry(self):
         with tempfile.TemporaryDirectory(prefix="adaptive-import-supplemental-npcs-") as temp:

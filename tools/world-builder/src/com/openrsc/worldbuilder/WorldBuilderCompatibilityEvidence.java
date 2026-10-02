@@ -149,7 +149,11 @@ final class WorldBuilderCompatibilityEvidence {
 
 		static DefinitionCatalog read(WorldBuilderReadOnlyTarget target, String path)
 			throws WorldBuilderContractException {
-			Map<String,Object> root = target.readObject(path);
+			return read(target.readObject(path), path);
+		}
+
+		static DefinitionCatalog read(Map<String,Object> root, String path)
+			throws WorldBuilderContractException {
 			exact(root, path, "schemaVersion", "manifestType", "catalogId", "tiles",
 				"boundaries", "scenery", "npcs", "groundItems");
 			if (integer(root, "schemaVersion", path) != 1L
