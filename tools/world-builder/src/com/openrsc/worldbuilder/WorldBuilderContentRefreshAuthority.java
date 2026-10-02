@@ -12,8 +12,8 @@ final class WorldBuilderContentRefreshAuthority {
 
     static Map<String,Object> verify(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent,
         Path requestedTarget, Map<String,Object> freshReport) throws IOException, WorldBuilderContractException {
+        requireMutationAllowed(parent);
         WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.DISCOVERY_REPORT, freshReport);
-        WorldBuilderAdaptiveExporter.requireFingerprint(freshReport, "discoveryFingerprintSha256");
         if (!"compatible".equals(freshReport.get("status"))) throw refusal("discovery", "Fresh discovery must be compatible before content refresh.");
         WorldBuilderReadOnlyTarget target = WorldBuilderReadOnlyTarget.open(requestedTarget);
         if ("standalone-empty".equals(parent.origin)) throw refusal("project", "Content refresh requires an attached target project.");
@@ -85,10 +85,27 @@ final class WorldBuilderContentRefreshAuthority {
         WorldBuilderAdaptiveImporter.verifyState(target.root,configurationPath,expectedConfiguration);
         WorldBuilderAdaptiveConfiguration configuration=WorldBuilderAdaptiveConfiguration.read(target,configurationPath,expectedConfiguration.sha256);
 
+        verifyLiveRuntime(target,expected,paths);
         Set<String> content=new TreeSet<>();
         WorldBuilderPackedSourceLayout layout=WorldBuilderPackedSourceLayout.select(target);
         List<WorldBuilderReadOnlyTarget.FileState> inspected=WorldBuilderProjectContentBundle.inspectTarget(target,layout);
         for(WorldBuilderReadOnlyTarget.FileState file:inspected){paths.add(file.relativePath);if(contentRole(file.role,file.relativePath))content.add(file.relativePath);}
+        String serverTiles=layout.definitionPath("TileDef.xml");
+        byte[] previousTiles=historical(serverTiles,expected,originals,generated);
+        byte[] currentTiles=Files.readAllBytes(target.requiredFile(serverTiles));
+        if(previousTiles==null)throw refusal(serverTiles,"Floor content has no immutable predecessor evidence.");
+        if(!Arrays.equals(previousTiles,currentTiles)){
+            WorldBuilderInstalledFloorContent.requireAppendOnly(previousTiles,currentTiles);
+            List<WorldBuilderReadOnlyTarget.FileState> floorEvidence=new ArrayList<>();
+            WorldBuilderInstalledFloorContent.inspectTarget(target,configuration,
+                WorldBuilderCompatibilityEvidence.DefinitionCatalog.read(target,configuration.serverDefinitionCatalogRelativePath),floorEvidence);
+            Set<String> floorRoles=new HashSet<>();
+            for(WorldBuilderReadOnlyTarget.FileState file:floorEvidence){paths.add(file.relativePath);floorRoles.add(file.role);
+                if("installed-floor-client".equals(file.role)||"installed-floor-descriptor".equals(file.role))content.add(file.relativePath);
+            }
+            if(!floorRoles.contains("installed-floor-client")||!floorRoles.contains("installed-floor-descriptor"))
+                throw refusal(serverTiles,"Appended materials require already-installed paired player definitions and their exact derived descriptor.");
+        }
         for(Object raw:list(freshReport.get("files"))){Map<String,Object> row=object(raw);String path=string(row,"relativePath");paths.add(path);
             WorldBuilderAdaptiveImporter.verifyState(target.root,path,state(row));
             if(!expected.containsKey(path)&&!content.contains(path))throw refusal(path,"Fresh discovery introduced non-content evidence outside the retained target authority.");
@@ -122,15 +139,18 @@ final class WorldBuilderContentRefreshAuthority {
         if(paths.size()>MAX_FILES)throw refusal("target","Refresh evidence exceeds its file bound.");
         Path shadow=Files.createTempDirectory("world-builder-content-authority-");
         try{
+            long totalBytes=0;
             for(String path:paths){WorldBuilderReadOnlyTarget.FileState live=target.optionalState("content-refresh",path);liveStates.put(path,fileState(live).toJson());
                 Path out=WorldBuilderPortablePath.resolveContained(shadow,path,OP);
                 if(live.present){if(live.size>512L*1024*1024)throw refusal(path,"Refresh evidence file exceeds 512 MiB.");Files.createDirectories(out.getParent());
-                    // Read-only hard links avoid duplicating retained map archives.
-                    try{Files.createLink(out,target.requiredFile(path));}catch(IOException unavailable){Files.copy(target.requiredFile(path),out);}
+                    totalBytes+=live.size;if(totalBytes>2L*1024*1024*1024)throw refusal(path,"Refresh authority inventory exceeds 2 GiB.");
+                    // Independent bytes preserve the live target's link-count and
+                    // containment invariants throughout read-only verification.
+                    Files.copy(target.requiredFile(path),out);
                 }
                 if(substituted.contains(path)){
                     byte[] old=historical(path,expected,originals,generated);
-                    Files.deleteIfExists(out); // Never write through a live hard link.
+                    Files.deleteIfExists(out);
                     if(old!=null){Files.createDirectories(out.getParent());Files.write(out,old,StandardOpenOption.CREATE_NEW);}
                 }
             }
@@ -157,6 +177,54 @@ final class WorldBuilderContentRefreshAuthority {
         return proof;
     }
 
+    /** Historical parents stay editable, but cannot mutate a target after refresh. */
+    static void requireMutationAllowed(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject parent)
+        throws IOException, WorldBuilderContractException {
+        Path projects=parent.projectRoot.getParent();
+        if(projects==null || !"projects".equals(projects.getFileName().toString()) || projects.getParent()==null)return;
+        Path install=projects.getParent(),registryPath=install.resolve(WorldBuilderAdaptiveProjectLifecycle.REGISTRY_FILE);
+        if(!Files.exists(registryPath,LinkOption.NOFOLLOW_LINKS))return;
+        WorldBuilderAdaptiveExporter.requireFile(install,WorldBuilderAdaptiveProjectLifecycle.REGISTRY_FILE,"project registry");
+        Map<String,Object> registry=read(registryPath);
+        WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.PROJECT_REGISTRY,registry);
+        WorldBuilderAdaptiveExporter.requireFingerprint(registry,"registryFingerprintSha256");
+        for(Object raw:list(registry.get("projects"))){
+            Map<String,Object> record=object(raw);String id=string(record,"projectId");if(parent.projectId.equals(id))continue;
+            String manifestPath=string(record,"manifestRelativePath");
+            if(!manifestPath.equals("projects/"+id+"/project.json"))throw refusal(manifestPath,"Registered project path is inconsistent.");
+            Path successor=WorldBuilderPortablePath.resolveContained(install,"projects/"+id,OP);
+            String originPath="source/content-refresh/origin.json";
+            Map<String,Object> manifest=read(WorldBuilderAdaptiveExporter.requireFile(install,manifestPath,"registered successor"));
+            WorldBuilderAdaptiveContracts.Document checked=WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.PROJECT_MANIFEST,manifest);
+            Map<String,Object> manifestTarget=object(manifest.get("target"));Object locator=manifestTarget.put("locatorDisplay","");
+            try{WorldBuilderAdaptiveExporter.requireFingerprint(manifest,"projectFingerprintSha256");}
+            finally{manifestTarget.put("locatorDisplay",locator);}
+            if(!id.equals(manifest.get("projectId")) || !checked.canonicalSha256.equals(record.get("manifestSha256")))
+                throw refusal(manifestPath,"Registered content successor manifest authority changed.");
+            String snapshotPath=string(object(manifest.get("paths")),"sourceSnapshotRelativePath");
+            Map<String,Object> snapshot=read(WorldBuilderAdaptiveExporter.requireFile(successor,snapshotPath,"successor snapshot"));
+            WorldBuilderAdaptiveContracts.validateParsed(WorldBuilderAdaptiveContracts.Kind.SOURCE_SNAPSHOT,snapshot);
+            WorldBuilderAdaptiveExporter.requireFingerprint(snapshot,"sourceFingerprintSha256");
+            if(!id.equals(snapshot.get("projectId")) || !snapshot.get("sourceFingerprintSha256").equals(object(manifest.get("fingerprints")).get("sourceSha256")))
+                throw refusal(snapshotPath,"Successor snapshot authority changed.");
+            boolean declared=false;
+            for(Object value:list(snapshot.get("originalFiles")))if(originPath.equals(object(value).get("relativePath")))declared=true;
+            if(!declared && !Files.exists(successor.resolve(originPath),LinkOption.NOFOLLOW_LINKS))continue;
+            Map<String,Object> origin=read(WorldBuilderAdaptiveExporter.requireFile(successor,originPath,"content refresh origin"));
+            boolean bound=false;
+            for(Object value:list(snapshot.get("originalFiles"))){Map<String,Object> row=object(value);if(!originPath.equals(row.get("relativePath")))continue;
+                if(bound || !"content-refresh-origin".equals(row.get("role")))throw refusal(originPath,"Refresh origin has conflicting snapshot bindings.");
+                WorldBuilderAdaptiveImporter.verifyState(successor,originPath,state(row));bound=true;
+            }
+            if(!bound || !Long.valueOf(1).equals(origin.get("schemaVersion")) || !"world-builder-content-refresh-origin".equals(origin.get("manifestType")))
+                throw refusal(originPath,"Historical content successor binding is missing or changed.");
+            if(!parent.projectId.equals(origin.get("projectId")))continue;
+            if(!parent.snapshot.get("sourceFingerprintSha256").equals(origin.get("sourceFingerprintSha256")))
+                throw refusal(originPath,"Historical parent snapshot differs from the registered successor.");
+            throw refusal(originPath,"This historical project has a registered content successor ("+id+"). Continue target operations from that successor; historical editor work remains available.");
+        }
+    }
+
     private static void verifyLiveRuntime(WorldBuilderReadOnlyTarget target,Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected,Set<String> paths)
         throws IOException,WorldBuilderContractException{
         String installed=WorldBuilderTargetMapIntegration.INSTALLED;
@@ -169,7 +237,11 @@ final class WorldBuilderContentRefreshAuthority {
         Set<String> addedSources=new TreeSet<>();
         for(String group:Arrays.asList("sources","archives"))for(Object raw:list(proof.get(group))){Map<String,Object> row=object(raw);String path=string(row,"relativePath");inputs.put(path,string(row,"sha256"));if("sources".equals(group))addedSources.add(path);}
         if(expected.containsKey("server/build.xml"))inputs.put("server/build.xml",expected.get("server/build.xml").sha256);
-        for(Map.Entry<String,String> entry:inputs.entrySet()){paths.add(entry.getKey());if(!entry.getValue().equals(WorldBuilderHashes.sha256(target.requiredFile(entry.getKey()))))throw refusal(entry.getKey(),"Maintained source, binary or dependency changed; content refresh cannot accept a runtime rebuild.");}
+        for(Map.Entry<String,String> entry:inputs.entrySet()){
+            String path=entry.getKey();paths.add(path);Path file=target.requiredFile(path);
+            if(!entry.getValue().equals(WorldBuilderHashes.sha256(file)))throw refusal(path,"Maintained source, binary or dependency changed; content refresh cannot accept a runtime rebuild.");
+            if(!expected.containsKey(path))expected.put(path,WorldBuilderAdaptiveMutationProfile.FileState.present(Files.size(file),entry.getValue()));
+        }
         for(Object raw:list(proof.get("inputInventories"))){Map<String,Object> inventory=new LinkedHashMap<>(object(raw));Set<String> names=new TreeSet<>();for(Object path:list(inventory.get("paths")))names.add((String)path);
             String root=string(inventory,"relativePath"),suffix=string(inventory,"suffix");
             for(String path:addedSources)if(path.startsWith(root+"/")&&path.endsWith(suffix))names.add(path);
@@ -179,6 +251,7 @@ final class WorldBuilderContentRefreshAuthority {
     private static boolean contentRole(String role,String path){
         if(path.endsWith(".java")||path.endsWith(".class")||path.endsWith(".jar"))return false;
         return role.startsWith("server-definition.")||role.startsWith("content.definition.")||role.startsWith("content.asset.")||role.startsWith("content.metadata.")
+            ||("effective-content-sources".equals(role)&&"server/conf/world-builder/effective-content-sources-v1.json".equals(path))
             ||"client-asset.library".equals(role)||"npc-visual-image".equals(role)||"npc-visual-metadata".equals(role)||"definition-composition.patch".equals(role);
     }
     private static byte[] historical(String path,Map<String,WorldBuilderAdaptiveMutationProfile.FileState> expected,Map<String,Path> originals,Map<String,byte[]> generated)throws IOException,WorldBuilderContractException{
