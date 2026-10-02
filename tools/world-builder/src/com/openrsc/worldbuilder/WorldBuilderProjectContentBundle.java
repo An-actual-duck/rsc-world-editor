@@ -134,7 +134,22 @@ final class WorldBuilderProjectContentBundle {
             for (WorldBuilderReadOnlyTarget.FileState prior : result) if (prior.relativePath.equals(state.relativePath)) found = true;
             if (!found) result.add(state);
         }
-		for (WorldBuilderReadOnlyTarget.FileState visual : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
+        boolean completeNpcProducer=false;
+        try {
+            WorldBuilderNpcProducerV2.Capture producer = WorldBuilderNpcProducerV2.discover(target,layout);
+            completeNpcProducer=producer!=null;
+            if (producer != null) for (WorldBuilderReadOnlyTarget.FileState state : producer.evidence) {
+                boolean found=false;
+                for (WorldBuilderReadOnlyTarget.FileState prior : result) if (prior.relativePath.equals(state.relativePath)) {
+                    if(prior.present!=state.present || prior.size!=state.size || !prior.sha256.equals(state.sha256)) throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT,state.relativePath,"NPC producer evidence changed during discovery.","Retry discovery from stable target files.");
+                    found=true;break;
+                }
+                if(!found)result.add(state);
+            }
+        } catch(IOException invalid) {
+            throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,WorldBuilderNpcProducerV2.FILE,"Complete NPC producer evidence is malformed or unreadable.","Publish a fresh maintained export, then retry discovery.",invalid);
+        }
+		for (WorldBuilderReadOnlyTarget.FileState visual : completeNpcProducer ? Collections.<WorldBuilderReadOnlyTarget.FileState>emptyList() : WorldBuilderNpcVisualInventory.discover(target, layout).evidence) {
             boolean inventoried = false;
             for (WorldBuilderReadOnlyTarget.FileState existing : result) if (existing.relativePath.equals(visual.relativePath)) {
                 if (!existing.sha256.equals(visual.sha256)) throw problem(WorldBuilderErrorCodes.DISCOVERY_DRIFT, visual.relativePath,
@@ -249,8 +264,11 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderSupplementalNpcDefinitions.normalize(copiedTarget, sourceLayout);
 		Map<String,Object> targetCatalog = deriveCatalog(copiedTarget,
 			"target-adopted-content-v2", sourceLayout, composition);
-		WorldBuilderNpcDefinitionProvider.Result npcMigration =
-			WorldBuilderNpcDefinitionProvider.consume(
+        WorldBuilderNpcProducerV2.Capture effectiveProducer = WorldBuilderNpcProducerV2.discover(copied,
+            originalLayout == null ? sourceLayout : originalLayout);
+		WorldBuilderNpcDefinitionProvider.Result npcMigration = effectiveProducer != null
+            ? WorldBuilderNpcDefinitionProvider.Result.unchanged()
+            : WorldBuilderNpcDefinitionProvider.consume(
 				explicitMappings, copiedTarget, targetCatalog, effectiveNpcIds,
 				npcRegistry.customRows, sourceLayout);
 		WorldBuilderSceneryModelProvider.Result sceneryMigration =
@@ -304,6 +322,11 @@ final class WorldBuilderProjectContentBundle {
 					npcMigration.customDefinitions, "normalized NPC definitions").get("npcs"));
 			} catch (WorldBuilderDiscoveryException malformed) { throw new IOException(malformed); }
 		}
+        WorldBuilderNpcProducerFrames.Result completeNpcVisuals = effectiveProducer == null ? null
+            : WorldBuilderNpcProducerFrames.normalize(effectiveProducer,copied,animationRows,
+                migration == null ? null : migration.authenticArchiveOverride,
+                runtime.verifiedSourcePath("client/Open_RSC_Client.jar"),runtime.verifiedSourcePath("server/core.jar"));
+        if(completeNpcVisuals!=null)animationRows=completeNpcVisuals.animations;
         WorldBuilderNpcVisualCompiler.PresentationOverlay effectiveNpcWorld =
             new WorldBuilderNpcVisualCompiler.PresentationOverlay(WorldBuilderNpcVisualCompiler.readRows(
                 WorldBuilderDefinitionComposition.effectiveJson(composition, copiedTarget, "definition.npc.world", sourceLayout.definitionPath("NpcDefsMyWorld.json"))));
@@ -311,7 +334,16 @@ final class WorldBuilderProjectContentBundle {
             @SuppressWarnings("unchecked") Map<String, Object> generated = (Map<String, Object>)raw;
             effectiveNpcWorld.merge(generated);
         }
-		WorldBuilderNpcVisualCompiler.Result directionMigration = WorldBuilderNpcVisualCompiler.normalize(
+        if(completeNpcVisuals!=null)for(Object raw:completeNpcVisuals.overlays)effectiveNpcWorld.merge(object(raw,"complete NPC presentation"));
+        // A complete post-initialization producer includes successful external
+        // loaders. Do not replay an earlier structural source approximation over it.
+        if(completeNpcVisuals!=null)for(String path:Arrays.asList(WorldBuilderNpcVisualInventory.FILE,
+            sourceLayout.definitionPath(WorldBuilderNpcVisualInventory.FILE),sourceLayout.definitionPath("world-builder/"+WorldBuilderNpcVisualInventory.FILE)))
+            if(copied.exists(path))throw problem(WorldBuilderErrorCodes.DEFINITION_MISMATCH,path,"Complete NPC producer conflicts with a separate explicit NPC visual descriptor.","Publish one complete maintained visual authority for the selected configuration.");
+		WorldBuilderNpcVisualCompiler.Result directionMigration = completeNpcVisuals != null
+            ? new WorldBuilderNpcVisualCompiler.Result(WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
+                completeNpcVisuals.authenticArchive,completeNpcVisuals.animations,completeNpcVisuals.limitations)
+            : WorldBuilderNpcVisualCompiler.normalize(
 			copiedTarget, sourceLayout, originalLayout == null ? sourceLayout : originalLayout, npcRegistry, normalizedNpcRows, animationRows,
 			migration == null ? null : migration.authenticArchiveOverride,
 			WorldBuilderSupplementalNpcDefinitions.customJson(effectiveNpcWorld.rows()),
@@ -417,6 +449,11 @@ final class WorldBuilderProjectContentBundle {
 			WorldBuilderItemVisualProvider.writeReport(projectStage, migration.provider);
 		}
 		WorldBuilderNpcDefinitionProvider.writeReport(projectStage, npcMigration);
+        if(completeNpcVisuals!=null){
+            Map<String,Object> report=new LinkedHashMap<>();report.put("schemaVersion",Long.valueOf(1));report.put("manifestType","world-builder-complete-npc-presentation");
+            report.put("producerManifest",effectiveProducer.manifestPath);report.put("npcCount",Long.valueOf(effectiveProducer.document.npcs.size()));report.put("animationCount",Long.valueOf(effectiveProducer.document.animations.size()));report.put("previewLimitations",completeNpcVisuals.limitations);
+            Path reportPath=projectStage.resolve("diagnostics/npc-producer-v2-resolution.json");Files.createDirectories(reportPath.getParent());Files.write(reportPath,WorldBuilderJsonDocuments.pretty(report).getBytes(StandardCharsets.UTF_8));
+        }
 		WorldBuilderNpcVisualCompiler.writeReport(projectStage, directionMigration);
 		WorldBuilderNpcDefinitionReconciliation.writeReport(
 			projectStage, copiedTarget, sourceLayout, npcRegistry);

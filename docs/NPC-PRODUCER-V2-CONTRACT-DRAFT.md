@@ -340,8 +340,8 @@ This addendum resolves conditional shapes and supersedes abbreviated example row
   client-visual-archive is exactly the independently selected active paired client
   JAR path (including supported Client_Base/Open_RSC_Client.jar), checked against
   discovery's active binary evidence. Embedded members are bounded to
-  myworld-assets/**. producer-helper-source permits direct *.java files under
-  tools/item-visual-provider only; these are inert freshness inputs, never run by
+  myworld-assets/**. producer-helper-source permits direct *.java or *.py files under
+  tools/item-visual-provider plus the exact path scripts/generate-world-builder-target-contract.py; these are inert freshness inputs, never run by
   Editor. Client source inputs include Sprite.java and the declared SpriteArchive
   decoder modules. All use exact contained portable paths.
 - Each asset provider has exactly assetId, sourceId, format, targetRelativePath,
@@ -413,3 +413,8 @@ project capture checks again before and after copying, and refresh/import previe
 and apply revalidate the exact absent/present state. Merely omitting missing files
 from the copied file inventory is insufficient. Appearance of an earlier candidate
 must stale the provider even when its final selected asset still has the old hash.
+
+The contained Core-Framework/dev candidate prefix above is a literal input of the
+recognized maintained external-asset resolver, not a server identity exception.
+No behavior depends on server folder name or NPC identity. Other resolver profiles
+need separately verified semantics; no external checkout is read.
