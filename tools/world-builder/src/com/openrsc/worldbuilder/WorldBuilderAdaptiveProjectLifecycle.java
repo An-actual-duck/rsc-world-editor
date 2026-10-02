@@ -68,6 +68,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 
 	private final Observer observer;
 	private final WorldBuilderProviderCatalog.Composition baseComposition;
+	private WorldBuilderProjectContentRefresh.Origin contentRefresh;
 
 	WorldBuilderAdaptiveProjectLifecycle() {
 		this(NO_OP_OBSERVER);
@@ -80,6 +81,17 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 	WorldBuilderAdaptiveProjectLifecycle(Observer observer, WorldBuilderProviderCatalog.Composition baseComposition) {
 		this.observer = observer == null ? NO_OP_OBSERVER : observer;
 		this.baseComposition = baseComposition;
+	}
+
+	/** Publish a new content revision while preserving the predecessor's exact saved map. */
+	ProjectResult createContentRevision(Path install, Path runtime, Path target,
+		Path report, VerifiedProject parent, Map<String,Object> authority,
+		String expectedContentSha256, int port) throws IOException, WorldBuilderContractException {
+		if (contentRefresh != null) throw new IOException("Content revision operation is already active.");
+		contentRefresh = new WorldBuilderProjectContentRefresh.Origin(parent, authority, expectedContentSha256);
+		try {
+			return create(install, runtime, target, report, string(parent.manifest, "displayName"), port, "CREATE");
+		} finally { contentRefresh = null; }
 	}
 
 	ProjectResult create(Path requestedInstallRoot, Path requestedRuntimeRoot,
@@ -532,12 +544,24 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 					prepared = PreparedOrigin.withMigration(stage, prepared, migrationRoot);
 				}
 			}
+			if (contentRefresh != null) {
+				contentRefresh.capture(stage, target, report);
+				List<InventoryRecord> originals = new ArrayList<InventoryRecord>(prepared.originalEvidence);
+				originals.add(recordFor(stage, "content-refresh-origin", WorldBuilderProjectContentRefresh.ORIGIN));
+				prepared = new PreparedOrigin(originals, prepared.definitionEvidence, prepared.adapterId,
+					prepared.capabilityId, prepared.selectedConfigurationRole, prepared.selectedConfigurationTargetPath,
+					prepared.selectedConfigurationSourcePath, prepared.selectedConfigurationSha256,
+					prepared.originDescriptorSourcePath, prepared.definitionSha256, prepared.packageFingerprintSha256,
+					prepared.conversionFingerprintSha256, prepared.importProfileId, prepared.installEnabled,
+					prepared.standaloneGeneratorId);
+			}
 			writePortableDiscoveryReport(stagedReport, report);
 			observe("source-prepared", stage);
 			requireFreshTargetEvidence(report, target);
 			if (migration != null) requireFreshMigration(migration, target);
 
-			copyTreeExact(stage.resolve(BASELINE_DIRECTORY),
+			copyTreeExact(contentRefresh == null ? stage.resolve(BASELINE_DIRECTORY)
+				: contentRefresh.parent.projectRoot.resolve(WORKING_PACKAGE_DIRECTORY),
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
 			WorldBuilderWideElevationPromotion.promoteInPlace(
 				stage.resolve(WORKING_PACKAGE_DIRECTORY));
@@ -559,6 +583,8 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			WorldBuilderGenericLayeredPackage stagedWorking =
 				WorldBuilderGenericLayeredPackage.inspect(stagedTarget,
 					WORKING_PACKAGE_DIRECTORY, "working", stagedDefinitions);
+			if (contentRefresh != null && !stagedWorking.fingerprintSha256.equals(contentRefresh.parent.working.fingerprintSha256))
+				throw new IOException("Content refresh changed the saved map; the revision was not published.");
 			if ("standalone-empty".equals(origin)) {
 				stagedWorking = WorldBuilderEmptyWorldGenerator.bindInitialLocation(
 					stagedTarget, stagedWorking, prepared.standaloneGeneratorId);
@@ -596,6 +622,7 @@ final class WorldBuilderAdaptiveProjectLifecycle {
 			}
 			requireFreshTargetEvidence(report, target);
 			if (migration != null) requireFreshMigration(migration, target);
+			if (contentRefresh != null) contentRefresh.verify(target, report);
 			observe("before-project-publish", stage);
 			moveAtomicNew(stage, project);
 			projectPublished = true;

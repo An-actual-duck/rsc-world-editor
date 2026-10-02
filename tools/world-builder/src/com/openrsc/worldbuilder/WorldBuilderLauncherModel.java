@@ -453,6 +453,17 @@ final class WorldBuilderLauncherModel {
 		}
 	}
 
+	WorldBuilderProjectContentRefresh.Preview previewContentRefresh(ProjectEntry entry)
+		throws IOException, WorldBuilderContractException {
+		return new WorldBuilderProjectContentRefresh().preview(entry.projectRoot, runtime, targetFor(entry), creationPort());
+	}
+
+	WorldBuilderAdaptiveProjectLifecycle.ProjectResult applyContentRefresh(ProjectEntry entry,
+		WorldBuilderProjectContentRefresh.Preview preview) throws IOException, WorldBuilderContractException {
+		return new WorldBuilderProjectContentRefresh().apply(entry.projectRoot, runtime, targetFor(entry),
+			creationPort(), preview.fingerprint, "REFRESH");
+	}
+
 	WorldBuilderAdaptiveProjectLifecycle.ProjectResult selectAndOpen(
 		String projectId, Path possibleTarget)
 		throws IOException, WorldBuilderContractException {
