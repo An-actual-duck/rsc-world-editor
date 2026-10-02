@@ -275,6 +275,18 @@ class NpcDirectionSheetsTest(unittest.TestCase):
                 project=self.create();npc=self.effective_npcs(project / "source/content-bundle/files")[npc_id]
                 self.assertEqual(name,npc["name"]);self.assertEqual(1080,npc["sprites1"])
 
+    def test_selected_alternate_configuration_remains_bound_during_capture(self):
+        with tempfile.TemporaryDirectory(prefix="npc-alternate-config-") as temp:
+            self.fixture(Path(temp))
+            original = self.target / "server/myworld.conf"
+            alternate = self.target / "server/selected-builder.conf"
+            original.rename(alternate)
+            declare_effective_content_sources(self.target, ["SlayerMovementPreviewNpcDefs.json"], configuration="server/selected-builder.conf")
+            before = L.tree_bytes(self.target)
+            project = self.create()
+            self.assertEqual(before, L.tree_bytes(self.target))
+            self.assertEqual(1080, self.effective_npcs(project / "source/content-bundle/files")[866]["sprites1"])
+
     def test_alternate_definition_root_preserves_original_bindings_and_supplemental_aliases(self):
         with tempfile.TemporaryDirectory(prefix="npc-visual-alt-layout-") as temp:
             self.fixture(Path(temp))

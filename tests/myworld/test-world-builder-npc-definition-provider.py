@@ -459,6 +459,7 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                     "sha256":hashlib.sha256(catalog.read_bytes()).hexdigest()})
                 write_json(manifest,doc);self.bind_producer_package(selected)
                 custom,report=self.consume(target,selected,base / "stage")
+                self.assertEqual(1,len(report["animations"]), "Complete verified animation projection survives even without a safe NPC appearance override")
                 self.assertEqual(91,custom["npcs"][1]["attack"])
                 self.assertEqual(7,custom["npcs"][1]["sprites1"])
                 overrides=json.loads((base / "stage/presentation-overrides.json").read_text())["npcs"]
@@ -471,6 +472,25 @@ class NpcDefinitionProviderTest(unittest.TestCase):
                     self.assertNotIn("attack",overrides[0]);self.assertEqual([],report["warnings"])
                 else:
                     self.assertEqual([],overrides);self.assertEqual("NPC_VISUAL_UNRESOLVED",report["warnings"][0]["code"])
+
+    def test_changed_active_source_requires_fresh_maintained_provider_export(self):
+        with tempfile.TemporaryDirectory(prefix="npc-provider-active-source-growth-") as temp:
+            base=Path(temp);target,selected=self.fixture(base)
+            catalog=target / "server/conf/server/defs/ArbitraryNpcDefs.json"
+            rows=[definition(1,"Reserved slot"),definition(2,"Neutral producer NPC")]
+            write_json(catalog,{"npcs":rows});declare_effective_content_sources(target,[catalog.name])
+            self.producer_package(target,selected)
+            manifest=selected.parent / "npc-definitions-v1.json";doc=json.loads(manifest.read_text())
+            doc["provider"]["sources"].append({"role":"extension-npc-definitions","identity":catalog.name,"sha256":hashlib.sha256(catalog.read_bytes()).hexdigest()})
+            write_json(manifest,doc);self.bind_producer_package(selected)
+            self.consume(target,selected,base / "before")
+            provider_before={p.relative_to(selected.parent):p.read_bytes() for p in selected.parent.rglob('*') if p.is_file()}
+            rows.append(definition(3,"New unplaced creature"));write_json(catalog,{"npcs":rows})
+            declare_effective_content_sources(target,[catalog.name])
+            target_before={p.relative_to(target):p.read_bytes() for p in target.rglob('*') if p.is_file()}
+            self.assertIn("different extension definitions",self.consume_failure(target,selected,base / "after"))
+            self.assertEqual(provider_before,{p.relative_to(selected.parent):p.read_bytes() for p in selected.parent.rglob('*') if p.is_file()})
+            self.assertEqual(target_before,{p.relative_to(target):p.read_bytes() for p in target.rglob('*') if p.is_file()})
 
     def test_existing_simple_mapping_does_not_claim_verified_animation_closure(self):
         with tempfile.TemporaryDirectory(prefix="npc-provider-existing-simple-") as temp:
