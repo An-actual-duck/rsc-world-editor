@@ -68,12 +68,18 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
             ('asset','server/conf/world-builder/npc-preview-rgb.zip'),
             ('probe','dev/myworld/assets/sprites/npcs/optional.png'),
             ('helper-source','tools/item-visual-provider/ExportEffectiveNpcVisuals.java'),
+            ('helper-source','tools/item-visual-provider/export-npc-visuals-v2.py'),
+            ('helper-source','scripts/generate-world-builder-target-contract.py'),
+            ('visual-selector','Client_Base/Cache/config.txt'),
         ]
         rejected=[
             ('source','server/src/com/openrsc/server/external/EntityHandler.java'),
             ('source','Client_Base/src/com/openrsc/client/entityhandling/EntityHandler.java'),
             ('client-archive','Client_Base/Open_RSC_Client.jar'),
             ('config','server/myworld.conf'),
+            ('visual-selector','server/myworld.conf'),
+            ('visual-selector','server/world-builder-configs/primary.json'),
+            ('visual-selector','Client_Base/Cache/other-config.txt'),
             ('asset','Client_Base/Open_RSC_Client.jar'),
             ('asset','Client_Base/src/Injected.java'),
             ('asset','server/classes/Injected.class'),
@@ -81,6 +87,9 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
             ('helper-source','tools/item-visual-provider/nested/Export.java'),
             ('helper-source','tools/item-visual-provider/../Export.java'),
             ('helper-source','tools/item-visual-provider/Exporter.jar'),
+            ('helper-source','scripts/arbitrary.py'),
+            ('helper-source','Client_Base/src/ExportEffectiveNpcVisuals.java'),
+            ('helper-source','tools/item-visual-provider/nested/exporter.py'),
         ]
         for expected,rows in [(True,accepted),(False,rejected)]:
             for role,path in rows:
@@ -189,8 +198,15 @@ class ContentRefreshAuthorityTest(transactions.AdaptiveTransactionTest):
             self.assertEqual(0,other.returncode,other.stderr)
             imported=self.run_reviewed_apply('import-adaptive','IMPORT','--project',project,'--export',export,'--target-root',target)
             self.assertEqual(0,imported.returncode,imported.stderr)
-            result=subprocess.run(['java','-cp',str(self.classes),'com.openrsc.worldbuilder.ContentAuthorityFixture','verify',str(target),str(project),'server/myworld.conf'],capture_output=True,text=True)
+            command=['java','-cp',str(self.classes),'com.openrsc.worldbuilder.ContentAuthorityFixture','verify',str(target),str(project),'server/myworld.conf']
+            result=subprocess.run(command,capture_output=True,text=True)
             self.assertEqual(0,result.returncode,result.stderr)
+            selected=target/'server/myworld.conf';original=selected.read_bytes()
+            selected.write_bytes(original+b'\n# changed selected server configuration\n')
+            result=subprocess.run(command,capture_output=True,text=True)
+            self.assertNotEqual(0,result.returncode,result.stdout)
+            self.assertIn('Target evidence changed',result.stderr)
+            selected.write_bytes(original)
 
     def test_unimported_project_can_refresh_only_truthful_catalogs(self):
         with tempfile.TemporaryDirectory(prefix='content-authority-initial-') as temp:

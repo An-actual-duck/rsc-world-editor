@@ -281,7 +281,13 @@ final class WorldBuilderContentRefreshAuthority {
         // authority. All actual source, configuration and binary roles remain
         // subject to the retained snapshot/transaction evidence.
         if("npc-producer-v2-helper-source".equals(role))
-            return path.matches("tools/item-visual-provider/[^/\\\\]+\\.java");
+            return path.matches("tools/item-visual-provider/[^/\\\\]+\\.(java|py)")
+                ||"scripts/generate-world-builder-target-contract.py".equals(path);
+        // The producer validates the bounded visual-pack selector separately
+        // from server/runtime configuration. Its role alone cannot authorize
+        // a change to another configuration path.
+        if("npc-producer-v2-visual-selector".equals(role))
+            return "Client_Base/Cache/config.txt".equals(path);
         if(path.endsWith(".java")||path.endsWith(".class")||path.endsWith(".jar"))return false;
         if("npc-producer-v2-manifest".equals(role)
             ||"npc-producer-v2-definition".equals(role)
