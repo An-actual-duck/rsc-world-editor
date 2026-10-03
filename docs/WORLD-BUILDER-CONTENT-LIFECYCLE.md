@@ -125,88 +125,79 @@ untested platforms, and detect/continue/refresh/save/import/recovery instruction
 
 ## Integrated verification checkpoints
 
-These are manager-run intermediate results, not a packaged-candidate or private
-game acceptance claim. Final packaging and the complete release test record
-remain pending.
+These are manager-run results on disposable fixtures. Final candidate, populated
+update and private maintained-game acceptance are still pending; this document
+does not request an owner retest.
 
-- Effective source discovery and bundle capture passed on a sanitized frozen
-  maintained target. The Core-generated inert source descriptor also passed;
-  changing one declared source hash was refused.
-- Three changed imports passed with placement, movement, and removal of the last
-  placement of the tested custom NPC, plus item, scenery, boundary and terrain
-  edits. Rediscovery and reopen passed after each import. Exact inventories
-  retained 9,129 pre-existing target files; only the selected activation and
-  paired installed profiles changed, with new paired packages added.
-- Fourteen content refresh cases and 75 project lifecycle cases passed after
-  integration. Two additional immediate rebuild/recovery cases and one
-  visual-only model refresh/import case passed after their later integration.
-  The complete refresh suite now contains 17 cases.
-- On the copied existing edited project, refresh retained all 11,390 predecessor
-  files and all 1,789 saved map files, while leaving all 9,132 target files
-  unchanged. Two changed imports from that successor then passed, followed by
-  reopening. Each import retained existing target content and changed only the
-  three reviewed activation/profile files while adding paired map packages.
-- Snapshot re-verification covers a refreshed successor with no local import
-  history. It binds an ordinary saved-map export and authenticated predecessor
-  evidence, rejects changed confirmation inputs, and preserves rebuilt archives
-  through interrupted recovery and historical undo boundaries.
+The complete NPC producer is now captured rather than inferred from the placed
+population. The maintained fixture contains 877 effective NPCs, 249 referenced
+animations and 4,521 source frames, with no unresolved NPC visuals. All source
+and selected asset hashes, lookup precedence, configuration flags and absent
+resolver candidates are verified. These counts describe the fixture, not
+hardcoded supported content. Independent comparison verified 4,509 normalized
+preview frames against their captured source bytes. Secondary attack frames are
+retained as evidence but are outside the authoring preview's animation model;
+the review reports these limits separately from missing visuals. Fourteen
+procedural scenery warnings remain explicit.
 
-The first real-copy refresh preview took about 83 seconds and apply about 160
-seconds. Its launcher presents phase progress; repeated history verification
-remains intentionally exact. These measurements do not imply final packaged
-performance or authorization to reuse stale target checks.
+A private desktop rehearsal displayed preservation and custom NPCs, including
+Imp, Bunny, Duck, Ranger and Naga. The exact final package must repeat visual,
+terrain, collision-bearing scenery, save/export/import and reopen acceptance.
 
-### Remaining final-visual closure and packaged acceptance
+### Existing project and target preservation
 
-The legacy NPC producer captures a historically selected subset. Removing its
-population equality check fixes ordinary placement changes, but does not make
-that producer a complete effective client visual export. Fourteen NPC entries
-in the frozen maintained fixture still lack verified effective animation
-lookups, including a placed preservation-ID override. Existing archives alone
-cannot establish their final appearance. Diagnostics now expose this gap;
-warnings are not acceptance of faithful custom visuals.
+The earlier placement lifecycle passed three changed imports: initial custom
+NPC placement, movement, and removal of its last placement, alongside terrain,
+item, scenery and boundary edits. Rediscovery and reopening passed each time.
+All 9,129 unrelated pre-existing target files were retained. Three reviewed
+activation/profile files changed and new paired map package files were added.
 
-The maintained producer and Editor consumer are extending the same typed NPC
-manifest to schema version 2. It must carry all effective NPC IDs, including
-unplaced definitions and baseline-ID visual overrides, with final client
-vectors after sprite initialization and exact selected sources/assets. The
-Editor consumes inert evidence and normalizes only private presentation data.
-Resolved custom frames, original mask semantics and ordered layer selection
-require renderer parity checks; copying pixels alone is insufficient. Specialized
-gameplay and secondary attack behavior remain outside the authoring runtime's
-purpose. This work precedes final custom-content acceptance.
+With the complete producer, refresh retained all 11,181 files in the previous
+project revision, including saved terrain, placements, snapshots, exports,
+receipts and backups. The successor then passed two changed imports and
+reopening after each. All 16,658 unrelated existing target files were unchanged.
+Only the selected primary activation and paired installed profiles changed;
+7,156 new files were independently matched by path, size and hash to the two
+reviewed paired-package transaction plans. The frozen reference fixture was
+unchanged. No target gameplay code or definitions were replaced.
 
-The maintained complete NPC export now passes independent adaptive discovery:
-877 effective NPCs, 249 referenced animations and 4,521 captured frames. Its
-source and asset hashes, configuration flags, load order and absent resolver
-candidates are verified. These counts describe the acceptance fixture, not
-hardcoded supported IDs. Full capture, refresh and packaged visual acceptance
-remain required before delivery.
+The representative complete refresh took about 81 seconds for preview and
+162 seconds for apply. Its two imports took about 31 and 152 seconds; saved-map
+export took about six seconds and reopening about five to six seconds. These
+measurements retain exact mutable-target verification and are not promises
+about every server's performance.
 
-The full Editor gate began at `8016cb031f6beff0a82281f296832d19d1b51de2`.
-Its first failure exposed a synthetic fixture declaring item frame 417 without
-supplying it. That fixture is corrected, with a missing-frame refusal regression;
-the 75 project and 42 discovery tests passed. Resumed testing also corrected an
-obsolete expected CLI error code, then passed the 34 targeted-upgrade cases.
-The remaining CLI suffix has completed after the updater correction below.
-One mandatory desktop login test is still under keyboard-delivery investigation.
-This is not a passing full gate, and the new version-2 consumer must receive
-its affected integration tests after integration.
+### Verification and packaging
 
-The updater tests found an actual packaged-update defect: alpha 12 ships
-`npc-visual-sources-v1.schema.json` but omits it from the updater's exact allowed
-file list. Commit `4f831702e8556fc42b8fa5f0b8fb73f00486c611` adds that exact
-schema and allows the corrected updater from a verified new package to select
-an existing installation. It keeps the existing package manifest intact until
-the verified update transaction. Twenty-two tests pass, including unchanged
-durable data, installed-file tampering refusal and restoration of the historical
-manifest after failure. Five PowerShell execution tests are skipped because
-PowerShell is unavailable. Actual populated-installation acceptance remains
-pending the final package.
+The integration tree includes producer, discovery, content-index, project,
+refresh, transaction, schema, converter and updater regressions. The full
+Editor gate passed at `0453e296e9e79db46fd6829d9d38e80ecb347a68`
+with runtime `67361019f28ba52f6acf08a19f6499302a79d8c4`: 64 selections
+in 1,409 seconds, 750 tests including 35 explicit optional-input/platform skips.
+The locked provider includes independently tested NPC mask semantics and a GUI
+test-helper focus correction. Mandatory real desktop login, restart and
+preservation now pass without injected input workarounds.
 
-A desktop rehearsal passed actual detect/create, visible terrain edit/save,
-export and paired import on an isolated copy. The exact final package must
-repeat that flow. A populated update fixture retains both the predecessor and
-selected refreshed project (22,481 durable files); its actual update test,
-Core's private maintained-game acceptance, and the final candidate remain
-pending. No new owner retest is requested at this checkpoint.
+A final rebuild interaction was reproduced independently: equivalent archive
+rebuild followed by producer export changed its archive binding and prevented
+runtime re-verification. Re-verifying before export, then refreshing and making
+two imports, already passes. A bounded archive-binding transition is being
+implemented so the normal build/export sequence works as well. It must prove
+runtime equivalence independently and retain exact producer/history authority;
+content, configuration and map drift are not exemptions.
+
+The alpha 12 updater omitted a shipped schema from its own exact allowed file
+list. Commit `4f831702e8556fc42b8fa5f0b8fb73f00486c611` corrects the list
+and permits the verified new package's updater to select an existing
+installation. It does not patch the installed manifest before verification.
+Twenty-two updater tests passed; five PowerShell execution tests were skipped
+because PowerShell is unavailable. The actual Linux update fixture now retains
+33,504 durable files across the selected complete-content revision and its two
+predecessors. Its packaged update and offline reopen remain pending.
+
+Core's maintained complete-content readiness check is available at checkpoint
+`66854862fb3a3638eceb181807cfac47f520d518`. It is read-only and verifies
+the effective producer, paired catalogs, source/archive/configuration bindings,
+lookup probes and frame dependencies. Core owns the later actual private-game
+acceptance; its shared target and normal deployment remain untouched by Editor
+mutation tests.
