@@ -62,13 +62,16 @@ final class WorldBuilderRuntimeReverification {
         try { originalProof = WorldBuilderJsonDocuments.readObject(proof, "retained-integration-proof"); }
         catch (WorldBuilderDiscoveryException invalid) { throw refusal("Retained integration proof is malformed."); }
         for (Object row : array(originalProof.get("archives"))) archives.add(string(object(row),"relativePath"));
+        Map<String,Object> producer = WorldBuilderProducerArchiveReverification.prepare(project,target,id,references,archives,result.inputs);
+        Set<String> verifiedTransitions = new TreeSet<String>(archives);
+        if (producer != null) verifiedTransitions.add(string(producer,"relativePath"));
         WorldBuilderAdaptiveMutationProfile.Plan predecessor = null;
         Map<String,Object> inputs = new TreeMap<String,Object>();
         if (previous != null) {
-            predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), archives);
+            predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), verifiedTransitions);
             WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(predecessor, previous);
             for (WorldBuilderAdaptiveMutationProfile.Action action : predecessor.actions) {
-                if (!archives.contains(action.destinationRelativePath))
+                if (!verifiedTransitions.contains(action.destinationRelativePath))
                     WorldBuilderAdaptiveImporter.verifyState(target, action.destinationRelativePath, action.after);
                 if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(action.destinationRelativePath))
                     inputs.put(action.destinationRelativePath, action.after.toJson());
@@ -76,7 +79,7 @@ final class WorldBuilderRuntimeReverification {
         } else {
             Map<String,WorldBuilderAdaptiveMutationProfile.FileState> snapshot = snapshotStates(project);
             for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : snapshot.entrySet()) {
-                if (!archives.contains(entry.getKey())) WorldBuilderAdaptiveImporter.verifyState(target,entry.getKey(),entry.getValue());
+                if (!verifiedTransitions.contains(entry.getKey())) WorldBuilderAdaptiveImporter.verifyState(target,entry.getKey(),entry.getValue());
                 if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(entry.getKey())) inputs.put(entry.getKey(),entry.getValue().toJson());
             }
             WorldBuilderContentRefreshAuthority.verifyLivePackages(target,selected,snapshot);
@@ -87,12 +90,14 @@ final class WorldBuilderRuntimeReverification {
             if (!WorldBuilderTargetMapIntegration.INSTALLED.equals(path)) inputs.put(path,state.toJson());
         }
         inputs.put(configPath,state(target,configPath).toJson());
+        if (producer != null) inputs.put(string(producer,"relativePath"),producer.get("after"));
         Map<String,Object> evidence = new LinkedHashMap<String,Object>();
         if (previous != null) evidence.put("predecessor", reference(project, previous));
         else evidence.put("snapshotPredecessor", array(baselineProject.get("lineage")).get(0));
         evidence.put("baseline", baselineReference);
         if (baselineProject != null) evidence.put(WorldBuilderContentRuntimeBaseline.FIELD, baselineProject);
         evidence.put("inputs", inputs);
+        if (producer != null) evidence.put(WorldBuilderProducerArchiveReverification.FIELD,producer);
         try { evidence.put("inventories", WorldBuilderJsonDocuments.readObject(result.outputs.get(WorldBuilderTargetMapIntegration.INSTALLED), "verified-proof").get("inputInventories")); }
         catch (WorldBuilderDiscoveryException invalid) { throw refusal("Verified proof is malformed."); }
         return WorldBuilderAdaptiveMutationProfile.prepareReverification(project, export, target, id, predecessor, result, evidence, selected);
@@ -150,6 +155,10 @@ final class WorldBuilderRuntimeReverification {
     static void validateShape(Object raw) throws WorldBuilderContractException {
         Map<String,Object> value = object(raw);
         List<String> keys = new ArrayList<String>(Arrays.asList("baseline","inputs","inventories"));
+        if (value.containsKey(WorldBuilderProducerArchiveReverification.FIELD)) {
+            keys.add(WorldBuilderProducerArchiveReverification.FIELD);
+            WorldBuilderProducerArchiveReverification.validate(value.get(WorldBuilderProducerArchiveReverification.FIELD));
+        }
         boolean snapshot = value.containsKey("snapshotPredecessor");
         keys.add(snapshot ? "snapshotPredecessor" : "predecessor");
         if (value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)) {
@@ -265,6 +274,7 @@ final class WorldBuilderRuntimeReverification {
         Map<String,Object> currentConfiguration=object(inputs.get(configuration));
         if (!selected.get("sha256").equals(currentConfiguration.get("sha256"))) throw refusal("Re-verification configuration authority differs.");
         expected.put(configuration,currentConfiguration);
+        WorldBuilderProducerArchiveReverification.replay(project,plan,proof,expected);
         if (!expected.equals(inputs) || !value.get("inventories").equals(proof.get("inputInventories")))
             throw refusal("Re-verification inputs differ from the retained proof and predecessor actions.");
         for (Map.Entry<String,Object> entry : inputs.entrySet())
@@ -293,6 +303,11 @@ final class WorldBuilderRuntimeReverification {
                 String after = string(object(inputs.get(path)), "sha256");
                 out.append("Retain ").append(path).append(": ").append(before.substring(0, 12))
                     .append(" → ").append(after.substring(0, 12)).append(before.equals(after) ? " (unchanged)\n" : " (verified equivalent rebuild)\n");
+            }
+            if (evidence.containsKey(WorldBuilderProducerArchiveReverification.FIELD)) {
+                Map<String,Object> producer = object(evidence.get(WorldBuilderProducerArchiveReverification.FIELD));
+                out.append("Retain maintained NPC visual export: ").append(string(producer,"relativePath"))
+                    .append(" (only equivalent archive bindings changed; producer bytes are not written)\n");
             }
             return out.toString() + "\n";
         } catch (IOException | WorldBuilderContractException invalid) {

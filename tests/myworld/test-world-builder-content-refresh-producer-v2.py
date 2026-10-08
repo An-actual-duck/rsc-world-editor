@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Producer provenance may evolve without relaxing retained runtime authority."""
+import copy
 import gzip
 import hashlib
 import importlib.util
@@ -10,6 +11,7 @@ import subprocess
 import tempfile
 import unittest
 import zipfile
+import warnings
 from pathlib import Path
 
 import adaptive_project_test_support as support
@@ -30,6 +32,7 @@ import java.nio.file.*;
 public final class ProducerConversionProbe {
  public static void main(String[] args)throws Exception {
   if("preview-note".equals(args[0])){System.out.print(WorldBuilderNpcProducerFrames.projectPreviewSummary(Paths.get(args[1])));return;}
+  if("producer-binding".equals(args[0])){WorldBuilderProducerArchiveReverification.validate(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
   Path root=Paths.get(args[0]);
   WorldBuilderPackedConversionSource source=WorldBuilderPackedConversionSource.open(root,Paths.get(args[1]));
   if(args.length>2){Path candidate=root.resolve(args[2]);Files.createDirectories(candidate.getParent());
@@ -327,10 +330,721 @@ public final class ProducerConversionProbe {
             self.assertEqual(parent_before, support.tree_bytes(parent))
             self.assertEqual(target_before, support.tree_bytes(target, install))
 
+    def test_producer_archive_binding_java_and_json_schema_agree(self):
+        try:
+            import jsonschema
+        except ImportError:
+            self.skipTest("optional jsonschema module unavailable")
+        schemas = Path(__file__).resolve().parents[2] / "tools/world-builder/schema"
+        full = json.loads((schemas / "target-mutation-plan-v1.schema.json").read_text())
+        common = json.loads(
+            (schemas / "adaptive-contract-definitions-v1.schema.json").read_text()
+        )
+        schema = full["properties"]["runtimeReverification"]["properties"][
+            "producerArchiveBinding"
+        ]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            resolver = jsonschema.RefResolver.from_schema(
+                full, store={common["$id"]: common}
+            )
+        validator = jsonschema.Draft202012Validator(schema, resolver=resolver)
+        binding = {
+            "relativePath": "world-builder-provider/npc-definitions-v2.json",
+            "before": {"present": True, "size": 2, "sha256": "a" * 64},
+            "after": {"present": True, "size": 3, "sha256": "b" * 64},
+            "beforeContentRelativePath": "source/original/world-builder-provider/npc-definitions-v2.json",
+            "contentRelativePath": "backups/11111111-1111-4111-8111-111111111111/content/producer/archive-binding.json",
+        }
+        variants = [(binding, True)]
+        for field, value in [
+            ("present", False),
+            ("size", 1),
+            ("size", 16777217),
+            ("sha256", "bad"),
+        ]:
+            for side in ["before", "after"]:
+                invalid = copy.deepcopy(binding)
+                invalid[side][field] = value
+                variants.append((invalid, False))
+        invalid = copy.deepcopy(binding)
+        invalid["unexpected"] = 1
+        variants.append((invalid, False))
+        with tempfile.TemporaryDirectory(
+            prefix="producer-binding-schema-"
+        ) as temporary:
+            path = Path(temporary) / "binding.json"
+            for document, valid in variants:
+                support.write_json(path, document)
+                java = subprocess.run(
+                    [
+                        "java",
+                        "-cp",
+                        str(self.classes),
+                        "com.openrsc.worldbuilder.ProducerConversionProbe",
+                        "producer-binding",
+                        str(path),
+                    ],
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(valid, java.returncode == 0, java.stderr)
+                self.assertEqual(valid, not list(validator.iter_errors(document)))
+
+    def producer_rebuild_fixture(self, base, alternate_configuration=False):
+        from npc_producer_v2_test_support import install_v2_fixture
+
+        original = self.target_project
+
+        def prepared(*args, **kwargs):
+            previous = kwargs.get("target_mutator")
+
+            def content(target):
+                [
+                    path.rename(target / "Client_Base" / path.name)
+                    for path in (target / "client").iterdir()
+                ]
+                (target / "client").rmdir()
+                for path in target.rglob("*.json"):
+                    path.write_text(path.read_text().replace("client/", "Client_Base/"))
+                conf = target / "server/myworld.conf"
+                conf.write_text(
+                    "client_version: 10046\nmember_world: true\nbased_map_data: 64\nbased_config_data: 18\nwant_myworld: true\ncustom_landscape: true\ncustom_sprites: false\nallow_bearded_ladies: false\n"
+                )
+                self.complete_content(target)
+                for path, package, name in [
+                    (
+                        "server/src/com/openrsc/server/external/EntityHandler.java",
+                        "com.openrsc.server.external",
+                        "EntityHandler",
+                    ),
+                    ("Client_Base/src/orsc/mudclient.java", "orsc", "mudclient"),
+                    (
+                        "Client_Base/src/orsc/graphics/two/GraphicsController.java",
+                        "orsc.graphics.two",
+                        "GraphicsController",
+                    ),
+                ]:
+                    p = target / path
+                    if not p.exists():
+                        p.parent.mkdir(parents=True, exist_ok=True)
+                        p.write_text(
+                            "package " + package + "; public class " + name + " {}"
+                        )
+                previous(target)
+                compiled = base / "producer-client-classes"
+                compiled.mkdir()
+                subprocess.run(
+                    [
+                        "javac",
+                        "-source",
+                        "8",
+                        "-target",
+                        "8",
+                        "-d",
+                        str(compiled),
+                        *map(str, (target / "Client_Base/src").rglob("*.java")),
+                    ],
+                    check=True,
+                    capture_output=True,
+                )
+                for file in compiled.rglob("*.class"):
+                    self.rewrite_runtime_entry(
+                        target / "Client_Base/Open_RSC_Client.jar",
+                        file.relative_to(compiled).as_posix(),
+                        file.read_bytes(),
+                    )
+                for index in range(6):
+                    self.rewrite_runtime_entry(
+                        target / "Client_Base/Open_RSC_Client.jar",
+                        f"myworld-assets/npc/probe-{index}.dat",
+                        bytes([index, 21, 42]),
+                    )
+                support.declare_effective_content_sources(target, item_sources=())
+                if alternate_configuration:
+                    conf.rename(target / "server/maintained.conf")
+                    support.declare_effective_content_sources(
+                        target, item_sources=(), configuration="server/maintained.conf"
+                    )
+
+            def runtime(runtime):
+                for jar in [
+                    runtime / "server/core.jar",
+                    runtime / "Client_Base/Open_RSC_Client.jar",
+                ]:
+                    with zipfile.ZipFile(jar) as arc:
+                        manifest = arc.read("META-INF/MANIFEST.MF").rstrip(b"\n")
+                    manifest += b"\nWorld-Builder-Npc-Rgb: npc-rgb-frames-v1\nWorld-Builder-Npc-Mask-Policy: npc-mask-policy-v1\nWorld-Builder-Npc-Animation-Count: 1080\n\n"
+                    self.rewrite_runtime_entry(jar, "META-INF/MANIFEST.MF", manifest)
+
+            kwargs.update(target_mutator=content, runtime_mutator=runtime)
+            return original(*args, **kwargs)
+
+        self.target_project = prepared
+        try:
+            target, install, parent, export = self.reverification_fixture(
+                base, packed_floors=True
+            )
+        finally:
+            self.target_project = original
+        # Synthetic exporter uses canonical input paths; restore alternate
+        # configuration and its exact descriptor before any tool operation.
+        selector = (
+            target / "server/conf/world-builder/effective-content-sources-v1.json"
+        )
+        selector_bytes = selector.read_bytes()
+        if alternate_configuration:
+            (target / "server/myworld.conf").write_bytes(
+                (target / "server/maintained.conf").read_bytes()
+            )
+            support.declare_effective_content_sources(target, item_sources=())
+        self.sync_catalogs(target)
+        config = json.loads(
+            (target / "server/world-builder-configs/primary.json").read_text()
+        )
+        catalog = json.loads(
+            (target / config["serverDefinitionCatalogRelativePath"]).read_text()
+        )
+        preserved = {p: p.read_bytes() for p in target.rglob("*.java")}
+        configbytes = (target / "server/myworld.conf").read_bytes()
+        manifest, doc = install_v2_fixture(target, catalog["npcs"])
+        for p, data in preserved.items():
+            p.write_bytes(data)
+        assert (target / "server/myworld.conf").read_bytes() == configbytes
+        for row in doc["provider"]["sources"]:
+            row["sha256"] = hashlib.sha256(
+                (target / row["relativePath"]).read_bytes()
+            ).hexdigest()
+        for animation in doc["animationDefinitions"]:
+            animation["resolution"]["resolverSourceSha256"] = next(
+                row["sha256"]
+                for row in doc["provider"]["sources"]
+                if row["sourceId"] == animation["resolution"]["resolverSourceId"]
+            )
+        jar = target / "Client_Base/Open_RSC_Client.jar"
+        doc["provider"]["sources"].append(
+            {
+                "sourceId": "active-client",
+                "role": "client-visual-archive",
+                "relativePath": "Client_Base/Open_RSC_Client.jar",
+                "sha256": hashlib.sha256(jar.read_bytes()).hexdigest(),
+            }
+        )
+        for index in range(11):
+            probe = {
+                "probeId": f"embedded-{index}",
+                "kind": "archive-entry",
+                "archiveRelativePath": "Client_Base/Open_RSC_Client.jar",
+                "archiveSha256": self.file_hash(jar),
+                "entryPath": f"myworld-assets/npc/probe-{index}.dat",
+                "present": index < 6,
+            }
+            if index < 6:
+                probe["entrySha256"] = hashlib.sha256(
+                    bytes([index, 21, 42])
+                ).hexdigest()
+            doc["provider"]["resolutionProbes"].append(probe)
+        for animation in doc["animationDefinitions"]:
+            animation["resolution"]["probeIds"] = [
+                row["probeId"] for row in doc["provider"]["resolutionProbes"]
+            ]
+            animation["resolution"]["inputSourceIds"].append("active-client")
+            animation["resolution"]["precedenceSourceIds"].append("active-client")
+        if alternate_configuration:
+            (target / "server/myworld.conf").unlink()
+            selector.write_bytes(selector_bytes)
+            doc["provider"]["configuration"]["relativePath"] = "server/maintained.conf"
+        support.write_json(manifest, doc)
+        runtime = base / "builder-runtime"
+        preview = self.refresh(parent, runtime, target)
+        self.assertEqual(0, preview.returncode, preview.stderr)
+        data = json.loads(preview.stdout)
+        self.assertEqual("ready", data["status"], data)
+        created = self.refresh(
+            parent,
+            runtime,
+            target,
+            "--confirm",
+            "REFRESH",
+            "--expected-preview",
+            data["previewFingerprintSha256"],
+        )
+        self.assertEqual(0, created.returncode, created.stderr)
+        project = Path(json.loads(created.stdout)["projectRoot"])
+        return target, install, project, runtime, manifest
+
+    def repack_producer_client(self, target, manifest, generation, refresh=True):
+        jar = target / "Client_Base/Open_RSC_Client.jar"
+        with zipfile.ZipFile(jar) as archive:
+            before = {name: archive.read(name) for name in archive.namelist()}
+        with zipfile.ZipFile(jar, "w") as archive:
+            for name, data in sorted(before.items(), reverse=True):
+                info = zipfile.ZipInfo(
+                    name, date_time=(2001 + generation, 2, 3, 4, 5, 6)
+                )
+                archive.writestr(info, data)
+        with zipfile.ZipFile(jar) as archive:
+            self.assertEqual(
+                before, {name: archive.read(name) for name in archive.namelist()}
+            )
+        if refresh:
+            self.refresh_producer_archive_hash(manifest, jar)
+        return jar.read_bytes()
+
+    def refresh_producer_archive_hash(self, manifest, jar):
+        document = json.loads(manifest.read_text())
+        for row in document["provider"]["sources"]:
+            if row["role"] == "client-visual-archive":
+                row["sha256"] = self.file_hash(jar)
+        for row in document["provider"]["resolutionProbes"]:
+            if row["kind"] == "archive-entry":
+                row["archiveSha256"] = self.file_hash(jar)
+        support.write_json(manifest, document)
+
+    def apply_rebuild(self, project, target):
+        result = self.run_reviewed_apply(
+            "reverify-target-runtime",
+            "REVERIFY",
+            "--project",
+            project,
+            "--target-root",
+            target,
+        )
+        self.assertEqual(0, result.returncode, result.stderr)
+        return json.loads(result.stdout)
+
+    def test_rebuild_export_reverification_repeats_and_preserves_content_history(self):
+        with tempfile.TemporaryDirectory(prefix="producer-rebuild-chain-") as temporary:
+            target, install, project, runtime, manifest = self.producer_rebuild_fixture(
+                Path(temporary)
+            )
+            self.next_history_export(project)  # Saved but not imported editor work.
+            saved = support.tree_bytes(project / "working")
+            original = support.tree_bytes(project / "source")
+            old = manifest.read_bytes()
+            prior_binding = None
+            for generation in range(3):
+                rebuilt = self.repack_producer_client(target, manifest, generation)
+                before = support.tree_bytes(target, install)
+                applied = self.apply_rebuild(project, target)
+                plan = json.loads(
+                    (
+                        project
+                        / "backups"
+                        / applied["transactionId"]
+                        / "mutation-plan.json"
+                    ).read_text()
+                )
+                binding = plan["runtimeReverification"]["producerArchiveBinding"]
+                self.assertEqual(
+                    hashlib.sha256(old).hexdigest(), binding["before"]["sha256"]
+                )
+                self.assertEqual(
+                    manifest.read_bytes(),
+                    (project / binding["contentRelativePath"]).read_bytes(),
+                )
+                self.assertEqual(prior_binding is not None, "predecessor" in binding)
+                self.assertEqual(
+                    [
+                        "server/conf/world-builder/installed-target-map-integration-v1.json"
+                    ],
+                    [a["destinationRelativePath"] for a in plan["actions"]],
+                )
+                after = support.tree_bytes(target, install)
+                self.assertEqual(
+                    [
+                        "server/conf/world-builder/installed-target-map-integration-v1.json"
+                    ],
+                    sorted(k for k in before if before[k] != after[k]),
+                )
+                self.assertEqual(original, support.tree_bytes(project / "source"))
+                self.assertEqual(saved, support.tree_bytes(project / "working"))
+                self.assertEqual(
+                    rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes()
+                )
+                refused = self.run_cli(
+                    "undo-adaptive", "--project", project, "--target-root", target
+                )
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertIn("re-verification boundary", refused.stderr)
+                old = manifest.read_bytes()
+                prior_binding = binding
+                if (
+                    generation == 1
+                ):  # Cover runtime→map→runtime as well as runtime→runtime.
+                    export = self.next_history_export(project)
+                    saved = support.tree_bytes(project / "working")
+                    imported = self.run_reviewed_apply(
+                        "import-adaptive",
+                        "IMPORT",
+                        "--project",
+                        project,
+                        "--export",
+                        export,
+                        "--target-root",
+                        target,
+                    )
+                    self.assertEqual(0, imported.returncode, imported.stderr)
+            history = support.tree_bytes(project)
+            reviewed = self.refresh(project, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            preview = json.loads(reviewed.stdout)
+            accepted = self.refresh(
+                project,
+                runtime,
+                target,
+                "--confirm",
+                "REFRESH",
+                "--expected-preview",
+                preview["previewFingerprintSha256"],
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            self.assertEqual(
+                support.tree_bytes(project / "working/layered-world/package"),
+                support.tree_bytes(successor / "working/layered-world/package"),
+            )
+            # Fresh content carries new manifest provenance, but its saved terrain
+            # and placements are copied exactly. Rebuild immediately once more.
+            rebuilt = self.repack_producer_client(target, manifest, 3)
+            self.apply_rebuild(successor, target)
+            for generation in range(2):
+                self.promote_fixture_terrain_to_v2(
+                    successor / "working/layered-world/package", 160 + generation
+                )
+                saved_result = self.run_cli("save-project", "--project", successor)
+                self.assertEqual(0, saved_result.returncode, saved_result.stderr)
+                exported = self.run_cli("export-adaptive", "--project", successor)
+                self.assertEqual(0, exported.returncode, exported.stderr)
+                export = Path(json.loads(exported.stdout)["exportDirectory"])
+                imported = self.run_reviewed_apply(
+                    "import-adaptive",
+                    "IMPORT",
+                    "--project",
+                    successor,
+                    "--export",
+                    export,
+                    "--target-root",
+                    target,
+                )
+                self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(history, support.tree_bytes(project))
+            reopened = self.run_cli(
+                "open-project", "--installation-root", install, "--target-root", target
+            )
+            self.assertEqual(0, reopened.returncode, reopened.stderr)
+            self.assertEqual(
+                rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes()
+            )
+
+    def test_rebuild_producer_uses_authenticated_alternate_content_configuration(self):
+        with tempfile.TemporaryDirectory(
+            prefix="producer-rebuild-alt-config-"
+        ) as temporary:
+            target, install, project, runtime, manifest = self.producer_rebuild_fixture(
+                Path(temporary), alternate_configuration=True
+            )
+            snapshot = json.loads(
+                (project / "source/snapshot-manifest.json").read_text()
+            )
+            self.assertIn(
+                "source/original/server/maintained.conf",
+                [
+                    row["relativePath"]
+                    for group in ("originalFiles", "definitionRuntimeFiles")
+                    for row in snapshot[group]
+                    if row["role"] == "server-runtime-config"
+                ],
+            )
+            self.assertFalse((target / "server/myworld.conf").exists())
+            self.repack_producer_client(target, manifest, 0)
+            self.apply_rebuild(project, target)
+            self.assertFalse((target / "server/myworld.conf").exists())
+
+    def test_reverify_before_producer_export_then_refresh_and_import(self):
+        with tempfile.TemporaryDirectory(
+            prefix="producer-reverify-first-"
+        ) as temporary:
+            target, install, project, runtime, manifest = self.producer_rebuild_fixture(
+                Path(temporary)
+            )
+            old = manifest.read_bytes()
+            self.repack_producer_client(target, manifest, 0, refresh=False)
+            result = self.apply_rebuild(project, target)
+            plan = json.loads(
+                (
+                    project / "backups" / result["transactionId"] / "mutation-plan.json"
+                ).read_text()
+            )
+            self.assertNotIn("producerArchiveBinding", plan["runtimeReverification"])
+            self.assertEqual(old, manifest.read_bytes())
+            self.refresh_producer_archive_hash(
+                manifest, target / "Client_Base/Open_RSC_Client.jar"
+            )
+            reviewed = self.refresh(project, runtime, target)
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            accepted = self.refresh(
+                project,
+                runtime,
+                target,
+                "--confirm",
+                "REFRESH",
+                "--expected-preview",
+                json.loads(reviewed.stdout)["previewFingerprintSha256"],
+            )
+            self.assertEqual(0, accepted.returncode, accepted.stderr)
+            successor = Path(json.loads(accepted.stdout)["projectRoot"])
+            for generation in range(2):
+                export = self.next_history_export(successor)
+                imported = self.run_reviewed_apply(
+                    "import-adaptive",
+                    "IMPORT",
+                    "--project",
+                    successor,
+                    "--export",
+                    export,
+                    "--target-root",
+                    target,
+                )
+                self.assertEqual(0, imported.returncode, imported.stderr)
+
+    def test_rebuilt_producer_rejects_other_document_changes_and_preview_drift(self):
+        with tempfile.TemporaryDirectory(
+            prefix="producer-rebuild-refusal-"
+        ) as temporary:
+            target, install, project, runtime, manifest = self.producer_rebuild_fixture(
+                Path(temporary)
+            )
+            self.repack_producer_client(target, manifest, 0)
+            valid = manifest.read_bytes()
+            document = json.loads(valid)
+            mutations = {
+                "npc-vector": lambda d: d["npcDefinitions"][0].__setitem__(
+                    "hairColour", 33
+                ),
+                "frame-hash": lambda d: d["animationDefinitions"][0]["frames"][
+                    "frameSha256s"
+                ].__setitem__(0, "a" * 64),
+                "frame-key": lambda d: d["animationDefinitions"][0]["frames"][
+                    "frameKeys"
+                ].__setitem__(0, "frames/1.dat"),
+                "source-order": lambda d: d["provider"]["sources"].reverse(),
+                "source-path": lambda d: d["provider"]["sources"][-1].__setitem__(
+                    "relativePath", "server/core.jar"
+                ),
+                "source-hash": lambda d: d["provider"]["sources"][-1].__setitem__(
+                    "sha256", "a" * 64
+                ),
+                "probe-order": lambda d: d["provider"]["resolutionProbes"].reverse(),
+                "probe-entry": lambda d: d["provider"]["resolutionProbes"][
+                    -1
+                ].__setitem__("entryPath", "myworld-assets/other.dat"),
+                "probe-outcome": lambda d: d["provider"]["resolutionProbes"][
+                    -1
+                ].__setitem__("present", True),
+                "probe-hash": lambda d: d["provider"]["resolutionProbes"][
+                    2
+                ].__setitem__("entrySha256", "a" * 64),
+                "configuration": lambda d: d["provider"]["configuration"].__setitem__(
+                    "sha256", "a" * 64
+                ),
+                "flags": lambda d: d["provider"]["clientFlags"].__setitem__(
+                    "Config.S_ALLOW_BEARDED_LADIES", True
+                ),
+            }
+            for label, mutate in mutations.items():
+                with self.subTest(change=label):
+                    changed = copy.deepcopy(document)
+                    mutate(changed)
+                    support.write_json(manifest, changed)
+                    before = support.tree_bytes(target, install)
+                    rejected = self.run_cli(
+                        "reverify-target-runtime",
+                        "--project",
+                        project,
+                        "--target-root",
+                        target,
+                    )
+                    self.assertEqual(3, rejected.returncode, rejected.stderr)
+                    self.assertEqual(before, support.tree_bytes(target, install))
+                    self.assertFalse(list((project / "receipts").glob("*.json")))
+            # A coherent re-export of changed pixels is valid visual content,
+            # but is not an equivalent-archive provenance update.
+            artifact = target / "server/conf/world-builder/npc-frames.zip"
+            packaged = target / "world-builder-provider/npc-frames.zip"
+            original_artifact = artifact.read_bytes()
+            with zipfile.ZipFile(artifact) as archive:
+                frames = {name: archive.read(name) for name in archive.namelist()}
+            pixel = bytearray(frames["frames/0.dat"])
+            pixel[-1] ^= 1
+            frames["frames/0.dat"] = bytes(pixel)
+            with zipfile.ZipFile(artifact, "w") as archive:
+                for name, data in frames.items():
+                    archive.writestr(name, data)
+            packaged.write_bytes(artifact.read_bytes())
+            changed = copy.deepcopy(document)
+            changed["assetProviders"][0]["sha256"] = self.file_hash(artifact)
+            for source in changed["provider"]["sources"]:
+                if source["sourceId"] == "frames":
+                    source["sha256"] = self.file_hash(artifact)
+            changed["animationDefinitions"][0]["frames"]["frameSha256s"][0] = (
+                hashlib.sha256(pixel).hexdigest()
+            )
+            support.write_json(manifest, changed)
+            before = support.tree_bytes(target, install)
+            rejected = self.run_cli(
+                "reverify-target-runtime", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn(
+                "more than independently verified archive hash bindings",
+                rejected.stderr,
+            )
+            self.assertEqual(before, support.tree_bytes(target, install))
+            artifact.write_bytes(original_artifact)
+            packaged.write_bytes(original_artifact)
+            manifest.write_bytes(valid)
+            reviewed = self.run_cli(
+                "reverify-target-runtime", "--project", project, "--target-root", target
+            )
+            self.assertEqual(0, reviewed.returncode, reviewed.stderr)
+            plan = json.loads(reviewed.stdout)
+            manifest.write_bytes(valid + b" ")
+            before = support.tree_bytes(target, install)
+            rejected = self.run_cli(
+                "reverify-target-runtime",
+                "--project",
+                project,
+                "--target-root",
+                target,
+                "--confirm",
+                "REVERIFY",
+                "--transaction-id",
+                plan["transactionId"],
+                "--plan-sha256",
+                plan["planFingerprintSha256"],
+            )
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertEqual(before, support.tree_bytes(target, install))
+            self.assertFalse(list((project / "receipts").glob("*.json")))
+
+    def test_producer_reverification_recovery_retains_external_files_and_retry(self):
+        with tempfile.TemporaryDirectory(
+            prefix="producer-rebuild-recovery-"
+        ) as temporary:
+            target, install, project, runtime, manifest = self.producer_rebuild_fixture(
+                Path(temporary)
+            )
+            self.next_history_export(project)
+            self.repack_producer_client(target, manifest, 0)
+            before = support.tree_bytes(target, install)
+            saved = support.tree_bytes(project / "working")
+            original = support.tree_bytes(project / "source")
+            failed = self.run_failure(
+                "reverify",
+                "activation-published,any-rollback",
+                project,
+                target,
+                project / "exports",
+            )
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            pending = next(
+                json.loads(path.read_text())
+                for path in (project / "backups").glob("*/mutation-plan.json")
+                if "producerArchiveBinding"
+                in json.loads(path.read_text()).get("runtimeReverification", {})
+            )
+            artifact = (
+                project
+                / pending["runtimeReverification"]["producerArchiveBinding"][
+                    "contentRelativePath"
+                ]
+            )
+            artifact_bytes = artifact.read_bytes()
+            artifact.unlink()
+            refused = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            artifact.write_bytes(artifact_bytes + b" ")
+            refused = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            artifact.write_bytes(artifact_bytes)
+            valid = manifest.read_bytes()
+            manifest.write_bytes(valid + b" ")
+            refused = self.run_cli(
+                "recover-adaptive", "--project", project, "--target-root", target
+            )
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(valid + b" ", manifest.read_bytes())
+            manifest.write_bytes(valid)
+            recovered = self.run_reviewed_apply(
+                "recover-adaptive",
+                "RECOVER",
+                "--project",
+                project,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, support.tree_bytes(target, install))
+            self.assertEqual(saved, support.tree_bytes(project / "working"))
+            self.assertEqual(original, support.tree_bytes(project / "source"))
+            applied = self.apply_rebuild(project, target)
+            plan = json.loads(
+                (
+                    project
+                    / "backups"
+                    / applied["transactionId"]
+                    / "mutation-plan.json"
+                ).read_text()
+            )
+            self.assertNotIn(
+                "predecessor", plan["runtimeReverification"]["producerArchiveBinding"]
+            )
+            retained = (
+                project
+                / plan["runtimeReverification"]["producerArchiveBinding"][
+                    "contentRelativePath"
+                ]
+            )
+            accepted = retained.read_bytes()
+            retained.write_bytes(accepted + b" ")
+            export = self.next_history_export(project)
+            rejected = self.run_cli(
+                "import-adaptive",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(3, rejected.returncode, rejected.stderr)
+            self.assertIn("producer", rejected.stderr.lower())
+            retained.write_bytes(accepted)
+            imported = self.run_reviewed_apply(
+                "import-adaptive",
+                "IMPORT",
+                "--project",
+                project,
+                "--export",
+                export,
+                "--target-root",
+                target,
+            )
+            self.assertEqual(0, imported.returncode, imported.stderr)
+
 
 def load_tests(loader, tests, pattern):
-    return unittest.TestSuite(ProducerRefreshTest(name) for name in ProducerRefreshTest.__dict__
-                              if name.startswith("test_"))
+    return unittest.TestSuite(
+        ProducerRefreshTest(name)
+        for name in ProducerRefreshTest.__dict__
+        if name.startswith("test_")
+    )
 
 
 if __name__ == "__main__":

@@ -450,3 +450,15 @@ Working-copy drift blocks save/launch without changing immutable
 source or the target. Descriptor-backed material-free projects retain their
 released strict behavior; standalone projects use the content-neutral default
 catalog until a separately versioned creator-ingest feature is applied.
+
+### Rebuilding a target that has a complete NPC export
+
+A normal equivalent client rebuild changes its archive hash even when every NPC
+resource is unchanged. Regenerate the maintained export, use **Re-verify Rebuilt
+Target Runtime**, then **Detect New Content** before continuing map imports.
+Re-verifying before regenerating the export is also supported. Re-verification
+accepts only independently verified archive-hash rebinding in an otherwise
+unchanged producer document; it cannot absorb changed content or configuration.
+The target retains its rebuilt archives and producer bytes, and the project
+retains its saved map and previous revision history. See the
+[rebuild workflow and limits](WORLD-BUILDER-RUNTIME-REVERIFICATION.md#maintained-npc-visual-exports-after-a-rebuild).

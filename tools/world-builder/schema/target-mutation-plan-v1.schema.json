@@ -37,6 +37,78 @@
         {"required": ["snapshotPredecessor", "baselineProject"], "not": {"required": ["predecessor"]}}
       ],
       "properties": {
+        "producerArchiveBinding": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "relativePath",
+            "before",
+            "after",
+            "beforeContentRelativePath",
+            "contentRelativePath"
+          ],
+          "properties": {
+            "relativePath": {
+              "enum": [
+                "world-builder-provider/npc-definitions-v2.json",
+                "server/conf/world-builder/npc-definitions-v2.json"
+              ]
+            },
+            "before": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "size",
+                "sha256"
+              ],
+              "properties": {
+                "present": {
+                  "const": true
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 16777216
+                },
+                "sha256": {
+                  "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+                }
+              }
+            },
+            "after": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "size",
+                "sha256"
+              ],
+              "properties": {
+                "present": {
+                  "const": true
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 16777216
+                },
+                "sha256": {
+                  "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+                }
+              }
+            },
+            "beforeContentRelativePath": {
+              "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"
+            },
+            "contentRelativePath": {
+              "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"
+            },
+            "predecessor": {
+              "$ref": "#/properties/runtimeUpgradeHistory/items"
+            }
+          }
+        },
         "snapshotPredecessor": {
           "type": "object", "additionalProperties": false,
           "required": ["projectId", "sourceFingerprintSha256", "originSha256"],
