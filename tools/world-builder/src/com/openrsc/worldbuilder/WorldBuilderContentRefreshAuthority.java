@@ -85,6 +85,11 @@ final class WorldBuilderContentRefreshAuthority {
                 if(verified!=null && verified.generatedContent!=null) generated.put(path,verified.generatedContent);
             }
             if(!receiptFiles.isEmpty())throw refusal(id,"Retained receipt has unexpected file evidence.");
+            // Runtime re-verification also authenticates observation-only inputs.
+            // Preserve their retained bytes when constructing the historical view.
+            WorldBuilderRuntimeReverification.replay(parent,plan,expected);
+            WorldBuilderProducerArchiveReverification.retainedContent(parent,plan,generated);
+            paths.addAll(expected.keySet());
             Map<String,Object> item=new LinkedHashMap<>();item.put("transactionId",id);item.put("mutationPlanSha256",planHash);
             item.put("receiptSha256",WorldBuilderHashes.sha256(WorldBuilderAdaptiveExporter.requireFile(parent.projectRoot,"receipts/"+id+".json","retained receipt")));
             history.add(item);latest=receipt;

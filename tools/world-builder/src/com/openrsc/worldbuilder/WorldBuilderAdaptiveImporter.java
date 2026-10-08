@@ -517,7 +517,7 @@ final class WorldBuilderAdaptiveImporter {
 		long override = testUsableBytes();
 		long targetUsable = targetStore.getUsableSpace();
 		long projectUsable = projectStore.getUsableSpace();
-		long projectRequired = safeAdd(backupBytes, 1_048_576L);
+		long projectRequired = safeAdd(safeAdd(backupBytes, WorldBuilderProducerArchiveReverification.evidenceBytes(plan)), 1_048_576L);
 		/* The internal test bound may only make this check stricter. */
 		if (override >= 0L) {
 			targetUsable = Math.min(targetUsable, override);
@@ -554,6 +554,7 @@ final class WorldBuilderAdaptiveImporter {
 		WorldBuilderAdaptiveMutationProfile.Plan plan, Path backupRoot)
 		throws IOException, WorldBuilderContractException {
         WorldBuilderTargetMapIntegration.writeEvidence(plan, backupRoot);
+        WorldBuilderProducerArchiveReverification.writeEvidence(plan, backupRoot);
 		Path planPath = backupRoot.resolve("mutation-plan.json");
 		writeBytes(planPath, plan.toJson().getBytes(StandardCharsets.UTF_8));
 		WorldBuilderAdaptiveContracts.Document read = WorldBuilderAdaptiveContracts.read(
