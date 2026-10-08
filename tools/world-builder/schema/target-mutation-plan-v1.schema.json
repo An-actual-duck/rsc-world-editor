@@ -55,10 +55,48 @@
               ]
             },
             "before": {
-              "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/fileState"
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "size",
+                "sha256"
+              ],
+              "properties": {
+                "present": {
+                  "const": true
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 16777216
+                },
+                "sha256": {
+                  "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+                }
+              }
             },
             "after": {
-              "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/fileState"
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "present",
+                "size",
+                "sha256"
+              ],
+              "properties": {
+                "present": {
+                  "const": true
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": 2,
+                  "maximum": 16777216
+                },
+                "sha256": {
+                  "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/sha256"
+                }
+              }
             },
             "beforeContentRelativePath": {
               "$ref": "adaptive-contract-definitions-v1.schema.json#/$defs/relativePath"

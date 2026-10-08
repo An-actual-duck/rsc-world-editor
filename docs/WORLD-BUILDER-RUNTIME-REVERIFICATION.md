@@ -40,6 +40,38 @@ successful re-verification boundary cannot authorize target imports from a
 floor-upgrade descendant.
 Retain the complete project and request supported lineage migration in that case.
 
+## Maintained NPC visual exports after a rebuild
+
+For a project with a captured complete NPC producer v2 export, either order is
+supported while the target remains offline:
+
+1. Normally rebuild, regenerate the maintained visual export, then preview and
+   apply **Re-verify Rebuilt Target Runtime**.
+2. Normally rebuild, preview and apply re-verification, then regenerate the
+   maintained visual export.
+
+After either sequence, use **Detect New Content** to capture the current export
+as a project revision, then continue saving, exporting and importing map edits.
+Saved terrain and placements remain intact; earlier revisions and their history
+remain available. The editor never runs the target's exporter or rewrites its
+producer manifest.
+
+When the export was regenerated before re-verification, the only accepted
+producer differences are whole-archive SHA-256 bindings for the independently
+verified equivalent active client JAR. Matching embedded-resource probes may
+update that same archive hash; resource paths, presence, entry hashes, probe
+order, definitions, presentation values, frame bytes, configuration, source
+roles and every other producer field must remain canonically identical to the
+captured authority. Formatting differences are preserved as exact observed
+bytes. A changed appearance or other content change must be reviewed separately;
+this operation does not authorize it as a rebuild difference.
+
+The transaction retains the exact prior and current producer evidence in project
+history and rechecks its live bytes before applying. Repeated rebuilds follow
+that authenticated chain. Missing or changed retained evidence blocks history
+replay and recovery. Recovery keeps the independently rebuilt JAR and maintained
+producer export; it restores only the old compatibility proof.
+
 ## Transaction and preservation
 
 Preview and confirmation bind the exact checked inputs and inventories. The

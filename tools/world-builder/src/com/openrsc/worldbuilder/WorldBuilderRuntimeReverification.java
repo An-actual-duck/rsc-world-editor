@@ -304,6 +304,11 @@ final class WorldBuilderRuntimeReverification {
                 out.append("Retain ").append(path).append(": ").append(before.substring(0, 12))
                     .append(" → ").append(after.substring(0, 12)).append(before.equals(after) ? " (unchanged)\n" : " (verified equivalent rebuild)\n");
             }
+            if (evidence.containsKey(WorldBuilderProducerArchiveReverification.FIELD)) {
+                Map<String,Object> producer = object(evidence.get(WorldBuilderProducerArchiveReverification.FIELD));
+                out.append("Retain maintained NPC visual export: ").append(string(producer,"relativePath"))
+                    .append(" (only equivalent archive bindings changed; producer bytes are not written)\n");
+            }
             return out.toString() + "\n";
         } catch (IOException | WorldBuilderContractException invalid) {
             // Presentation is not authority; apply revalidates all durable inputs.
