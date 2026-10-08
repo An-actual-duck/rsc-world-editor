@@ -32,6 +32,8 @@ import java.nio.file.*;
 public final class ProducerConversionProbe {
  public static void main(String[] args)throws Exception {
   if("preview-note".equals(args[0])){System.out.print(WorldBuilderNpcProducerFrames.projectPreviewSummary(Paths.get(args[1])));return;}
+  if("snapshot-baseline".equals(args[0])){WorldBuilderSnapshotRuntimeBaseline.validate(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
+  if("reverification-shape".equals(args[0])){WorldBuilderRuntimeReverification.validateShape(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
   if("producer-binding".equals(args[0])){WorldBuilderProducerArchiveReverification.validate(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
   Path root=Paths.get(args[0]);
   WorldBuilderPackedConversionSource source=WorldBuilderPackedConversionSource.open(root,Paths.get(args[1]));
@@ -389,7 +391,7 @@ public final class ProducerConversionProbe {
                     text=True,
                 )
                 self.assertEqual(valid, java.returncode == 0, java.stderr)
-                self.assertEqual(valid, not list(validator.iter_errors(document)))
+                self.assertEqual(valid, not list(validator.iter_errors(document)), document)
 
     def producer_rebuild_fixture(self, base, alternate_configuration=False):
         from npc_producer_v2_test_support import install_v2_fixture
@@ -612,6 +614,215 @@ public final class ProducerConversionProbe {
         )
         self.assertEqual(0, result.returncode, result.stderr)
         return json.loads(result.stdout)
+
+    def test_snapshot_baseline_java_and_json_schema_variants_agree(self):
+        import jsonschema
+        schemas = Path(__file__).resolve().parents[2] / "tools/world-builder/schema"
+        full = json.loads((schemas / "target-mutation-plan-v1.schema.json").read_text())
+        common = json.loads((schemas / "adaptive-contract-definitions-v1.schema.json").read_text())
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            resolver = jsonschema.RefResolver.from_schema(full, store={common["$id"]: common})
+        schema = full["properties"]["runtimeReverification"]
+        validator = jsonschema.Draft202012Validator(schema, resolver=resolver)
+        identity = {"projectId": "11111111-1111-4111-8111-111111111111", "sourceFingerprintSha256": "a" * 64}
+        binding = dict(identity, proofRelativePath="source/original/server/conf/world-builder/installed-target-map-integration-v1.json",
+            proofSha256="b" * 64, archives=[{"relativePath": "source/original/server/core.jar", "size": 200, "sha256": "c" * 64}])
+        ref = {"transactionId": "22222222-2222-4222-8222-222222222222", "receiptSha256": "d" * 64, "mutationPlanSha256": "e" * 64}
+        snapshot = {"snapshotBaseline": binding, "snapshotPredecessor": identity, "inputs": {"server/core.jar": {"present": True, "size": 200, "sha256": "f" * 64}}, "inventories": []}
+        variants = [(snapshot, True)]
+        previous = copy.deepcopy(snapshot)
+        previous.pop("snapshotPredecessor")
+        previous["predecessor"] = ref
+        variants.append((previous, True))
+        legacy = copy.deepcopy(previous)
+        legacy.pop("snapshotBaseline")
+        legacy["baseline"] = ref
+        variants.append((legacy, True))
+        for field, value in [("proofRelativePath", "server/proof.json"), ("proofSha256", "bad"),
+                             ("projectId", "not-a-uuid"), ("archives", []), ("unexpected", 1)]:
+            invalid = copy.deepcopy(snapshot)
+            invalid["snapshotBaseline"][field] = value
+            variants.append((invalid, False))
+        for field, value in [("relativePath", "source/original/../core.jar"), ("relativePath", "source/original/core.txt"),
+                             ("size", -1), ("size", 268435457), ("sha256", "bad")]:
+            invalid = copy.deepcopy(snapshot)
+            invalid["snapshotBaseline"]["archives"][0][field] = value
+            variants.append((invalid, False))
+        invalid = copy.deepcopy(snapshot)
+        invalid["snapshotBaseline"]["archives"] *= 2
+        variants.append((invalid, False))
+        for field, value in [("baseline", ref), ("predecessor", ref)]:
+            invalid = copy.deepcopy(snapshot)
+            invalid[field] = value
+            variants.append((invalid, False))
+        invalid = copy.deepcopy(snapshot)
+        invalid["snapshotPredecessor"]["originSha256"] = "a" * 64
+        variants.append((invalid, False))
+        with tempfile.TemporaryDirectory(prefix="snapshot-baseline-schema-") as temporary:
+            path = Path(temporary) / "shape.json"
+            for document, valid in variants:
+                support.write_json(path, document)
+                java = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.ProducerConversionProbe",
+                    "reverification-shape", str(path)], capture_output=True, text=True)
+                self.assertEqual(valid, java.returncode == 0, java.stderr)
+                self.assertEqual(valid, not list(validator.iter_errors(document)), document)
+
+    def fresh_integrated_producer_project(self, base):
+        target, old_install, parent, runtime, manifest = self.producer_rebuild_fixture(base)
+        before = support.tree_bytes(target, old_install)
+        old_history = support.tree_bytes(parent)
+        discovery = self.run_cli("discover-adaptive", "--target-root", target)
+        self.assertEqual(0, discovery.returncode, discovery.stderr)
+        report = base / "fresh-integrated-discovery.json"
+        report.write_text(discovery.stdout)
+        installation = base / "fresh-editor"
+        installation.mkdir()
+        created = self.run_cli("create-project", "--installation-root", installation,
+            "--runtime-root", runtime, "--target-root", target, "--discovery-report", report,
+            "--display-name", "Fresh already integrated", "--port", "43894", "--confirm", "CREATE")
+        self.assertEqual(0, created.returncode, created.stderr)
+        self.assertEqual(before, support.tree_bytes(target, old_install))
+        self.assertEqual(old_history, support.tree_bytes(parent))
+        project = Path(json.loads(created.stdout)["projectRoot"])
+        snapshot = json.loads((project / "source/snapshot-manifest.json").read_text())
+        build_row = next(row for family in ("originalFiles", "definitionRuntimeFiles") for row in snapshot[family]
+                         if row["relativePath"] == "source/original/server/build.xml")
+        self.assertEqual("installed-map-integration-build", build_row["role"])
+        self.assertEqual((target / "server/build.xml").read_bytes(), (project / build_row["relativePath"]).read_bytes())
+        proof = json.loads((target / "server/conf/world-builder/installed-target-map-integration-v1.json").read_text())
+        self.assertNotEqual(proof["beforeInputs"]["server/build.xml"], build_row["sha256"])
+        return target, installation, project, runtime, manifest
+
+    def test_captured_installed_baseline_rebuilds_after_maps_and_through_content_successor(self):
+        with tempfile.TemporaryDirectory(prefix="snapshot-baseline-chain-") as temporary:
+            target, install, project, runtime, manifest = self.fresh_integrated_producer_project(Path(temporary))
+            original = support.tree_bytes(project / "source")
+            for _ in range(2):
+                export = self.next_history_export(project)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+            self.next_history_export(project)
+            saved = support.tree_bytes(project / "working")
+            first_binding = None
+            for generation in range(2):
+                rebuilt = self.repack_producer_client(target, manifest, generation)
+                applied = self.apply_rebuild(project, target)
+                plan = json.loads((project / "backups" / applied["transactionId"] / "mutation-plan.json").read_text())
+                evidence = plan["runtimeReverification"]
+                self.assertIn("predecessor", evidence)
+                self.assertNotIn("baseline", evidence)
+                self.assertNotIn("baselineProject", evidence)
+                binding = evidence["snapshotBaseline"]
+                self.assertEqual(project.name, binding["projectId"])
+                if first_binding is None: first_binding = binding
+                self.assertEqual(first_binding, binding)
+                self.assertEqual(original, support.tree_bytes(project / "source"))
+                self.assertEqual(saved, support.tree_bytes(project / "working"))
+                self.assertEqual(rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes())
+                for _ in range(2):
+                    export = self.next_history_export(project)
+                    imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                        "--export", export, "--target-root", target)
+                    self.assertEqual(0, imported.returncode, imported.stderr)
+                saved = support.tree_bytes(project / "working")
+            history = support.tree_bytes(project)
+            successor, _ = self.accept_refresh(project, runtime, target)
+            rebuilt = self.repack_producer_client(target, manifest, 2)
+            applied = self.apply_rebuild(successor, target)
+            evidence = json.loads((successor / "backups" / applied["transactionId"] / "mutation-plan.json").read_text())["runtimeReverification"]
+            self.assertEqual(first_binding, evidence["snapshotBaseline"])
+            self.assertEqual(project.name, evidence["baselineProject"]["projectId"])
+            self.assertIn("snapshotPredecessor", evidence)
+            for elevation in (181, 182):
+                self.promote_fixture_terrain_to_v2(successor / "working/layered-world/package", elevation)
+                self.assertEqual(0, self.run_cli("save-project", "--project", successor).returncode)
+                exported = self.run_cli("export-adaptive", "--project", successor)
+                self.assertEqual(0, exported.returncode, exported.stderr)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", successor,
+                    "--export", json.loads(exported.stdout)["exportDirectory"], "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+            self.assertEqual(history, support.tree_bytes(project))
+            opened = self.run_cli("open-project", "--installation-root", install, "--target-root", target)
+            self.assertEqual(0, opened.returncode, opened.stderr)
+            self.assertEqual(rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes())
+
+    def test_captured_installed_baseline_first_reverification_and_undo_boundary(self):
+        with tempfile.TemporaryDirectory(prefix="snapshot-baseline-first-") as temporary:
+            target, install, project, runtime, manifest = self.fresh_integrated_producer_project(Path(temporary))
+            self.next_history_export(project)
+            original = support.tree_bytes(project / "source")
+            saved = support.tree_bytes(project / "working")
+            rebuilt = self.repack_producer_client(target, manifest, 0)
+            applied = self.apply_rebuild(project, target)
+            evidence = json.loads((project / "backups" / applied["transactionId"] / "mutation-plan.json").read_text())["runtimeReverification"]
+            self.assertEqual({"projectId", "sourceFingerprintSha256"}, set(evidence["snapshotPredecessor"]))
+            self.assertNotIn("baseline", evidence)
+            self.assertEqual(original, support.tree_bytes(project / "source"))
+            self.assertEqual(saved, support.tree_bytes(project / "working"))
+            refused = self.run_cli("undo-adaptive", "--project", project, "--target-root", target)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertIn("re-verification boundary", refused.stderr)
+            for _ in range(2):
+                export = self.next_history_export(project)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
+            undone = self.run_reviewed_apply("undo-adaptive", "UNDO", "--project", project, "--target-root", target)
+            self.assertEqual(0, undone.returncode, undone.stderr)
+            self.assertEqual(rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes())
+
+    def test_captured_installed_baseline_missing_tampered_evidence_and_preview_drift_refuse(self):
+        with tempfile.TemporaryDirectory(prefix="snapshot-baseline-refusal-") as temporary:
+            target, install, project, runtime, manifest = self.fresh_integrated_producer_project(Path(temporary))
+            export = self.next_history_export(project)
+            imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                "--export", export, "--target-root", target)
+            self.assertEqual(0, imported.returncode, imported.stderr)
+            self.repack_producer_client(target, manifest, 0)
+            saved = support.tree_bytes(project / "working")
+            proof_path = "server/conf/world-builder/installed-target-map-integration-v1.json"
+            proof = json.loads((project / "source/original" / proof_path).read_text())
+            for relative in [proof_path, "server/build.xml"] + [row["relativePath"] for row in proof["archives"]]:
+                file = project / "source/original" / relative
+                original = file.read_bytes()
+                for changed in (None, original + b" "):
+                    if changed is None: file.unlink()
+                    else: file.write_bytes(changed)
+                    before = support.tree_bytes(target)
+                    rejected = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+                    self.assertEqual(3, rejected.returncode, rejected.stderr)
+                    self.assertEqual(before, support.tree_bytes(target))
+                    self.assertEqual(saved, support.tree_bytes(project / "working"))
+                    file.write_bytes(original)
+            preview = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+            self.assertEqual(0, preview.returncode, preview.stderr)
+            self.repack_producer_client(target, manifest, 1)
+            before = support.tree_bytes(target)
+            refused = self.run_reviewed_apply("reverify-target-runtime", "REVERIFY", "--project", project,
+                "--target-root", target, preview=preview)
+            self.assertEqual(3, refused.returncode, refused.stderr)
+            self.assertEqual(before, support.tree_bytes(target))
+
+    def test_captured_installed_baseline_interrupted_recovery_retains_rebuilt_runtime(self):
+        with tempfile.TemporaryDirectory(prefix="snapshot-baseline-recovery-") as temporary:
+            target, install, project, runtime, manifest = self.fresh_integrated_producer_project(Path(temporary))
+            self.next_history_export(project)
+            rebuilt = self.repack_producer_client(target, manifest, 0)
+            before = support.tree_bytes(target)
+            original = support.tree_bytes(project / "source")
+            saved = support.tree_bytes(project / "working")
+            failed = self.run_failure("reverify", "activation-published,any-rollback", project, target, project / "exports")
+            self.assertEqual(3, failed.returncode, failed.stderr)
+            self.assertIn("RECOVERY_REQUIRED", failed.stderr)
+            recovered = self.run_reviewed_apply("recover-adaptive", "RECOVER", "--project", project, "--target-root", target)
+            self.assertEqual(0, recovered.returncode, recovered.stderr)
+            self.assertEqual(before, support.tree_bytes(target))
+            self.assertEqual(original, support.tree_bytes(project / "source"))
+            self.assertEqual(saved, support.tree_bytes(project / "working"))
+            self.assertEqual(rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes())
+            self.apply_rebuild(project, target)
 
     def test_rebuild_export_reverification_repeats_and_preserves_content_history(self):
         with tempfile.TemporaryDirectory(prefix="producer-rebuild-chain-") as temporary:

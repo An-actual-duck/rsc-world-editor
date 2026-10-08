@@ -10,16 +10,21 @@ final class WorldBuilderContentRuntimeBaseline {
     private static final String ORIGIN = "source/content-refresh/origin.json";
     static final class Baseline {
         final WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner;
-        final Map<String,Object> reference, binding;
+        final Map<String,Object> reference, binding, snapshot;
         final Map<String,Path> outputs;
         Baseline(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner, Map<String,Object> reference,
             Map<String,Object> binding, Map<String,Path> outputs) {
-            this.owner=owner;this.reference=reference;this.binding=binding;this.outputs=outputs;
+            this(owner,reference,binding,outputs,null);
+        }
+        Baseline(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner, Map<String,Object> reference,
+            Map<String,Object> binding, Map<String,Path> outputs, Map<String,Object> snapshot) {
+            this.owner=owner;this.reference=reference;this.binding=binding;this.outputs=outputs;this.snapshot=snapshot;
         }
     }
 
     static Baseline resolve(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project)
         throws IOException, WorldBuilderContractException {
+        if (!hasOrigin(project)) return WorldBuilderSnapshotRuntimeBaseline.resolve(project);
         Path projects=project.projectRoot.getParent();
         if(projects==null || !"projects".equals(projects.getFileName().toString()) || projects.getParent()==null)
             throw fail("Inherited runtime authority requires the original registered projects directory.");
@@ -79,6 +84,12 @@ final class WorldBuilderContentRuntimeBaseline {
                 found=new Baseline(parent,ref,binding,outputs);
             }
             if(found!=null)return found;
+            if(!hasOrigin(parent)) {
+                Baseline captured=WorldBuilderSnapshotRuntimeBaseline.resolve(parent);
+                Map<String,Object> binding=new LinkedHashMap<>();binding.put("projectId",parent.projectId);
+                binding.put("sourceFingerprintSha256",parent.snapshot.get("sourceFingerprintSha256"));binding.put("lineage",new ArrayList<>(lineage));
+                return new Baseline(parent,null,binding,captured.outputs,captured.snapshot);
+            }
             child=parent;
         }
         throw fail("Content-origin runtime lineage exceeds sixteen retained projects.");
@@ -87,7 +98,7 @@ final class WorldBuilderContentRuntimeBaseline {
     static Baseline require(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,Map<String,Object> evidence)
         throws IOException,WorldBuilderContractException {
         Baseline value=resolve(project);
-        if(!value.binding.equals(evidence.get(FIELD)) || !value.reference.equals(evidence.get("baseline")))
+        if(!Objects.equals(value.binding,evidence.get(FIELD)) || !Objects.equals(value.reference,evidence.get("baseline")) || !Objects.equals(value.snapshot,evidence.get(WorldBuilderSnapshotRuntimeBaseline.FIELD)))
             throw fail("The inherited runtime baseline differs from its immutable preview binding.");
         return value;
     }
@@ -99,6 +110,10 @@ final class WorldBuilderContentRuntimeBaseline {
         for(Object item:links){Map<String,Object> link=object(item);WorldBuilderBoundedInventory.exactKeys(link,FIELD,"projectId","sourceFingerprintSha256","originSha256");
             String id=string(link,"projectId");uuid(id);if(!ids.add(id))throw fail("Repeated inherited runtime project.");hash(string(link,"sourceFingerprintSha256"));hash(string(link,"originSha256"));}
         if(ids.contains(string(value,"projectId")))throw fail("Inherited runtime lineage is cyclic.");
+    }
+    private static boolean hasOrigin(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project) throws WorldBuilderContractException {
+        for(Object raw:list(project.snapshot.get("originalFiles"))) if(ORIGIN.equals(object(raw).get("relativePath")))return true;
+        return false;
     }
     private static List<Object> activeReferences(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner)throws IOException,WorldBuilderContractException{
         List<WorldBuilderAdaptiveReceipt.State> receipts=WorldBuilderAdaptiveReceipt.readAll(owner.projectRoot);Set<String> reverted=new HashSet<>();List<Object> result=new ArrayList<>();

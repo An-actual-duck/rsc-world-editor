@@ -8,8 +8,13 @@ Re-verification does not require exporting or discarding current editor edits.
 
 ## What is verified
 
-The editor follows the project's retained successful integration and map
-transactions to their original plans, receipts, backups and generated content.
+The editor follows retained integration and map transactions to their original
+plans, receipts, backups and generated content. A fresh attached project created
+from an already-integrated target may instead use its immutable captured installed
+proof and the exact matching server/plugin/client archives. This is explicit
+snapshot authority, not a fabricated upgrade receipt. Later map-only transactions
+retain that baseline; content revisions authenticate the original ancestor through
+their retained origin and registry links.
 It compares every active archive entry with those retained integrated archives,
 then compiles current maintained server/plugin/client sources in isolation using
 the bundled Java 17 compiler, without target scripts or annotation processors.
@@ -34,7 +39,13 @@ both their current active classes and the retained integrated archive semantics;
 the new proof records their complete inputs. Newly changed gameplay, source
 ports, dependencies, class inventories, unsupported bytecode and stale sources
 require a separately reviewed integration. They are not accepted by refreshing
-hashes. A project without its complete original integration history is unsupported.
+hashes. The original authority must remain complete: either retained integration
+history or a verified captured installed proof with all matching source/archive
+evidence. Missing or changed evidence is refused. New discoveries also capture
+the installed server build file when the proof declares it, because integration
+may have removed its old owned build guard. Older snapshots without this file
+support only the unchanged build hash authenticated by their original proof;
+re-verification cannot adopt an uncaptured transformed build file from the target.
 Sibling floor-upgrade projects currently refuse re-verification; a project with a
 successful re-verification boundary cannot authorize target imports from a
 floor-upgrade descendant.

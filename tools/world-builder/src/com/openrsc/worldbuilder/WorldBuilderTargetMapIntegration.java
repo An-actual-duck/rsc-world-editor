@@ -944,7 +944,7 @@ final class WorldBuilderTargetMapIntegration {
 
     static boolean evidenceRole(String role) {
         return Arrays.asList("installed-map-integration-proof", "installed-map-integration-source",
-            "installed-map-integration-archive").contains(role);
+            "installed-map-integration-archive", "installed-map-integration-build").contains(role);
     }
 
     /** Capture exactly the current files consumed by installed-proof verification. */
@@ -1010,6 +1010,12 @@ final class WorldBuilderTargetMapIntegration {
                 throw failure(path, "Installed map integration changed; recapture and review a targeted upgrade before importing.");
             verified.add(state);
         }
+        // The owned build guard may have been removed by integration. Its
+        // beforeInputs hash describes the old file, so fresh attached projects
+        // retain the exact installed build file as separate snapshot authority.
+        // Never adopt a live build hash later during runtime re-verification.
+        if (object(installed.get("beforeInputs")).containsKey("server/build.xml"))
+            verified.add(checkedTarget.requiredState("installed-map-integration-build", "server/build.xml"));
         if (!proof.stableKey().equals(checkedTarget.requiredState(proof.role, INSTALLED).stableKey()))
             throw failure(INSTALLED, "Installed map integration proof changed during verification; rediscover the stable target.");
         if (evidence != null) for (WorldBuilderReadOnlyTarget.FileState state : verified) {
