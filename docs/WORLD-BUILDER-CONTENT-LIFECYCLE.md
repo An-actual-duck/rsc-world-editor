@@ -241,9 +241,34 @@ Its producer also needs a maintained staged re-export workflow: the frozen
 exporter currently only creates new paths. The concrete bounded work and the
 Core manager's reported direct-authorization requirement are documented in
 [Core Staged Content Export Handoff](CORE-STAGED-CONTENT-EXPORT-HANDOFF.md).
-Core has now reported direct owner authorization and started the scoped isolated
-implementation. Its delivery and complete maintained lifecycle acceptance remain
-pending.
+Core has completed its scoped isolated implementation at reviewed local commit
+`bf0b31c0ac328191fc743bef87b3cd95e653dc37`, with 42 independently reported
+checks passing. Normal client source build, stable re-export and read-only
+readiness passed, preserving RGB frames and 30,039 project/map files. This is
+Core-owned evidence, distinct from Editor runtime compatibility acceptance;
+normal Core and live remain unchanged.
+
+After socket permissions were restored, the prepared alpha 13 equivalent-archive
+lifecycle refused before mutation. The fresh attached project retained its exact
+installed proof and matching server/client archives, but re-verification resolves
+baselines only through an original integration transaction or content-refresh
+ancestry. It does not recognize this directly captured snapshot authority.
+A bounded Editor fix is underway to bind an explicit snapshot baseline without
+fabricating receipts, rebasing the original snapshot or weakening independent
+runtime validation. The saved map edit/export and all target files remain intact.
+Evidence: `/tmp/world-builder-equivalent-rebuild-acceptance-850y92az/snapshot-baseline-diagnosis.json`.
+
+Core's corrected normal source build also differs from the curated project
+archive: three class entries are absent and 288 of 304 changed shared classes
+are outside the packaged semantic comparator's equivalence result. This does
+not establish changed gameplay; it means the existing equivalence policy cannot
+accept that compiler output as a routine rebuild. The full normal runtime
+preflight currently encounters the same snapshot-baseline gap first. Keep this
+separate from the equivalent-container fixture and do not silently broaden
+compiler support. Read-only review:
+`/tmp/world-builder-normal-build-review-0gdvtus9/archive-review.json`.
+
+The complete maintained lifecycle and consolidated owner retest remain pending.
 Editor drift checks remain strict. Fourteen code-generated scenery appearances
 still have explicit unresolved warnings/placeholders, and intentional NPC
 animation preview limits remain reported. Existing saved work is preserved.

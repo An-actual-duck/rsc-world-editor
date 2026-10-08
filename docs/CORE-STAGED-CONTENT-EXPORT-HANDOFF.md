@@ -101,5 +101,16 @@ are available before that authorization is requested.
 
 The Core manager subsequently reported direct owner authorization in its own
 thread and began implementation in a fresh isolated producer checkout at the
-frozen checkpoint. The implementation authorization is resolved; delivery,
-recovery tests and the complete rebuild/export/import acceptance remain pending.
+frozen checkpoint. The implementation authorization is resolved. The later
+implementation handoff is recorded below; complete Editor rebuild/export/import
+acceptance remains pending.
+
+Core subsequently handed back reviewed isolated commit
+`bf0b31c0ac328191fc743bef87b3cd95e653dc37`, reporting 42 independent checks
+including crash recovery and complete build-input closure. Repeated normal
+client source build, staged re-export and read-only readiness passed on its new
+disposable fixture, retaining deterministic frames and 30,039 project/map files.
+This completes the Core implementation handoff; Editor end-to-end runtime
+acceptance remains separate. In particular, compiler output differences from
+the earlier curated archive are not claimed equivalent. No normal Core or live
+mutation or owner retest is authorized by these results.
