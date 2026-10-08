@@ -178,13 +178,17 @@ The locked provider includes independently tested NPC mask semantics and a GUI
 test-helper focus correction. Mandatory real desktop login, restart and
 preservation now pass without injected input workarounds.
 
-A final rebuild interaction was reproduced independently: equivalent archive
-rebuild followed by producer export changed its archive binding and prevented
-runtime re-verification. Re-verifying before export, then refreshing and making
-two imports, already passes. A bounded archive-binding transition is being
-implemented so the normal build/export sequence works as well. It must prove
-runtime equivalence independently and retain exact producer/history authority;
-content, configuration and map drift are not exemptions.
+The final rebuild/export interaction is corrected. Equivalent client archive
+rebuild followed by regenerated complete visual export can now be re-verified;
+re-verifying before export also works. The transition accepts only independently
+verified archive bindings in an otherwise unchanged producer, retains exact
+bytes in project history, and writes only the compatibility proof on the target.
+The exact worker tip `26d05d3a5fb01b6a75072a9f8fbc4a299edeee88` passed
+160 focused safety tests in 887 seconds: 23 contracts, 11 producer lifecycle,
+eight content-authority, 18 refresh, seven rebuild and 93 transaction cases.
+Coverage includes three successive rebuilds, embedded resource probes, selected
+configuration, refresh and later imports, preview drift, damaged retained
+evidence, interrupted recovery and historical undo boundaries.
 
 The alpha 12 updater omitted a shipped schema from its own exact allowed file
 list. Commit `4f831702e8556fc42b8fa5f0b8fb73f00486c611` corrects the list
