@@ -241,6 +241,9 @@ Its producer also needs a maintained staged re-export workflow: the frozen
 exporter currently only creates new paths. The concrete bounded work and the
 Core manager's reported direct-authorization requirement are documented in
 [Core Staged Content Export Handoff](CORE-STAGED-CONTENT-EXPORT-HANDOFF.md).
+Core has now reported direct owner authorization and started the scoped isolated
+implementation. Its delivery and complete maintained lifecycle acceptance remain
+pending.
 Editor drift checks remain strict. Fourteen code-generated scenery appearances
 still have explicit unresolved warnings/placeholders, and intentional NPC
 animation preview limits remain reported. Existing saved work is preserved.

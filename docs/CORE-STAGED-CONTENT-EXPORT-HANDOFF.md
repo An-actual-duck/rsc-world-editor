@@ -93,8 +93,13 @@ It also reported that ordinary implementation in its manager checkout is
 prohibited. This is a report from that manager; Editor has not inspected or
 modified normal Core or bypassed those rules.
 
-Core requires a direct owner instruction in its own thread allowing this
+Core required a direct owner instruction in its own thread allowing this
 Core-owned staged re-export implementation and testing in the isolated producer
 checkout as a narrowly scoped exception. Normal Core/live mutation and deployment
 remain outside that exception. Editor's complete candidate and reviewed scope
 are available before that authorization is requested.
+
+The Core manager subsequently reported direct owner authorization in its own
+thread and began implementation in a fresh isolated producer checkout at the
+frozen checkpoint. The implementation authorization is resolved; delivery,
+recovery tests and the complete rebuild/export/import acceptance remain pending.
