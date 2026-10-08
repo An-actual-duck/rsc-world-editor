@@ -66,10 +66,16 @@ the editor is not proof that the target can accept that placement.
 Use **Re-verify Rebuilt Target Runtime…** after a supported normal rebuild of an already
 integrated runtime. The target must remain offline. Verification checks the
 maintained source/binary relationship and dependencies; it does not merely
-refresh archive hashes or replace gameplay with the editing runtime. Content
-refresh retains the original integration evidence through its predecessor
-revisions. Source changes and other unsupported differences receive a refusal
-requiring separate resolution.
+refresh archive hashes or replace gameplay with the editing runtime. For a
+captured complete NPC visual export, the maintained sequence is **normal
+rebuild → regenerate the maintained export → content readiness check →
+Re-verify Rebuilt Target Runtime → Detect New Content → map imports**.
+Re-verifying before regenerating the export also works. Only independently
+verified equivalent archive bindings may change during re-verification;
+changed definitions, visuals, configuration or gameplay sources require separate
+resolution. The [rebuild guide](WORLD-BUILDER-RUNTIME-REVERIFICATION.md#maintained-npc-visual-exports-after-a-rebuild)
+describes this boundary. Content refresh retains original integration evidence
+through its predecessor revisions.
 
 A refreshed content revision can be verified before its first import when its
 complete predecessor chain retains the original integration evidence. Preview
