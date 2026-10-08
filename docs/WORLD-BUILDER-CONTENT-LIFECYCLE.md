@@ -125,9 +125,10 @@ untested platforms, and detect/continue/refresh/save/import/recovery instruction
 
 ## Integrated verification checkpoints
 
-These are manager-run results on disposable fixtures. Final candidate, populated
-update and private maintained-game acceptance are still pending; this document
-does not request an owner retest.
+These are manager-run results on disposable fixtures. The alpha 13 candidate,
+packaged desktop and populated update checks passed. Core private-game
+acceptance and maintained staged re-export remain pending; this document does
+not request an owner retest.
 
 The complete NPC producer is now captured rather than inferred from the placed
 population. The maintained fixture contains 877 effective NPCs, 249 referenced
@@ -197,7 +198,9 @@ installation. It does not patch the installed manifest before verification.
 Twenty-two updater tests passed; five PowerShell execution tests were skipped
 because PowerShell is unavailable. The actual Linux update fixture now retains
 33,504 durable files across the selected complete-content revision and its two
-predecessors. Its packaged update and offline reopen remain pending.
+predecessors. Its packaged update and offline reopen passed with all 33,504 durable files
+byte-identical and the same selected project. A local candidate installation
+entry point also passed against a second populated copy.
 
 Core's maintained complete-content readiness check is available at checkpoint
 `66854862fb3a3638eceb181807cfac47f520d518`. It is read-only and verifies
@@ -205,3 +208,33 @@ the effective producer, paired catalogs, source/archive/configuration bindings,
 lookup probes and frame dependencies. Core owns the later actual private-game
 acceptance; its shared target and normal deployment remain untouched by Editor
 mutation tests.
+
+### Exact packaged lifecycle acceptance
+
+Candidate `v0.8.1-alpha.13` was built from Editor
+`cfd1ffef7f73356c6cb6dc765482b8dfc3d58697` and runtime
+`67361019f28ba52f6acf08a19f6499302a79d8c4`. Both platform archives passed
+independent manifest, inventory, identity, toolchain and checksum inspection.
+Windows native execution remains untested.
+
+The exact Linux archive passed desktop Detect/Create, five complete NPC visuals,
+terrain and scenery placement, two distinct changed exports and successful UI
+imports, reopening after both, and unchanged Detect New Content review. Each
+import completed 3,581 verification checks. All 9,135 unrelated original target
+files were unchanged; only the three reviewed activation profiles changed.
+All 7,156 added files matched the reviewed package plans. All 9,138 frozen input
+files and 5,492 immutable project evidence files were verified intact.
+
+Evidence: `/tmp/world-builder-final-desktop-p9r81lbx/acceptance-results.json`.
+Package and local updater:
+`/home/justin/world-builder-test-builds/targeted-runtime-v0.8.1-alpha.13`.
+This is a restricted candidate, not a production release or deployment.
+
+The actual player-game acceptance belongs to Core and is proceeding separately.
+Its producer also needs a maintained staged re-export workflow: the frozen
+exporter currently only creates new paths. The concrete bounded work and the
+Core manager's reported direct-authorization requirement are documented in
+[Core Staged Content Export Handoff](CORE-STAGED-CONTENT-EXPORT-HANDOFF.md).
+Editor drift checks remain strict. Fourteen code-generated scenery appearances
+still have explicit unresolved warnings/placeholders, and intentional NPC
+animation preview limits remain reported. Existing saved work is preserved.
