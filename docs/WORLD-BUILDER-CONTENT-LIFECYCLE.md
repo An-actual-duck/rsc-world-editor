@@ -231,6 +231,12 @@ Package and local updater:
 This is a restricted candidate, not a production release or deployment.
 
 The actual player-game acceptance belongs to Core and is proceeding separately.
+Core reports that the private game displays the five imported NPCs and terrain
+and scenery edits, with floor traversal and Pine Tree blocking checks passed.
+Naga combat, Slime Solvent display/use, and saving equipped items on logout also
+worked. These are partial manager-reported observations: reconnect persistence,
+both Naga attack modes, and an unprotected enemy status effect remain unconfirmed.
+They do not constitute complete gameplay acceptance.
 Its producer also needs a maintained staged re-export workflow: the frozen
 exporter currently only creates new paths. The concrete bounded work and the
 Core manager's reported direct-authorization requirement are documented in
