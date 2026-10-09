@@ -985,7 +985,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveExporter.VerifiedExport export,
 		Path targetRoot, String transactionId)
 		throws IOException, WorldBuilderContractException {
-        return reconstructInstalled(project, export, targetRoot, transactionId, Collections.<String>emptySet());
+        return reconstructInstalled(project, export, targetRoot, transactionId, Collections.<String,String>emptyMap());
     }
 
     // Only the re-verification preparer supplies this scope, after independent
@@ -993,7 +993,7 @@ final class WorldBuilderAdaptiveMutationProfile {
     static Plan reconstructInstalled(
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
         WorldBuilderAdaptiveExporter.VerifiedExport export,
-        Path targetRoot, String transactionId, Set<String> verifiedRebuiltArchives)
+        Path targetRoot, String transactionId, Map<String,String> verifiedRebuiltArchives)
         throws IOException, WorldBuilderContractException {
 		if ("standalone-empty".equals(project.origin)) throw problem(
 			WorldBuilderErrorCodes.NO_TARGET, "target-root",
@@ -1087,9 +1087,9 @@ final class WorldBuilderAdaptiveMutationProfile {
 			installedDestinations.add(WorldBuilderAdaptiveExporter.string(
 				action, "destinationRelativePath"));
 		}
-		installedDestinations.addAll(verifiedRebuiltArchives);
+		installedDestinations.addAll(verifiedRebuiltArchives.keySet());
 		verifyUnchangedTargetEvidence(project, target, configurationPath,
-			installedDestinations, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD), storedObject);
+			installedDestinations, storedObject.get(WorldBuilderFloorUpgradeLineage.FIELD), storedObject, verifiedRebuiltArchives);
 		if (runtimeCompatibilityOnly(storedObject)) {
 			return reconstructRuntimeCompatibilityOnly(project, export, target,
 				transactionId, capability, profile, selectedRole, configurationPath,
@@ -1537,10 +1537,25 @@ final class WorldBuilderAdaptiveMutationProfile {
 		WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, String changedConfiguration, Set<String> installedDestinations, Object inherited, Map<String,Object> historyPlan)
 		throws IOException, WorldBuilderContractException {
+        verifyUnchangedTargetEvidence(project, target, changedConfiguration, installedDestinations,
+            inherited, historyPlan, Collections.<String,String>emptyMap());
+    }
+
+    private static void verifyUnchangedTargetEvidence(
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        Path target, String changedConfiguration, Set<String> installedDestinations, Object inherited,
+        Map<String,Object> historyPlan, Map<String,String> independentlyVerifiedRuntime)
+        throws IOException, WorldBuilderContractException {
 		Set<String> inheritedPaths = inherited == null ? Collections.<String>emptySet()
 			: WorldBuilderFloorUpgradeLineage.verifyRemaining(project, target, inherited, installedDestinations);
 		Set<String> runtimePaths = historyPlan == null ? Collections.<String>emptySet()
 			: WorldBuilderRuntimeUpgradeHistory.verify(project, target, historyPlan, installedDestinations);
+        // Interrupted re-verification recovery restores the old proof while
+        // preserving its independently rebuilt archives. Authenticate the
+        // retained transaction's input pair before reusing that runtime scope.
+        if (independentlyVerifiedRuntime.isEmpty() && historyPlan != null
+            && historyPlan.containsKey(WorldBuilderRuntimeReverification.FIELD))
+            independentlyVerifiedRuntime = WorldBuilderRuntimeReverification.verifyPairedArchiveInputs(project,target,historyPlan);
 		Set<String> retirementPaths = legacyRetirementPaths(project);
 		for (String key : new String[] {"originalFiles", "definitionRuntimeFiles"}) {
 			for (Object raw : WorldBuilderAdaptiveExporter.array(
@@ -1556,7 +1571,7 @@ final class WorldBuilderAdaptiveMutationProfile {
 				if (inheritedPaths.contains(relative)) continue;
 				if (runtimePaths.contains(relative)) continue;
 				if (retirementPaths.contains(relative)) continue;
-				if (WorldBuilderInstalledFloorContent.verifyRetainedPath(project, target, relative)) continue;
+				if (WorldBuilderInstalledFloorContent.verifyRetainedPath(project, target, relative, independentlyVerifiedRuntime)) continue;
 				boolean present = WorldBuilderAdaptiveExporter.bool(record, "present");
 				Path live = safeDestination(target, relative);
 				if (!present) {
