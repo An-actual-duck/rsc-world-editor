@@ -44,10 +44,10 @@ final class WorldBuilderRuntimeReverification {
                 baselineReference = ref;
             }
         }
-        Map<String,Object> baselineProject = null;
+        Map<String,Object> baselineProject = null, snapshotBaseline = null;
         if (proof == null) {
             WorldBuilderContentRuntimeBaseline.Baseline inherited = WorldBuilderContentRuntimeBaseline.resolve(project);
-            baseline = inherited.outputs; baselineReference = inherited.reference; baselineProject = inherited.binding;
+            baseline = inherited.outputs; baselineReference = inherited.reference; baselineProject = inherited.binding; snapshotBaseline = inherited.snapshot;
             proof = Files.readAllBytes(baseline.get(WorldBuilderTargetMapIntegration.INSTALLED));
         }
         Map<String,Object> configuration = object(project.snapshot.get("selectedConfiguration"));
@@ -93,8 +93,9 @@ final class WorldBuilderRuntimeReverification {
         if (producer != null) inputs.put(string(producer,"relativePath"),producer.get("after"));
         Map<String,Object> evidence = new LinkedHashMap<String,Object>();
         if (previous != null) evidence.put("predecessor", reference(project, previous));
-        else evidence.put("snapshotPredecessor", array(baselineProject.get("lineage")).get(0));
-        evidence.put("baseline", baselineReference);
+        else evidence.put("snapshotPredecessor", baselineProject != null ? array(baselineProject.get("lineage")).get(0) : WorldBuilderSnapshotRuntimeBaseline.identity(project));
+        if (snapshotBaseline != null) evidence.put(WorldBuilderSnapshotRuntimeBaseline.FIELD,snapshotBaseline);
+        else evidence.put("baseline", baselineReference);
         if (baselineProject != null) evidence.put(WorldBuilderContentRuntimeBaseline.FIELD, baselineProject);
         evidence.put("inputs", inputs);
         if (producer != null) evidence.put(WorldBuilderProducerArchiveReverification.FIELD,producer);
@@ -126,7 +127,7 @@ final class WorldBuilderRuntimeReverification {
         for (WorldBuilderAdaptiveReceipt.State receipt : WorldBuilderAdaptiveReceipt.readAll(project.projectRoot)) {
             if (("import".equals(receipt.transactionType()) && "successful".equals(receipt.status()))
                 || "pending".equals(receipt.status()) || "recovery-required".equals(receipt.status()))
-                throw refusal("Snapshot re-verification requires a content successor with no prior successful or interrupted local transaction.");
+                throw refusal("Snapshot re-verification requires no prior successful or interrupted local transaction.");
         }
     }
     private static Map<String,WorldBuilderAdaptiveMutationProfile.FileState> snapshotStates(
@@ -154,7 +155,10 @@ final class WorldBuilderRuntimeReverification {
     }
     static void validateShape(Object raw) throws WorldBuilderContractException {
         Map<String,Object> value = object(raw);
-        List<String> keys = new ArrayList<String>(Arrays.asList("baseline","inputs","inventories"));
+        List<String> keys = new ArrayList<String>(Arrays.asList("inputs","inventories"));
+        boolean captured = value.containsKey(WorldBuilderSnapshotRuntimeBaseline.FIELD);
+        keys.add(captured ? WorldBuilderSnapshotRuntimeBaseline.FIELD : "baseline");
+        if(captured) WorldBuilderSnapshotRuntimeBaseline.validate(value.get(WorldBuilderSnapshotRuntimeBaseline.FIELD));
         if (value.containsKey(WorldBuilderProducerArchiveReverification.FIELD)) {
             keys.add(WorldBuilderProducerArchiveReverification.FIELD);
             WorldBuilderProducerArchiveReverification.validate(value.get(WorldBuilderProducerArchiveReverification.FIELD));
@@ -167,11 +171,18 @@ final class WorldBuilderRuntimeReverification {
         }
         WorldBuilderBoundedInventory.exactKeys(value,FIELD,keys.toArray(new String[0]));
         if (snapshot) {
-            if (!value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)
-                || !value.get("snapshotPredecessor").equals(array(object(value.get(WorldBuilderContentRuntimeBaseline.FIELD)).get("lineage")).get(0)))
-                throw refusal("Snapshot predecessor differs from its inherited runtime source/origin binding.");
+            if (value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)) {
+                if (!value.get("snapshotPredecessor").equals(array(object(value.get(WorldBuilderContentRuntimeBaseline.FIELD)).get("lineage")).get(0)))
+                    throw refusal("Snapshot predecessor differs from its inherited runtime source/origin binding.");
+            } else {
+                if (!captured) throw refusal("Snapshot predecessor requires captured runtime authority.");
+                Map<String,Object> predecessor=object(value.get("snapshotPredecessor")), baseline=object(value.get(WorldBuilderSnapshotRuntimeBaseline.FIELD));
+                WorldBuilderBoundedInventory.exactKeys(predecessor,FIELD,"projectId","sourceFingerprintSha256");
+                if (!Objects.equals(predecessor.get("projectId"),baseline.get("projectId")) || !Objects.equals(predecessor.get("sourceFingerprintSha256"),baseline.get("sourceFingerprintSha256")))
+                    throw refusal("Snapshot predecessor differs from its captured runtime identity.");
+            }
         } else WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get("predecessor")));
-        WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get("baseline")));
+        if (!captured) WorldBuilderRuntimeUpgradeHistory.validateShape(Collections.singletonList(value.get("baseline")));
         List<?> inventories = array(value.get("inventories"));
         if (inventories.size() > 128) throw refusal("Runtime inventory is unbounded.");
         Map<String,Object> roots = new HashMap<String,Object>();
@@ -208,7 +219,12 @@ final class WorldBuilderRuntimeReverification {
         Map<String,Object> value = object(plan.get(FIELD)); validateShape(value);
         WorldBuilderAdaptiveProjectLifecycle.VerifiedProject baselineOwner = project;
         if (value.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)) baselineOwner = WorldBuilderContentRuntimeBaseline.require(project,value).owner;
-        for (String key : value.containsKey("snapshotPredecessor") ? Collections.singletonList("baseline") : Arrays.asList("predecessor","baseline")) {
+        boolean captured=value.containsKey(WorldBuilderSnapshotRuntimeBaseline.FIELD);
+        if(captured) WorldBuilderSnapshotRuntimeBaseline.require(baselineOwner,value.get(WorldBuilderSnapshotRuntimeBaseline.FIELD));
+        List<String> receiptKeys=new ArrayList<String>();
+        if(!value.containsKey("snapshotPredecessor"))receiptKeys.add("predecessor");
+        if(!captured)receiptKeys.add("baseline");
+        for (String key : receiptKeys) {
             Map<String,Object> ref = object(value.get(key));
             WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner = "baseline".equals(key) ? baselineOwner : project;
             WorldBuilderAdaptiveReceipt.State receipt = WorldBuilderAdaptiveReceipt.read(owner.projectRoot.resolve("receipts/" + string(ref,"transactionId") + ".json"));
@@ -236,10 +252,12 @@ final class WorldBuilderRuntimeReverification {
                     throw refusal("Snapshot re-verification must be the first successful local transaction.");
         } else if (latest == null || !latest.transactionId().equals(object(value.get("predecessor")).get("transactionId")))
             throw refusal("Re-verification predecessor is not the latest retained installed transaction.");
-        Map<String,Object> baseline = readPlan(baselineOwner,string(object(value.get("baseline")),"transactionId"));
-        if (baseline.containsKey(FIELD) || (baselineOwner == project && reverted.contains(baseline.get("transactionId")))) throw refusal("Re-verification baseline is not an original active integration.");
-        WorldBuilderAdaptiveReceipt.State baselineReceipt = WorldBuilderAdaptiveReceipt.read(baselineOwner.projectRoot.resolve("receipts/"+baseline.get("transactionId")+".json"));
-        if (baselineOwner == project && (latest == null || baselineReceipt.compareTo(latest)>0)) throw refusal("Re-verification baseline follows its predecessor.");
+        if (!captured) {
+            Map<String,Object> baseline = readPlan(baselineOwner,string(object(value.get("baseline")),"transactionId"));
+            if (baseline.containsKey(FIELD) || (baselineOwner == project && reverted.contains(baseline.get("transactionId")))) throw refusal("Re-verification baseline is not an original active integration.");
+            WorldBuilderAdaptiveReceipt.State baselineReceipt = WorldBuilderAdaptiveReceipt.read(baselineOwner.projectRoot.resolve("receipts/"+baseline.get("transactionId")+".json"));
+            if (baselineOwner == project && (latest == null || baselineReceipt.compareTo(latest)>0)) throw refusal("Re-verification baseline follows its predecessor.");
+        }
         Map<String,Object> expected = new TreeMap<String,Object>();
         if (snapshot) {
             for (Map.Entry<String,WorldBuilderAdaptiveMutationProfile.FileState> entry : snapshotStates(project).entrySet())
@@ -292,14 +310,23 @@ final class WorldBuilderRuntimeReverification {
             Map<String,Object> evidence = object(plan.document.get(FIELD));
             WorldBuilderAdaptiveProjectLifecycle.VerifiedProject owner = evidence.containsKey(WorldBuilderContentRuntimeBaseline.FIELD)
                 ? WorldBuilderContentRuntimeBaseline.require(plan.project,evidence).owner : plan.project;
-            Map<String,Object> baseline = readPlan(owner, string(object(evidence.get("baseline")), "transactionId"));
+            Map<String,String> baselineArchives = new TreeMap<String,String>();
+            if(evidence.containsKey(WorldBuilderSnapshotRuntimeBaseline.FIELD)) {
+                WorldBuilderSnapshotRuntimeBaseline.require(owner,evidence.get(WorldBuilderSnapshotRuntimeBaseline.FIELD));
+                for(Object raw:array(object(evidence.get(WorldBuilderSnapshotRuntimeBaseline.FIELD)).get("archives"))) {
+                    Map<String,Object> row=object(raw);
+                    baselineArchives.put(string(row,"relativePath").substring("source/original/".length()),string(row,"sha256"));
+                }
+            } else for(Object raw:array(readPlan(owner, string(object(evidence.get("baseline")), "transactionId")).get("actions"))) {
+                Map<String,Object> action=object(raw); String path=string(action,"destinationRelativePath");
+                if(string(action,"role").startsWith(WorldBuilderTargetMapIntegration.ROLE) && path.endsWith(".jar"))
+                    baselineArchives.put(path,string(object(action.get("after")),"sha256"));
+            }
             Map<String,Object> inputs = object(evidence.get("inputs"));
             StringBuilder out = new StringBuilder("Checked runtime/map inputs: " + inputs.size() + " files; "
                 + array(evidence.get("inventories")).size() + " source/dependency inventories.\n");
-            for (Object raw : array(baseline.get("actions"))) {
-                Map<String,Object> action = object(raw); String path = string(action, "destinationRelativePath");
-                if (!string(action, "role").startsWith(WorldBuilderTargetMapIntegration.ROLE) || !path.endsWith(".jar")) continue;
-                String before = string(object(action.get("after")), "sha256");
+            for (Map.Entry<String,String> archive : baselineArchives.entrySet()) {
+                String path=archive.getKey(), before=archive.getValue();
                 String after = string(object(inputs.get(path)), "sha256");
                 out.append("Retain ").append(path).append(": ").append(before.substring(0, 12))
                     .append(" → ").append(after.substring(0, 12)).append(before.equals(after) ? " (unchanged)\n" : " (verified equivalent rebuild)\n");
