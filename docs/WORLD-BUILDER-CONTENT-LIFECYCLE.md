@@ -281,3 +281,44 @@ The complete maintained lifecycle and consolidated owner retest remain pending.
 Editor drift checks remain strict. Fourteen code-generated scenery appearances
 still have explicit unresolved warnings/placeholders, and intentional NPC
 animation preview limits remain reported. Existing saved work is preserved.
+
+### Persistent alpha 14 acceptance after restart
+
+Restricted candidate alpha 14 uses published Editor
+`66bed4e441508ce2657f848f1a87284df52c39c8` and the unchanged locked runtime.
+Both fresh archives passed independent integrity, manifest, identity and compiler
+inspection. A genuine alpha 13-created saved/exported project updated to alpha 14
+with all 9,219 project files unchanged during update and the same selected project
+reopened. Reopening changed only its attachment metadata. Actual desktop
+Detect/Create and private editor open/clean close preserved 47,558 target files.
+
+The new attached project completed two changed imports and reopening, then saved
+and exported a third, unimported edit. All 7,159 actual target writes matched the
+reviewed plans. Core rebuilt a separate project-backed copy with Java 17 and
+performed its maintained staged export/readiness checks: all 5,838 client archive
+members matched the immutable baseline, while the ZIP-container hash and producer
+archive binding changed. Saved terrain (1,789 files), immutable source (5,495),
+and history (5,387) remained exact. These are new preserved files; the old lost
+temporary history was not recovered.
+
+Alpha 14 then refused runtime re-verification before mutation. Independent stack
+diagnosis confirmed `reconstructInstalled` calls retained floor verification,
+which re-enters ordinary installed-proof validation and rejects the rebuilt
+client's changed raw archive hash despite the preceding independent runtime
+verification. Its modeled tests had optional editor manifest hints; the actual
+maintained archives use installed-proof authority instead. A bounded general
+Editor correction is under review: only the independently verified server/client
+hash pair may be reused during this reconstruction, with all installed floor
+files still verified exactly. Ordinary discovery/import checks remain strict.
+All 63,509 files in the refused target, saved edits, snapshot and history were
+independently verified unchanged. Alpha 14 remains held; no owner retest is due.
+
+Persistent evidence and external harnesses are retained under
+`/home/justin/world-builder-test-builds/content-lifecycle-alpha14`.
+The Core frozen project-backed result is
+`/home/justin/world-builder-test-builds/core-staged-export-recovery-fZ6aeX`.
+Desktop actions intentionally select a project's recorded server locator;
+copying a project does not redirect them to a different default server. A
+separate coordinated rebuild of the Editor-created fixture at its original
+recorded location is being prepared for the eventual desktop transaction test.
+No normal Core, live target or owner project is changed by this acceptance.
