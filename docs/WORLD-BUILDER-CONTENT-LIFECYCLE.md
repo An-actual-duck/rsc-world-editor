@@ -1,6 +1,7 @@
 # Content lifecycle delivery
 
-Status: implementation in progress; no new owner candidate accepted.
+Status: alpha 15 accepted for restricted owner inspection after the complete
+maintained-rebuild lifecycle and packaged desktop checks. No production release.
 Objective adopted October 2, 2026 from the owner's content lifecycle handoff.
 Baseline Editor: `087e64b5c2624c2e284e43d3e69db64f6ab0ad91`.
 Initial runtime: `deb55301702dc80f49497ac722341895145363e1` (the lock file remains authoritative for current builds).
@@ -322,3 +323,26 @@ copying a project does not redirect them to a different default server. A
 separate coordinated rebuild of the Editor-created fixture at its original
 recorded location is being prepared for the eventual desktop transaction test.
 No normal Core, live target or owner project is changed by this acceptance.
+
+### October 9: alpha 15 lifecycle accepted
+
+The general retained-runtime proof correction and its interrupted-recovery
+counterpart are integrated in packaged source
+`2ca414daa1b3864a3eda3c48e861ab1e9445746d`, exact tested implementation
+`dbf24826462932765b5635af69a8712a266242ed`. All eight affected suites passed
+283 tests. The runtime lock remains `67361019f28ba52f6acf08a19f6499302a79d8c4`.
+
+Fresh inspected alpha 15 packages, populated updates, the actual Core-owned
+normal rebuild/staged export followed by re-verification/content successor/two
+changed imports/reopens, and actual desktop confirmation/private-editor clean
+close all passed. Every target write matched its reviewed plan. Saved map,
+original source evidence, earlier history, complete predecessor and maintained
+archives remained intact. Core's in-place disposable build allowed the desktop
+test to use the real recorded project locator without a manifest patch.
+
+The restricted candidate is ready for owner inspection at
+`/home/justin/world-builder-test-builds/targeted-runtime-v0.8.1-alpha.15`.
+Its `CORE-RETEST.md` supplies one consolidated workflow. See
+[the exact acceptance record and limitations](WORLD-BUILDER-ALPHA15-ACCEPTANCE.md).
+Alpha 14 remains superseded and held; no production release or deployment is
+claimed. Original Core evidence and normal/live targets remain untouched.

@@ -74,12 +74,16 @@ explicitly reviewed and handed off; do not conceal it from source provenance.
   Editor re-verification → Detect New Content → two changed imports → reopen.
   Preserve saved map edits, project history and unrelated target content.
 
-Use Editor candidate `v0.8.1-alpha.13`, source
-`cfd1ffef7f73356c6cb6dc765482b8dfc3d58697`, runtime
-`67361019f28ba52f6acf08a19f6499302a79d8c4`. The packaged desktop acceptance
-is `/tmp/world-builder-final-desktop-p9r81lbx/acceptance-results.json`; its target
-and frozen reference are read-only inputs, not Core implementation checkouts.
-Core owns any new disposable mutation fixtures and actual game verification.
+Use the accepted restricted Editor candidate `v0.8.1-alpha.15`, source
+`2ca414daa1b3864a3eda3c48e861ab1e9445746d`, runtime
+`67361019f28ba52f6acf08a19f6499302a79d8c4`. Its persistent directory is
+`/home/justin/world-builder-test-builds/targeted-runtime-v0.8.1-alpha.15`;
+`CORE-RETEST.md` gives the complete rebuild/re-verification/import sequence and
+`ACCEPTANCE-RESULTS.json` binds the evidence. See the
+[alpha 15 acceptance record](WORLD-BUILDER-ALPHA15-ACCEPTANCE.md).
+Earlier alpha 13 `/tmp` fixtures were lost during the forced shutdown and are
+not current retest inputs. Core owns its new disposable mutation fixtures and
+actual game verification; frozen Core evidence remains read-only.
 
 ## Authorization boundary reported by Core
 
@@ -114,3 +118,12 @@ This completes the Core implementation handoff; Editor end-to-end runtime
 acceptance remains separate. In particular, compiler output differences from
 the earlier curated archive are not claimed equivalent. No normal Core or live
 mutation or owner retest is authorized by these results.
+
+October 9 update: Core subsequently released quiescent persistent normal
+Java 17/staged export/readiness results with saved work, source, history,
+deterministic sprites and map assets preserved. Editor's actual alpha 15
+re-verification/content successor/two-import/reopen chain and recorded-location
+desktop transaction now pass. The candidate above is accepted for restricted
+owner inspection; [its acceptance record](WORLD-BUILDER-ALPHA15-ACCEPTANCE.md)
+distinguishes that evidence from Core-owned private-gameplay checks and native
+Windows/production acceptance. No normal Core/live mutation is authorized here.
