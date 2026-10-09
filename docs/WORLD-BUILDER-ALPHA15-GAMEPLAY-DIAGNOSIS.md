@@ -43,8 +43,32 @@ wire definition and fail-to-pass tests still require review.
 
 Editor exact dependency adoption passed parity and the affected target
 integration, rebuild verifier, installed runtime verification and upgrade
-transaction suites. Packaging, automated movement/performance and preservation
-acceptance remain outstanding. Do not ask for another owner retest yet.
+transaction suites: 74 selected tests, two explicit external-input skips.
+Editor integration is `7de29aa8c5d2eb68ea3dd056de97608715da5317`.
+
+Fresh alpha 16 Linux/Windows archives were built and independently inspected
+from those exact inputs. They remain held for internal automation at
+`/home/justin/world-builder-test-builds/alpha15-terrain-sequencing-repair/held-alpha16`.
+A fresh disposable attached project exercised the actual packaged authoring
+client through nine contexts and 18 stages at the 64-sector cache limit,
+including two natural predicted walking activations and ordinary teleports
+through centers (2,13), (3,13), (3,12) and (2,12). No missing-reference or fatal
+baseline errors occurred. All 1,789 saved map files, 5,495 source files and
+70,665 target files remained exact. Owned client/server/GUI processes were
+closed cleanly. The owner project and original fixtures were not modified.
+
+Evidence is in `authoring-automation/movement-results.json` and
+`authoring-automation/movement-preservation.json` below the persistent repair
+directory. This supports cache correctness, not complete gameplay acceptance.
+
+Performance remains held: the 1200-by-850 CPU/Xvfb run showed roughly 3 FPS.
+The Editor's `configurePreservationUi` explicitly disables the OpenGL presenter,
+input and world replacement paths; history traces that policy to `a6f2263`
+(Preservation UI and integer scaling). No rendering policy was changed. A
+controlled comparison must distinguish presentation, terrain work and fixture
+environment before claiming improved FPS or fixed clipping/flicker. Correlated
+Core recovery, paired private gameplay and preservation acceptance remain
+outstanding. Do not ask for another owner retest yet.
 
 ## Retained evidence
 
