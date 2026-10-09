@@ -2,6 +2,39 @@
 
 Accepted October 9, 2026 for owner inspection, not production release.
 
+**Subsequent owner gameplay acceptance failed.** The lifecycle and preservation
+results below remain valid, but alpha 15 is not accepted for completing the
+Slayer Tower workflow until the gameplay and authoring findings are resolved.
+No new owner retest is requested yet.
+
+In the independent private test, import receipt
+`c0d8051b-bfe9-40ca-86e7-6258c1c84a42` verified 3,581 reviewed writes and the
+paired installed package. Core reported loading all eight owner NPC placements
+and Whip item 3350 at (127,645), level 0, amount 1, respawn 30 seconds. That
+establishes retained placements, not successful visibility, pickup or equip.
+
+The gameplay client repeatedly reported a missing resident terrain reference,
+then crashed with `Scene baseline does not match layered scene context`.
+Read-only diagnosis distinguishes the target's resynchronization extension
+from the pinned provider: the target returns before accepting a replacement
+context after a missing reference, and a subsequent baseline rejects the older
+context. Initial cache-miss cause remains under investigation. Low FPS and
+sprite flicker are separate unverified findings; the failed launch disabled
+the OpenGL presenter. Do not relax sequence checks or substitute a generic
+gameplay client to obtain acceptance.
+
+Authoring diagnostics also report 2,118 unresolved item visuals (4,236 warnings),
+including an explicitly unresolved provider visual for Whip 3350, plus the 14
+previous scenery warnings. The owner's invisible placed Whip and movement
+clipping remain open presentation findings. Resolving these requires proper
+visual capture/rendering investigation, not catalog or integration-proof edits.
+
+Frozen failure evidence is read-only at
+`/home/justin/world-builder-test-builds/core-alpha15-failure-evidence-rZ1hBo`.
+The owner project, map, account, historical receipts and original fixtures are
+retained. Core owns private target gameplay and target-maintained source changes;
+World Editor owns provider diagnosis and subsequent product integration.
+
 - Packaged Editor: `2ca414daa1b3864a3eda3c48e861ab1e9445746d`.
 - Exact tested implementation: `dbf24826462932765b5635af69a8712a266242ed`.
 - Unchanged runtime provider: `67361019f28ba52f6acf08a19f6499302a79d8c4`.
