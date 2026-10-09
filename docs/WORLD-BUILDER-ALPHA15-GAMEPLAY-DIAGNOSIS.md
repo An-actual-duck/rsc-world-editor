@@ -1,8 +1,50 @@
 # Alpha 15 gameplay failure: read-only diagnosis
 
-October 9, 2026. Implementation has not begun. Owner acceptance is failed;
-the previous lifecycle and preservation tests remain valid. This document is
-the proposed bounded investigation/fix scope for review, not a verified fix.
+October 9, 2026. Owner acceptance is failed; the previous lifecycle and
+preservation tests remain valid. The owner authorized the bounded two-fix scope
+after this diagnosis. The original investigation below is retained; current
+implementation progress follows here and does not establish gameplay acceptance.
+
+## Authorized implementation progress
+
+The shared provider correction is published at
+`c79e9ab3bf178d1f693127659399e5940721049c`, exact tested implementation
+`9b1ba85d45a80bed093f3d710f2e087066860369`. A paired replay reproduces the old
+9-versus-25 resident ledger disagreement before stage acknowledgement. A separate
+diagnostic continuing past that early equality stop reproduces the original
+decoder's missing-resident-reference exception after prediction cancellation.
+The strict regression is unchanged and passes with the correction.
+
+All three stage senders now commit wire residency after successful queueing.
+Stage acknowledgement proves prebuild readiness only. Late/duplicate/stale ACKs
+cannot recommit a previous cache snapshot. No client, wire format, identity,
+capacity or feature gate changed. Twenty-three tests across seven affected
+suites pass, including legacy/wide mixed terrain replay, capacity pressure,
+different-center cancellation, reversals, teleport, reconnect, failed queues
+and strict readiness. The replay also verifies that the actual changed
+`GameStateUpdater` compiles through the production serializer source path.
+
+Persistent evidence:
+`/home/justin/world-builder-test-builds/alpha15-terrain-sequencing-repair/PROVIDER-VERIFICATION.json`.
+Historical narrow fixture tests were run against a verified lossless nine-sector
+guild window from the accepted Editor-owned fixture; full-map compression tests
+now understand both supported strides without narrowing wide elevations. The
+initial missing/incompatible fixture attempts are retained as failures, not
+passed acceptance results. No original fixture or owner project was changed.
+
+Core's maintained context path also defers residency until ACK, unlike the old
+provider context sender. Its adaptation therefore needs the reviewed wire-order
+semantics for both contexts and stages, under Core authority. The distinct
+recovery fence remains in progress: queued full contexts cannot authenticate
+the reset epoch with the old type-2 request alone. Core is reviewing a narrowly
+correlated request/response recovery extension, retaining strict normal traffic,
+nonce/session validation and replacement context/baseline barriers. Its final
+wire definition and fail-to-pass tests still require review.
+
+Editor exact dependency adoption passed parity and the affected target
+integration, rebuild verifier, installed runtime verification and upgrade
+transaction suites. Packaging, automated movement/performance and preservation
+acceptance remain outstanding. Do not ask for another owner retest yet.
 
 ## Retained evidence
 
