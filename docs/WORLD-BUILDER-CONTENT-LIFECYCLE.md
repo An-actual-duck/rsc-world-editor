@@ -242,7 +242,7 @@ exporter currently only creates new paths. The concrete bounded work and the
 Core manager's reported direct-authorization requirement are documented in
 [Core Staged Content Export Handoff](CORE-STAGED-CONTENT-EXPORT-HANDOFF.md).
 Core has completed its scoped isolated implementation at reviewed local commit
-`bf0b31c0ac328191fc743bef87b3cd95e653dc37`, with 42 independently reported
+`fe4eedf3b94585eee0f6800d1ae9e6dbe7f73c5d`, with 42 independently reported
 checks passing. Normal client source build, stable re-export and read-only
 readiness passed, preserving RGB frames and 30,039 project/map files. This is
 Core-owned evidence, distinct from Editor runtime compatibility acceptance;
@@ -253,20 +253,29 @@ lifecycle refused before mutation. The fresh attached project retained its exact
 installed proof and matching server/client archives, but re-verification resolves
 baselines only through an original integration transaction or content-refresh
 ancestry. It does not recognize this directly captured snapshot authority.
-A bounded Editor fix is underway to bind an explicit snapshot baseline without
-fabricating receipts, rebasing the original snapshot or weakening independent
-runtime validation. The saved map edit/export and all target files remain intact.
+Editor implementation `bc201f9fb4c26b0605be3220a63944207fc6f28e` binds an
+explicit immutable snapshot baseline without fabricating receipts, rebasing the
+original snapshot or weakening independent runtime validation. Manager review
+confirmed the exact clean pushed READY tip. Eight affected safety selections
+passed: contracts (23), discovery (42), project lifecycle (75), runtime verifier
+(7), content authority (8), refresh (18), producer lifecycle (16), transactions
+(93): 282 tests in 1,166 seconds. This was observed before the forced shutdown;
+the temporary log was cleared by reboot. The saved map edit/export and all target files remain intact.
 Evidence: `/tmp/world-builder-equivalent-rebuild-acceptance-850y92az/snapshot-baseline-diagnosis.json`.
 
-Core's corrected normal source build also differs from the curated project
-archive: three class entries are absent and 288 of 304 changed shared classes
-are outside the packaged semantic comparator's equivalence result. This does
-not establish changed gameplay; it means the existing equivalence policy cannot
-accept that compiler output as a routine rebuild. The full normal runtime
-preflight currently encounters the same snapshot-baseline gap first. Keep this
-separate from the equivalent-container fixture and do not silently broaden
-compiler support. Read-only review:
-`/tmp/world-builder-normal-build-review-0gdvtus9/archive-review.json`.
+Core's Java 21 normal build had three missing class entries and 288 changed
+shared classes outside the conservative semantic comparator's equivalence
+result. No compiler exception was introduced. Core subsequently rebuilt using
+the trusted bundled Temurin 17.0.20+8 toolchain matching the original archive:
+all 5,118 non-directory members, including classes and manifest, matched the
+curated baseline. ZIP timestamps changed the whole-archive hash as expected.
+Stable re-export/readiness passed and retained 30,039 project/map files.
+
+The forced shutdown cleared `/tmp`, including these disposable acceptance
+fixtures and diagnostic files. Their historical paths above are not current
+artifacts. Core is restoring the authorized final fixture into a persistent
+audit directory; Editor will copy it before mutation. Corrected packaged
+rebuild/re-export/reverification/import acceptance remains pending.
 
 The complete maintained lifecycle and consolidated owner retest remain pending.
 Editor drift checks remain strict. Fourteen code-generated scenery appearances
