@@ -32,6 +32,13 @@ import java.nio.file.*;
 public final class ProducerConversionProbe {
  public static void main(String[] args)throws Exception {
   if("preview-note".equals(args[0])){System.out.print(WorldBuilderNpcProducerFrames.projectPreviewSummary(Paths.get(args[1])));return;}
+  if("floor-runtime-scope".equals(args[0])){
+   WorldBuilderAdaptiveProjectLifecycle.VerifiedProject p=WorldBuilderAdaptiveProjectLifecycle.verifyProjectDirectory(Paths.get(args[1]),true);
+   java.util.Map<String,String> scope=new java.util.TreeMap<String,String>();
+   for(java.util.Map.Entry<String,Object> row:WorldBuilderJsonDocuments.readObject(Paths.get(args[3])).entrySet())scope.put(row.getKey(),(String)row.getValue());
+   if(!WorldBuilderInstalledFloorContent.verifyRetainedPath(p,Paths.get(args[2]),"Client_Base/world-builder-configs/TileDef.xml",scope))throw new IllegalStateException("Missing retained floor path");
+   return;
+  }
   if("snapshot-baseline".equals(args[0])){WorldBuilderSnapshotRuntimeBaseline.validate(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
   if("reverification-shape".equals(args[0])){WorldBuilderRuntimeReverification.validateShape(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
   if("producer-binding".equals(args[0])){WorldBuilderProducerArchiveReverification.validate(WorldBuilderJsonDocuments.readObject(Paths.get(args[1])));return;}
@@ -767,6 +774,29 @@ public final class ProducerConversionProbe {
             opened = self.run_cli("open-project", "--installation-root", install, "--target-root", target)
             self.assertEqual(0, opened.returncode, opened.stderr)
             self.assertEqual(rebuilt, (target / "Client_Base/Open_RSC_Client.jar").read_bytes())
+
+    def test_retained_floor_runtime_scope_requires_exact_paired_hashes(self):
+        with tempfile.TemporaryDirectory(prefix="retained-floor-runtime-scope-") as temporary:
+            base = Path(temporary)
+            target, install, project, runtime, manifest = self.fresh_integrated_producer_project(base)
+            self.repack_producer_client(target, manifest, 0)
+            server, client = "server/core.jar", "Client_Base/Open_RSC_Client.jar"
+            hashes = {path: self.file_hash(target / path) for path in (server, client)}
+            variants = [(hashes, True), ({}, False), ({server: hashes[server]}, False),
+                        ({client: hashes[client]}, False)]
+            for path in (server, client):
+                for invalid_hash in (None, "f" * 64, "bad"):
+                    invalid = dict(hashes)
+                    invalid[path] = invalid_hash
+                    variants.append((invalid, False))
+            scope = base / "scope.json"
+            before = support.tree_bytes(target)
+            for value, valid in variants:
+                support.write_json(scope, value)
+                result = subprocess.run(["java", "-cp", str(self.classes), "com.openrsc.worldbuilder.ProducerConversionProbe",
+                    "floor-runtime-scope", str(project), str(target), str(scope)], capture_output=True, text=True)
+                self.assertEqual(valid, result.returncode == 0, result.stderr)
+                self.assertEqual(before, support.tree_bytes(target))
 
     def test_captured_installed_baseline_first_reverification_and_undo_boundary(self):
         with tempfile.TemporaryDirectory(prefix="snapshot-baseline-first-") as temporary:

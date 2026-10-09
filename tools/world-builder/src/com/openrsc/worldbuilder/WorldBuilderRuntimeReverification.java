@@ -69,7 +69,11 @@ final class WorldBuilderRuntimeReverification {
         Map<String,Object> inputs = new TreeMap<String,Object>();
         if (previous != null) {
             Map<String,String> verifiedTransitionHashes = new TreeMap<String,String>();
-            for (String path : archives) verifiedTransitionHashes.put(path,result.inputs.get(path));
+            for (String path : archives) {
+                String hash = result.inputs.get(path);
+                if (hash == null || !WorldBuilderBoundedInventory.isHash(hash)) throw refusal("Independent runtime verifier omitted the exact checked archive hash: " + path);
+                verifiedTransitionHashes.put(path,hash);
+            }
             if (producer != null) verifiedTransitionHashes.put(string(producer,"relativePath"),fileState(object(producer.get("after"))).sha256);
             predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), verifiedTransitionHashes);
             WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(predecessor, previous);
