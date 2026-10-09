@@ -6,6 +6,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -225,6 +226,11 @@ final class WorldBuilderInstalledFloorContent {
 		WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {
 		if (!required(project.projectRoot)) return;
         requireTargetRuntime(project.projectRoot, target, clientRoot(configuration));
+        verifyInstalledContent(project, target, configuration);
+    }
+
+    private static void verifyInstalledContent(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        Path target, WorldBuilderAdaptiveConfiguration configuration) throws IOException, WorldBuilderContractException {
 		for (String role : Arrays.asList(SERVER_ROLE, CLIENT_ROLE, DESCRIPTOR_ROLE)) {
 			String destination = destination(project, configuration, role);
 			Path path = WorldBuilderAdaptiveMutationProfile.safeDestination(target, destination);
@@ -252,6 +258,19 @@ final class WorldBuilderInstalledFloorContent {
 	/** A later map receipt retains the installed floor generation without rewriting it. */
 	static boolean verifyRetainedPath(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
 		Path target, String relative) throws IOException, WorldBuilderContractException {
+        return verifyRetainedPath(project, target, relative, Collections.<String,String>emptyMap());
+    }
+
+    // Historical reconstruction during runtime re-verification comes AFTER
+    // independent maintained-source, binary, dependency and paired map-contract
+    // verification. Rechecking the stale live proof's archive hashes here would
+    // reject the very archive transition already verified. Only that paired
+    // transition may reuse its runtime authority; floor bytes still match the
+    // project's exact installed content. Normal discovery/import/undo callers
+    // retain the runtime check through the empty scope above.
+    static boolean verifyRetainedPath(WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project,
+        Path target, String relative, Map<String,String> independentlyVerifiedRuntime)
+        throws IOException, WorldBuilderContractException {
 		if (!relative.endsWith("/TileDef.xml") && !relative.endsWith("/installed-floors.json")) return false;
 		if (!required(project.projectRoot)) return false;
 		Map<String,Object> selected = WorldBuilderAdaptiveExporter.object(project.snapshot.get("selectedConfiguration"), "selectedConfiguration");
@@ -261,7 +280,14 @@ final class WorldBuilderInstalledFloorContent {
 			source.substring("source/original/".length()), WorldBuilderHashes.sha256(bytes));
 		for (String role : Arrays.asList(SERVER_ROLE, CLIENT_ROLE, DESCRIPTOR_ROLE)) {
 			if (!relative.equals(destination(project, configuration, role))) continue;
-			verifyInstalled(project, target, configuration);
+            String server = "server/core.jar", client = clientRoot(configuration) + "/Open_RSC_Client.jar";
+            if (independentlyVerifiedRuntime.containsKey(server) && independentlyVerifiedRuntime.containsKey(client)) {
+                WorldBuilderReadOnlyTarget live = WorldBuilderReadOnlyTarget.open(target);
+                for (String path : Arrays.asList(server, client))
+                    if (!live.requiredState("independently-verified-runtime",path).sha256.equals(independentlyVerifiedRuntime.get(path)))
+                        throw refusal("Independently verified paired runtime changed during historical reconstruction at " + path + ".");
+                verifyInstalledContent(project, target, configuration);
+            } else verifyInstalled(project, target, configuration);
 			return true;
 		}
 		return false;

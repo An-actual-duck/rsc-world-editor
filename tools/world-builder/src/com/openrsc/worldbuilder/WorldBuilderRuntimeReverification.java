@@ -68,7 +68,10 @@ final class WorldBuilderRuntimeReverification {
         WorldBuilderAdaptiveMutationProfile.Plan predecessor = null;
         Map<String,Object> inputs = new TreeMap<String,Object>();
         if (previous != null) {
-            predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), verifiedTransitions);
+            Map<String,String> verifiedTransitionHashes = new TreeMap<String,String>();
+            for (String path : archives) verifiedTransitionHashes.put(path,result.inputs.get(path));
+            if (producer != null) verifiedTransitionHashes.put(string(producer,"relativePath"),fileState(object(producer.get("after"))).sha256);
+            predecessor = WorldBuilderAdaptiveMutationProfile.reconstructInstalled(project, export, target, previous.transactionId(), verifiedTransitionHashes);
             WorldBuilderAdaptiveReceipt.requireSuccessfulImportMatches(predecessor, previous);
             for (WorldBuilderAdaptiveMutationProfile.Action action : predecessor.actions) {
                 if (!verifiedTransitions.contains(action.destinationRelativePath))

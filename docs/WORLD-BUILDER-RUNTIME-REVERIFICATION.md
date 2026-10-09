@@ -33,6 +33,13 @@ attributes (including main class, class path and multi-release behavior), archiv
 entry inventories and non-class resources must retain their verified meaning.
 This is a bounded bytecode comparison, not proof of arbitrary compiler equivalence.
 
+For targets without editor manifest hints, reconstructing earlier map receipts
+uses the independently verified paired server/client archive hashes, then still
+checks installed floor definitions and metadata exactly. It does not reapply the
+old proof's archive hashes to the verified rebuild. Ordinary discovery and map
+imports continue requiring the current installed proof; re-verification must
+succeed before they can accept the rebuilt runtime.
+
 Previously captured integrated sources and dependencies must remain exact.
 Client source files not captured by the original integration are checked against
 both their current active classes and the retained integrated archive semantics;

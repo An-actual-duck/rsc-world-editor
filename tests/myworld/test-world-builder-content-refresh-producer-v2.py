@@ -670,6 +670,21 @@ public final class ProducerConversionProbe {
 
     def fresh_integrated_producer_project(self, base):
         target, old_install, parent, runtime, manifest = self.producer_rebuild_fixture(base)
+        # Model maintained targets whose authentic installed archives omit the
+        # editor's optional manifest hints. Construct this synthetic installed
+        # state BEFORE discovery/snapshot capture; never modify retained project
+        # evidence or repair a real target's proof to permit re-verification.
+        jar = target / "Client_Base/Open_RSC_Client.jar"
+        with zipfile.ZipFile(jar) as archive:
+            old_manifest = archive.read("META-INF/MANIFEST.MF")
+        maintained_manifest = b"\n".join(line for line in old_manifest.split(b"\n")
+            if not line.startswith((b"World-Builder-Floor-Semantics:", b"World-Builder-Installed-Floors:")))
+        self.rewrite_runtime_entry(jar, "META-INF/MANIFEST.MF", maintained_manifest)
+        proof_path = target / "server/conf/world-builder/installed-target-map-integration-v1.json"
+        proof = json.loads(proof_path.read_text())
+        next(row for row in proof["archives"] if row["relativePath"] == "Client_Base/Open_RSC_Client.jar")["sha256"] = self.file_hash(jar)
+        support.write_json(proof_path, proof)
+        self.refresh_producer_archive_hash(manifest, jar)
         before = support.tree_bytes(target, old_install)
         old_history = support.tree_bytes(parent)
         discovery = self.run_cli("discover-adaptive", "--target-root", target)
@@ -708,6 +723,11 @@ public final class ProducerConversionProbe {
             first_binding = None
             for generation in range(2):
                 rebuilt = self.repack_producer_client(target, manifest, generation)
+                # Ordinary discovery must still reject the stale installed
+                # proof. Only independent re-verification may accept rebuilds.
+                refused = self.run_cli("discover-adaptive", "--target-root", target)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertIn("Installed map integration changed", refused.stderr)
                 applied = self.apply_rebuild(project, target)
                 plan = json.loads((project / "backups" / applied["transactionId"] / "mutation-plan.json").read_text())
                 evidence = plan["runtimeReverification"]
@@ -796,6 +816,17 @@ public final class ProducerConversionProbe {
                     self.assertEqual(before, support.tree_bytes(target))
                     self.assertEqual(saved, support.tree_bytes(project / "working"))
                     file.write_bytes(original)
+            # Runtime verification must never authorize floor/config drift.
+            for relative in ("server/conf/server/defs/TileDef.xml", "Client_Base/world-builder-configs/TileDef.xml",
+                             "Client_Base/world-builder-configs/installed-floors.json", "server/world-builder-configs/primary.json"):
+                file = target / relative
+                original = file.read_bytes()
+                file.write_bytes(original + b" ")
+                before = support.tree_bytes(target)
+                refused = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
+                self.assertEqual(3, refused.returncode, refused.stderr)
+                self.assertEqual(before, support.tree_bytes(target))
+                file.write_bytes(original)
             preview = self.run_cli("reverify-target-runtime", "--project", project, "--target-root", target)
             self.assertEqual(0, preview.returncode, preview.stderr)
             self.repack_producer_client(target, manifest, 1)
@@ -808,6 +839,11 @@ public final class ProducerConversionProbe {
     def test_captured_installed_baseline_interrupted_recovery_retains_rebuilt_runtime(self):
         with tempfile.TemporaryDirectory(prefix="snapshot-baseline-recovery-") as temporary:
             target, install, project, runtime, manifest = self.fresh_integrated_producer_project(Path(temporary))
+            for _ in range(2):
+                export = self.next_history_export(project)
+                imported = self.run_reviewed_apply("import-adaptive", "IMPORT", "--project", project,
+                    "--export", export, "--target-root", target)
+                self.assertEqual(0, imported.returncode, imported.stderr)
             self.next_history_export(project)
             rebuilt = self.repack_producer_client(target, manifest, 0)
             before = support.tree_bytes(target)
