@@ -350,6 +350,26 @@ final class WorldBuilderRuntimeReverification {
         }
     }
 
+    static Map<String,String> verifyPairedArchiveInputs(
+        WorldBuilderAdaptiveProjectLifecycle.VerifiedProject project, Path target, Map<String,Object> plan)
+        throws IOException, WorldBuilderContractException {
+        Map<String,WorldBuilderAdaptiveMutationProfile.FileState> states = new TreeMap<String,WorldBuilderAdaptiveMutationProfile.FileState>();
+        replay(project,plan,states);
+        verifyInventories(target,plan);
+        Map<String,String> result = new TreeMap<String,String>();
+        for (String path : Arrays.asList("server/core.jar","Client_Base/Open_RSC_Client.jar","client/Open_RSC_Client.jar")) {
+            WorldBuilderAdaptiveMutationProfile.FileState state = states.get(path);
+            if (state == null) continue;
+            if (!state.present) throw refusal("Retained re-verification runtime archive is absent: " + path);
+            WorldBuilderAdaptiveImporter.verifyState(target,path,state);
+            result.put(path,state.sha256);
+        }
+        if (!result.containsKey("server/core.jar")
+            || result.containsKey("Client_Base/Open_RSC_Client.jar") == result.containsKey("client/Open_RSC_Client.jar"))
+            throw refusal("Retained re-verification does not authenticate one complete paired runtime.");
+        return result;
+    }
+
     static void verifyInputs(WorldBuilderAdaptiveMutationProfile.Plan plan) throws IOException, WorldBuilderContractException {
         Map<String,WorldBuilderAdaptiveMutationProfile.FileState> states = new TreeMap<String,WorldBuilderAdaptiveMutationProfile.FileState>();
         replay(plan.project,plan.document,states);

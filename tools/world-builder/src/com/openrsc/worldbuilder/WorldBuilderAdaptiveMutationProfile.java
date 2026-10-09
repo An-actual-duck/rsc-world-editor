@@ -1550,6 +1550,12 @@ final class WorldBuilderAdaptiveMutationProfile {
 			: WorldBuilderFloorUpgradeLineage.verifyRemaining(project, target, inherited, installedDestinations);
 		Set<String> runtimePaths = historyPlan == null ? Collections.<String>emptySet()
 			: WorldBuilderRuntimeUpgradeHistory.verify(project, target, historyPlan, installedDestinations);
+        // Interrupted re-verification recovery restores the old proof while
+        // preserving its independently rebuilt archives. Authenticate the
+        // retained transaction's input pair before reusing that runtime scope.
+        if (independentlyVerifiedRuntime.isEmpty() && historyPlan != null
+            && historyPlan.containsKey(WorldBuilderRuntimeReverification.FIELD))
+            independentlyVerifiedRuntime = WorldBuilderRuntimeReverification.verifyPairedArchiveInputs(project,target,historyPlan);
 		Set<String> retirementPaths = legacyRetirementPaths(project);
 		for (String key : new String[] {"originalFiles", "definitionRuntimeFiles"}) {
 			for (Object raw : WorldBuilderAdaptiveExporter.array(

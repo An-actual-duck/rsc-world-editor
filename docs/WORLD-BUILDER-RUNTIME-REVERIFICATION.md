@@ -100,7 +100,10 @@ files are not replaced by re-verification. Existing history remains intact;
 the new transaction records successor runtime authority for later map imports.
 
 Interrupted recovery restores only the previous evidence file and preserves the
-independently rebuilt archives. Runtime drift blocks recovery until the exact
+independently rebuilt archives. Reconstructing the interrupted transaction first
+replays its retained proof, predecessor receipts and complete input inventories;
+its exact paired archive hashes remain authoritative while the old proof is
+restored. Floor files and configuration still require their exact retained bytes. Runtime drift blocks recovery until the exact
 checked rebuilt inputs are restored. After successful re-verification, historical
 reversal stops at that boundary; later map-only transactions can be reversed by
 the internal recovery/undo machinery. This does not add a public completed-import
